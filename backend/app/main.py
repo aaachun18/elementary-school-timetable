@@ -1,11 +1,14 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.routers.academic_year import router as academic_year_router
 from app.routers.class_ import router as class_router
 from app.routers.grade import router as grade_router
 from app.routers.room import router as room_router
 from app.routers.school import router as school_router
+from app.routers.semester import router as semester_router
 from app.routers.subject import router as subject_router
+from app.routers.teacher import router as teacher_router
 from app.routers.time_slot import router as time_slot_router
 from app.services.exceptions import (
     DependentRecordsExistError,
@@ -21,6 +24,9 @@ app.include_router(subject_router)
 app.include_router(room_router)
 app.include_router(time_slot_router)
 app.include_router(class_router)
+app.include_router(academic_year_router)
+app.include_router(semester_router)
+app.include_router(teacher_router)
 
 # Convention: every service-layer delete_xxx()/create_xxx()/update_xxx() that
 # can hit a SQLAlchemy IntegrityError raises one of the three exceptions
