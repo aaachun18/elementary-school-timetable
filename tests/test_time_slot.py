@@ -28,6 +28,18 @@ def test_create_time_slot(client: TestClient) -> None:
     assert "updated_at" in data
 
 
+def test_create_time_slot_without_start_end_time(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/time-slots/",
+        json={"weekday": 1, "period": 1, "is_teaching_period": True},
+    )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["start_time"] is None
+    assert data["end_time"] is None
+
+
 def test_create_time_slot_can_set_is_teaching_period(client: TestClient) -> None:
     # Unlike is_active elsewhere, is_teaching_period is a structural
     # attribute decided at creation time (Task 9 design decision), so

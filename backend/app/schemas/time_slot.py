@@ -6,8 +6,8 @@ from pydantic import BaseModel, ConfigDict
 class TimeSlotBase(BaseModel):
     weekday: int
     period: int
-    start_time: time
-    end_time: time
+    start_time: time | None = None
+    end_time: time | None = None
     is_teaching_period: bool = True
 
 

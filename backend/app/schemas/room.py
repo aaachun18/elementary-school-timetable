@@ -6,14 +6,14 @@ from pydantic import BaseModel, ConfigDict
 class RoomBase(BaseModel):
     name: str
     room_type: str
-    capacity: int
+    capacity: int | None = None
     is_active: bool = True
 
 
 class RoomCreate(BaseModel):
     name: str
     room_type: str
-    capacity: int
+    capacity: int | None = None
 
 
 class RoomRead(RoomBase):

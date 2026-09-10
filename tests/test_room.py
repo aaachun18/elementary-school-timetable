@@ -18,6 +18,17 @@ def test_create_room(client: TestClient) -> None:
     assert "updated_at" in data
 
 
+def test_create_room_without_capacity(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/rooms/",
+        json={"name": "No Capacity Room", "room_type": "普通教室"},
+    )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["capacity"] is None
+
+
 def test_create_room_cannot_set_is_active(client: TestClient) -> None:
     response = client.post(
         "/api/v1/rooms/",

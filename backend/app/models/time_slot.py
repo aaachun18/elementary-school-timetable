@@ -21,8 +21,11 @@ class TimeSlot(TimestampMixin, Base):
     # Weekday convention: 1=Monday, 2=Tuesday, 3=Wednesday, 4=Thursday, 5=Friday.
     weekday: Mapped[int] = mapped_column()
     period: Mapped[int] = mapped_column()
-    start_time: Mapped[time] = mapped_column(Time)
-    end_time: Mapped[time] = mapped_column(Time)
+    # Optional: Scheduling Engine constraints (H1-H12, S1-S7) all key off
+    # weekday + period, never actual clock time. These exist only for
+    # future timetable UI display.
+    start_time: Mapped[time | None] = mapped_column(Time)
+    end_time: Mapped[time | None] = mapped_column(Time)
     is_teaching_period: Mapped[bool] = mapped_column(default=True)
 
     unavailable_teachers: Mapped[list["Teacher"]] = relationship(

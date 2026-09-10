@@ -13,5 +13,7 @@ class Room(TimestampMixin, Base):
     # Plain string for now (e.g. "普通教室", "自然教室") -- see report for the
     # Enum-vs-string discussion; not decided unilaterally.
     room_type: Mapped[str] = mapped_column(String(100))
-    capacity: Mapped[int] = mapped_column()
+    # Optional per the initial spec review (H10 Room Capacity deferred):
+    # kept so the constraint can be enabled later without a schema change.
+    capacity: Mapped[int | None] = mapped_column()
     is_active: Mapped[bool] = mapped_column(default=True)
