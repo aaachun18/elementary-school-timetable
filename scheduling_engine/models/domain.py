@@ -129,3 +129,24 @@ class ActiveStatusInfo:
     entity_type: Literal["teacher", "class", "subject", "room"]
     entity_id: int
     is_active: bool
+
+
+@dataclass(frozen=True)
+class RequirementPeriods:
+    """H7: how many weekly periods (= how many Lesson rows) a requirement
+    needs in total. Unlike the sparse rule lists above (RequiredTeacherRule
+    etc.), there is no "no restriction" case here -- every requirement
+    being scheduled has an exact target, so this should have one entry per
+    requirement, not just the exceptional ones."""
+
+    class_subject_requirement_id: int
+    weekly_periods: int
+
+
+@dataclass(frozen=True)
+class TeacherWorkloadLimit:
+    """H8: the maximum weekly periods one teacher may be scheduled for.
+    Mirrors Teacher.max_weekly_periods."""
+
+    teacher_id: int
+    max_weekly_periods: int

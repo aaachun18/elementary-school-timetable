@@ -12,15 +12,19 @@ from scheduling_engine.constraints import (
     TeacherAvailabilityConstraint,
     TeacherConflictConstraint,
     TeacherQualificationConstraint,
+    TeacherWorkloadConstraint,
+    WeeklyPeriodsConstraint,
 )
 from scheduling_engine.models.domain import (
     ActiveStatusInfo,
     LessonAssignment,
     RequiredTeacherRule,
+    RequirementPeriods,
     RoomInfo,
     RoomTypeRequirement,
     TeacherQualification,
     TeacherUnavailability,
+    TeacherWorkloadLimit,
     TimeSlotInfo,
 )
 
@@ -451,5 +455,92 @@ def test_active_status_ignores_unassigned_teacher_and_room() -> None:
             ActiveStatusInfo(entity_type="class", entity_id=20, is_active=True)
         ]
     )
+
+    assert constraint.validate(assignments) is True
+
+
+# --- H7 Weekly Periods (whole-batch: always pass the COMPLETE list) ---
+
+
+def test_weekly_periods_violation_when_short() -> None:
+    assignments = [
+        _assignment(lesson_id=1, class_subject_requirement_id=7),
+        _assignment(lesson_id=2, class_subject_requirement_id=7),
+    ]
+    constraint = WeeklyPeriodsConstraint(
+        requirements=[RequirementPeriods(class_subject_requirement_id=7, weekly_periods=3)]
+    )
+
+    assert constraint.validate(assignments) is False
+    violations = constraint.explain_violations(assignments)
+    assert len(violations) == 1
+    assert violations[0].type == "H7_WEEKLY_PERIODS"
+    assert violations[0].class_subject_requirement_id == 7
+
+
+def test_weekly_periods_violation_when_over() -> None:
+    assignments = [
+        _assignment(lesson_id=1, class_subject_requirement_id=7),
+        _assignment(lesson_id=2, class_subject_requirement_id=7),
+        _assignment(lesson_id=3, class_subject_requirement_id=7),
+        _assignment(lesson_id=4, class_subject_requirement_id=7),
+    ]
+    constraint = WeeklyPeriodsConstraint(
+        requirements=[RequirementPeriods(class_subject_requirement_id=7, weekly_periods=3)]
+    )
+
+    assert constraint.validate(assignments) is False
+
+
+def test_weekly_periods_ok_when_exact() -> None:
+    assignments = [
+        _assignment(lesson_id=1, class_subject_requirement_id=7),
+        _assignment(lesson_id=2, class_subject_requirement_id=7),
+        _assignment(lesson_id=3, class_subject_requirement_id=7),
+    ]
+    constraint = WeeklyPeriodsConstraint(
+        requirements=[RequirementPeriods(class_subject_requirement_id=7, weekly_periods=3)]
+    )
+
+    assert constraint.validate(assignments) is True
+    assert constraint.explain_violations(assignments) == []
+
+
+# --- H8 Teacher Workload (whole-batch: always pass the COMPLETE list) ---
+
+
+def test_teacher_workload_violation_when_over() -> None:
+    assignments = [
+        _assignment(lesson_id=1, teacher_id=10),
+        _assignment(lesson_id=2, teacher_id=10),
+        _assignment(lesson_id=3, teacher_id=10),
+    ]
+    constraint = TeacherWorkloadConstraint(
+        teachers=[TeacherWorkloadLimit(teacher_id=10, max_weekly_periods=2)]
+    )
+
+    assert constraint.validate(assignments) is False
+    violations = constraint.explain_violations(assignments)
+    assert len(violations) == 1
+    assert violations[0].type == "H8_TEACHER_MAX_WORKLOAD"
+    assert violations[0].teacher_id == 10
+
+
+def test_teacher_workload_ok_when_at_or_under_max() -> None:
+    assignments = [
+        _assignment(lesson_id=1, teacher_id=10),
+        _assignment(lesson_id=2, teacher_id=10),
+    ]
+    constraint = TeacherWorkloadConstraint(
+        teachers=[TeacherWorkloadLimit(teacher_id=10, max_weekly_periods=2)]
+    )
+
+    assert constraint.validate(assignments) is True
+    assert constraint.explain_violations(assignments) == []
+
+
+def test_teacher_workload_ok_when_no_known_limit() -> None:
+    assignments = [_assignment(lesson_id=1, teacher_id=10)]
+    constraint = TeacherWorkloadConstraint(teachers=[])
 
     assert constraint.validate(assignments) is True

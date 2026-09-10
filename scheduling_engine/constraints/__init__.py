@@ -18,6 +18,8 @@ from scheduling_engine.constraints.teacher_conflict import TeacherConflictConstr
 from scheduling_engine.constraints.teacher_qualification import (
     TeacherQualificationConstraint,
 )
+from scheduling_engine.constraints.teacher_workload import TeacherWorkloadConstraint
+from scheduling_engine.constraints.weekly_periods import WeeklyPeriodsConstraint
 
 __all__ = [
     "BaseConstraint",
@@ -32,4 +34,6 @@ __all__ = [
     "RoomTypeConstraint",
     "NonTeachingPeriodConstraint",
     "ActiveStatusConstraint",
+    "WeeklyPeriodsConstraint",
+    "TeacherWorkloadConstraint",
 ]

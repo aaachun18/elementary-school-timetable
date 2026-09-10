@@ -29,6 +29,7 @@ class ConstraintViolation:
     message: str
     suggested_action: str | None = None
     room_id: int | None = None
+    class_subject_requirement_id: int | None = None
 
 
 class BaseConstraint(ABC):
