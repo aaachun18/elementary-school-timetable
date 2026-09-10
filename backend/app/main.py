@@ -3,6 +3,9 @@ from fastapi.responses import JSONResponse
 
 from app.routers.academic_year import router as academic_year_router
 from app.routers.class_ import router as class_router
+from app.routers.class_subject_requirement import (
+    router as class_subject_requirement_router,
+)
 from app.routers.grade import router as grade_router
 from app.routers.room import router as room_router
 from app.routers.school import router as school_router
@@ -27,6 +30,7 @@ app.include_router(class_router)
 app.include_router(academic_year_router)
 app.include_router(semester_router)
 app.include_router(teacher_router)
+app.include_router(class_subject_requirement_router)
 
 # Convention: every service-layer delete_xxx()/create_xxx()/update_xxx() that
 # can hit a SQLAlchemy IntegrityError raises one of the three exceptions
