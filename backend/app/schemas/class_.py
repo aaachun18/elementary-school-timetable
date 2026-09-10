@@ -7,11 +7,13 @@ class ClassBase(BaseModel):
     grade_id: int
     name: str
     is_active: bool = True
+    homeroom_room_id: int | None = None
 
 
 class ClassCreate(BaseModel):
     grade_id: int
     name: str
+    homeroom_room_id: int | None = None
 
 
 class ClassRead(ClassBase):
@@ -26,3 +28,4 @@ class ClassUpdate(BaseModel):
     grade_id: int | None = None
     name: str | None = None
     is_active: bool | None = None
+    homeroom_room_id: int | None = None

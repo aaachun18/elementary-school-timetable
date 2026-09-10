@@ -117,6 +117,37 @@ def test_create_class_invalid_grade_id(client: TestClient) -> None:
     assert response.status_code == 422
 
 
+def test_create_class_with_homeroom_room(client: TestClient) -> None:
+    grade_id = _create_grade(client, level=8)
+    room_response = client.post(
+        "/api/v1/rooms/", json={"name": "Homeroom Room", "room_type": "普通教室"}
+    )
+    room_id = room_response.json()["id"]
+
+    response = client.post(
+        "/api/v1/classes/",
+        json={
+            "grade_id": grade_id,
+            "name": "八年一班",
+            "homeroom_room_id": room_id,
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["homeroom_room_id"] == room_id
+
+
+def test_create_class_without_homeroom_room(client: TestClient) -> None:
+    grade_id = _create_grade(client, level=9)
+
+    response = client.post(
+        "/api/v1/classes/", json={"grade_id": grade_id, "name": "九年一班"}
+    )
+
+    assert response.status_code == 201
+    assert response.json()["homeroom_room_id"] is None
+
+
 def test_delete_grade_blocked_by_dependent_class(client: TestClient) -> None:
     grade_id = _create_grade(client, level=7)
     client.post(

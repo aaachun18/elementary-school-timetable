@@ -8,7 +8,10 @@ from app.routers.class_subject_requirement import (
     router as class_subject_requirement_router,
 )
 from app.routers.grade import router as grade_router
+from app.routers.lesson import router as lesson_router
 from app.routers.room import router as room_router
+from app.routers.schedule import router as schedule_router
+from app.routers.schedule_version import router as schedule_version_router
 from app.routers.school import router as school_router
 from app.routers.semester import router as semester_router
 from app.routers.subject import router as subject_router
@@ -18,6 +21,7 @@ from app.services.exceptions import (
     DependentRecordsExistError,
     DuplicateValueError,
     InvalidReferenceError,
+    LessonOverProvisionedError,
 )
 
 app = FastAPI(title="Elementary School Timetable System")
@@ -33,6 +37,9 @@ app.include_router(academic_year_router)
 app.include_router(semester_router)
 app.include_router(teacher_router)
 app.include_router(class_subject_requirement_router)
+app.include_router(lesson_router)
+app.include_router(schedule_version_router)
+app.include_router(schedule_router)
 
 # Convention: every service-layer delete_xxx()/create_xxx()/update_xxx() that
 # can hit a SQLAlchemy IntegrityError raises one of the three exceptions
@@ -70,6 +77,20 @@ def handle_duplicate_value(
     return JSONResponse(
         status_code=409,
         content={"detail": "資料重複或違反欄位限制,請確認輸入內容"},
+    )
+
+
+@app.exception_handler(LessonOverProvisionedError)
+def handle_lesson_over_provisioned(
+    request: Request, exc: LessonOverProvisionedError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={
+            "detail": "部分需求的 Lesson 數量已超過 weekly_periods,系統不會自動刪除,"
+            "請人工確認後處理",
+            "over_provisioned": exc.over_provisioned,
+        },
     )
 
 

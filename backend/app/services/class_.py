@@ -12,7 +12,10 @@ from app.services.exceptions import (
 
 def create_class(db: Session, class_data: ClassCreate) -> Class:
     class_obj = Class(
-        grade_id=class_data.grade_id, name=class_data.name, is_active=True
+        grade_id=class_data.grade_id,
+        name=class_data.name,
+        is_active=True,
+        homeroom_room_id=class_data.homeroom_room_id,
     )
     db.add(class_obj)
     try:

@@ -26,6 +26,26 @@ class DuplicateValueError(Exception):
     """
 
 
+class LessonOverProvisionedError(Exception):
+    """Raised by generate_lessons() when one or more ClassSubjectRequirement
+    rows already have MORE Lesson rows than their weekly_periods calls for.
+
+    generate_lessons() must never auto-delete the excess (that's a business
+    rule, not a technicality), so when this is raised the whole call is
+    aborted -- nothing is created for ANY requirement in that call, not
+    just the over-provisioned ones -- so the caller sees one clear, atomic
+    outcome: either the sync fully happened, or nothing did and here's
+    what's wrong.
+    """
+
+    def __init__(self, over_provisioned: list[dict[str, int]]) -> None:
+        self.over_provisioned = over_provisioned
+        super().__init__(
+            f"{len(over_provisioned)} requirement(s) already have more "
+            "lessons than their weekly_periods calls for."
+        )
+
+
 def raise_for_integrity_error(exc: IntegrityError) -> None:
     """Classify a SQLAlchemy IntegrityError raised during create/update into
     one of our domain-specific exceptions above, and raise it.

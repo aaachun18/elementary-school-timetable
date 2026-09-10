@@ -1,0 +1,128 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+
+from app.core.dependencies import get_current_user, require_admin
+from app.database import get_db
+from app.models.schedule_version import ScheduleVersion
+from app.schemas.schedule_version import (
+    GeneratedLessonInfo,
+    GenerateLessonsResult,
+    ScheduleVersionCreate,
+    ScheduleVersionRead,
+    ScheduleVersionUpdate,
+)
+from app.services import schedule_version as schedule_version_service
+
+router = APIRouter(
+    prefix="/api/v1/schedule-versions",
+    tags=["schedule_versions"],
+    dependencies=[Depends(get_current_user)],
+)
+
+
+# --- Standard CRUD ---
+
+
+@router.post(
+    "/",
+    response_model=ScheduleVersionRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
+)
+def create_schedule_version(
+    version_data: ScheduleVersionCreate, db: Session = Depends(get_db)
+) -> ScheduleVersion:
+    return schedule_version_service.create_schedule_version(db, version_data)
+
+
+@router.get("/", response_model=list[ScheduleVersionRead])
+def list_schedule_versions(
+    skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
+) -> list[ScheduleVersion]:
+    return schedule_version_service.get_schedule_versions(db, skip=skip, limit=limit)
+
+
+@router.get("/{schedule_version_id}", response_model=ScheduleVersionRead)
+def get_schedule_version(
+    schedule_version_id: int, db: Session = Depends(get_db)
+) -> ScheduleVersion:
+    schedule_version = schedule_version_service.get_schedule_version(
+        db, schedule_version_id
+    )
+    if schedule_version is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ScheduleVersion not found",
+        )
+    return schedule_version
+
+
+@router.patch(
+    "/{schedule_version_id}",
+    response_model=ScheduleVersionRead,
+    dependencies=[Depends(require_admin)],
+)
+def update_schedule_version(
+    schedule_version_id: int,
+    version_data: ScheduleVersionUpdate,
+    db: Session = Depends(get_db),
+) -> ScheduleVersion:
+    schedule_version = schedule_version_service.update_schedule_version(
+        db, schedule_version_id, version_data
+    )
+    if schedule_version is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ScheduleVersion not found",
+        )
+    return schedule_version
+
+
+@router.delete(
+    "/{schedule_version_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_admin)],
+)
+def delete_schedule_version(
+    schedule_version_id: int, db: Session = Depends(get_db)
+) -> None:
+    deleted = schedule_version_service.delete_schedule_version(
+        db, schedule_version_id
+    )
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ScheduleVersion not found",
+        )
+
+
+# --- generate-lessons: diff-sync (not standard CRUD) ---
+# LessonOverProvisionedError is intentionally not caught here -- the global
+# exception handler in main.py converts it to 409.
+
+
+@router.post(
+    "/{schedule_version_id}/generate-lessons",
+    response_model=GenerateLessonsResult,
+    dependencies=[Depends(require_admin)],
+)
+def generate_lessons(
+    schedule_version_id: int, db: Session = Depends(get_db)
+) -> GenerateLessonsResult:
+    created = schedule_version_service.generate_lessons(db, schedule_version_id)
+    if created is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ScheduleVersion not found",
+        )
+    return GenerateLessonsResult(
+        created_lessons=[
+            GeneratedLessonInfo(
+                lesson_id=lesson.id,
+                class_subject_requirement_id=lesson.class_subject_requirement_id,
+                sequence_number=lesson.sequence_number,
+            )
+            for lesson in created
+        ],
+        created_count=len(created),
+    )
