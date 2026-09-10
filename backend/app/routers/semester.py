@@ -1,15 +1,25 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.dependencies import get_current_user, require_admin
 from app.database import get_db
 from app.models.academic_year import Semester
 from app.schemas.semester import SemesterCreate, SemesterRead, SemesterUpdate
 from app.services import semester as semester_service
 
-router = APIRouter(prefix="/api/v1/semesters", tags=["semesters"])
+router = APIRouter(
+    prefix="/api/v1/semesters",
+    tags=["semesters"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
-@router.post("/", response_model=SemesterRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=SemesterRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
+)
 def create_semester(
     semester_data: SemesterCreate, db: Session = Depends(get_db)
 ) -> Semester:
@@ -33,7 +43,11 @@ def get_semester(semester_id: int, db: Session = Depends(get_db)) -> Semester:
     return semester
 
 
-@router.patch("/{semester_id}", response_model=SemesterRead)
+@router.patch(
+    "/{semester_id}",
+    response_model=SemesterRead,
+    dependencies=[Depends(require_admin)],
+)
 def update_semester(
     semester_id: int, semester_data: SemesterUpdate, db: Session = Depends(get_db)
 ) -> Semester:
@@ -45,7 +59,11 @@ def update_semester(
     return semester
 
 
-@router.delete("/{semester_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{semester_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_admin)],
+)
 def delete_semester(semester_id: int, db: Session = Depends(get_db)) -> None:
     deleted = semester_service.delete_semester(db, semester_id)
     if not deleted:

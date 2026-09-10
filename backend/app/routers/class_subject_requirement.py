@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.dependencies import get_current_user, require_admin
 from app.database import get_db
 from app.models.class_subject_requirement import ClassSubjectRequirement
 from app.schemas.class_subject_requirement import (
@@ -11,7 +12,9 @@ from app.schemas.class_subject_requirement import (
 from app.services import class_subject_requirement as requirement_service
 
 router = APIRouter(
-    prefix="/api/v1/class-subject-requirements", tags=["class_subject_requirements"]
+    prefix="/api/v1/class-subject-requirements",
+    tags=["class_subject_requirements"],
+    dependencies=[Depends(get_current_user)],
 )
 
 
@@ -19,6 +22,7 @@ router = APIRouter(
     "/",
     response_model=ClassSubjectRequirementRead,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
 )
 def create_class_subject_requirement(
     requirement_data: ClassSubjectRequirementCreate, db: Session = Depends(get_db)
@@ -50,7 +54,11 @@ def get_class_subject_requirement(
     return requirement
 
 
-@router.patch("/{requirement_id}", response_model=ClassSubjectRequirementRead)
+@router.patch(
+    "/{requirement_id}",
+    response_model=ClassSubjectRequirementRead,
+    dependencies=[Depends(require_admin)],
+)
 def update_class_subject_requirement(
     requirement_id: int,
     requirement_data: ClassSubjectRequirementUpdate,
@@ -67,7 +75,11 @@ def update_class_subject_requirement(
     return requirement
 
 
-@router.delete("/{requirement_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{requirement_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_admin)],
+)
 def delete_class_subject_requirement(
     requirement_id: int, db: Session = Depends(get_db)
 ) -> None:

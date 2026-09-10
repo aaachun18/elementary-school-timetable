@@ -1,15 +1,25 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.dependencies import get_current_user, require_admin
 from app.database import get_db
 from app.models.time_slot import TimeSlot
 from app.schemas.time_slot import TimeSlotCreate, TimeSlotRead, TimeSlotUpdate
 from app.services import time_slot as time_slot_service
 
-router = APIRouter(prefix="/api/v1/time-slots", tags=["time_slots"])
+router = APIRouter(
+    prefix="/api/v1/time-slots",
+    tags=["time_slots"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
-@router.post("/", response_model=TimeSlotRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=TimeSlotRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
+)
 def create_time_slot(
     time_slot_data: TimeSlotCreate, db: Session = Depends(get_db)
 ) -> TimeSlot:
@@ -33,7 +43,11 @@ def get_time_slot(time_slot_id: int, db: Session = Depends(get_db)) -> TimeSlot:
     return time_slot
 
 
-@router.patch("/{time_slot_id}", response_model=TimeSlotRead)
+@router.patch(
+    "/{time_slot_id}",
+    response_model=TimeSlotRead,
+    dependencies=[Depends(require_admin)],
+)
 def update_time_slot(
     time_slot_id: int, time_slot_data: TimeSlotUpdate, db: Session = Depends(get_db)
 ) -> TimeSlot:
@@ -45,7 +59,11 @@ def update_time_slot(
     return time_slot
 
 
-@router.delete("/{time_slot_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{time_slot_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_admin)],
+)
 def delete_time_slot(time_slot_id: int, db: Session = Depends(get_db)) -> None:
     deleted = time_slot_service.delete_time_slot(db, time_slot_id)
     if not deleted:

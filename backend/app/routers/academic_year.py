@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.dependencies import get_current_user, require_admin
 from app.database import get_db
 from app.models.academic_year import AcademicYear
 from app.schemas.academic_year import (
@@ -10,11 +11,18 @@ from app.schemas.academic_year import (
 )
 from app.services import academic_year as academic_year_service
 
-router = APIRouter(prefix="/api/v1/academic-years", tags=["academic_years"])
+router = APIRouter(
+    prefix="/api/v1/academic-years",
+    tags=["academic_years"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @router.post(
-    "/", response_model=AcademicYearRead, status_code=status.HTTP_201_CREATED
+    "/",
+    response_model=AcademicYearRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
 )
 def create_academic_year(
     academic_year_data: AcademicYearCreate, db: Session = Depends(get_db)
@@ -41,7 +49,11 @@ def get_academic_year(
     return academic_year
 
 
-@router.patch("/{academic_year_id}", response_model=AcademicYearRead)
+@router.patch(
+    "/{academic_year_id}",
+    response_model=AcademicYearRead,
+    dependencies=[Depends(require_admin)],
+)
 def update_academic_year(
     academic_year_id: int,
     academic_year_data: AcademicYearUpdate,
@@ -57,7 +69,11 @@ def update_academic_year(
     return academic_year
 
 
-@router.delete("/{academic_year_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{academic_year_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_admin)],
+)
 def delete_academic_year(
     academic_year_id: int, db: Session = Depends(get_db)
 ) -> None:

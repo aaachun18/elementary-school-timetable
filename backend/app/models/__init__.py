@@ -6,6 +6,7 @@ from app.models.school import School
 from app.models.subject import Subject
 from app.models.teacher import Teacher, TeacherAvailability, TeacherSubject
 from app.models.time_slot import TimeSlot
+from app.models.user import User
 
 __all__ = [
     "AcademicYear",
@@ -20,4 +21,5 @@ __all__ = [
     "TeacherAvailability",
     "TeacherSubject",
     "TimeSlot",
+    "User",
 ]

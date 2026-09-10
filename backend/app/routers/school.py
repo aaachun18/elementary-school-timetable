@@ -1,15 +1,25 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.dependencies import get_current_user, require_admin
 from app.database import get_db
 from app.models.school import School
 from app.schemas.school import SchoolCreate, SchoolRead, SchoolUpdate
 from app.services import school as school_service
 
-router = APIRouter(prefix="/api/v1/schools", tags=["schools"])
+router = APIRouter(
+    prefix="/api/v1/schools",
+    tags=["schools"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
-@router.post("/", response_model=SchoolRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=SchoolRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
+)
 def create_school(
     school_data: SchoolCreate, db: Session = Depends(get_db)
 ) -> School:
@@ -33,7 +43,9 @@ def get_school(school_id: int, db: Session = Depends(get_db)) -> School:
     return school
 
 
-@router.patch("/{school_id}", response_model=SchoolRead)
+@router.patch(
+    "/{school_id}", response_model=SchoolRead, dependencies=[Depends(require_admin)]
+)
 def update_school(
     school_id: int, school_data: SchoolUpdate, db: Session = Depends(get_db)
 ) -> School:
@@ -45,7 +57,11 @@ def update_school(
     return school
 
 
-@router.delete("/{school_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{school_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_admin)],
+)
 def delete_school(school_id: int, db: Session = Depends(get_db)) -> None:
     # DependentRecordsExistError is intentionally not caught here -- the
     # global exception handler in main.py converts it to 409.

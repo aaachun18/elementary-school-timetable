@@ -1,15 +1,25 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.dependencies import get_current_user, require_admin
 from app.database import get_db
 from app.models.subject import Subject
 from app.schemas.subject import SubjectCreate, SubjectRead, SubjectUpdate
 from app.services import subject as subject_service
 
-router = APIRouter(prefix="/api/v1/subjects", tags=["subjects"])
+router = APIRouter(
+    prefix="/api/v1/subjects",
+    tags=["subjects"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
-@router.post("/", response_model=SubjectRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=SubjectRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
+)
 def create_subject(
     subject_data: SubjectCreate, db: Session = Depends(get_db)
 ) -> Subject:
@@ -33,7 +43,9 @@ def get_subject(subject_id: int, db: Session = Depends(get_db)) -> Subject:
     return subject
 
 
-@router.patch("/{subject_id}", response_model=SubjectRead)
+@router.patch(
+    "/{subject_id}", response_model=SubjectRead, dependencies=[Depends(require_admin)]
+)
 def update_subject(
     subject_id: int, subject_data: SubjectUpdate, db: Session = Depends(get_db)
 ) -> Subject:
@@ -45,7 +57,11 @@ def update_subject(
     return subject
 
 
-@router.delete("/{subject_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{subject_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_admin)],
+)
 def delete_subject(subject_id: int, db: Session = Depends(get_db)) -> None:
     deleted = subject_service.delete_subject(db, subject_id)
     if not deleted:

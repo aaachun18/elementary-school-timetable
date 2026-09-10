@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.routers.academic_year import router as academic_year_router
+from app.routers.auth import router as auth_router
 from app.routers.class_ import router as class_router
 from app.routers.class_subject_requirement import (
     router as class_subject_requirement_router,
@@ -21,6 +22,7 @@ from app.services.exceptions import (
 
 app = FastAPI(title="Elementary School Timetable System")
 
+app.include_router(auth_router)
 app.include_router(school_router)
 app.include_router(grade_router)
 app.include_router(subject_router)

@@ -1,15 +1,25 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.dependencies import get_current_user, require_admin
 from app.database import get_db
 from app.models.grade_class import Class
 from app.schemas.class_ import ClassCreate, ClassRead, ClassUpdate
 from app.services import class_ as class_service
 
-router = APIRouter(prefix="/api/v1/classes", tags=["classes"])
+router = APIRouter(
+    prefix="/api/v1/classes",
+    tags=["classes"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
-@router.post("/", response_model=ClassRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=ClassRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
+)
 def create_class(class_data: ClassCreate, db: Session = Depends(get_db)) -> Class:
     return class_service.create_class(db, class_data)
 
@@ -31,7 +41,9 @@ def get_class(class_id: int, db: Session = Depends(get_db)) -> Class:
     return class_obj
 
 
-@router.patch("/{class_id}", response_model=ClassRead)
+@router.patch(
+    "/{class_id}", response_model=ClassRead, dependencies=[Depends(require_admin)]
+)
 def update_class(
     class_id: int, class_data: ClassUpdate, db: Session = Depends(get_db)
 ) -> Class:
@@ -43,7 +55,11 @@ def update_class(
     return class_obj
 
 
-@router.delete("/{class_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{class_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_admin)],
+)
 def delete_class(class_id: int, db: Session = Depends(get_db)) -> None:
     deleted = class_service.delete_class(db, class_id)
     if not deleted:

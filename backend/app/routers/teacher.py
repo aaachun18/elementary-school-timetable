@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.dependencies import get_current_user, require_admin
 from app.database import get_db
 from app.models.subject import Subject
 from app.models.teacher import Teacher
@@ -16,13 +17,22 @@ from app.schemas.teacher import (
 from app.schemas.time_slot import TimeSlotRead
 from app.services import teacher as teacher_service
 
-router = APIRouter(prefix="/api/v1/teachers", tags=["teachers"])
+router = APIRouter(
+    prefix="/api/v1/teachers",
+    tags=["teachers"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 # --- Standard CRUD ---
 
 
-@router.post("/", response_model=TeacherRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=TeacherRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
+)
 def create_teacher(
     teacher_data: TeacherCreate, db: Session = Depends(get_db)
 ) -> Teacher:
@@ -46,7 +56,9 @@ def get_teacher(teacher_id: int, db: Session = Depends(get_db)) -> Teacher:
     return teacher
 
 
-@router.patch("/{teacher_id}", response_model=TeacherRead)
+@router.patch(
+    "/{teacher_id}", response_model=TeacherRead, dependencies=[Depends(require_admin)]
+)
 def update_teacher(
     teacher_id: int, teacher_data: TeacherUpdate, db: Session = Depends(get_db)
 ) -> Teacher:
@@ -58,7 +70,11 @@ def update_teacher(
     return teacher
 
 
-@router.delete("/{teacher_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{teacher_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_admin)],
+)
 def delete_teacher(teacher_id: int, db: Session = Depends(get_db)) -> None:
     deleted = teacher_service.delete_teacher(db, teacher_id)
     if not deleted:
@@ -76,6 +92,7 @@ def delete_teacher(teacher_id: int, db: Session = Depends(get_db)) -> None:
     "/{teacher_id}/subjects",
     response_model=SubjectRead,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
 )
 def add_teacher_subject(
     teacher_id: int, body: TeacherSubjectCreate, db: Session = Depends(get_db)
@@ -99,7 +116,9 @@ def list_teacher_subjects(
 
 
 @router.delete(
-    "/{teacher_id}/subjects/{subject_id}", status_code=status.HTTP_204_NO_CONTENT
+    "/{teacher_id}/subjects/{subject_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_admin)],
 )
 def remove_teacher_subject(
     teacher_id: int, subject_id: int, db: Session = Depends(get_db)
@@ -121,6 +140,7 @@ def remove_teacher_subject(
     "/{teacher_id}/unavailable-slots",
     response_model=TimeSlotRead,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
 )
 def add_teacher_unavailable_slot(
     teacher_id: int, body: TeacherAvailabilityCreate, db: Session = Depends(get_db)
@@ -146,6 +166,7 @@ def list_teacher_unavailable_slots(
 @router.delete(
     "/{teacher_id}/unavailable-slots/{time_slot_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_admin)],
 )
 def remove_teacher_unavailable_slot(
     teacher_id: int, time_slot_id: int, db: Session = Depends(get_db)
