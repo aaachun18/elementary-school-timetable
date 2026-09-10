@@ -29,6 +29,15 @@ class SchedulingState:
     def add_assignment(self, assignment: LessonAssignment) -> None:
         self.assignments.append(assignment)
 
+    def remove_last_assignment(self) -> LessonAssignment:
+        """Undo the most recent add_assignment() call. Used by
+        Backtracking to retract a commitment when a later Lesson turns out
+        to have no valid candidate -- this is exactly why `assignments` is
+        a plain, append-ordered list rather than e.g. a set: the most
+        recent addition is always the correct thing to retract, in strict
+        LIFO order matching the search's own call stack."""
+        return self.assignments.pop()
+
     def count_teacher_periods(self, teacher_id: int) -> int:
         return sum(1 for a in self.assignments if a.teacher_id == teacher_id)
 
