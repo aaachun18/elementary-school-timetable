@@ -1,10 +1,14 @@
 from datetime import time
+from typing import TYPE_CHECKING
 
 from sqlalchemy import CheckConstraint, Time
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 from app.models.mixins import TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.teacher import Teacher
 
 
 class TimeSlot(TimestampMixin, Base):
@@ -20,3 +24,9 @@ class TimeSlot(TimestampMixin, Base):
     start_time: Mapped[time] = mapped_column(Time)
     end_time: Mapped[time] = mapped_column(Time)
     is_teaching_period: Mapped[bool] = mapped_column(default=True)
+
+    unavailable_teachers: Mapped[list["Teacher"]] = relationship(
+        secondary="teacher_availabilities",
+        back_populates="unavailable_slots",
+        viewonly=True,
+    )
