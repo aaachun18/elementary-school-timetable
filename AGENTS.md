@@ -400,6 +400,13 @@ API Layer：
 
 不要在 route 中直接實作複雜排課演算法。
 
+Error Handling（CRUD 標準慣例，自 School 範例確立）：
+
+* Service 層的 `create_xxx()` / `update_xxx()` / `delete_xxx()` 遇到 SQLAlchemy `IntegrityError` 時，一律 `db.rollback()` 後改拋出 `app/services/exceptions.py` 定義的自訂例外（`DependentRecordsExistError` / `InvalidReferenceError` / `DuplicateValueError`），不拋 `HTTPException`——Service 層必須維持與 FastAPI 無關。
+* `create_xxx()` / `update_xxx()` 應呼叫 `raise_for_integrity_error(exc)` 做分類（依 `exc.orig` 的 psycopg 例外型別判斷，不用字串比對）；`delete_xxx()` 遇到 `IntegrityError` 一律視為 `DependentRecordsExistError`（DELETE 只會因為被其他表參照而失敗）。
+* 這三個例外由 `backend/app/main.py` 的全域 `@app.exception_handler()` 統一轉成 HTTP 回應（409 / 422 / 409）。Router 層**不需要**也不應該自己 `try/except` 這些例外。
+* 後續每張表複製 CRUD 時都應該遵循這個模式，不要各自重新設計錯誤處理。
+
 Authentication：
 
 * JWT
