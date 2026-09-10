@@ -12,8 +12,13 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from app.config import settings  # noqa: E402
+from app.config import get_settings  # noqa: E402
 from app.database import Base  # noqa: E402
+
+# Importing the models package is required so every model class registers
+# itself on Base.metadata before autogenerate compares it against the DB.
+# Without this, target_metadata below would be empty of application tables.
+import app.models  # noqa: E402,F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -21,7 +26,7 @@ config = context.config
 
 # Use the application's own settings (from app/config.py) as the single
 # source of truth for the DB connection string, instead of alembic.ini.
-config.set_main_option("sqlalchemy.url", settings.database_url)
+config.set_main_option("sqlalchemy.url", get_settings().database_url)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
