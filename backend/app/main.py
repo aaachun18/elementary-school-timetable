@@ -22,6 +22,7 @@ from app.services.exceptions import (
     DuplicateValueError,
     InvalidReferenceError,
     LessonOverProvisionedError,
+    PublishedVersionImmutableError,
     ScheduleVersionAlreadyScheduledError,
 )
 
@@ -105,6 +106,16 @@ def handle_schedule_version_already_scheduled(
             "detail": "此版本已有排課結果,系統不會自動覆蓋,"
             "請先刪除既有 Schedule 記錄後再重新執行排課"
         },
+    )
+
+
+@app.exception_handler(PublishedVersionImmutableError)
+def handle_published_version_immutable(
+    request: Request, exc: PublishedVersionImmutableError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "已發布版本不可修改,請建立新草稿版本"},
     )
 
 

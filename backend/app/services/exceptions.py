@@ -46,6 +46,19 @@ class LessonOverProvisionedError(Exception):
         )
 
 
+class PublishedVersionImmutableError(Exception):
+    """Raised when a call would modify a PUBLISHED ScheduleVersion, or a
+    Schedule row belonging to one: updating the version itself (including
+    changing its status away from PUBLISHED), generate-lessons, run-
+    scheduler, or updating/deleting one of its Schedule rows.
+
+    A PUBLISHED version is the authoritative, in-use timetable -- the spec
+    requires it to be fully locked; the only sanctioned way to change
+    anything is to create a new DRAFT version first (that cloning workflow
+    is a separate, not-yet-implemented Task).
+    """
+
+
 class ScheduleVersionAlreadyScheduledError(Exception):
     """Raised by run_scheduler() when the target ScheduleVersion already has
     one or more Schedule rows.

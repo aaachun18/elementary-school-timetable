@@ -60,6 +60,7 @@ from app.models.subject import Subject
 from app.models.teacher import Teacher, TeacherAvailability, TeacherSubject
 from app.models.time_slot import TimeSlot
 from app.services.exceptions import (
+    PublishedVersionImmutableError,
     ScheduleVersionAlreadyScheduledError,
     raise_for_integrity_error,
 )
@@ -264,6 +265,16 @@ def run_scheduler(
     schedule_version = db.get(ScheduleVersion, schedule_version_id)
     if schedule_version is None:
         return None
+
+    if schedule_version.status == "PUBLISHED":
+        # Task 25: a PUBLISHED version is fully locked -- checked before
+        # the already-scheduled guard below, since that guard is specific
+        # to run-scheduler while this one is the more fundamental gate
+        # shared by every mutating operation on a ScheduleVersion.
+        raise PublishedVersionImmutableError(
+            f"ScheduleVersion {schedule_version_id} is PUBLISHED and "
+            "cannot be modified."
+        )
 
     existing_count = db.scalar(
         select(Schedule)

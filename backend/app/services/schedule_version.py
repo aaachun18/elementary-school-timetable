@@ -9,6 +9,7 @@ from app.schemas.schedule_version import ScheduleVersionCreate, ScheduleVersionU
 from app.services.exceptions import (
     DependentRecordsExistError,
     LessonOverProvisionedError,
+    PublishedVersionImmutableError,
     raise_for_integrity_error,
 )
 
@@ -52,6 +53,16 @@ def update_schedule_version(
     schedule_version = db.get(ScheduleVersion, schedule_version_id)
     if schedule_version is None:
         return None
+
+    if schedule_version.status == "PUBLISHED":
+        # Task 25: a PUBLISHED version is fully locked -- including
+        # changing status itself (e.g. back to DRAFT). The only sanctioned
+        # way to change anything is to clone a new DRAFT version first
+        # (not yet implemented).
+        raise PublishedVersionImmutableError(
+            f"ScheduleVersion {schedule_version_id} is PUBLISHED and "
+            "cannot be modified."
+        )
 
     for field, value in version_data.model_dump(exclude_unset=True).items():
         setattr(schedule_version, field, value)
@@ -111,6 +122,12 @@ def generate_lessons(
     schedule_version = db.get(ScheduleVersion, schedule_version_id)
     if schedule_version is None:
         return None
+
+    if schedule_version.status == "PUBLISHED":
+        raise PublishedVersionImmutableError(
+            f"ScheduleVersion {schedule_version_id} is PUBLISHED and "
+            "cannot be modified."
+        )
 
     requirements = list(
         db.scalars(

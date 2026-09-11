@@ -244,6 +244,84 @@ def test_create_schedule_invalid_schedule_version_id(client: TestClient) -> None
     assert response.status_code == 422
 
 
+# --- Task 25: PUBLISHED version lock ---
+
+
+def _publish_schedule_version(client: TestClient, version_id: int) -> None:
+    response = client.patch(
+        f"/api/v1/schedule-versions/{version_id}", json={"status": "PUBLISHED"}
+    )
+    assert response.status_code == 200
+
+
+def test_create_schedule_blocked_when_version_published(client: TestClient) -> None:
+    lesson_id, version_id = _create_lesson(client, year=2094)
+    _publish_schedule_version(client, version_id)
+
+    response = client.post(
+        "/api/v1/schedules/",
+        json={"schedule_version_id": version_id, "lesson_id": lesson_id},
+    )
+
+    assert response.status_code == 409
+    schedules_response = client.get("/api/v1/schedules/")
+    assert schedules_response.json() == []
+
+
+def test_update_schedule_blocked_when_version_published(client: TestClient) -> None:
+    lesson_id, version_id = _create_lesson(client, year=2091)
+    create_response = client.post(
+        "/api/v1/schedules/",
+        json={"schedule_version_id": version_id, "lesson_id": lesson_id},
+    )
+    schedule_id = create_response.json()["id"]
+    time_slot_id = _create_time_slot(client, period=3)
+    _publish_schedule_version(client, version_id)
+
+    response = client.patch(
+        f"/api/v1/schedules/{schedule_id}", json={"time_slot_id": time_slot_id}
+    )
+
+    assert response.status_code == 409
+    get_response = client.get(f"/api/v1/schedules/{schedule_id}")
+    assert get_response.json()["time_slot_id"] is None
+
+
+def test_delete_schedule_blocked_when_version_published(client: TestClient) -> None:
+    lesson_id, version_id = _create_lesson(client, year=2092)
+    create_response = client.post(
+        "/api/v1/schedules/",
+        json={"schedule_version_id": version_id, "lesson_id": lesson_id},
+    )
+    schedule_id = create_response.json()["id"]
+    _publish_schedule_version(client, version_id)
+
+    response = client.delete(f"/api/v1/schedules/{schedule_id}")
+
+    assert response.status_code == 409
+    get_response = client.get(f"/api/v1/schedules/{schedule_id}")
+    assert get_response.status_code == 200  # never deleted
+
+
+def test_update_schedule_still_works_when_version_draft(client: TestClient) -> None:
+    """Regression guard: the PUBLISHED lock must not affect an ordinary
+    Schedule update under a DRAFT version."""
+    lesson_id, version_id = _create_lesson(client, year=2093)
+    create_response = client.post(
+        "/api/v1/schedules/",
+        json={"schedule_version_id": version_id, "lesson_id": lesson_id},
+    )
+    schedule_id = create_response.json()["id"]
+    time_slot_id = _create_time_slot(client, period=4)
+
+    response = client.patch(
+        f"/api/v1/schedules/{schedule_id}", json={"time_slot_id": time_slot_id}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["time_slot_id"] == time_slot_id
+
+
 def test_create_schedule_invalid_teacher_id(client: TestClient) -> None:
     lesson_id, version_id = _create_lesson(client, year=2090)
 

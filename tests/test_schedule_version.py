@@ -301,3 +301,95 @@ def test_generate_lessons_over_provisioned_blocks_other_requirements_too(
     # Requirement C got nothing, even though it was legitimately short.
     lessons_response = client.get("/api/v1/lessons/")
     assert len(lessons_response.json()) == 4  # only the original 2 + 2
+
+
+# --- Task 25: PUBLISHED version lock ---
+
+
+def _publish(client: TestClient, version_id: int) -> None:
+    response = client.patch(
+        f"/api/v1/schedule-versions/{version_id}", json={"status": "PUBLISHED"}
+    )
+    assert response.status_code == 200
+
+
+def test_update_published_schedule_version_returns_409(client: TestClient) -> None:
+    semester_id = _create_semester(client, year=2072)
+    version_id = _create_schedule_version(client, semester_id)
+    _publish(client, version_id)
+
+    response = client.patch(
+        f"/api/v1/schedule-versions/{version_id}", json={"version_number": 2}
+    )
+
+    assert response.status_code == 409
+    # Confirm it genuinely wasn't changed.
+    get_response = client.get(f"/api/v1/schedule-versions/{version_id}")
+    assert get_response.json()["version_number"] == 1
+
+
+def test_unpublish_published_schedule_version_returns_409(client: TestClient) -> None:
+    """Changing status itself -- even back to DRAFT -- is locked too, not
+    just "other fields while status stays PUBLISHED"."""
+    semester_id = _create_semester(client, year=2073)
+    version_id = _create_schedule_version(client, semester_id)
+    _publish(client, version_id)
+
+    response = client.patch(
+        f"/api/v1/schedule-versions/{version_id}", json={"status": "DRAFT"}
+    )
+
+    assert response.status_code == 409
+    get_response = client.get(f"/api/v1/schedule-versions/{version_id}")
+    assert get_response.json()["status"] == "PUBLISHED"
+
+
+def test_generate_lessons_on_published_version_returns_409(client: TestClient) -> None:
+    semester_id = _create_semester(client, year=2074)
+    class_id = _create_class(client, level=14)
+    subject_id = _create_subject(client, name="Math 2074")
+    _create_requirement(client, semester_id, class_id, subject_id, weekly_periods=2)
+    version_id = _create_schedule_version(client, semester_id)
+    _publish(client, version_id)
+
+    response = client.post(f"/api/v1/schedule-versions/{version_id}/generate-lessons")
+
+    assert response.status_code == 409
+    # Confirm nothing was created.
+    lessons_response = client.get("/api/v1/lessons/")
+    assert lessons_response.json() == []
+
+
+def test_run_scheduler_on_published_version_returns_409(client: TestClient) -> None:
+    semester_id = _create_semester(client, year=2075)
+    class_id = _create_class(client, level=15)
+    subject_id = _create_subject(client, name="Math 2075")
+    _create_requirement(client, semester_id, class_id, subject_id, weekly_periods=1)
+    version_id = _create_schedule_version(client, semester_id)
+    # generate-lessons must happen BEFORE publishing -- it's locked too.
+    client.post(f"/api/v1/schedule-versions/{version_id}/generate-lessons")
+    _publish(client, version_id)
+
+    response = client.post(f"/api/v1/schedule-versions/{version_id}/run-scheduler")
+
+    # No Schedule rows exist yet at this point, so a 409 here can only come
+    # from the PUBLISHED lock, not from the (separate) already-scheduled
+    # guard -- confirms the lock is checked even when there's nothing to
+    # protect from being overwritten.
+    assert response.status_code == 409
+    schedules_response = client.get("/api/v1/schedules/")
+    assert schedules_response.json() == []
+
+
+def test_draft_schedule_version_update_still_works(client: TestClient) -> None:
+    """Regression guard: the PUBLISHED lock must not affect ordinary DRAFT
+    updates."""
+    semester_id = _create_semester(client, year=2076)
+    version_id = _create_schedule_version(client, semester_id)
+
+    response = client.patch(
+        f"/api/v1/schedule-versions/{version_id}", json={"version_number": 5}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["version_number"] == 5
