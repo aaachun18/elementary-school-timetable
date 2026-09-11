@@ -10,6 +10,7 @@ SQLAlchemy/FastAPI at all -- see AGENTS.md section 4.
 """
 
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from sqlalchemy import select
@@ -34,6 +35,7 @@ from scheduling_engine.algorithms.backtracking import (  # noqa: E402
     schedule_backtracking,
 )
 from scheduling_engine.algorithms.resources import SchedulingResources  # noqa: E402
+from scheduling_engine.constraints.base import ConstraintViolation  # noqa: E402
 from scheduling_engine.models.domain import (  # noqa: E402
     ActiveStatusInfo,
     LessonAssignment,
@@ -46,6 +48,7 @@ from scheduling_engine.models.domain import (  # noqa: E402
     TeacherWorkloadLimit,
     TimeSlotInfo,
 )
+from scheduling_engine.static_feasibility import check_static_feasibility  # noqa: E402
 
 from app.models.class_subject_requirement import ClassSubjectRequirement
 from app.models.grade_class import Class
@@ -218,23 +221,45 @@ def _build_lessons_and_resources(
     return lessons, resources
 
 
+@dataclass
+class SchedulerRunOutcome:
+    """What run_scheduler() returns once the ScheduleVersion is confirmed to
+    exist and not already scheduled (see run_scheduler()'s own docstring
+    for the None-return and raised-exception cases, which happen earlier).
+
+    Exactly one of the two fields is populated (same "exactly one of these"
+    convention already used by GreedyResult/BacktrackingResult):
+    - static_violations: the Task 23 pre-search static feasibility check
+      found at least one aggregate, summed-up reason this can never
+      succeed. schedule_backtracking() was never even called.
+    - search_result: the static checks passed, and Backtracking actually
+      ran -- see BacktrackingResult for its own success/failure shape.
+    """
+
+    static_violations: list[ConstraintViolation] | None
+    search_result: BacktrackingResult | None
+
+
 def run_scheduler(
     db: Session, schedule_version_id: int
-) -> BacktrackingResult | None:
+) -> SchedulerRunOutcome | None:
     """Returns None if the ScheduleVersion doesn't exist (caller -> 404).
 
     Raises ScheduleVersionAlreadyScheduledError if this version already has
     Schedule rows (see that exception's docstring for why re-running isn't
     just allowed to silently overwrite them).
 
-    Otherwise runs schedule_backtracking() and:
+    Otherwise runs the Task 23 static feasibility checks first -- three
+    aggregate, summed-up facts (teacher workload, teacher availability,
+    inactive entities) that settle infeasibility without a single search
+    step -- and only calls schedule_backtracking() if all three pass. In
+    both cases:
     - on success, writes state.assignments to the `schedules` table in one
-      commit and returns the BacktrackingResult (caller reads
-      result.state.assignments / result.backtrack_count for the 200
-      response).
-    - on failure, writes nothing at all (matching the engine's own atomic
-      guarantee) and returns the BacktrackingResult carrying the failure
-      details for the caller to turn into a 422 response.
+      commit (caller reads result.search_result.state.assignments /
+      backtrack_count for the 200 response).
+    - on any failure (static or search), writes nothing at all (matching
+      the engine's own atomic guarantee) and returns the failure details
+      for the caller to turn into a 422 response.
     """
     schedule_version = db.get(ScheduleVersion, schedule_version_id)
     if schedule_version is None:
@@ -253,6 +278,13 @@ def run_scheduler(
         )
 
     lessons, resources = _build_lessons_and_resources(db, schedule_version)
+
+    static_check = check_static_feasibility(lessons, resources)
+    if not static_check.feasible:
+        return SchedulerRunOutcome(
+            static_violations=static_check.violations, search_result=None
+        )
+
     result = schedule_backtracking(lessons, resources)
 
     if result.success and result.state is not None:
@@ -273,4 +305,4 @@ def run_scheduler(
             db.rollback()
             raise_for_integrity_error(exc)
 
-    return result
+    return SchedulerRunOutcome(static_violations=None, search_result=result)

@@ -149,12 +149,29 @@ def generate_lessons(
 def run_scheduler(
     schedule_version_id: int, db: Session = Depends(get_db)
 ) -> SchedulerRunResult | JSONResponse:
-    result = scheduler_service.run_scheduler(db, schedule_version_id)
-    if result is None:
+    outcome = scheduler_service.run_scheduler(db, schedule_version_id)
+    if outcome is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="ScheduleVersion not found",
         )
+
+    if outcome.static_violations is not None:
+        # Task 23: an aggregate, summed-up problem was found before the
+        # search ever ran -- backtrack_count is always 0 here.
+        detail = SchedulerFailureDetail(
+            failure_type="STATIC_CHECK_FAILED",
+            lesson_failures=[],
+            post_hoc_violations=[
+                ConstraintViolationDetail.model_validate(violation)
+                for violation in outcome.static_violations
+            ],
+            backtrack_count=0,
+        )
+        return JSONResponse(status_code=422, content=detail.model_dump())
+
+    result = outcome.search_result
+    assert result is not None  # exactly one of the two fields is populated
 
     if result.success:
         return SchedulerRunResult(

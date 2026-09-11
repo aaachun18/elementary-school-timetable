@@ -48,11 +48,17 @@ class SchedulerRunResult(BaseModel):
 class SchedulerFailureDetail(BaseModel):
     """422 response body. failure_type mirrors
     scheduling_engine.algorithms.backtracking.BacktrackingResult.failure_type,
-    plus one extra case ("REQUIREMENT_PERIODS_MISMATCH") for when every
-    Lesson placed fine but the finished schedule still fails the post-hoc H7
-    check -- that case leaves BacktrackingResult.failure_type as None (it
-    isn't a search-level outcome), so it needs its own label here to avoid
-    reporting a misleading null failure_type to the API caller.
+    plus two extra cases that aren't search-level BacktrackingResult
+    outcomes at all:
+    - "REQUIREMENT_PERIODS_MISMATCH": every Lesson placed fine, but the
+      finished schedule still fails the post-hoc H7 check -- that case
+      leaves BacktrackingResult.failure_type as None, so it needs its own
+      label here to avoid reporting a misleading null failure_type.
+    - "STATIC_CHECK_FAILED" (Task 23): the pre-search static feasibility
+      check (teacher workload / teacher availability / inactive entities)
+      found a problem BEFORE schedule_backtracking() was ever called --
+      backtrack_count is always 0 for this case, since no search ran at
+      all.
     """
 
     failure_type: Literal[
@@ -60,6 +66,7 @@ class SchedulerFailureDetail(BaseModel):
         "SEARCH_LIMIT_EXCEEDED",
         "TIMEOUT",
         "REQUIREMENT_PERIODS_MISMATCH",
+        "STATIC_CHECK_FAILED",
     ]
     lesson_failures: list[LessonFailureDetail]
     post_hoc_violations: list[ConstraintViolationDetail]
