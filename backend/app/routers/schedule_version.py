@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user, require_admin
@@ -11,7 +12,14 @@ from app.schemas.schedule_version import (
     ScheduleVersionRead,
     ScheduleVersionUpdate,
 )
+from app.schemas.scheduler import (
+    ConstraintViolationDetail,
+    LessonFailureDetail,
+    SchedulerFailureDetail,
+    SchedulerRunResult,
+)
 from app.services import schedule_version as schedule_version_service
+from app.services import scheduler as scheduler_service
 
 router = APIRouter(
     prefix="/api/v1/schedule-versions",
@@ -125,4 +133,60 @@ def generate_lessons(
             for lesson in created
         ],
         created_count=len(created),
+    )
+
+
+# --- run-scheduler ---
+# ScheduleVersionAlreadyScheduledError is intentionally not caught here --
+# the global exception handler in main.py converts it to 409.
+
+
+@router.post(
+    "/{schedule_version_id}/run-scheduler",
+    response_model=SchedulerRunResult,
+    dependencies=[Depends(require_admin)],
+)
+def run_scheduler(
+    schedule_version_id: int, db: Session = Depends(get_db)
+) -> SchedulerRunResult | JSONResponse:
+    result = scheduler_service.run_scheduler(db, schedule_version_id)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ScheduleVersion not found",
+        )
+
+    if result.success:
+        return SchedulerRunResult(
+            scheduled_count=len(result.state.assignments) if result.state else 0,
+            backtrack_count=result.backtrack_count,
+        )
+
+    # failure_type is None only in the one non-search-level failure case:
+    # every Lesson placed, but the finished schedule still fails the
+    # post-hoc H7 (weekly periods) check -- see SchedulerFailureDetail's
+    # docstring for why this gets its own label instead of a null one.
+    failure_type = result.failure_type or "REQUIREMENT_PERIODS_MISMATCH"
+    detail = SchedulerFailureDetail(
+        failure_type=failure_type,
+        lesson_failures=[
+            LessonFailureDetail(
+                lesson_id=failure.lesson_id,
+                class_subject_requirement_id=failure.class_subject_requirement_id,
+                reasons=[
+                    ConstraintViolationDetail.model_validate(reason)
+                    for reason in failure.reasons
+                ],
+            )
+            for failure in result.lesson_failures
+        ],
+        post_hoc_violations=[
+            ConstraintViolationDetail.model_validate(violation)
+            for violation in result.post_hoc_violations
+        ],
+        backtrack_count=result.backtrack_count,
+    )
+    return JSONResponse(
+        status_code=422,
+        content=detail.model_dump(),
     )

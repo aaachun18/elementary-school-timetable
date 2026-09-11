@@ -46,6 +46,19 @@ class LessonOverProvisionedError(Exception):
         )
 
 
+class ScheduleVersionAlreadyScheduledError(Exception):
+    """Raised by run_scheduler() when the target ScheduleVersion already has
+    one or more Schedule rows.
+
+    Consistent with LessonOverProvisionedError's "never auto-discard data"
+    philosophy: re-running the scheduler must not silently overwrite an
+    existing result (which might be a manually-tweaked or already-published
+    schedule). The caller must explicitly delete the existing Schedule rows
+    first (via the existing DELETE /api/v1/schedules/{id} endpoint) before
+    running the scheduler again.
+    """
+
+
 def raise_for_integrity_error(exc: IntegrityError) -> None:
     """Classify a SQLAlchemy IntegrityError raised during create/update into
     one of our domain-specific exceptions above, and raise it.

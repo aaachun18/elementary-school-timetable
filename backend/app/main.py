@@ -22,6 +22,7 @@ from app.services.exceptions import (
     DuplicateValueError,
     InvalidReferenceError,
     LessonOverProvisionedError,
+    ScheduleVersionAlreadyScheduledError,
 )
 
 app = FastAPI(title="Elementary School Timetable System")
@@ -90,6 +91,19 @@ def handle_lesson_over_provisioned(
             "detail": "部分需求的 Lesson 數量已超過 weekly_periods,系統不會自動刪除,"
             "請人工確認後處理",
             "over_provisioned": exc.over_provisioned,
+        },
+    )
+
+
+@app.exception_handler(ScheduleVersionAlreadyScheduledError)
+def handle_schedule_version_already_scheduled(
+    request: Request, exc: ScheduleVersionAlreadyScheduledError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={
+            "detail": "此版本已有排課結果,系統不會自動覆蓋,"
+            "請先刪除既有 Schedule 記錄後再重新執行排課"
         },
     )
 
