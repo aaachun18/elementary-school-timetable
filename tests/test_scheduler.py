@@ -176,6 +176,300 @@ def test_run_scheduler_infeasible_returns_422_and_writes_nothing(
     assert schedules_response.json() == []
 
 
+# --- Task 22 regression: required_teacher_id pointing at an unqualified
+# teacher must produce a non-empty, explained lesson_failures, not an
+# unexplained DEFINITELY_INFEASIBLE with lesson_failures == []. ---
+
+
+def test_run_scheduler_required_teacher_not_qualified_returns_explained_422(
+    client: TestClient,
+) -> None:
+    semester_id = _create_semester(client, year=3005)
+    class_id = _create_class(client, level=3005)
+    subject_id = _create_subject(client, name="Subject 3005")
+    other_subject_id = _create_subject(client, name="Other Subject 3005")
+
+    teacher_id = _create_teacher(client, name="Teacher 3005")
+    # Qualified for a DIFFERENT subject, not the one required below.
+    _add_teacher_subject(client, teacher_id, other_subject_id)
+
+    requirement_response = client.post(
+        "/api/v1/class-subject-requirements/",
+        json={
+            "semester_id": semester_id,
+            "class_id": class_id,
+            "subject_id": subject_id,
+            "weekly_periods": 1,
+            "required_teacher_id": teacher_id,
+        },
+    )
+    assert requirement_response.status_code == 201
+
+    _create_time_slot(client, weekday=1, period=1)
+    version_id = _create_schedule_version(client, semester_id)
+    generate_response = client.post(
+        f"/api/v1/schedule-versions/{version_id}/generate-lessons"
+    )
+    assert generate_response.json()["created_count"] == 1
+
+    response = client.post(f"/api/v1/schedule-versions/{version_id}/run-scheduler")
+
+    assert response.status_code == 422
+    data = response.json()
+    assert data["failure_type"] == "DEFINITELY_INFEASIBLE"
+    # The whole point of this regression test: lesson_failures must NOT be
+    # empty -- there is exactly one Lesson, and it has a fully explainable,
+    # per-Lesson reason it can never be placed.
+    assert len(data["lesson_failures"]) == 1
+    reason = data["lesson_failures"][0]["reasons"][0]
+    assert reason["type"] == "H6_REQUIRED_TEACHER_NOT_QUALIFIED"
+    assert reason["teacher_id"] == teacher_id
+
+    schedules_response = client.get("/api/v1/schedules/")
+    assert schedules_response.json() == []
+
+
+# --- Task 23: pre-search static feasibility checks ---
+# For all three: schedule_backtracking() is called strictly AFTER the
+# static-check early return in services/scheduler.py::run_scheduler() (see
+# that function's source), so backtrack_count == 0 here is a structural
+# guarantee that no search ran at all, not a coincidence -- and the
+# STATIC_* violation `type` values are produced ONLY by
+# scheduling_engine/static_feasibility.py, never by the search algorithms
+# themselves, which is further, independent confirmation of where the
+# failure was actually caught.
+
+
+def test_run_scheduler_static_check_teacher_workload_exceeded(
+    client: TestClient,
+) -> None:
+    """Reproduces the 楊老師 scenario from the Task 21/22 investigation:
+    one teacher pinned via required_teacher_id across multiple
+    requirements, whose combined Lesson count exceeds max_weekly_periods."""
+    semester_id = _create_semester(client, year=3006)
+    subject_id = _create_subject(client, name="Subject 3006")
+
+    teacher_id = _create_teacher(
+        client, name="楊老師 3006", min_weekly_periods=0, max_weekly_periods=2
+    )
+    _add_teacher_subject(client, teacher_id, subject_id)
+
+    class_a = _create_class(client, level=30061)
+    class_b = _create_class(client, level=30062)
+    client.post(
+        "/api/v1/class-subject-requirements/",
+        json={
+            "semester_id": semester_id,
+            "class_id": class_a,
+            "subject_id": subject_id,
+            "weekly_periods": 2,
+            "required_teacher_id": teacher_id,
+        },
+    )
+    client.post(
+        "/api/v1/class-subject-requirements/",
+        json={
+            "semester_id": semester_id,
+            "class_id": class_b,
+            "subject_id": subject_id,
+            "weekly_periods": 2,
+            "required_teacher_id": teacher_id,
+        },
+    )
+    for period in range(1, 5):
+        _create_time_slot(client, weekday=1, period=period)
+
+    version_id = _create_schedule_version(client, semester_id)
+    generate_response = client.post(
+        f"/api/v1/schedule-versions/{version_id}/generate-lessons"
+    )
+    assert generate_response.json()["created_count"] == 4  # 2 + 2, exceeds cap of 2
+
+    response = client.post(f"/api/v1/schedule-versions/{version_id}/run-scheduler")
+
+    assert response.status_code == 422
+    data = response.json()
+    assert data["failure_type"] == "STATIC_CHECK_FAILED"
+    assert data["backtrack_count"] == 0
+    assert data["lesson_failures"] == []
+    violations = data["post_hoc_violations"]
+    assert len(violations) == 1
+    assert violations[0]["type"] == "STATIC_TEACHER_WORKLOAD_EXCEEDED"
+    assert violations[0]["teacher_id"] == teacher_id
+
+    schedules_response = client.get("/api/v1/schedules/")
+    assert schedules_response.json() == []
+
+
+def test_run_scheduler_static_check_teacher_availability_insufficient(
+    client: TestClient,
+) -> None:
+    semester_id = _create_semester(client, year=3007)
+    class_id = _create_class(client, level=3007)
+    subject_id = _create_subject(client, name="Subject 3007")
+
+    teacher_id = _create_teacher(
+        client, name="Teacher 3007", min_weekly_periods=0, max_weekly_periods=20
+    )
+    _add_teacher_subject(client, teacher_id, subject_id)
+
+    client.post(
+        "/api/v1/class-subject-requirements/",
+        json={
+            "semester_id": semester_id,
+            "class_id": class_id,
+            "subject_id": subject_id,
+            "weekly_periods": 3,
+            "required_teacher_id": teacher_id,
+        },
+    )
+
+    # Only 3 school time slots total...
+    slot_ids = [_create_time_slot(client, weekday=1, period=p) for p in range(1, 4)]
+    # ...but the teacher is unavailable for 2 of them, leaving only 1
+    # available slot for 3 required lessons.
+    for slot_id in slot_ids[1:]:
+        response = client.post(
+            f"/api/v1/teachers/{teacher_id}/unavailable-slots",
+            json={"time_slot_id": slot_id},
+        )
+        assert response.status_code == 201
+
+    version_id = _create_schedule_version(client, semester_id)
+    generate_response = client.post(
+        f"/api/v1/schedule-versions/{version_id}/generate-lessons"
+    )
+    assert generate_response.json()["created_count"] == 3
+
+    response = client.post(f"/api/v1/schedule-versions/{version_id}/run-scheduler")
+
+    assert response.status_code == 422
+    data = response.json()
+    assert data["failure_type"] == "STATIC_CHECK_FAILED"
+    assert data["backtrack_count"] == 0
+    violations = data["post_hoc_violations"]
+    assert len(violations) == 1
+    assert violations[0]["type"] == "STATIC_TEACHER_AVAILABILITY_INSUFFICIENT"
+    assert violations[0]["teacher_id"] == teacher_id
+
+    schedules_response = client.get("/api/v1/schedules/")
+    assert schedules_response.json() == []
+
+
+def test_run_scheduler_static_check_inactive_class_conflict(
+    client: TestClient,
+) -> None:
+    _, version_id = _build_schedulable_semester(client, year=3008, weekly_periods=1)
+
+    # Deactivate the class AFTER lessons were already generated for it --
+    # generate-lessons doesn't (and shouldn't) care about is_active, so this
+    # is a legitimate, reachable state, not a contrived one.
+    lessons_response = client.get("/api/v1/lessons/")
+    lesson = lessons_response.json()[-1]
+    requirement_response = client.get(
+        f"/api/v1/class-subject-requirements/{lesson['class_subject_requirement_id']}"
+    )
+    class_id = requirement_response.json()["class_id"]
+
+    deactivate_response = client.patch(
+        f"/api/v1/classes/{class_id}", json={"is_active": False}
+    )
+    assert deactivate_response.status_code == 200
+
+    response = client.post(f"/api/v1/schedule-versions/{version_id}/run-scheduler")
+
+    assert response.status_code == 422
+    data = response.json()
+    assert data["failure_type"] == "STATIC_CHECK_FAILED"
+    assert data["backtrack_count"] == 0
+    violations = data["post_hoc_violations"]
+    assert len(violations) == 1
+    assert violations[0]["type"] == "STATIC_INACTIVE_ENTITY_CONFLICT"
+    assert violations[0]["class_id"] == class_id
+
+    schedules_response = client.get("/api/v1/schedules/")
+    assert schedules_response.json() == []
+
+
+def test_run_scheduler_static_checks_do_not_interfere_with_each_other(
+    client: TestClient,
+) -> None:
+    """All three checks firing in the SAME run must all be reported
+    together, none masking another."""
+    semester_id = _create_semester(client, year=3009)
+    subject_id = _create_subject(client, name="Subject 3009")
+
+    # Overloaded teacher (workload).
+    overloaded_teacher = _create_teacher(
+        client, name="Overloaded 3009", max_weekly_periods=1
+    )
+    _add_teacher_subject(client, overloaded_teacher, subject_id)
+    class_a = _create_class(client, level=30091)
+    client.post(
+        "/api/v1/class-subject-requirements/",
+        json={
+            "semester_id": semester_id,
+            "class_id": class_a,
+            "subject_id": subject_id,
+            "weekly_periods": 2,
+            "required_teacher_id": overloaded_teacher,
+        },
+    )
+
+    # Unavailable teacher (availability).
+    unavailable_teacher = _create_teacher(
+        client, name="Unavailable 3009", max_weekly_periods=20
+    )
+    _add_teacher_subject(client, unavailable_teacher, subject_id)
+    class_b = _create_class(client, level=30092)
+    client.post(
+        "/api/v1/class-subject-requirements/",
+        json={
+            "semester_id": semester_id,
+            "class_id": class_b,
+            "subject_id": subject_id,
+            "weekly_periods": 2,
+            "required_teacher_id": unavailable_teacher,
+        },
+    )
+
+    slot_ids = [_create_time_slot(client, weekday=1, period=p) for p in range(1, 3)]
+    for slot_id in slot_ids:
+        client.post(
+            f"/api/v1/teachers/{unavailable_teacher}/unavailable-slots",
+            json={"time_slot_id": slot_id},
+        )
+
+    # Inactive class (unrelated third requirement).
+    class_c = _create_class(client, level=30093)
+    client.patch(f"/api/v1/classes/{class_c}", json={"is_active": False})
+    client.post(
+        "/api/v1/class-subject-requirements/",
+        json={
+            "semester_id": semester_id,
+            "class_id": class_c,
+            "subject_id": subject_id,
+            "weekly_periods": 1,
+        },
+    )
+
+    version_id = _create_schedule_version(client, semester_id)
+    client.post(f"/api/v1/schedule-versions/{version_id}/generate-lessons")
+
+    response = client.post(f"/api/v1/schedule-versions/{version_id}/run-scheduler")
+
+    assert response.status_code == 422
+    data = response.json()
+    assert data["failure_type"] == "STATIC_CHECK_FAILED"
+    assert data["backtrack_count"] == 0
+    types = {v["type"] for v in data["post_hoc_violations"]}
+    assert types == {
+        "STATIC_TEACHER_WORKLOAD_EXCEEDED",
+        "STATIC_TEACHER_AVAILABILITY_INSUFFICIENT",
+        "STATIC_INACTIVE_ENTITY_CONFLICT",
+    }
+
+
 # --- 404 ---
 
 

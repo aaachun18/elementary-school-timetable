@@ -136,7 +136,7 @@ def schedule_backtracking(
         LessonFailure(
             lesson_id=lesson.lesson_id,
             class_subject_requirement_id=lesson.class_subject_requirement_id,
-            reasons=[no_candidate_teacher_violation(lesson)],
+            reasons=[no_candidate_teacher_violation(lesson, tables)],
         )
         for lesson in ordered_lessons
         if not candidate_teacher_ids(lesson, tables)

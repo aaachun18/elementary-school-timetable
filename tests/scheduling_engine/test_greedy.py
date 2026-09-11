@@ -212,6 +212,40 @@ def test_greedy_fails_with_no_candidate_teacher_at_all() -> None:
     assert result.lesson_failures[0].reasons[0].type == "NO_CANDIDATE_TEACHER"
 
 
+def test_greedy_reports_required_teacher_not_qualified() -> None:
+    """Task 22 regression: same scenario as
+    test_backtracking_reports_required_teacher_not_qualified -- a required
+    teacher who lacks the H5 qualification must be reported as its own
+    distinct, explained lesson_failure, not silently treated as a valid
+    (if doomed) candidate."""
+    lesson = _pending_lesson(
+        lesson_id=1, class_subject_requirement_id=1, class_id=1, subject_id=8
+    )
+    resources = _empty_resources(
+        time_slot_ids=[100],
+        time_slots=[TimeSlotInfo(time_slot_id=100, is_teaching_period=True)],
+        required_teacher_rules=[
+            RequiredTeacherRule(class_subject_requirement_id=1, required_teacher_id=6)
+        ],
+        teacher_qualifications=[
+            TeacherQualification(teacher_id=6, subject_id=9),
+            TeacherQualification(teacher_id=6, subject_id=10),
+        ],
+        requirement_periods=[
+            RequirementPeriods(class_subject_requirement_id=1, weekly_periods=1)
+        ],
+    )
+
+    result = schedule_greedy([lesson], resources)
+
+    assert result.success is False
+    assert result.state is None
+    assert len(result.lesson_failures) == 1
+    reason = result.lesson_failures[0].reasons[0]
+    assert reason.type == "H6_REQUIRED_TEACHER_NOT_QUALIFIED"
+    assert reason.teacher_id == 6
+
+
 # --- H7/H8: whole-batch post-hoc validation ---
 
 

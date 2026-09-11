@@ -117,12 +117,34 @@ def candidate_teacher_ids(
 ) -> list[int]:
     """H5 (qualification) + H6 (required teacher) combined into the MRV
     candidate count: if a required teacher is pinned for this Lesson's
-    requirement, that teacher is the only candidate (count = 1); otherwise
-    every teacher qualified for the subject is a candidate."""
+    requirement, that teacher is the only candidate (count = 1) -- PROVIDED
+    they also hold the H5 qualification for this Lesson's subject.
+    Otherwise every teacher qualified for the subject is a candidate.
+
+    Task 22: a required teacher who lacks the qualification is not a
+    candidate at all (empty list), not a doomed one. H5 is always enforced
+    in real time regardless of H6 (see build_real_time_constraints), so a
+    required-but-unqualified teacher can never actually be placed -- that
+    is a certain, per-Lesson fact, not something that depends on the rest
+    of the search. Returning it here as a "candidate" anyway used to let
+    such a Lesson slip past the zero-candidate checks that both algorithms
+    already rely on (the pre-flight check in backtracking.py, and the
+    `if not candidate_teachers` branch in greedy.py's
+    _explain_no_valid_candidate), so it could only fail deep inside the
+    search where neither algorithm can attribute the failure back to this
+    specific Lesson. Filtering it out here instead makes this case
+    indistinguishable, everywhere downstream, from "no qualified teacher at
+    all" -- the already-correctly-explained case.
+    """
     required_teacher_id = tables.required_teacher_by_requirement.get(
         lesson.class_subject_requirement_id
     )
     if required_teacher_id is not None:
+        qualified_teachers = tables.qualified_teachers_by_subject.get(
+            lesson.subject_id, []
+        )
+        if required_teacher_id not in qualified_teachers:
+            return []
         return [required_teacher_id]
     return list(tables.qualified_teachers_by_subject.get(lesson.subject_id, []))
 
@@ -185,11 +207,49 @@ class LessonFailure:
     reasons: list[ConstraintViolation]
 
 
-def no_candidate_teacher_violation(lesson: LessonAssignment) -> ConstraintViolation:
+def no_candidate_teacher_violation(
+    lesson: LessonAssignment, tables: LookupTables
+) -> ConstraintViolation:
     """A synthetic violation for the case where a Lesson has zero candidate
-    teachers at all (no TeacherSubject qualification, and no valid
-    required-teacher rule) -- there's nothing to run explain_violations()
-    against, since no candidate could even be constructed."""
+    teachers at all -- there's nothing to run explain_violations() against,
+    since no candidate could even be constructed.
+
+    Two distinct root causes share this "zero candidates" shape, so this
+    distinguishes them (Task 22) rather than reporting one generic message
+    for both:
+    - a required-teacher rule (H6) names a teacher who lacks the H5
+      qualification for this subject -- the teacher exists, but can never
+      be assigned here;
+    - no rule pins a teacher at all, and no teacher holds the H5
+      qualification for this subject in the first place.
+    """
+    required_teacher_id = tables.required_teacher_by_requirement.get(
+        lesson.class_subject_requirement_id
+    )
+    if required_teacher_id is not None:
+        return ConstraintViolation(
+            type="H6_REQUIRED_TEACHER_NOT_QUALIFIED",
+            severity=Severity.ERROR,
+            lesson_id=lesson.lesson_id,
+            teacher_id=required_teacher_id,
+            class_id=lesson.class_id,
+            subject_id=lesson.subject_id,
+            time_slot_id=None,
+            room_id=None,
+            class_subject_requirement_id=lesson.class_subject_requirement_id,
+            message=(
+                f"Lesson {lesson.lesson_id} requires teacher "
+                f"{required_teacher_id}, but that teacher does not hold a "
+                f"TeacherSubject qualification for subject "
+                f"{lesson.subject_id}."
+            ),
+            suggested_action=(
+                f"Add a TeacherSubject qualification linking teacher "
+                f"{required_teacher_id} to subject {lesson.subject_id}, or "
+                "change/remove the required-teacher rule on this "
+                "requirement."
+            ),
+        )
     return ConstraintViolation(
         type="NO_CANDIDATE_TEACHER",
         severity=Severity.ERROR,
@@ -204,9 +264,5 @@ def no_candidate_teacher_violation(lesson: LessonAssignment) -> ConstraintViolat
             f"No teacher is qualified/assignable for lesson "
             f"{lesson.lesson_id} (subject {lesson.subject_id})."
         ),
-        suggested_action=(
-            "Add a TeacherSubject qualification for this subject, or "
-            "check that the required-teacher rule (if any) names an "
-            "existing teacher."
-        ),
+        suggested_action=("Add a TeacherSubject qualification for this subject."),
     )

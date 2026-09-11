@@ -261,6 +261,46 @@ def test_backtracking_reports_definitely_infeasible_for_missing_qualification() 
     assert result.lesson_failures[0].reasons[0].type == "NO_CANDIDATE_TEACHER"
 
 
+def test_backtracking_reports_required_teacher_not_qualified() -> None:
+    """Task 22 regression: a required-teacher rule (H6) naming a teacher
+    who lacks the H5 qualification for this subject used to slip past the
+    pre-flight "zero candidates" check (candidate_teacher_ids returned the
+    required teacher as a candidate regardless of qualification), so the
+    search would exhaust itself and report DEFINITELY_INFEASIBLE with an
+    EMPTY lesson_failures list -- no explanation at all. This must now be
+    caught up front, same as any other zero-candidate Lesson.
+    """
+    lesson = _pending_lesson(
+        lesson_id=1, class_subject_requirement_id=1, class_id=1, subject_id=8
+    )
+    resources = _empty_resources(
+        time_slot_ids=[100],
+        time_slots=[TimeSlotInfo(time_slot_id=100, is_teaching_period=True)],
+        required_teacher_rules=[
+            RequiredTeacherRule(class_subject_requirement_id=1, required_teacher_id=6)
+        ],
+        # Teacher 6 exists and is qualified for OTHER subjects, but not 8.
+        teacher_qualifications=[
+            TeacherQualification(teacher_id=6, subject_id=9),
+            TeacherQualification(teacher_id=6, subject_id=10),
+        ],
+        requirement_periods=[
+            RequirementPeriods(class_subject_requirement_id=1, weekly_periods=1)
+        ],
+    )
+
+    result = schedule_backtracking([lesson], resources)
+
+    assert result.success is False
+    assert result.state is None
+    assert result.failure_type == "DEFINITELY_INFEASIBLE"
+    assert result.backtrack_count == 0
+    assert len(result.lesson_failures) == 1
+    reason = result.lesson_failures[0].reasons[0]
+    assert reason.type == "H6_REQUIRED_TEACHER_NOT_QUALIFIED"
+    assert reason.teacher_id == 6
+
+
 # --- Search limits: distinct from "definitely infeasible" ---
 
 

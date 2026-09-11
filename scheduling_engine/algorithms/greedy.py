@@ -89,6 +89,7 @@ def _explain_no_valid_candidate(
     real_time_constraints: list[BaseConstraint],
     candidate_teachers: list[int],
     candidate_rooms: list[int | None],
+    tables: LookupTables,
 ) -> list[ConstraintViolation]:
     """Only called once a Lesson is already known to have no valid
     candidate. Re-tries every combination (the slow path -- fine, since it
@@ -97,7 +98,7 @@ def _explain_no_valid_candidate(
     repeated once per time-slot/room combination tried with that teacher.
     """
     if not candidate_teachers:
-        return [no_candidate_teacher_violation(lesson)]
+        return [no_candidate_teacher_violation(lesson, tables)]
 
     seen_messages: set[str] = set()
     reasons: list[ConstraintViolation] = []
@@ -173,6 +174,7 @@ def schedule_greedy(
                 real_time_constraints,
                 candidate_teachers,
                 candidate_rooms,
+                tables,
             )
             lesson_failures.append(
                 LessonFailure(

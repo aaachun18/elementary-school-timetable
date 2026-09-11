@@ -13,6 +13,8 @@ dist/
 
 .env
 
+scripts/.seed_manifest.json
+
 .vscode/
 .idea/
 
