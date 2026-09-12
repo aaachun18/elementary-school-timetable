@@ -1,24 +1,17 @@
 import { type ReactElement } from "react";
-import { useNavigate } from "react-router-dom";
-import { TOKEN_KEY } from "../api/client";
+import { Link } from "react-router-dom";
 
 // Temporary placeholder -- a future Task replaces this with the real
-// Dashboard (see docs/FRONTEND_REQUIREMENTS.md 流程 A). It exists purely to
-// prove the login/logout round trip works end to end.
+// Dashboard (see docs/FRONTEND_REQUIREMENTS.md 流程 A). Nav bar and logout
+// are provided by the shared Layout (components/Layout.tsx) that wraps
+// this page, not repeated here.
 export default function Home(): ReactElement {
-  const navigate = useNavigate();
-
-  function handleLogout(): void {
-    sessionStorage.removeItem(TOKEN_KEY);
-    navigate("/login");
-  }
-
   return (
     <div>
       <p>登入成功,歡迎回來。系統功能建置中,更多頁面即將上線。</p>
-      <button type="button" onClick={handleLogout}>
-        登出
-      </button>
+      <p>
+        <Link to="/data">查看基礎資料(老師/班級/科目/教室/時段)</Link>
+      </p>
     </div>
   );
 }
