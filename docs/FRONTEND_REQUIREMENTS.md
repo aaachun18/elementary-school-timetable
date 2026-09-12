@@ -36,7 +36,7 @@
 | 排課需求總覽 | 顯示目前這學期設定了哪些 `ClassSubjectRequirement` | `GET /api/v1/class-subject-requirements/` |
 | 排課控制台(核心亮點頁面) | 觸發 generate-lessons → run-scheduler,顯示進度與結果 | `POST /api/v1/schedule-versions/{id}/generate-lessons`、`POST /api/v1/schedule-versions/{id}/run-scheduler` |
 | 課表檢視(核心亮點頁面) | 依 Class / Teacher / Room 三種視角查看排課結果 | `GET /api/v1/schedules/`(前端自行依 `class_id`/`teacher_id`/`room_id` 分組呈現) |
-| 失敗診斷畫面(核心亮點頁面) | 排課失敗時,把 `lesson_failures`/`post_hoc_violations` 轉成人類看得懂的清單 | 沿用 `run-scheduler` 的失敗回應(422,含 `failure_type`) |
+| 失敗診斷畫面(核心亮點頁面) | 排課失敗時,把 `lesson_failures`/`post_hoc_violations` 轉成人類看得懂的清單。畫面顯示前,需要把訊息裡的 `teacher_id`/`class_id`/`subject_id`/`room_id`/`time_slot_id` 這些 id,轉換成對應的名稱(例如「楊老師」而非「teacher_id: 6」),並把 `failure_type`/violation `type` 這類英文代碼轉換成中文說明(例如 `STATIC_TEACHER_WORKLOAD_EXCEEDED` 轉成「教師工作量超過上限」)。這個轉換完全在前端完成,不依賴後端提供額外欄位 | 沿用 `run-scheduler` 的失敗回應(422,含 `failure_type`) |
 
 **失敗診斷畫面是整個前端最有價值的一頁。** 它直接把系統最花力氣打磨的 Explainable Scheduling——三種失敗類型(`DEFINITELY_INFEASIBLE`/`SEARCH_LIMIT_EXCEEDED`/`TIMEOUT`)、Task 23 的靜態可行性預檢機制——視覺化,呈現「為什麼排不出來、具體是哪個老師哪個限制、建議怎麼修」。這是一般排課工具做不到的差異化亮點,開發優先順序應該最高。
 
@@ -91,6 +91,13 @@
 現在要怎麼做:每個資源的 `interface`(例如 `Teacher`、`ClassSubjectRequirement`)要包含後端對應 Schema(`TeacherRead`、`ClassSubjectRequirementRead` 等)定義的**全部**欄位,不是只定義階段 A 列表顯示會用到的欄位子集。
 為什麼:型別定義是階段 B 表單驗證與型別安全的地基,如果階段 A 只定義顯示需要的欄位子集,階段 B 寫編輯表單時會發現型別缺欄位,回頭補型別本身是小事,但補齊過程中很容易發現「原本以為用不到的欄位,其實在某個顯示邏輯裡被隱式假設不存在」,反而製造出階段 A 遺留的隱藏 bug。
 
+### 失敗診斷畫面的 ID/類型轉換機制
+
+失敗診斷畫面收到的後端錯誤訊息,包含的是 `teacher_id`、`class_id` 這類資料庫 id,以及 `STATIC_TEACHER_WORKLOAD_EXCEEDED` 這類英文錯誤類型代碼,教務人員看不懂。**轉換邏輯放在前端處理,不修改後端或 `scheduling_engine/`**:`scheduling_engine/` 刻意設計成 framework-independent(不碰資料庫、只處理純資料結構),這是專案的核心架構原則,不應該為了純粹的呈現需求去打破它;把 id 轉成名字、把錯誤代碼轉成中文說明,屬於前端展示層該負責的工作。
+
+- **錯誤類型代碼 → 中文說明對照表**:前端維護一份對照表,直接寫在前端程式碼裡(例如一個 constants 檔案),涵蓋系統會產生的 `failure_type` 與 violation `type`。概念上的分類(三種失敗類型、三種靜態可行性檢查)參考 `docs/SYSTEM_DESIGN.md` 第 5 節,但該節是概念說明,不是逐一列出的完整代碼清單——實際要涵蓋的完整代碼集合(每條 Hard Constraint 各自的 `type` 字串、`NO_CANDIDATE_TEACHER`、`H6_REQUIRED_TEACHER_NOT_QUALIFIED` 等)需要在開始寫這個對照表時,回頭以後端原始碼(`scheduling_engine/constraints/` 底下各 Constraint 的 `VIOLATION_TYPE`、`backend/app/schemas/scheduler.py` 的 `failure_type`)或實際觸發過的 422 回應為準逐一確認,避免遺漏。
+- **ID → 名稱轉換**:前端在載入失敗診斷畫面時,查詢教師/班級/科目/教室清單,依 id 對照顯示名稱。這份資料可以跟「基礎資料瀏覽」頁共用同一份 API 呼叫結果,避免重複查詢。
+
 ---
 
 ## 5. 核心使用者流程
@@ -136,6 +143,8 @@
 
 ## 7. 待辦事項(已與使用者討論並記錄,非本次範圍)
 
+> `fixed_time_slot_id` 已於 Task 28 實作完成(掛載於 `Lesson` 層級,可個別指定某一堂課固定時段,已支援「同一需求下只固定其中部分堂課」的情境,透過 `PATCH /api/v1/lessons/{id}/fix-time-slot`),不再是待辦事項。排課控制台的表單設計需要考慮讓使用者能對個別 Lesson 設定固定時段,細節見 Lesson 相關 API。
+
 ### 階段 B:教務處日常操作所需的完整 CRUD
 
 這個系統最終要讓教務處人員親自上手日常操作,所以以下功能不是「排除」,是「確定要做,但排在階段 A 之後」:
@@ -147,10 +156,9 @@
 
 ### 其他待辦事項
 
-1. **`ClassSubjectRequirement.fixed_time_slot_id`**:允許排課前手動指定某些課固定在特定時段(例如「地球公民課固定在星期三第三節」),排課引擎需跳過已固定的 Lesson、直接視為已排定。這是為了解決「部分課程時段固定」這個真實需求,採用下拉選單方式(非拖拉),範圍刻意縮小,不做成完整的 Fixed Lesson 系統。**建議在開始建立前端專案骨架之前,先完成這個小 Task**,因為它會影響「排課控制台」頁面設計需求時的表單欄位。
-2. **行政區塊(午餐、課間活動、教師午會)**:不對應任何 `ClassSubjectRequirement`,需要更大的資料模型調整,列入未來規劃。
-3. **拖拉互動介面(drag-and-drop)**:維持專案最初規格重新評估時的決定,有餘裕再做。
-4. **完整進階排課規則庫**:包含 Fixed Lesson 全集、行政人員不排課、本土語三班同天上課、行政課程集中安排等規則,已在稍早的開發階段記錄為待辦,尚未排入。
+1. **行政區塊(午餐、課間活動、教師午會)**:不對應任何 `ClassSubjectRequirement`,需要更大的資料模型調整,列入未來規劃。
+2. **拖拉互動介面(drag-and-drop)**:維持專案最初規格重新評估時的決定,有餘裕再做。
+3. **完整進階排課規則庫**:包含 Fixed Lesson 全集、行政人員不排課、本土語三班同天上課、行政課程集中安排等規則,已在稍早的開發階段記錄為待辦,尚未排入。
 
 ---
 
