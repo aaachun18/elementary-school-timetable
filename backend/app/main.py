@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.routers.academic_year import router as academic_year_router
@@ -27,6 +28,20 @@ from app.services.exceptions import (
 )
 
 app = FastAPI(title="Elementary School Timetable System")
+
+# Task 29: the frontend (frontend/, a separate origin during local dev --
+# Vite's default port) needs the browser to actually allow its requests
+# through. allow_credentials=True + explicit origins (not "*") because the
+# frontend sends the JWT in an Authorization header, not cookies, but
+# credentials mode still requires a concrete origin list per the Fetch spec
+# whenever allow_credentials is on.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(auth_router)
 app.include_router(school_router)
