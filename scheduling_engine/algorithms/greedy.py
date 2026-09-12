@@ -13,6 +13,15 @@ H8 filtering would only change WHERE a doomed run fails, not WHETHER it
 succeeds. It stays a post-hoc-only check here; see backtracking.py's
 module docstring for the fuller H7-vs-H8 discussion and why Backtracking
 makes the opposite choice for H8.
+
+Note (Task 28): a Lesson with a fixed time slot arrives here with
+time_slot_id already set on its "pending" LessonAssignment (see
+candidate_time_slot_ids() in resources.py) instead of None. The candidate
+search still runs normally for teacher/room, but the time dimension is
+pinned to that one value -- every real-time constraint still validates the
+resulting candidate exactly as it would any other, so a fixed slot that
+conflicts with something else fails the normal way, with the normal
+per-Lesson explanation.
 """
 
 from dataclasses import dataclass, replace
@@ -25,6 +34,7 @@ from scheduling_engine.algorithms.resources import (
     build_real_time_constraints,
     candidate_room_ids,
     candidate_teacher_ids,
+    candidate_time_slot_ids,
     no_candidate_teacher_violation,
 )
 from scheduling_engine.constraints.base import BaseConstraint, ConstraintViolation
@@ -141,24 +151,36 @@ def schedule_greedy(
     tables: LookupTables = build_lookup_tables(resources)
     real_time_constraints = build_real_time_constraints(resources)
 
-    # MRV: process the Lesson with the fewest candidate teachers first. A
-    # required teacher (H6) pins the candidate count to exactly 1, so
-    # those Lessons always sort to the front.
+    # MRV: process the Lesson with the fewest total (teacher x time slot x
+    # room) combinations first -- generalized from "fewest candidate
+    # teachers" (Task 19) to also account for Task 28's fixed time slots,
+    # which pin the time dimension to exactly 1 candidate the same way a
+    # required_teacher_id rule pins the teacher dimension. Before Task 28,
+    # every Lesson always searched the same time_slot_ids list and (within
+    # a given room-type rule) the same room count, so multiplying by those
+    # uniform factors never changed the relative order teacher-count-only
+    # sorting already produced -- this is a strict generalization, not a
+    # behavior change, for every Lesson that isn't fixed.
     ordered_lessons = sorted(
         lessons,
-        key=lambda lesson: len(candidate_teacher_ids(lesson, tables)),
+        key=lambda lesson: (
+            len(candidate_teacher_ids(lesson, tables))
+            * len(candidate_time_slot_ids(lesson, resources))
+            * len(candidate_room_ids(lesson, tables))
+        ),
     )
 
     lesson_failures: list[LessonFailure] = []
 
     for lesson in ordered_lessons:
         candidate_teachers = candidate_teacher_ids(lesson, tables)
+        candidate_time_slots = candidate_time_slot_ids(lesson, resources)
         candidate_rooms = candidate_room_ids(lesson, tables)
 
         candidate = _find_first_valid_candidate(
             lesson,
             working_state,
-            resources.time_slot_ids,
+            candidate_time_slots,
             real_time_constraints,
             candidate_teachers,
             candidate_rooms,
@@ -170,7 +192,7 @@ def schedule_greedy(
             reasons = _explain_no_valid_candidate(
                 lesson,
                 working_state,
-                resources.time_slot_ids,
+                candidate_time_slots,
                 real_time_constraints,
                 candidate_teachers,
                 candidate_rooms,

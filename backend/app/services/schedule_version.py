@@ -1,4 +1,4 @@
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -118,6 +118,16 @@ def generate_lessons(
     offending requirements. Otherwise, all missing lessons are created in
     one commit and returned (possibly an empty list if everything was
     already in sync).
+
+    Task 28: "the excess" for an over-provisioned requirement is defined as
+    the Lesson rows with the highest sequence_number, beyond weekly_periods
+    many -- the same ones that would be the natural candidates to delete if
+    this function ever grew auto-cleanup. Any of those specific rows that
+    already has a manually-set fixed_time_slot_id is flagged in the raised
+    error (never silently dropped, never silently kept without a flag): a
+    human fixed that lesson to a specific slot on purpose, so it must never
+    be treated as disposable just because its sequence_number happens to be
+    high.
     """
     schedule_version = db.get(ScheduleVersion, schedule_version_id)
     if schedule_version is None:
@@ -137,27 +147,35 @@ def generate_lessons(
         ).all()
     )
 
-    over_provisioned: list[dict[str, int]] = []
+    over_provisioned: list[dict[str, int | bool | list[int]]] = []
     to_create: list[tuple[int, int]] = []  # (class_subject_requirement_id, sequence_number)
 
     for requirement in requirements:
-        existing_count = (
-            db.scalar(
-                select(func.count())
-                .select_from(Lesson)
-                .where(
-                    Lesson.class_subject_requirement_id == requirement.id
-                )
-            )
-            or 0
+        existing_lessons = list(
+            db.scalars(
+                select(Lesson)
+                .where(Lesson.class_subject_requirement_id == requirement.id)
+                .order_by(Lesson.sequence_number)
+            ).all()
         )
+        existing_count = len(existing_lessons)
 
         if existing_count > requirement.weekly_periods:
+            excess_count = existing_count - requirement.weekly_periods
+            # Highest sequence_number first -- the natural "extra" ones.
+            excess_lessons = existing_lessons[-excess_count:]
+            fixed_excess_lesson_ids = [
+                lesson.id
+                for lesson in excess_lessons
+                if lesson.fixed_time_slot_id is not None
+            ]
             over_provisioned.append(
                 {
                     "class_subject_requirement_id": requirement.id,
                     "weekly_periods": requirement.weekly_periods,
                     "existing_lesson_count": existing_count,
+                    "includes_fixed_lesson": bool(fixed_excess_lesson_ids),
+                    "fixed_lesson_ids": fixed_excess_lesson_ids,
                 }
             )
         elif existing_count < requirement.weekly_periods:

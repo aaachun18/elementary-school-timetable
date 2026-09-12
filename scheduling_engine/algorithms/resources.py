@@ -149,6 +149,27 @@ def candidate_teacher_ids(
     return list(tables.qualified_teachers_by_subject.get(lesson.subject_id, []))
 
 
+def candidate_time_slot_ids(
+    lesson: LessonAssignment, resources: SchedulingResources
+) -> list[int]:
+    """Task 28: if this Lesson already has a fixed time slot -- carried as
+    the pending LessonAssignment's time_slot_id already being set instead
+    of None, the same "a Schedule row can exist before every part of it is
+    filled in" convention LessonAssignment already documents -- that is the
+    ONLY candidate; there is nothing to search in the time dimension at
+    all. Otherwise every school time slot is a candidate, as before.
+
+    Real-time constraints (H1/H2/H3/H4/H9/H11/H12) still run against
+    whichever candidate is produced from this list exactly as they do for
+    any other candidate, so a fixed slot that conflicts with something else
+    is caught the normal way -- this function only narrows WHICH slot(s)
+    get tried, never skips validating the one it fixes.
+    """
+    if lesson.time_slot_id is not None:
+        return [lesson.time_slot_id]
+    return list(resources.time_slot_ids)
+
+
 def candidate_room_ids(
     lesson: LessonAssignment, tables: LookupTables
 ) -> list[int | None]:

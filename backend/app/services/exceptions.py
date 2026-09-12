@@ -36,9 +36,15 @@ class LessonOverProvisionedError(Exception):
     just the over-provisioned ones -- so the caller sees one clear, atomic
     outcome: either the sync fully happened, or nothing did and here's
     what's wrong.
+
+    Task 28: each entry also reports whether the specific Lesson rows that
+    would be "the excess" (highest sequence_number first) include any with
+    a manually-set fixed_time_slot_id -- those must never be silently
+    treated as deletable candidates, so the caller needs to know they
+    require manual handling.
     """
 
-    def __init__(self, over_provisioned: list[dict[str, int]]) -> None:
+    def __init__(self, over_provisioned: list[dict[str, int | bool | list[int]]]) -> None:
         self.over_provisioned = over_provisioned
         super().__init__(
             f"{len(over_provisioned)} requirement(s) already have more "

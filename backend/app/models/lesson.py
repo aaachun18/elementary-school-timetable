@@ -8,6 +8,7 @@ from app.models.mixins import TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.class_subject_requirement import ClassSubjectRequirement
+    from app.models.time_slot import TimeSlot
 
 
 class Lesson(TimestampMixin, Base):
@@ -34,5 +35,15 @@ class Lesson(TimestampMixin, Base):
     # requirement (e.g. "the 2nd of 3 weekly Math lessons") -- no other
     # meaning.
     sequence_number: Mapped[int] = mapped_column()
+    # Task 28: pins THIS specific lesson instance to a time slot before
+    # scheduling even runs -- e.g. one of a requirement's 2 weekly lessons
+    # needs to always land on Wednesday period 3, while the other stays
+    # free for the algorithm to place. Deliberately placed on Lesson, not
+    # ClassSubjectRequirement, since "some but not all lessons of this
+    # requirement are fixed" cannot be expressed at the requirement level.
+    fixed_time_slot_id: Mapped[int | None] = mapped_column(
+        ForeignKey("time_slots.id")
+    )
 
     class_subject_requirement: Mapped["ClassSubjectRequirement"] = relationship()
+    fixed_time_slot: Mapped["TimeSlot | None"] = relationship()

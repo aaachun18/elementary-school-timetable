@@ -38,6 +38,13 @@ target) are different in kind:
   actual_count < target, which is indistinguishable from a genuine
   shortfall until the LAST lesson for that requirement is placed. It stays
   a whole-batch, post-hoc-only check, run once after the search succeeds.
+
+Note (Task 28): a Lesson with a fixed time slot has its candidate pool's
+time dimension narrowed to that single value by candidate_time_slot_ids()
+in resources.py -- teacher and room are still searched normally. If the
+fixed slot conflicts with something else, every candidate in that
+Lesson's pool fails the same real-time constraints as any other conflict,
+so it surfaces as an ordinary search failure, explained the same way.
 """
 
 import time
@@ -51,6 +58,7 @@ from scheduling_engine.algorithms.resources import (
     build_real_time_constraints,
     candidate_room_ids,
     candidate_teacher_ids,
+    candidate_time_slot_ids,
     no_candidate_teacher_violation,
 )
 from scheduling_engine.constraints.base import ConstraintViolation
@@ -121,12 +129,18 @@ def schedule_backtracking(
         resources, include_teacher_workload=True
     )
 
-    # MRV ordering -- identical rule to Greedy, computed once up front and
-    # never revisited: backtracking changes WHICH CANDIDATE is tried at a
+    # MRV ordering -- identical rule to Greedy (see its module docstring
+    # for why the key is a teacher x time-slot x room product, generalized
+    # for Task 28's fixed time slots), computed once up front and never
+    # revisited: backtracking changes WHICH CANDIDATE is tried at a
     # position, never the order of positions themselves.
     ordered_lessons = sorted(
         lessons,
-        key=lambda lesson: len(candidate_teacher_ids(lesson, tables)),
+        key=lambda lesson: (
+            len(candidate_teacher_ids(lesson, tables))
+            * len(candidate_time_slot_ids(lesson, resources))
+            * len(candidate_room_ids(lesson, tables))
+        ),
     )
     total = len(ordered_lessons)
 
@@ -157,7 +171,7 @@ def schedule_backtracking(
         [
             replace(lesson, teacher_id=teacher_id, time_slot_id=slot_id, room_id=room_id)
             for teacher_id in candidate_teacher_ids(lesson, tables)
-            for slot_id in resources.time_slot_ids
+            for slot_id in candidate_time_slot_ids(lesson, resources)
             for room_id in candidate_room_ids(lesson, tables)
         ]
         for lesson in ordered_lessons

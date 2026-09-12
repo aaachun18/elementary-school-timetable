@@ -96,3 +96,75 @@ def test_get_lesson_not_found(client: TestClient) -> None:
     response = client.get("/api/v1/lessons/999999")
 
     assert response.status_code == 404
+
+
+def _create_time_slot(client: TestClient, weekday: int, period: int) -> int:
+    response = client.post(
+        "/api/v1/time-slots/", json={"weekday": weekday, "period": period}
+    )
+    time_slot_id: int = response.json()["id"]
+    return time_slot_id
+
+
+# --- fix-time-slot (Task 28) ---
+
+
+def test_fix_lesson_time_slot_sets_and_clears(client: TestClient) -> None:
+    lesson_ids = _generate_lessons(client, year=2093, weekly_periods=1)
+    lesson_id = lesson_ids[0]
+    time_slot_id = _create_time_slot(client, weekday=3, period=3)
+
+    set_response = client.patch(
+        f"/api/v1/lessons/{lesson_id}/fix-time-slot",
+        json={"time_slot_id": time_slot_id},
+    )
+    assert set_response.status_code == 200
+    assert set_response.json()["fixed_time_slot_id"] == time_slot_id
+
+    get_response = client.get(f"/api/v1/lessons/{lesson_id}")
+    assert get_response.json()["fixed_time_slot_id"] == time_slot_id
+
+    clear_response = client.patch(
+        f"/api/v1/lessons/{lesson_id}/fix-time-slot",
+        json={"time_slot_id": None},
+    )
+    assert clear_response.status_code == 200
+    assert clear_response.json()["fixed_time_slot_id"] is None
+
+
+def test_fix_lesson_time_slot_not_found(client: TestClient) -> None:
+    time_slot_id = _create_time_slot(client, weekday=1, period=1)
+
+    response = client.patch(
+        "/api/v1/lessons/999999/fix-time-slot",
+        json={"time_slot_id": time_slot_id},
+    )
+
+    assert response.status_code == 404
+
+
+def test_fix_lesson_time_slot_invalid_time_slot_id(client: TestClient) -> None:
+    lesson_ids = _generate_lessons(client, year=2094, weekly_periods=1)
+    lesson_id = lesson_ids[0]
+
+    response = client.patch(
+        f"/api/v1/lessons/{lesson_id}/fix-time-slot",
+        json={"time_slot_id": 999999},
+    )
+
+    assert response.status_code == 422
+
+
+def test_fix_lesson_time_slot_forbidden_for_teacher(
+    client: TestClient, teacher_client: TestClient
+) -> None:
+    lesson_ids = _generate_lessons(client, year=2095, weekly_periods=1)
+    lesson_id = lesson_ids[0]
+    time_slot_id = _create_time_slot(client, weekday=2, period=2)
+
+    response = teacher_client.patch(
+        f"/api/v1/lessons/{lesson_id}/fix-time-slot",
+        json={"time_slot_id": time_slot_id},
+    )
+
+    assert response.status_code == 403

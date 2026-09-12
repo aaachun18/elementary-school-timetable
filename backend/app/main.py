@@ -86,11 +86,16 @@ def handle_duplicate_value(
 def handle_lesson_over_provisioned(
     request: Request, exc: LessonOverProvisionedError
 ) -> JSONResponse:
+    detail = "部分需求的 Lesson 數量已超過 weekly_periods,系統不會自動刪除,請人工確認後處理"
+    if any(item.get("includes_fixed_lesson") for item in exc.over_provisioned):
+        # Task 28: never let this fact go unmentioned -- a fixed lesson
+        # being among the "excess" ones needs a human decision, not a
+        # generic over-provisioning message that reads the same either way.
+        detail += "。其中包含已手動固定時段的課程,需先手動處理"
     return JSONResponse(
         status_code=409,
         content={
-            "detail": "部分需求的 Lesson 數量已超過 weekly_periods,系統不會自動刪除,"
-            "請人工確認後處理",
+            "detail": detail,
             "over_provisioned": exc.over_provisioned,
         },
     )

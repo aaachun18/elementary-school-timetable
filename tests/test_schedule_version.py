@@ -265,6 +265,94 @@ def test_generate_lessons_over_provisioned_returns_409_and_creates_nothing(
     assert len(lessons_response.json()) == 3
 
 
+def _create_time_slot(client: TestClient, weekday: int, period: int) -> int:
+    response = client.post(
+        "/api/v1/time-slots/", json={"weekday": weekday, "period": period}
+    )
+    time_slot_id: int = response.json()["id"]
+    return time_slot_id
+
+
+def test_generate_lessons_over_provisioned_flags_fixed_lesson(
+    client: TestClient,
+) -> None:
+    """Task 28: if one of the Lessons that WOULD be considered "excess"
+    (highest sequence_number) has a manually-set fixed_time_slot_id, the
+    error must say so explicitly -- not treat it the same as an ordinary
+    over-provisioning case."""
+    semester_id = _create_semester(client, year=2077)
+    class_id = _create_class(client, level=16)
+    subject_id = _create_subject(client, name="Math 2077")
+    requirement_id = _create_requirement(
+        client, semester_id, class_id, subject_id, weekly_periods=3
+    )
+    version_id = _create_schedule_version(client, semester_id)
+
+    generate_response = client.post(
+        f"/api/v1/schedule-versions/{version_id}/generate-lessons"
+    )
+    lessons = generate_response.json()["created_lessons"]
+    # Fix the last-sequence lesson (sequence_number 3) to a specific slot.
+    last_lesson = max(lessons, key=lambda lesson: lesson["sequence_number"])
+    time_slot_id = _create_time_slot(client, weekday=3, period=3)
+    fix_response = client.patch(
+        f"/api/v1/lessons/{last_lesson['lesson_id']}/fix-time-slot",
+        json={"time_slot_id": time_slot_id},
+    )
+    assert fix_response.status_code == 200
+
+    # Shrink the requirement to 1 weekly period -- lessons 2 and 3 (including
+    # the fixed one) now count as "excess".
+    client.patch(
+        f"/api/v1/class-subject-requirements/{requirement_id}",
+        json={"weekly_periods": 1},
+    )
+
+    response = client.post(f"/api/v1/schedule-versions/{version_id}/generate-lessons")
+
+    assert response.status_code == 409
+    data = response.json()
+    assert "已手動固定時段的課程" in data["detail"]
+    over_provisioned = data["over_provisioned"]
+    assert len(over_provisioned) == 1
+    assert over_provisioned[0]["includes_fixed_lesson"] is True
+    assert over_provisioned[0]["fixed_lesson_ids"] == [last_lesson["lesson_id"]]
+
+    # Still nothing auto-deleted -- the fixed lesson (and its sibling) is
+    # untouched, exactly like the ordinary over-provisioning case.
+    lessons_response = client.get("/api/v1/lessons/")
+    assert len(lessons_response.json()) == 3
+    fixed_lesson_response = client.get(f"/api/v1/lessons/{last_lesson['lesson_id']}")
+    assert fixed_lesson_response.json()["fixed_time_slot_id"] == time_slot_id
+
+
+def test_generate_lessons_over_provisioned_without_fixed_lesson_has_no_extra_note(
+    client: TestClient,
+) -> None:
+    """Regression guard: the ordinary over-provisioning case (Task 21) must
+    not gain the Task 28 note when no fixed lesson is actually involved."""
+    semester_id = _create_semester(client, year=2078)
+    class_id = _create_class(client, level=17)
+    subject_id = _create_subject(client, name="Math 2078")
+    requirement_id = _create_requirement(
+        client, semester_id, class_id, subject_id, weekly_periods=3
+    )
+    version_id = _create_schedule_version(client, semester_id)
+    client.post(f"/api/v1/schedule-versions/{version_id}/generate-lessons")
+    client.patch(
+        f"/api/v1/class-subject-requirements/{requirement_id}",
+        json={"weekly_periods": 1},
+    )
+
+    response = client.post(f"/api/v1/schedule-versions/{version_id}/generate-lessons")
+
+    assert response.status_code == 409
+    data = response.json()
+    assert "已手動固定時段的課程" not in data["detail"]
+    assert data["over_provisioned"][0]["includes_fixed_lesson"] is False
+    assert data["over_provisioned"][0]["fixed_lesson_ids"] == []
+
+
 def test_generate_lessons_over_provisioned_blocks_other_requirements_too(
     client: TestClient,
 ) -> None:

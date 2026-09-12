@@ -512,3 +512,46 @@ def test_run_scheduler_already_scheduled_returns_409(client: TestClient) -> None
 
     schedules_response = client.get("/api/v1/schedules/")
     assert len(schedules_response.json()) == 1
+
+
+# --- Task 28: Lesson.fixed_time_slot_id end-to-end ---
+
+
+def test_run_scheduler_respects_fixed_time_slot(client: TestClient) -> None:
+    """End-to-end: fix one of two weekly lessons to a specific time slot via
+    the API, then confirm run-scheduler actually honors it -- not just at
+    the engine-unit level (already covered in
+    tests/scheduling_engine/test_fixed_time_slot.py), but through the real
+    DB round trip (Lesson.fixed_time_slot_id -> LessonAssignment.time_slot_id
+    -> Schedule.time_slot_id)."""
+    _, version_id = _build_schedulable_semester(client, year=3010, weekly_periods=2)
+
+    lessons_response = client.get("/api/v1/lessons/")
+    lessons = lessons_response.json()
+    assert len(lessons) == 2
+    lesson_to_fix = lessons[0]
+
+    # The two time slots created by _build_schedulable_semester are weekday
+    # 1, periods 1 and 2 -- fetch the second one and fix the lesson to it,
+    # deliberately NOT the one that would be tried first.
+    time_slots_response = client.get("/api/v1/time-slots/")
+    time_slot_id = next(
+        t["id"] for t in time_slots_response.json() if t["period"] == 2
+    )
+    fix_response = client.patch(
+        f"/api/v1/lessons/{lesson_to_fix['id']}/fix-time-slot",
+        json={"time_slot_id": time_slot_id},
+    )
+    assert fix_response.status_code == 200
+
+    response = client.post(f"/api/v1/schedule-versions/{version_id}/run-scheduler")
+
+    assert response.status_code == 200
+    assert response.json()["scheduled_count"] == 2
+
+    schedules_response = client.get("/api/v1/schedules/")
+    schedules = schedules_response.json()
+    fixed_schedule = next(
+        s for s in schedules if s["lesson_id"] == lesson_to_fix["id"]
+    )
+    assert fixed_schedule["time_slot_id"] == time_slot_id

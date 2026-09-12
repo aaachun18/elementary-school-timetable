@@ -113,7 +113,12 @@ def _build_lessons_and_resources(
                 lesson.class_subject_requirement_id
             ].subject_id,
             teacher_id=None,
-            time_slot_id=None,
+            # Task 28: a Lesson manually fixed to a time slot starts the
+            # search with that value already filled in, instead of None --
+            # scheduling_engine's candidate_time_slot_ids() treats an
+            # already-set time_slot_id as "only candidate", never
+            # re-searching it.
+            time_slot_id=lesson.fixed_time_slot_id,
             room_id=None,
         )
         for lesson in lessons_orm
