@@ -21,6 +21,8 @@ export default function Layout(): ReactElement {
         {" | "}
         <Link to="/data">基礎資料</Link>
         {" | "}
+        <Link to="/requirements">排課需求總覽</Link>
+        {" | "}
         <button type="button" onClick={handleLogout}>
           登出
         </button>

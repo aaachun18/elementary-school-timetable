@@ -5,6 +5,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import DataBrowser from "./pages/DataBrowser";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
+import RequirementsOverview from "./pages/RequirementsOverview";
 
 export default function App(): ReactElement {
   return (
@@ -24,6 +25,7 @@ export default function App(): ReactElement {
         >
           <Route path="/" element={<Home />} />
           <Route path="/data" element={<DataBrowser />} />
+          <Route path="/requirements" element={<RequirementsOverview />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
