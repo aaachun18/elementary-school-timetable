@@ -23,6 +23,8 @@ export default function Layout(): ReactElement {
         {" | "}
         <Link to="/requirements">排課需求總覽</Link>
         {" | "}
+        <Link to="/scheduler">排課控制台</Link>
+        {" | "}
         <button type="button" onClick={handleLogout}>
           登出
         </button>

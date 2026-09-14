@@ -38,8 +38,19 @@ class GeneratedLessonInfo(BaseModel):
 
 
 class GenerateLessonsResult(BaseModel):
+    """created_count is how many NEW Lesson rows this call inserted --
+    calling generate-lessons again on an already-synced version correctly
+    returns created_count=0, that's the diff-sync design working as
+    intended (see generate_lessons()'s docstring), not a sign that no
+    lessons exist. total_lesson_count is the actual total the version's
+    semester has after this call -- the number a caller actually wants when
+    asking "how many lessons are there to schedule", which is why a Task
+    32.8 bug report found a frontend page conflating created_count with
+    that instead."""
+
     created_lessons: list[GeneratedLessonInfo]
     created_count: int
+    total_lesson_count: int
 
 
 class OverProvisionedRequirement(BaseModel):

@@ -103,7 +103,7 @@ def delete_schedule_version(db: Session, schedule_version_id: int) -> bool:
 
 def generate_lessons(
     db: Session, schedule_version_id: int
-) -> list[Lesson] | None:
+) -> tuple[list[Lesson], int] | None:
     """Returns None if the ScheduleVersion doesn't exist (caller -> 404).
 
     Otherwise, for every ClassSubjectRequirement in the version's semester:
@@ -115,9 +115,18 @@ def generate_lessons(
     If ANY requirement is over-provisioned, the whole call is aborted --
     nothing is created for ANY requirement, not even the ones that were
     fine -- and LessonOverProvisionedError is raised with the full list of
-    offending requirements. Otherwise, all missing lessons are created in
-    one commit and returned (possibly an empty list if everything was
-    already in sync).
+    offending requirements. Otherwise, returns a
+    (newly_created_lessons, total_lesson_count) pair: the first element is
+    only what THIS call inserted (empty if everything was already in
+    sync -- diff-sync is idempotent by design); the second is the actual
+    total the semester has once this call returns, computed as
+    sum(weekly_periods) across its requirements -- which is guaranteed
+    correct at this point precisely because reaching here means nothing
+    was over-provisioned, so every requirement's Lesson count now equals
+    its weekly_periods exactly (see Task 32.8: a frontend page conflating
+    "newly created this call" with "current total" produced a visibly
+    contradictory pair of numbers on screen -- the fix is exposing the
+    total explicitly rather than making the caller infer it).
 
     Task 28: "the excess" for an over-provisioned requirement is defined as
     the Lesson rows with the highest sequence_number, beyond weekly_periods
@@ -205,4 +214,5 @@ def generate_lessons(
         for lesson in created:
             db.refresh(lesson)
 
-    return created
+    total_lesson_count = sum(requirement.weekly_periods for requirement in requirements)
+    return created, total_lesson_count

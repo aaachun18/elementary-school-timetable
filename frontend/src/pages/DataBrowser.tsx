@@ -101,30 +101,50 @@ function TeachersTab(): ReactElement {
             </tr>
           </thead>
           <tbody>
-            {data.map((teacher) => (
-              <Fragment key={teacher.id}>
-                <tr
-                  onClick={() =>
-                    setExpandedId((current) =>
-                      current === teacher.id ? null : teacher.id,
-                    )
-                  }
-                  style={{ cursor: "pointer" }}
-                >
-                  <td>{teacher.name}</td>
-                  <td>{teacher.is_active ? "是" : "否"}</td>
-                  <td>{teacher.min_weekly_periods}</td>
-                  <td>{teacher.max_weekly_periods}</td>
-                </tr>
-                {expandedId === teacher.id && (
-                  <tr>
-                    <td colSpan={4}>
-                      <TeacherDetail teacherId={teacher.id} />
+            {data.map((teacher) => {
+              const isExpanded = expandedId === teacher.id;
+              return (
+                <Fragment key={teacher.id}>
+                  {/* Task 32.6: a row quietly appearing below on click is
+                      easy to miss -- the rotating arrow + background tint
+                      make "this row is expanded" obvious at a glance,
+                      without needing a new icon library (a plain
+                      character, rotated with inline CSS). */}
+                  <tr
+                    onClick={() => setExpandedId(isExpanded ? null : teacher.id)}
+                    aria-expanded={isExpanded}
+                    style={{
+                      cursor: "pointer",
+                      backgroundColor: isExpanded ? "#eef4ff" : undefined,
+                    }}
+                  >
+                    <td>
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          display: "inline-block",
+                          transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)",
+                          marginRight: "0.5em",
+                        }}
+                      >
+                        ▶
+                      </span>
+                      {teacher.name}
                     </td>
+                    <td>{teacher.is_active ? "是" : "否"}</td>
+                    <td>{teacher.min_weekly_periods}</td>
+                    <td>{teacher.max_weekly_periods}</td>
                   </tr>
-                )}
-              </Fragment>
-            ))}
+                  {isExpanded && (
+                    <tr style={{ backgroundColor: "#eef4ff" }}>
+                      <td colSpan={4}>
+                        <TeacherDetail teacherId={teacher.id} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       )}

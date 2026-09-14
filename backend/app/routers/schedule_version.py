@@ -117,12 +117,13 @@ def delete_schedule_version(
 def generate_lessons(
     schedule_version_id: int, db: Session = Depends(get_db)
 ) -> GenerateLessonsResult:
-    created = schedule_version_service.generate_lessons(db, schedule_version_id)
-    if created is None:
+    result = schedule_version_service.generate_lessons(db, schedule_version_id)
+    if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="ScheduleVersion not found",
         )
+    created, total_lesson_count = result
     return GenerateLessonsResult(
         created_lessons=[
             GeneratedLessonInfo(
@@ -133,6 +134,7 @@ def generate_lessons(
             for lesson in created
         ],
         created_count=len(created),
+        total_lesson_count=total_lesson_count,
     )
 
 

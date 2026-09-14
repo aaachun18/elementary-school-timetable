@@ -6,6 +6,7 @@ import DataBrowser from "./pages/DataBrowser";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
 import RequirementsOverview from "./pages/RequirementsOverview";
+import SchedulerConsole from "./pages/SchedulerConsole";
 
 export default function App(): ReactElement {
   return (
@@ -26,6 +27,7 @@ export default function App(): ReactElement {
           <Route path="/" element={<Home />} />
           <Route path="/data" element={<DataBrowser />} />
           <Route path="/requirements" element={<RequirementsOverview />} />
+          <Route path="/scheduler" element={<SchedulerConsole />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

@@ -555,3 +555,40 @@ def test_run_scheduler_respects_fixed_time_slot(client: TestClient) -> None:
         s for s in schedules if s["lesson_id"] == lesson_to_fix["id"]
     )
     assert fixed_schedule["time_slot_id"] == time_slot_id
+
+
+# --- Task 32.8 regression: generate-lessons called twice must never make
+# the numbers a caller displays together look contradictory. ---
+
+
+def test_generate_lessons_called_twice_then_run_scheduler_reports_consistent_counts(
+    client: TestClient,
+) -> None:
+    """Reproduces the exact scenario behind the reported "共 0 堂課待排" /
+    "成功排定 26 堂課" contradiction: generate-lessons gets called on a
+    version whose lessons were already synced by an earlier call (in the
+    real bug report, an earlier task/test run; here, simply calling it
+    twice in a row). The second call's created_count correctly drops to 0
+    -- that's the diff-sync design, not a bug -- but total_lesson_count
+    must still report the real total, and that real total must match what
+    run-scheduler actually schedules right after.
+    """
+    _, version_id = _build_schedulable_semester(client, year=3011, weekly_periods=3)
+
+    # Second call: nothing new to create, but the lessons still exist.
+    second_generate = client.post(
+        f"/api/v1/schedule-versions/{version_id}/generate-lessons"
+    )
+    assert second_generate.status_code == 200
+    assert second_generate.json()["created_count"] == 0
+    assert second_generate.json()["total_lesson_count"] == 3
+
+    response = client.post(f"/api/v1/schedule-versions/{version_id}/run-scheduler")
+
+    assert response.status_code == 200
+    # The number the console shows as "共 X 堂課待排" (total_lesson_count)
+    # and the number it shows as "成功排定 X 堂課" (scheduled_count) must
+    # now agree -- both 3, never 0-vs-3.
+    assert response.json()["scheduled_count"] == second_generate.json()[
+        "total_lesson_count"
+    ]

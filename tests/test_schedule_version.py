@@ -217,11 +217,18 @@ def test_generate_lessons_is_idempotent_when_already_synced(
 
     first = client.post(f"/api/v1/schedule-versions/{version_id}/generate-lessons")
     assert first.json()["created_count"] == 2
+    assert first.json()["total_lesson_count"] == 2
 
     second = client.post(f"/api/v1/schedule-versions/{version_id}/generate-lessons")
 
     assert second.status_code == 200
+    # Task 32.8 regression: created_count correctly drops to 0 (nothing NEW
+    # to insert, diff-sync is idempotent) but total_lesson_count must NOT
+    # also drop to 0 -- the 2 lessons created by the first call still
+    # exist. A frontend that displays created_count as "how many lessons
+    # are there" would see this second call and wrongly report 0.
     assert second.json()["created_count"] == 0
+    assert second.json()["total_lesson_count"] == 2
 
 
 def test_generate_lessons_not_found(client: TestClient) -> None:
