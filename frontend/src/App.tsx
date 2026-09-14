@@ -7,6 +7,7 @@ import Home from "./pages/Home";
 import Login from "./pages/Login";
 import RequirementsOverview from "./pages/RequirementsOverview";
 import SchedulerConsole from "./pages/SchedulerConsole";
+import TimetableView from "./pages/TimetableView";
 
 export default function App(): ReactElement {
   return (
@@ -28,6 +29,7 @@ export default function App(): ReactElement {
           <Route path="/data" element={<DataBrowser />} />
           <Route path="/requirements" element={<RequirementsOverview />} />
           <Route path="/scheduler" element={<SchedulerConsole />} />
+          <Route path="/timetable" element={<TimetableView />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

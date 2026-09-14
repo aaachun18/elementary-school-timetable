@@ -12,38 +12,18 @@ import { list as listAcademicYears } from "../api/academicYears";
 import { useFlashMessage } from "../hooks/useFlashMessage";
 import { useResource } from "../hooks/useResource";
 import type { ScheduleVersion } from "../types/scheduleVersion";
-import type { Semester } from "../types/semester";
 import type {
   GenerateLessonsResponse,
   RunSchedulerFailureResponse,
   RunSchedulerSuccessResponse,
 } from "../types/scheduler";
 import type { ApiErrorResponse } from "../types/api";
+import {
+  formatSemesterLabel,
+  formatVersionLabel,
+} from "../utils/scheduleVersionFormat";
 
 type VersionPickerMode = "select" | "create";
-
-function formatSemesterLabel(
-  semester: Semester,
-  academicYearById: Map<number, number>,
-): string {
-  const year = academicYearById.get(semester.academic_year_id);
-  return year !== undefined
-    ? `${year} 學年度第 ${semester.number} 學期`
-    : `學期 ID ${semester.id}`;
-}
-
-function formatVersionLabel(
-  version: ScheduleVersion,
-  semesterById: Map<number, Semester>,
-  academicYearById: Map<number, number>,
-): string {
-  const semester = semesterById.get(version.semester_id);
-  const semesterLabel = semester
-    ? formatSemesterLabel(semester, academicYearById)
-    : `學期 ID ${version.semester_id}`;
-  const statusLabel = version.status === "DRAFT" ? "草稿" : "已發布";
-  return `${semesterLabel} - ${statusLabel} v${version.version_number}`;
-}
 
 // Extracts the backend's raw `detail` string for the plain {detail: "..."}
 // error shape every endpoint EXCEPT run-scheduler's 422 uses. Task 32
@@ -416,7 +396,9 @@ export default function SchedulerConsole(): ReactElement {
                     ✓ 成功排定 {runResult.scheduled_count} 堂課(回溯{" "}
                     {runResult.backtrack_count} 次)
                   </p>
-                  <Link to="/timetable">查看課表</Link>
+                  <Link to={`/timetable?scheduleVersionId=${selectedVersion.id}`}>
+                    查看課表
+                  </Link>
                 </div>
               )}
 

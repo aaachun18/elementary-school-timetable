@@ -9,6 +9,7 @@ class TimeSlotBase(BaseModel):
     start_time: time | None = None
     end_time: time | None = None
     is_teaching_period: bool = True
+    label: str | None = None
 
 
 class TimeSlotCreate(TimeSlotBase):
@@ -29,3 +30,4 @@ class TimeSlotUpdate(BaseModel):
     start_time: time | None = None
     end_time: time | None = None
     is_teaching_period: bool | None = None
+    label: str | None = None

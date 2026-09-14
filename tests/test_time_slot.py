@@ -119,3 +119,39 @@ def test_create_time_slot_weekday_check_violation(client: TestClient) -> None:
     response = client.post("/api/v1/time-slots/", json=_time_slot_payload(weekday=9))
 
     assert response.status_code == 409
+
+
+# --- label (Task 35) ---
+
+
+def test_create_time_slot_with_label(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/time-slots/",
+        json=_time_slot_payload(
+            period=0, is_teaching_period=False, label="早自習"
+        ),
+    )
+
+    assert response.status_code == 201
+    assert response.json()["label"] == "早自習"
+
+
+def test_create_time_slot_without_label_defaults_to_null(client: TestClient) -> None:
+    response = client.post("/api/v1/time-slots/", json=_time_slot_payload(period=7))
+
+    assert response.status_code == 201
+    assert response.json()["label"] is None
+
+
+def test_update_time_slot_label(client: TestClient) -> None:
+    create_response = client.post(
+        "/api/v1/time-slots/", json=_time_slot_payload(period=8)
+    )
+    time_slot_id = create_response.json()["id"]
+
+    response = client.patch(
+        f"/api/v1/time-slots/{time_slot_id}", json={"label": "午餐/午休"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["label"] == "午餐/午休"

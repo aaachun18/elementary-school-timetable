@@ -25,6 +25,8 @@ export default function Layout(): ReactElement {
         {" | "}
         <Link to="/scheduler">排課控制台</Link>
         {" | "}
+        <Link to="/timetable">課表檢視</Link>
+        {" | "}
         <button type="button" onClick={handleLogout}>
           登出
         </button>

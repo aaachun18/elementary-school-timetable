@@ -152,8 +152,21 @@ def _wipe_previous_seed(db: Session, manifest: dict) -> None:
     IDs -- rather than guessing from names/markers -- means this can never
     touch a row it didn't itself create, even if unrelated dev data happens
     to share a naming convention.
+
+    Exception: ScheduleVersion. Lesson is version-independent (it belongs
+    to a ClassSubjectRequirement, shared across every ScheduleVersion of a
+    semester -- see app/models/lesson.py), but the manifest only recorded
+    the ONE ScheduleVersion id that existed at seed time. If the user later
+    creates another ScheduleVersion for this same seeded semester (e.g. via
+    the frontend 排課控制台's "建立新版本" flow) and runs generate-lessons/
+    run-scheduler on it, that produces Schedule rows tied to a
+    schedule_version_id the manifest never recorded, referencing the same
+    (manifest-tracked) Lesson rows -- deleting those Lessons would then hit
+    a FK violation from the untracked version's Schedule rows. So instead
+    of trusting the manifest's single recorded id, every ScheduleVersion
+    currently belonging to the seeded semester_id is looked up fresh here,
+    right before deleting.
     """
-    sv_id = manifest["schedule_version_id"]
     semester_id = manifest["semester_id"]
     academic_year_id = manifest["academic_year_id"]
     school_id = manifest["school_id"]
@@ -164,7 +177,17 @@ def _wipe_previous_seed(db: Session, manifest: dict) -> None:
     subject_ids = manifest["subject_ids"]
     time_slot_ids = manifest["time_slot_ids"]
 
-    db.execute(delete(Schedule).where(Schedule.schedule_version_id == sv_id))
+    schedule_version_ids = list(
+        db.scalars(
+            select(ScheduleVersion.id).where(
+                ScheduleVersion.semester_id == semester_id
+            )
+        )
+    )
+
+    db.execute(
+        delete(Schedule).where(Schedule.schedule_version_id.in_(schedule_version_ids))
+    )
     db.execute(
         delete(Lesson).where(Lesson.class_subject_requirement_id.in_(requirement_ids))
     )
@@ -173,7 +196,9 @@ def _wipe_previous_seed(db: Session, manifest: dict) -> None:
             ClassSubjectRequirement.id.in_(requirement_ids)
         )
     )
-    db.execute(delete(ScheduleVersion).where(ScheduleVersion.id == sv_id))
+    db.execute(
+        delete(ScheduleVersion).where(ScheduleVersion.id.in_(schedule_version_ids))
+    )
     db.execute(delete(Semester).where(Semester.id == semester_id))
     db.execute(delete(AcademicYear).where(AcademicYear.id == academic_year_id))
     db.execute(
