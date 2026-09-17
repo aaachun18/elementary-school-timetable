@@ -83,6 +83,7 @@ def test_static_feasibility_passes_with_ample_resources() -> None:
 
     assert result.feasible is True
     assert result.violations == []
+    assert result.lesson_failures == []
 
 
 # --- Check 1: teacher workload exceeded ---
@@ -338,6 +339,12 @@ def test_static_feasibility_reports_all_three_kinds_independently() -> None:
         teacher_qualifications=[
             TeacherQualification(teacher_id=6, subject_id=8),
             TeacherQualification(teacher_id=7, subject_id=9),
+            # Requirement 3's lesson has no required_teacher_id, so it just
+            # needs SOME qualified teacher to avoid also tripping the 4th
+            # (zero-candidate-teacher) check this test isn't about --
+            # see test_static_feasibility_reports_workload_and_zero_
+            # candidate_together below for that combination specifically.
+            TeacherQualification(teacher_id=50, subject_id=10),
         ],
         teacher_workload_limits=[
             TeacherWorkloadLimit(teacher_id=6, max_weekly_periods=1),  # too low
@@ -362,3 +369,94 @@ def test_static_feasibility_reports_all_three_kinds_independently() -> None:
         "STATIC_INACTIVE_ENTITY_CONFLICT",
     }
     assert len(result.violations) == 3
+    assert result.lesson_failures == []
+
+
+# --- Check 4 (Task 38 bug fix): zero candidate teachers at all ---
+
+
+def test_static_feasibility_detects_zero_candidate_teacher_lesson() -> None:
+    lessons = [
+        _pending_lesson(1, class_subject_requirement_id=1, class_id=1, subject_id=99),
+    ]
+    resources = _empty_resources(time_slot_ids=[100])
+
+    result = check_static_feasibility(lessons, resources)
+
+    assert result.feasible is False
+    assert result.violations == []
+    assert len(result.lesson_failures) == 1
+    failure = result.lesson_failures[0]
+    assert failure.lesson_id == 1
+    assert failure.class_subject_requirement_id == 1
+    assert failure.reasons[0].type == "NO_CANDIDATE_TEACHER"
+
+
+def test_static_feasibility_detects_required_teacher_not_qualified_lesson() -> None:
+    """Same H6-not-H5-qualified distinction as
+    test_backtracking_reports_required_teacher_not_qualified -- must be
+    caught here too, not just inside schedule_backtracking()'s own
+    pre-flight, since this check now runs INSTEAD of ever reaching that
+    pre-flight whenever check_static_feasibility() is what run_scheduler()
+    calls (see this module's docstring)."""
+    lessons = [
+        _pending_lesson(1, class_subject_requirement_id=1, class_id=1, subject_id=8),
+    ]
+    resources = _empty_resources(
+        time_slot_ids=[100],
+        required_teacher_rules=[
+            RequiredTeacherRule(class_subject_requirement_id=1, required_teacher_id=6)
+        ],
+        # Teacher 6 exists and is qualified for OTHER subjects, but not 8.
+        teacher_qualifications=[TeacherQualification(teacher_id=6, subject_id=9)],
+    )
+
+    result = check_static_feasibility(lessons, resources)
+
+    assert result.feasible is False
+    assert len(result.lesson_failures) == 1
+    reason = result.lesson_failures[0].reasons[0]
+    assert reason.type == "H6_REQUIRED_TEACHER_NOT_QUALIFIED"
+    assert reason.teacher_id == 6
+
+
+def test_static_feasibility_reports_workload_and_zero_candidate_together() -> None:
+    """Task 38 regression: the exact bug a real user hit. A workload
+    problem (requirement 1, teacher 6) and a completely separate
+    zero-candidate-teacher problem (requirement 2, no one qualified for
+    subject 99) in the SAME run used to only ever report the workload one
+    -- run_scheduler() returned as soon as check_static_feasibility() found
+    ANYTHING, before schedule_backtracking()'s own pre-flight (the only
+    place that used to catch zero-candidate lessons) ever got a chance to
+    run. Both must now appear in the same StaticFeasibilityResult."""
+    lessons = [
+        # Requirement 1: overloads teacher 6 (workload) -- unrelated to
+        # requirement 2's problem.
+        _pending_lesson(1, class_subject_requirement_id=1, class_id=1, subject_id=8),
+        _pending_lesson(2, class_subject_requirement_id=1, class_id=1, subject_id=8),
+        # Requirement 2: nobody at all is qualified for subject 99.
+        _pending_lesson(3, class_subject_requirement_id=2, class_id=2, subject_id=99),
+    ]
+    resources = _empty_resources(
+        time_slot_ids=[100, 200],
+        required_teacher_rules=[
+            RequiredTeacherRule(class_subject_requirement_id=1, required_teacher_id=6),
+        ],
+        teacher_qualifications=[TeacherQualification(teacher_id=6, subject_id=8)],
+        teacher_workload_limits=[
+            TeacherWorkloadLimit(teacher_id=6, max_weekly_periods=1),  # too low
+        ],
+    )
+
+    result = check_static_feasibility(lessons, resources)
+
+    assert result.feasible is False
+
+    assert len(result.violations) == 1
+    assert result.violations[0].type == "STATIC_TEACHER_WORKLOAD_EXCEEDED"
+    assert result.violations[0].teacher_id == 6
+
+    assert len(result.lesson_failures) == 1
+    assert result.lesson_failures[0].lesson_id == 3
+    assert result.lesson_failures[0].class_subject_requirement_id == 2
+    assert result.lesson_failures[0].reasons[0].type == "NO_CANDIDATE_TEACHER"

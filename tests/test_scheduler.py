@@ -168,7 +168,14 @@ def test_run_scheduler_infeasible_returns_422_and_writes_nothing(
 
     assert response.status_code == 422
     data = response.json()
-    assert data["failure_type"] == "DEFINITELY_INFEASIBLE"
+    # Task 38: a zero-candidate-teacher Lesson is now caught by
+    # check_static_feasibility() itself (a 4th static check), before
+    # schedule_backtracking() is ever called -- so this reports
+    # STATIC_CHECK_FAILED, not DEFINITELY_INFEASIBLE (that label is now
+    # reserved for cases the SEARCH itself exhausts). Same underlying
+    # explanation either way, just caught earlier.
+    assert data["failure_type"] == "STATIC_CHECK_FAILED"
+    assert data["backtrack_count"] == 0
     assert len(data["lesson_failures"]) == 1
     assert data["lesson_failures"][0]["class_subject_requirement_id"]
 
@@ -216,7 +223,12 @@ def test_run_scheduler_required_teacher_not_qualified_returns_explained_422(
 
     assert response.status_code == 422
     data = response.json()
-    assert data["failure_type"] == "DEFINITELY_INFEASIBLE"
+    # Task 38: same reclassification as
+    # test_run_scheduler_infeasible_returns_422_and_writes_nothing above --
+    # check_static_feasibility()'s 4th check now catches this before any
+    # search, so it's STATIC_CHECK_FAILED, not DEFINITELY_INFEASIBLE.
+    assert data["failure_type"] == "STATIC_CHECK_FAILED"
+    assert data["backtrack_count"] == 0
     # The whole point of this regression test: lesson_failures must NOT be
     # empty -- there is exactly one Lesson, and it has a fully explainable,
     # per-Lesson reason it can never be placed.
@@ -468,6 +480,91 @@ def test_run_scheduler_static_checks_do_not_interfere_with_each_other(
         "STATIC_TEACHER_AVAILABILITY_INSUFFICIENT",
         "STATIC_INACTIVE_ENTITY_CONFLICT",
     }
+
+
+def test_run_scheduler_static_check_and_zero_candidate_teacher_together(
+    client: TestClient,
+) -> None:
+    """Task 38 regression: reproduces the exact bug a real user hit --
+    STATIC_TEACHER_WORKLOAD_EXCEEDED (a whole-batch static check) and
+    NO_CANDIDATE_TEACHER (a per-Lesson problem, for a completely unrelated
+    requirement with no qualified teacher at all) firing in the SAME run.
+    Before the fix, run_scheduler() returned as soon as
+    check_static_feasibility() found the workload problem, WITHOUT ever
+    calling schedule_backtracking() -- the only place that used to catch
+    zero-candidate-teacher Lessons -- so the response only ever reported the
+    workload violation and lesson_failures came back empty, silently
+    dropping the second failure reason entirely.
+    """
+    semester_id = _create_semester(client, year=3010)
+
+    # Requirement 1: overloaded teacher (workload) -- same shape as
+    # test_run_scheduler_static_check_teacher_workload_exceeded.
+    workload_subject_id = _create_subject(client, name="Workload Subject 3010")
+    overloaded_teacher = _create_teacher(
+        client, name="Overloaded 3010", max_weekly_periods=1
+    )
+    _add_teacher_subject(client, overloaded_teacher, workload_subject_id)
+    class_a = _create_class(client, level=30101)
+    client.post(
+        "/api/v1/class-subject-requirements/",
+        json={
+            "semester_id": semester_id,
+            "class_id": class_a,
+            "subject_id": workload_subject_id,
+            "weekly_periods": 2,
+            "required_teacher_id": overloaded_teacher,
+        },
+    )
+
+    # Requirement 2: a completely unrelated subject nobody is qualified to
+    # teach -- no required_teacher_id, so this is the NO_CANDIDATE_TEACHER
+    # shape, not H6_REQUIRED_TEACHER_NOT_QUALIFIED.
+    unteachable_subject_id = _create_subject(client, name="Unteachable Subject 3010")
+    class_b = _create_class(client, level=30102)
+    client.post(
+        "/api/v1/class-subject-requirements/",
+        json={
+            "semester_id": semester_id,
+            "class_id": class_b,
+            "subject_id": unteachable_subject_id,
+            "weekly_periods": 1,
+        },
+    )
+
+    # Enough time slots that the overloaded teacher's problem is PURELY a
+    # workload one -- 2 slots for their 2 required lessons, so
+    # STATIC_TEACHER_AVAILABILITY_INSUFFICIENT does not also fire and
+    # muddy what this test is isolating.
+    for period in range(1, 3):
+        _create_time_slot(client, weekday=1, period=period)
+
+    version_id = _create_schedule_version(client, semester_id)
+    generate_response = client.post(
+        f"/api/v1/schedule-versions/{version_id}/generate-lessons"
+    )
+    assert generate_response.json()["created_count"] == 3  # 2 + 1
+
+    response = client.post(f"/api/v1/schedule-versions/{version_id}/run-scheduler")
+
+    assert response.status_code == 422
+    data = response.json()
+    assert data["failure_type"] == "STATIC_CHECK_FAILED"
+    assert data["backtrack_count"] == 0
+
+    # The workload problem: still reported, exactly as before.
+    post_hoc_types = {v["type"] for v in data["post_hoc_violations"]}
+    assert post_hoc_types == {"STATIC_TEACHER_WORKLOAD_EXCEEDED"}
+
+    # The zero-candidate-teacher problem: MUST also be reported now, not
+    # silently dropped.
+    assert len(data["lesson_failures"]) == 1
+    lesson_failure = data["lesson_failures"][0]
+    assert lesson_failure["reasons"][0]["type"] == "NO_CANDIDATE_TEACHER"
+    assert lesson_failure["reasons"][0]["subject_id"] == unteachable_subject_id
+
+    schedules_response = client.get("/api/v1/schedules/")
+    assert schedules_response.json() == []
 
 
 # --- 404 ---

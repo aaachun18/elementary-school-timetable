@@ -159,11 +159,19 @@ def run_scheduler(
         )
 
     if outcome.static_violations is not None:
-        # Task 23: an aggregate, summed-up problem was found before the
-        # search ever ran -- backtrack_count is always 0 here.
+        # Task 23/38: a problem was found before the search ever ran --
+        # backtrack_count is always 0 here. static_lesson_failures (Task 38)
+        # can be non-empty alongside static_violations in the same response:
+        # a whole-batch problem (e.g. teacher workload) and a specific
+        # Lesson with zero candidate teachers are independent findings from
+        # check_static_feasibility()'s 4 checks, never mutually exclusive.
+        assert outcome.static_lesson_failures is not None
         detail = SchedulerFailureDetail(
             failure_type="STATIC_CHECK_FAILED",
-            lesson_failures=[],
+            lesson_failures=[
+                LessonFailureDetail.model_validate(failure)
+                for failure in outcome.static_lesson_failures
+            ],
             post_hoc_violations=[
                 ConstraintViolationDetail.model_validate(violation)
                 for violation in outcome.static_violations
@@ -189,14 +197,7 @@ def run_scheduler(
     detail = SchedulerFailureDetail(
         failure_type=failure_type,
         lesson_failures=[
-            LessonFailureDetail(
-                lesson_id=failure.lesson_id,
-                class_subject_requirement_id=failure.class_subject_requirement_id,
-                reasons=[
-                    ConstraintViolationDetail.model_validate(reason)
-                    for reason in failure.reasons
-                ],
-            )
+            LessonFailureDetail.model_validate(failure)
             for failure in result.lesson_failures
         ],
         post_hoc_violations=[

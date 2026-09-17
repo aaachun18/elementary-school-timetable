@@ -11,6 +11,7 @@ import { list as listSemesters } from "../api/semesters";
 import { list as listAcademicYears } from "../api/academicYears";
 import { useFlashMessage } from "../hooks/useFlashMessage";
 import { useResource } from "../hooks/useResource";
+import FailureDiagnostics from "../components/FailureDiagnostics";
 import type { ScheduleVersion } from "../types/scheduleVersion";
 import type {
   GenerateLessonsResponse,
@@ -402,15 +403,7 @@ export default function SchedulerConsole(): ReactElement {
                 </div>
               )}
 
-              {runFailure !== null && (
-                <div>
-                  <p role="alert" style={{ color: "#b00020", fontWeight: "bold" }}>
-                    ✗ 排課失敗:{runFailure.failure_type}
-                  </p>
-                  <p>詳細診斷功能開發中。</p>
-                  <pre>{JSON.stringify(runFailure, null, 2)}</pre>
-                </div>
-              )}
+              {runFailure !== null && <FailureDiagnostics response={runFailure} />}
             </section>
           )}
         </>

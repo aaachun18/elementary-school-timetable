@@ -34,7 +34,10 @@ from scheduling_engine.algorithms.backtracking import (  # noqa: E402
     BacktrackingResult,
     schedule_backtracking,
 )
-from scheduling_engine.algorithms.resources import SchedulingResources  # noqa: E402
+from scheduling_engine.algorithms.resources import (  # noqa: E402
+    LessonFailure,
+    SchedulingResources,
+)
 from scheduling_engine.constraints.base import ConstraintViolation  # noqa: E402
 from scheduling_engine.models.domain import (  # noqa: E402
     ActiveStatusInfo,
@@ -233,16 +236,24 @@ class SchedulerRunOutcome:
     exist and not already scheduled (see run_scheduler()'s own docstring
     for the None-return and raised-exception cases, which happen earlier).
 
-    Exactly one of the two fields is populated (same "exactly one of these"
-    convention already used by GreedyResult/BacktrackingResult):
-    - static_violations: the Task 23 pre-search static feasibility check
-      found at least one aggregate, summed-up reason this can never
-      succeed. schedule_backtracking() was never even called.
+    Exactly one of {static_violations/static_lesson_failures, search_result}
+    is populated (same "exactly one of these" convention already used by
+    GreedyResult/BacktrackingResult):
+    - static_violations/static_lesson_failures: the Task 23 pre-search
+      static feasibility check found at least one reason this can never
+      succeed -- either a whole-batch one (static_violations: teacher
+      workload/availability, inactive entities) or a specific Lesson with
+      zero candidate teachers at all (static_lesson_failures, Task 38 --
+      see static_feasibility.py's module docstring for why this became a
+      4th static check instead of only ever being discovered, or missed,
+      inside schedule_backtracking()). schedule_backtracking() was never
+      even called.
     - search_result: the static checks passed, and Backtracking actually
       ran -- see BacktrackingResult for its own success/failure shape.
     """
 
     static_violations: list[ConstraintViolation] | None
+    static_lesson_failures: list[LessonFailure] | None
     search_result: BacktrackingResult | None
 
 
@@ -255,11 +266,11 @@ def run_scheduler(
     Schedule rows (see that exception's docstring for why re-running isn't
     just allowed to silently overwrite them).
 
-    Otherwise runs the Task 23 static feasibility checks first -- three
-    aggregate, summed-up facts (teacher workload, teacher availability,
-    inactive entities) that settle infeasibility without a single search
-    step -- and only calls schedule_backtracking() if all three pass. In
-    both cases:
+    Otherwise runs the Task 23 static feasibility checks first -- four facts
+    (teacher workload, teacher availability, inactive entities, and a Lesson
+    with zero candidate teachers at all) that settle infeasibility without a
+    single search step -- and only calls schedule_backtracking() if all four
+    pass. In both cases:
     - on success, writes state.assignments to the `schedules` table in one
       commit (caller reads result.search_result.state.assignments /
       backtrack_count for the 200 response).
@@ -298,7 +309,9 @@ def run_scheduler(
     static_check = check_static_feasibility(lessons, resources)
     if not static_check.feasible:
         return SchedulerRunOutcome(
-            static_violations=static_check.violations, search_result=None
+            static_violations=static_check.violations,
+            static_lesson_failures=static_check.lesson_failures,
+            search_result=None,
         )
 
     result = schedule_backtracking(lessons, resources)
@@ -321,4 +334,6 @@ def run_scheduler(
             db.rollback()
             raise_for_integrity_error(exc)
 
-    return SchedulerRunOutcome(static_violations=None, search_result=result)
+    return SchedulerRunOutcome(
+        static_violations=None, static_lesson_failures=None, search_result=result
+    )

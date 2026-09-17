@@ -1,18 +1,32 @@
-"""Static feasibility checks run BEFORE any search begins (Task 23).
+"""Static feasibility checks run BEFORE any search begins (Task 23; the 4th
+check below added by the Task 38 bug fix).
 
-These three checks share a property that sets them apart from every
-per-candidate Constraint in constraints/ and from the per-Lesson candidate
-generation in algorithms/resources.py: each is an AGGREGATE, summed-up
-comparison across a teacher's (or requirement's) ENTIRE batch of Lessons in
-this run -- "does this teacher have enough weekly capacity/available time
-slots for everything required of them", "is any involved entity simply
-turned off" -- not a fact about one candidate or one Lesson in isolation.
-None of them needs to try a single (teacher, time_slot, room) combination
-to know the answer; a sum and a comparison settle it up front. Running a
-full Backtracking search only to eventually discover one of these would be
+All four checks share a property that sets them apart from every
+per-candidate Constraint in constraints/: each is a fact checkable up front,
+without trying a single (teacher, time_slot, room) combination --
+"does this teacher have enough weekly capacity/available time slots for
+everything required of them", "is any involved entity simply turned off",
+"does this Lesson have any candidate teacher AT ALL". Running a full
+Backtracking search only to eventually discover one of these would be
 strictly slower and no more informative than catching it here first, so
 these run before schedule_backtracking()/schedule_greedy() are ever called
 (see backend/app/services/scheduler.py::run_scheduler()).
+
+Task 38 bug fix: a real run combining a STATIC_TEACHER_WORKLOAD_EXCEEDED
+problem with a separate "no qualified teacher at all" problem (for a
+different Lesson) only ever reported the workload one. Root cause:
+run_scheduler() returns immediately when check_static_feasibility() finds
+anything, WITHOUT ever calling schedule_backtracking() -- and "zero
+candidate teachers" used to be checked ONLY inside schedule_backtracking()'s
+own pre-flight step (still is, unchanged, for callers that invoke it
+directly/its own tests), so it never got a chance to run at all whenever a
+static check failed first. The fix is not to remove that short-circuit --
+running a full search once we already know from a cheap aggregate check that
+success is impossible would be pure waste -- but to make the SAME kind of
+cheap, no-search aggregate check catch this case too, here, alongside the
+other three, so check_static_feasibility() is a genuinely complete
+"everything checkable without searching" pass and nothing checkable that way
+depends on which check happens to run first.
 
 Pure Python like everything else in scheduling_engine/ (see AGENTS.md
 section 4): operates only on the same LessonAssignment/SchedulingResources
@@ -22,22 +36,39 @@ DB access.
 
 from dataclasses import dataclass
 
-from scheduling_engine.algorithms.resources import SchedulingResources
+from scheduling_engine.algorithms.resources import (
+    LessonFailure,
+    SchedulingResources,
+    build_lookup_tables,
+    candidate_teacher_ids,
+    no_candidate_teacher_violation,
+)
 from scheduling_engine.constraints.base import ConstraintViolation, Severity
 from scheduling_engine.models.domain import LessonAssignment
 
 
 @dataclass
 class StaticFeasibilityResult:
-    """feasible=True: none of the three checks found anything, safe to
-    proceed to a real search. feasible=False: violations lists EVERY
-    problem found across all three checks (not just the first), same
-    "report everything, don't stop at the first failure" stance the rest
-    of the engine's diagnostics already take (see GreedyResult's
-    lesson_failures)."""
+    """feasible=True: none of the four checks found anything, safe to
+    proceed to a real search. feasible=False: violations/lesson_failures
+    together list EVERY problem found across all four checks (not just the
+    first), same "report everything, don't stop at the first failure"
+    stance the rest of the engine's diagnostics already take (see
+    GreedyResult's lesson_failures).
+
+    Split into two lists, not one, for the same reason BacktrackingResult
+    and GreedyResult already split lesson_failures from post_hoc_violations:
+    violations are whole-batch facts with no single Lesson to blame
+    (teacher workload/availability, inactive entities), while
+    lesson_failures are about one SPECIFIC Lesson that can never be placed
+    (zero candidate teachers) -- collapsing the two into one undifferentiated
+    list would lose that distinction for every caller downstream (e.g.
+    FailureDiagnostics.tsx's per-lesson vs whole-batch sections).
+    """
 
     feasible: bool
     violations: list[ConstraintViolation]
+    lesson_failures: list[LessonFailure]
 
 
 def _lesson_counts_by_required_teacher(
@@ -276,10 +307,46 @@ def _check_inactive_entity_conflict(
     return violations
 
 
+def _check_zero_candidate_teacher_lessons(
+    lessons: list[LessonAssignment], resources: SchedulingResources
+) -> list[LessonFailure]:
+    """A Lesson with zero candidate teachers at all -- no teacher holds the
+    H5 qualification for its subject (or the one H6 required_teacher_id
+    names does, but lacks it) -- can never be placed no matter what the
+    search tries, independent of every other Lesson in the batch: exactly
+    the same "aggregate, no-search-needed fact" property as the three checks
+    above.
+
+    Reuses build_lookup_tables()/candidate_teacher_ids()/
+    no_candidate_teacher_violation() from algorithms/resources.py --
+    verbatim the same functions schedule_backtracking()'s own pre-flight
+    step uses (see backtracking.py's trivial_failures) -- so "zero
+    candidates" is decided in exactly one place. This does NOT replace that
+    pre-flight step: schedule_backtracking() stays fully self-contained
+    (still correct, still tested, when called directly rather than through
+    run_scheduler()); this just means run_scheduler() no longer has to reach
+    the search at all to already know the answer for this case.
+    """
+    tables = build_lookup_tables(resources)
+    return [
+        LessonFailure(
+            lesson_id=lesson.lesson_id,
+            class_subject_requirement_id=lesson.class_subject_requirement_id,
+            reasons=[no_candidate_teacher_violation(lesson, tables)],
+        )
+        for lesson in lessons
+        if not candidate_teacher_ids(lesson, tables)
+    ]
+
+
 def check_static_feasibility(
     lessons: list[LessonAssignment], resources: SchedulingResources
 ) -> StaticFeasibilityResult:
-    """Entry point: run all three checks and combine their results.
+    """Entry point: run all four checks and combine their results -- see
+    this module's docstring for why all four must run together rather than
+    stopping at the first one that finds something (the Task 38 bug this
+    fixed was exactly that: a real run with both a workload problem and a
+    zero-candidate-teacher problem only ever reported the workload one).
 
     Only required_teacher_id is checked for capacity/availability -- a
     Lesson with no required-teacher rule is free to use ANY qualified
@@ -292,4 +359,9 @@ def check_static_feasibility(
         + _check_teacher_availability_insufficient(lessons, resources)
         + _check_inactive_entity_conflict(lessons, resources)
     )
-    return StaticFeasibilityResult(feasible=not violations, violations=violations)
+    lesson_failures = _check_zero_candidate_teacher_lessons(lessons, resources)
+    return StaticFeasibilityResult(
+        feasible=not violations and not lesson_failures,
+        violations=violations,
+        lesson_failures=lesson_failures,
+    )

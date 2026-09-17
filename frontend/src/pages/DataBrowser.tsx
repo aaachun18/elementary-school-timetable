@@ -1,4 +1,5 @@
 import { Fragment, useState, type ReactElement } from "react";
+import { useSearchParams } from "react-router-dom";
 import { list as listTeachers } from "../api/teachers";
 import { list as listClasses } from "../api/classes";
 import { list as listSubjects } from "../api/subjects";
@@ -18,6 +19,12 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "rooms", label: "教室" },
   { key: "timeSlots", label: "時段" },
 ];
+
+const TAB_KEYS = new Set<string>(TABS.map((tab) => tab.key));
+
+function isTabKey(value: string | null): value is TabKey {
+  return value !== null && TAB_KEYS.has(value);
+}
 
 function LoadingOrError({
   isLoading,
@@ -279,7 +286,18 @@ function TimeSlotsTab(): ReactElement {
 }
 
 export default function DataBrowser(): ReactElement {
-  const [activeTab, setActiveTab] = useState<TabKey>("teachers");
+  // Task 37: FailureDiagnostics.tsx's "請至 {頁面} 修正" links carry
+  // ?tab=teachers (etc, see constants/violationPageMapping.ts) so a click
+  // lands directly on the relevant tab instead of always the default. Read
+  // once on mount, same "lazy useState initializer from a query param"
+  // pattern TimetableView.tsx already uses for ?scheduleVersionId= --
+  // switching tabs afterwards is still plain local state, not synced back
+  // to the URL, matching how this page already behaved before this Task.
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<TabKey>(() => {
+    const requestedTab = searchParams.get("tab");
+    return isTabKey(requestedTab) ? requestedTab : "teachers";
+  });
 
   return (
     <div>

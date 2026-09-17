@@ -54,11 +54,17 @@ class SchedulerFailureDetail(BaseModel):
       finished schedule still fails the post-hoc H7 check -- that case
       leaves BacktrackingResult.failure_type as None, so it needs its own
       label here to avoid reporting a misleading null failure_type.
-    - "STATIC_CHECK_FAILED" (Task 23): the pre-search static feasibility
-      check (teacher workload / teacher availability / inactive entities)
-      found a problem BEFORE schedule_backtracking() was ever called --
-      backtrack_count is always 0 for this case, since no search ran at
-      all.
+    - "STATIC_CHECK_FAILED" (Task 23; 4th check added Task 38): the
+      pre-search static feasibility check (teacher workload / teacher
+      availability / inactive entities / a Lesson with zero candidate
+      teachers at all) found a problem BEFORE schedule_backtracking() was
+      ever called -- backtrack_count is always 0 for this case, since no
+      search ran at all. Unlike the other 4 failure_type values,
+      lesson_failures and post_hoc_violations can BOTH be non-empty here at
+      once: the zero-candidate-teacher check is inherently per-Lesson
+      (lesson_failures) while the other three are whole-batch
+      (post_hoc_violations), and check_static_feasibility() always reports
+      everything all four checks found, not just whichever fired first.
     """
 
     failure_type: Literal[
