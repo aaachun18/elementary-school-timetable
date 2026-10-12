@@ -27,6 +27,11 @@ const KNOWN_ERROR_MESSAGES: Record<string, string> = {
   "AcademicYear not found": "此學年度資料已不存在,請重新整理頁面",
   "Semester not found": "此學期資料已不存在,請重新整理頁面",
   "Class not found": "此班級資料已不存在,請重新整理頁面",
+  // Task 45's CRUD tables (Grade/Teacher/TimeSlot) -- same "deleted
+  // concurrently by someone else" 404 case as above.
+  "Grade not found": "此年級資料已不存在,請重新整理頁面",
+  "Teacher not found": "此教師資料已不存在,請重新整理頁面",
+  "TimeSlot not found": "此時段資料已不存在,請重新整理頁面",
 };
 
 // Falls back to the original (untranslated) message when it isn't in the
