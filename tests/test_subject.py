@@ -167,7 +167,7 @@ def test_delete_subject_blocked_by_requirement_keeps_qualifications(
     response = client.delete(f"/api/v1/subjects/{subject_id}")
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "此資料仍被其他資料參照,無法刪除"
+    assert response.json()["detail"] == "此資料仍被其他資料參照，無法刪除"
     # Subject AND every teacher's qualification for it survived -- the
     # transaction was fully rolled back, not partially applied.
     get_response = client.get(f"/api/v1/subjects/{subject_id}")

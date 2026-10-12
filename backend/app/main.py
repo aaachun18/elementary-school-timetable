@@ -73,7 +73,7 @@ def handle_dependent_records_exist(
 ) -> JSONResponse:
     return JSONResponse(
         status_code=409,
-        content={"detail": "此資料仍被其他資料參照,無法刪除"},
+        content={"detail": "此資料仍被其他資料參照，無法刪除"},
     )
 
 
@@ -83,7 +83,7 @@ def handle_invalid_reference(
 ) -> JSONResponse:
     return JSONResponse(
         status_code=422,
-        content={"detail": "關聯的資料不存在,請確認外鍵欄位是否正確"},
+        content={"detail": "關聯的資料不存在，請確認外鍵欄位是否正確"},
     )
 
 
@@ -93,7 +93,7 @@ def handle_duplicate_value(
 ) -> JSONResponse:
     return JSONResponse(
         status_code=409,
-        content={"detail": "資料重複或違反欄位限制,請確認輸入內容"},
+        content={"detail": "資料重複或違反欄位限制，請確認輸入內容"},
     )
 
 
@@ -101,12 +101,12 @@ def handle_duplicate_value(
 def handle_lesson_over_provisioned(
     request: Request, exc: LessonOverProvisionedError
 ) -> JSONResponse:
-    detail = "部分需求的 Lesson 數量已超過 weekly_periods,系統不會自動刪除,請人工確認後處理"
+    detail = "部分需求的課程數量已超過每週節數上限，系統不會自動刪除，請人工確認後處理"
     if any(item.get("includes_fixed_lesson") for item in exc.over_provisioned):
         # Task 28: never let this fact go unmentioned -- a fixed lesson
         # being among the "excess" ones needs a human decision, not a
         # generic over-provisioning message that reads the same either way.
-        detail += "。其中包含已手動固定時段的課程,需先手動處理"
+        detail += "。其中包含已手動固定時段的課程，需先手動處理"
     return JSONResponse(
         status_code=409,
         content={
@@ -123,8 +123,8 @@ def handle_schedule_version_already_scheduled(
     return JSONResponse(
         status_code=409,
         content={
-            "detail": "此版本已有排課結果,系統不會自動覆蓋,"
-            "請先刪除既有 Schedule 記錄後再重新執行排課"
+            "detail": "此版本已有排課結果，系統不會自動覆蓋，"
+            "請先刪除既有排課結果記錄後再重新執行排課"
         },
     )
 
@@ -135,7 +135,7 @@ def handle_published_version_immutable(
 ) -> JSONResponse:
     return JSONResponse(
         status_code=409,
-        content={"detail": "已發布版本不可修改,請建立新草稿版本"},
+        content={"detail": "已發布版本不可修改，請建立新草稿版本"},
     )
 
 

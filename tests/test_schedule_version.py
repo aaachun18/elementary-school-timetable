@@ -605,7 +605,7 @@ def test_delete_published_schedule_version_returns_409(client: TestClient) -> No
     response = client.delete(f"/api/v1/schedule-versions/{version_id}")
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "已發布版本不可修改,請建立新草稿版本"
+    assert response.json()["detail"] == "已發布版本不可修改，請建立新草稿版本"
     # Nothing was touched -- version and its Schedule both survived.
     assert client.get(f"/api/v1/schedule-versions/{version_id}").status_code == 200
     assert client.get(f"/api/v1/schedules/{schedule_id}").status_code == 200

@@ -258,7 +258,7 @@ def test_delete_time_slot_blocked_by_fixed_lesson_keeps_availability(
     response = client.delete(f"/api/v1/time-slots/{time_slot_id}")
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "此資料仍被其他資料參照,無法刪除"
+    assert response.json()["detail"] == "此資料仍被其他資料參照，無法刪除"
     # TimeSlot AND the teacher's unavailable-slot record both survived --
     # the transaction was fully rolled back, not partially applied.
     get_response = client.get(f"/api/v1/time-slots/{time_slot_id}")
@@ -296,7 +296,7 @@ def test_delete_time_slot_blocked_by_schedule_keeps_availability(
     response = client.delete(f"/api/v1/time-slots/{time_slot_id}")
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "此資料仍被其他資料參照,無法刪除"
+    assert response.json()["detail"] == "此資料仍被其他資料參照，無法刪除"
     get_response = client.get(f"/api/v1/time-slots/{time_slot_id}")
     assert get_response.status_code == 200
     slots_response = client.get(f"/api/v1/teachers/{teacher_id}/unavailable-slots")
