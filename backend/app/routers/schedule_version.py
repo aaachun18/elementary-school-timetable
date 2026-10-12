@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_current_user, require_admin
 from app.database import get_db
 from app.models.schedule_version import ScheduleVersion
+from app.models.user import User
 from app.schemas.schedule_version import (
     GeneratedLessonInfo,
     GenerateLessonsResult,
@@ -45,17 +46,28 @@ def create_schedule_version(
 
 @router.get("/", response_model=list[ScheduleVersionRead])
 def list_schedule_versions(
-    skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
+    skip: int = 0,
+    limit: int = 100,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> list[ScheduleVersion]:
-    return schedule_version_service.get_schedule_versions(db, skip=skip, limit=limit)
+    # Task 43: TEACHER only ever sees PUBLISHED versions -- see
+    # get_schedule_versions()'s own docstring-equivalent comment in
+    # services/schedule_version.py for why this is a silent filter, not a
+    # 403.
+    return schedule_version_service.get_schedule_versions(
+        db, skip=skip, limit=limit, role=current_user.role
+    )
 
 
 @router.get("/{schedule_version_id}", response_model=ScheduleVersionRead)
 def get_schedule_version(
-    schedule_version_id: int, db: Session = Depends(get_db)
+    schedule_version_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> ScheduleVersion:
     schedule_version = schedule_version_service.get_schedule_version(
-        db, schedule_version_id
+        db, schedule_version_id, role=current_user.role
     )
     if schedule_version is None:
         raise HTTPException(

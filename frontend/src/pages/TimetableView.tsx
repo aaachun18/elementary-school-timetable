@@ -147,23 +147,35 @@ export default function TimetableView(): ReactElement {
       <section>
         <label htmlFor="timetable-version-select">選擇排課版本</label>
         <br />
-        <select
-          id="timetable-version-select"
-          value={selectedVersionId ?? ""}
-          onChange={(event) => {
-            setSelectedVersionId(
-              event.target.value === "" ? null : Number(event.target.value),
-            );
-            setSelectedTargetId(null);
-          }}
-        >
-          <option value="">請選擇…</option>
-          {versions.map((version) => (
-            <option key={version.id} value={version.id}>
-              {formatVersionLabel(version, semesterById, academicYearById)}
-            </option>
-          ))}
-        </select>
+        {/* Task 43: TEACHER's GET /api/v1/schedule-versions/ already only
+            ever returns PUBLISHED versions (backend/app/services/
+            schedule_version.py) -- `versions` here is exactly what this
+            page is allowed to offer, no extra client-side filtering
+            needed. An empty list (no PUBLISHED version exists yet, for
+            TEACHER; or genuinely none at all, for ADMIN) gets its own
+            message instead of a dropdown with nothing but "請選擇…" in
+            it. */}
+        {versions.length === 0 ? (
+          <p>目前沒有可查看的課表版本。</p>
+        ) : (
+          <select
+            id="timetable-version-select"
+            value={selectedVersionId ?? ""}
+            onChange={(event) => {
+              setSelectedVersionId(
+                event.target.value === "" ? null : Number(event.target.value),
+              );
+              setSelectedTargetId(null);
+            }}
+          >
+            <option value="">請選擇…</option>
+            {versions.map((version) => (
+              <option key={version.id} value={version.id}>
+                {formatVersionLabel(version, semesterById, academicYearById)}
+              </option>
+            ))}
+          </select>
+        )}
       </section>
 
       {selectedVersionId !== null && (

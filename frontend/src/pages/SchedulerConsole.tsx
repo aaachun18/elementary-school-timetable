@@ -6,6 +6,7 @@ import {
   generateLessons,
   list as listScheduleVersions,
   runScheduler,
+  update as updateScheduleVersion,
 } from "../api/scheduleVersions";
 import { list as listSemesters } from "../api/semesters";
 import { list as listAcademicYears } from "../api/academicYears";
@@ -120,6 +121,16 @@ export default function SchedulerConsole(): ReactElement {
   );
   const [runError, setRunError] = useState<string | null>(null);
 
+  // --- 發布為最終確定版(Task 43 修正)。Deliberately NOT gated behind
+  // this session's own runResult -- ADMIN may run the scheduler, go check
+  // the timetable, and only come back to publish later (even in a later
+  // visit to this page, after re-selecting an existing version from the
+  // dropdown). The publish control lives next to the confirmed-version
+  // banner instead, available any time selectedVersion.status is DRAFT.
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const publishFlash = useFlashMessage();
+
   // --- 設定固定時段(選填,Task 41): lets the user pin individual Lessons
   // (not whole requirements) to a specific TimeSlot before running the
   // scheduler. Only meaningful once generateResult !== null (Lessons must
@@ -165,6 +176,7 @@ export default function SchedulerConsole(): ReactElement {
     setIsFixedSlotsExpanded(false);
     setSavingLessonId(null);
     setFixedSlotRowErrors(new Map());
+    setPublishError(null);
   }
 
   // Updates every row across every group matching lessonId -- a plain
@@ -308,6 +320,38 @@ export default function SchedulerConsole(): ReactElement {
     }
   }
 
+  async function handlePublish(): Promise<void> {
+    if (selectedVersion === null) {
+      return;
+    }
+    // Native confirm(), same convention DataBrowser.tsx's CRUD delete uses
+    // for an irreversible action -- publishing locks this version for
+    // good (the backend's existing PUBLISHED rule means it can never be
+    // turned back into a DRAFT, see update_schedule_version()).
+    const confirmed = window.confirm(
+      "發布後這個版本將無法再修改(無法改回草稿、無法重新展開課程清單或重新排課),且 TEACHER 角色將能在課表檢視看到這個版本。確定要發布為最終確定版嗎?",
+    );
+    if (!confirmed) {
+      return;
+    }
+    setIsPublishing(true);
+    setPublishError(null);
+    try {
+      const updated = await updateScheduleVersion(selectedVersion.id, {
+        status: "PUBLISHED",
+      });
+      setSelectedVersion(updated);
+      setVersions((previous) =>
+        previous.map((version) => (version.id === updated.id ? updated : version)),
+      );
+      publishFlash.showFlash("已發布為最終確定版");
+    } catch (error) {
+      setPublishError(extractDetailMessage(error));
+    } finally {
+      setIsPublishing(false);
+    }
+  }
+
   const isLoadingLookups =
     versionsResource.isLoading || semesters.isLoading || academicYears.isLoading;
   const lookupErrorMessage =
@@ -447,6 +491,33 @@ export default function SchedulerConsole(): ReactElement {
             <button type="button" onClick={handleResetVersionSelection}>
               重新選擇版本
             </button>
+
+            {/* 發布為最終確定版(Task 43 修正)-- 刻意不綁在「這次 session
+                剛排課成功」上:ADMIN 排課完後可能會先去課表檢視核對,之後
+                才回到這個頁籤發布,甚至可能是完全不同的瀏覽階段、重新選一
+                次既有版本。只要選到的版本還是 DRAFT,這裡就一定出現,不
+                需要 runResult 還留著。 */}
+            {selectedVersion.status === "PUBLISHED" ? (
+              <p style={{ color: "green", fontWeight: "bold" }}>
+                ✓ 此版本已發布為最終確定版,TEACHER 角色可以在課表檢視看到它。
+              </p>
+            ) : (
+              <div>
+                <button type="button" onClick={handlePublish} disabled={isPublishing}>
+                  {isPublishing ? "發布中…" : "發布為最終確定版"}
+                </button>
+                <p style={{ color: "#555", fontSize: "0.9em" }}>
+                  發布後 TEACHER 角色才能在課表檢視看到這個版本;發布後無法再修改、
+                  無法改回草稿、無法重新展開課程清單或重新排課。
+                </p>
+                {publishError !== null && <p role="alert">{publishError}</p>}
+              </div>
+            )}
+            {publishFlash.message !== null && (
+              <p style={{ color: "green", fontWeight: "bold" }}>
+                ✓ {publishFlash.message}
+              </p>
+            )}
           </div>
         )}
       </section>

@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_current_user, require_admin
 from app.database import get_db
 from app.models.schedule import Schedule
+from app.models.user import User
 from app.schemas.schedule import ScheduleCreate, ScheduleRead, ScheduleUpdate
 from app.services import schedule as schedule_service
 
@@ -28,14 +29,26 @@ def create_schedule(
 
 @router.get("/", response_model=list[ScheduleRead])
 def list_schedules(
-    skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
+    skip: int = 0,
+    limit: int = 100,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> list[Schedule]:
-    return schedule_service.get_schedules(db, skip=skip, limit=limit)
+    # Task 43: TEACHER only ever sees Schedule rows belonging to a
+    # PUBLISHED ScheduleVersion -- see schedule_version.py's own comment
+    # on why this is a silent filter, not a 403.
+    return schedule_service.get_schedules(
+        db, skip=skip, limit=limit, role=current_user.role
+    )
 
 
 @router.get("/{schedule_id}", response_model=ScheduleRead)
-def get_schedule(schedule_id: int, db: Session = Depends(get_db)) -> Schedule:
-    schedule = schedule_service.get_schedule(db, schedule_id)
+def get_schedule(
+    schedule_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Schedule:
+    schedule = schedule_service.get_schedule(db, schedule_id, role=current_user.role)
     if schedule is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found"

@@ -488,3 +488,64 @@ def test_draft_schedule_version_update_still_works(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert response.json()["version_number"] == 5
+
+
+# --- Task 43: TEACHER may only see PUBLISHED versions ---
+
+
+def test_teacher_sees_only_published_versions_in_list(
+    client: TestClient, teacher_client: TestClient
+) -> None:
+    semester_id = _create_semester(client, year=2080)
+    draft_id = _create_schedule_version(client, semester_id)
+    published_response = client.post(
+        "/api/v1/schedule-versions/",
+        json={"semester_id": semester_id, "version_number": 2, "status": "DRAFT"},
+    )
+    published_id: int = published_response.json()["id"]
+    _publish(client, published_id)
+
+    response = teacher_client.get("/api/v1/schedule-versions/")
+
+    assert response.status_code == 200
+    version_ids = [version["id"] for version in response.json()]
+    assert published_id in version_ids
+    assert draft_id not in version_ids
+
+
+def test_teacher_cannot_get_draft_version_by_id(
+    client: TestClient, teacher_client: TestClient
+) -> None:
+    semester_id = _create_semester(client, year=2081)
+    draft_id = _create_schedule_version(client, semester_id)
+
+    # Same 404 a nonexistent id would get -- a DRAFT version simply isn't
+    # visible to TEACHER, not a separate "forbidden" response.
+    response = teacher_client.get(f"/api/v1/schedule-versions/{draft_id}")
+
+    assert response.status_code == 404
+
+
+def test_teacher_can_get_published_version_by_id(
+    client: TestClient, teacher_client: TestClient
+) -> None:
+    semester_id = _create_semester(client, year=2082)
+    version_id = _create_schedule_version(client, semester_id)
+    _publish(client, version_id)
+
+    response = teacher_client.get(f"/api/v1/schedule-versions/{version_id}")
+
+    assert response.status_code == 200
+    assert response.json()["id"] == version_id
+
+
+def test_admin_still_sees_draft_versions(client: TestClient) -> None:
+    """Regression guard: the TEACHER-only filter must not affect ADMIN."""
+    semester_id = _create_semester(client, year=2083)
+    draft_id = _create_schedule_version(client, semester_id)
+
+    list_response = client.get("/api/v1/schedule-versions/")
+    get_response = client.get(f"/api/v1/schedule-versions/{draft_id}")
+
+    assert draft_id in [version["id"] for version in list_response.json()]
+    assert get_response.status_code == 200

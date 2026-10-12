@@ -35,15 +35,32 @@ def create_schedule_version(
 
 
 def get_schedule_version(
-    db: Session, schedule_version_id: int
+    db: Session, schedule_version_id: int, *, role: str | None = None
 ) -> ScheduleVersion | None:
-    return db.get(ScheduleVersion, schedule_version_id)
+    """Task 43: a TEACHER may only ever see a PUBLISHED ScheduleVersion --
+    a DRAFT one's id resolves to None for them, exactly like it not
+    existing at all. This is deliberately not a separate 403: a role that
+    can't see a draft's contents has no reason to be told one exists at
+    that id either, and the router already turns None into a plain 404
+    for the "doesn't exist" case, so TEACHER gets that same response for
+    both. `role=None` (every other caller -- ADMIN requests, and any
+    internal call that doesn't pass it) sees every version, unfiltered.
+    """
+    schedule_version = db.get(ScheduleVersion, schedule_version_id)
+    if schedule_version is None:
+        return None
+    if role == "TEACHER" and schedule_version.status != "PUBLISHED":
+        return None
+    return schedule_version
 
 
 def get_schedule_versions(
-    db: Session, skip: int = 0, limit: int = 100
+    db: Session, skip: int = 0, limit: int = 100, *, role: str | None = None
 ) -> list[ScheduleVersion]:
-    stmt = select(ScheduleVersion).offset(skip).limit(limit)
+    stmt = select(ScheduleVersion)
+    if role == "TEACHER":
+        stmt = stmt.where(ScheduleVersion.status == "PUBLISHED")
+    stmt = stmt.offset(skip).limit(limit)
     return list(db.scalars(stmt).all())
 
 

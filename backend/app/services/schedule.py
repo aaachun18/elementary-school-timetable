@@ -44,12 +44,33 @@ def create_schedule(db: Session, schedule_data: ScheduleCreate) -> Schedule:
     return schedule
 
 
-def get_schedule(db: Session, schedule_id: int) -> Schedule | None:
-    return db.get(Schedule, schedule_id)
+def get_schedule(
+    db: Session, schedule_id: int, *, role: str | None = None
+) -> Schedule | None:
+    """Task 43: same TEACHER-only-sees-PUBLISHED filter as
+    schedule_version.get_schedule_version() -- a Schedule belonging to a
+    DRAFT version resolves to None (-> the router's existing 404) for
+    TEACHER, never a separate 403. `role=None` (every other caller) sees
+    every Schedule, unfiltered."""
+    schedule = db.get(Schedule, schedule_id)
+    if schedule is None:
+        return None
+    if role == "TEACHER":
+        version = db.get(ScheduleVersion, schedule.schedule_version_id)
+        if version is None or version.status != "PUBLISHED":
+            return None
+    return schedule
 
 
-def get_schedules(db: Session, skip: int = 0, limit: int = 100) -> list[Schedule]:
-    stmt = select(Schedule).offset(skip).limit(limit)
+def get_schedules(
+    db: Session, skip: int = 0, limit: int = 100, *, role: str | None = None
+) -> list[Schedule]:
+    stmt = select(Schedule)
+    if role == "TEACHER":
+        stmt = stmt.join(
+            ScheduleVersion, Schedule.schedule_version_id == ScheduleVersion.id
+        ).where(ScheduleVersion.status == "PUBLISHED")
+    stmt = stmt.offset(skip).limit(limit)
     return list(db.scalars(stmt).all())
 
 

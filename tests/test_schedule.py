@@ -335,3 +335,71 @@ def test_create_schedule_invalid_teacher_id(client: TestClient) -> None:
     )
 
     assert response.status_code == 422
+
+
+# --- Task 43: TEACHER may only see Schedule rows under a PUBLISHED version ---
+
+
+def test_teacher_sees_only_schedules_in_published_versions(
+    client: TestClient, teacher_client: TestClient
+) -> None:
+    draft_lesson_id, draft_version_id = _create_lesson(client, year=2095)
+    client.post(
+        "/api/v1/schedules/",
+        json={"schedule_version_id": draft_version_id, "lesson_id": draft_lesson_id},
+    )
+
+    published_lesson_id, published_version_id = _create_lesson(client, year=2096)
+    published_schedule_id: int = client.post(
+        "/api/v1/schedules/",
+        json={
+            "schedule_version_id": published_version_id,
+            "lesson_id": published_lesson_id,
+        },
+    ).json()["id"]
+    _publish_schedule_version(client, published_version_id)
+
+    response = teacher_client.get("/api/v1/schedules/")
+
+    assert response.status_code == 200
+    schedule_version_ids = {
+        schedule["schedule_version_id"] for schedule in response.json()
+    }
+    assert published_version_id in schedule_version_ids
+    assert draft_version_id not in schedule_version_ids
+    assert published_schedule_id in [s["id"] for s in response.json()]
+
+
+def test_teacher_cannot_get_schedule_under_draft_version(
+    client: TestClient, teacher_client: TestClient
+) -> None:
+    lesson_id, version_id = _create_lesson(client, year=2097)
+    create_response = client.post(
+        "/api/v1/schedules/",
+        json={"schedule_version_id": version_id, "lesson_id": lesson_id},
+    )
+    schedule_id = create_response.json()["id"]
+
+    # Same 404 a nonexistent id would get -- a Schedule under a DRAFT
+    # version simply isn't visible to TEACHER, not a separate "forbidden"
+    # response.
+    response = teacher_client.get(f"/api/v1/schedules/{schedule_id}")
+
+    assert response.status_code == 404
+
+
+def test_teacher_can_get_schedule_under_published_version(
+    client: TestClient, teacher_client: TestClient
+) -> None:
+    lesson_id, version_id = _create_lesson(client, year=2098)
+    create_response = client.post(
+        "/api/v1/schedules/",
+        json={"schedule_version_id": version_id, "lesson_id": lesson_id},
+    )
+    schedule_id = create_response.json()["id"]
+    _publish_schedule_version(client, version_id)
+
+    response = teacher_client.get(f"/api/v1/schedules/{schedule_id}")
+
+    assert response.status_code == 200
+    assert response.json()["id"] == schedule_id

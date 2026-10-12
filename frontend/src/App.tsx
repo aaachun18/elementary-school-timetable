@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import AdminOnlyRoute from "./components/AdminOnlyRoute";
 import Layout from "./components/Layout";
 import ProtectedRoute from "./components/ProtectedRoute";
 import DataBrowser from "./pages/DataBrowser";
@@ -25,10 +26,42 @@ export default function App(): ReactElement {
             </ProtectedRoute>
           }
         >
-          <Route path="/" element={<Home />} />
-          <Route path="/data" element={<DataBrowser />} />
-          <Route path="/requirements" element={<RequirementsOverview />} />
-          <Route path="/scheduler" element={<SchedulerConsole />} />
+          {/* Task 43: everything except /timetable is additionally wrapped
+              in AdminOnlyRoute -- a TEACHER hitting any of these URLs
+              directly (not just missing the nav link) bounces to
+              /timetable instead of rendering. */}
+          <Route
+            path="/"
+            element={
+              <AdminOnlyRoute>
+                <Home />
+              </AdminOnlyRoute>
+            }
+          />
+          <Route
+            path="/data"
+            element={
+              <AdminOnlyRoute>
+                <DataBrowser />
+              </AdminOnlyRoute>
+            }
+          />
+          <Route
+            path="/requirements"
+            element={
+              <AdminOnlyRoute>
+                <RequirementsOverview />
+              </AdminOnlyRoute>
+            }
+          />
+          <Route
+            path="/scheduler"
+            element={
+              <AdminOnlyRoute>
+                <SchedulerConsole />
+              </AdminOnlyRoute>
+            }
+          />
           <Route path="/timetable" element={<TimetableView />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
