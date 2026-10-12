@@ -37,6 +37,9 @@ const KNOWN_ERROR_MESSAGES: Record<string, string> = {
   // else, concurrently).
   "Qualification record not found": "此任教資格已不存在,請重新整理頁面",
   "Unavailable-slot record not found": "此不可用時段已不存在,請重新整理頁面",
+  // Task 47's CRUD table (ClassSubjectRequirement) -- same "deleted
+  // concurrently by someone else" 404 case as above.
+  "ClassSubjectRequirement not found": "此排課需求已不存在,請重新整理頁面",
 };
 
 // Falls back to the original (untranslated) message when it isn't in the
