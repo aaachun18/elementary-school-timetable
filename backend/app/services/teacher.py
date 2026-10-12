@@ -64,8 +64,37 @@ def delete_teacher(db: Session, teacher_id: int) -> bool:
     if teacher is None:
         return False
 
+    # Task 48: TeacherSubject/TeacherAvailability are owned sub-resources of
+    # this Teacher (same semantic-sub-resource status as elsewhere in this
+    # file) -- deleting the teacher should take them with it. Neither FK has
+    # ON DELETE CASCADE at the DB level (see app/models/teacher.py), so
+    # without this, ANY teacher who has ever been given a qualification or
+    # an unavailable slot could never be deleted at all -- not because
+    # anything else genuinely still depends on them, but purely because of
+    # their own sub-resource rows. ClassSubjectRequirement.required_teacher_id
+    # and Schedule.teacher_id are the real "something still needs this"
+    # cases, and are deliberately left alone: a teacher who's actually
+    # required by a scheduling requirement or placed in a Schedule must
+    # still be blocked.
+    #
+    # Everything below is staged on `db` but not committed yet -- if the
+    # final commit() fails (one of those two real references), the
+    # rollback() undoes the WHOLE transaction, including these deletes, so
+    # the sub-resource rows are never lost on a failed delete attempt.
+    qualifications = db.scalars(
+        select(TeacherSubject).where(TeacherSubject.teacher_id == teacher_id)
+    ).all()
+    for qualification in qualifications:
+        db.delete(qualification)
+
+    unavailable_slots = db.scalars(
+        select(TeacherAvailability).where(TeacherAvailability.teacher_id == teacher_id)
+    ).all()
+    for unavailable_slot in unavailable_slots:
+        db.delete(unavailable_slot)
+
+    db.delete(teacher)
     try:
-        db.delete(teacher)
         db.commit()
     except IntegrityError as exc:
         db.rollback()
