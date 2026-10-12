@@ -179,7 +179,7 @@ export default function FailureDiagnostics({
   return (
     <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-4">
       <p role="alert" className="text-base font-bold text-red-600">
-        ✗ 排課失敗:{translateFailureType(response.failure_type)}
+        ✗ 排課失敗：{translateFailureType(response.failure_type)}
       </p>
 
       {response.lesson_failures.length > 0 && (

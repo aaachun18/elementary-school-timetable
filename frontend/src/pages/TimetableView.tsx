@@ -184,7 +184,7 @@ export default function TimetableView(): ReactElement {
             message instead of a dropdown with nothing but "請選擇…" in
             it. */}
         {versions.length === 0 ? (
-          <p className={MUTED_TEXT}>目前沒有可查看的課表版本。</p>
+          <p className={MUTED_TEXT}>目前沒有可查看的排課版本。</p>
         ) : (
           <select
             id="timetable-version-select"
@@ -299,7 +299,7 @@ export default function TimetableView(): ReactElement {
                             {schedule !== undefined && (
                               <>
                                 {matches.length > 1 && (
-                                  <span title="這個時段出現多筆排課結果,顯示第一筆">
+                                  <span title="這個時段出現多筆排課結果，顯示第一筆">
                                     ⚠️{" "}
                                   </span>
                                 )}

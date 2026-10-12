@@ -232,7 +232,7 @@ function RequirementNewRow({
           aria-label="指定教師"
           className={ROW_SELECT}
         >
-          <option value="">不指定(由系統自動分配)</option>
+          <option value="">不指定（由系統自動分配）</option>
           {teachers.map((teacher) => (
             <option key={teacher.id} value={teacher.id}>
               {teacher.name}
@@ -484,7 +484,7 @@ function RequirementRow({
             aria-label="指定教師"
             className={ROW_SELECT}
           >
-            <option value="">不指定(由系統自動分配)</option>
+            <option value="">不指定（由系統自動分配）</option>
             {teachers.map((teacher) => (
               <option key={teacher.id} value={teacher.id}>
                 {teacher.name}
@@ -556,7 +556,7 @@ function RequirementRow({
       <td className={TD}>{requirement.weekly_periods}</td>
       <td className={TD}>
         {requirement.required_teacher_id === null
-          ? "未指定(由系統自動分配)"
+          ? "未指定（由系統自動分配）"
           : (teacherNameById.get(requirement.required_teacher_id) ??
             `教師 ID ${requirement.required_teacher_id}`)}
       </td>
@@ -645,14 +645,14 @@ export default function RequirementsOverview(): ReactElement {
     return (
       <div className={PAGE}>
         <p role="alert" className={ERROR_TEXT}>
-          資料載入異常,請重新整理頁面。
+          資料載入異常，請重新整理頁面。
         </p>
       </div>
     );
   }
 
   function handleDelete(id: number, label: string): void {
-    if (window.confirm(`確定要刪除「${label}」這筆排課需求嗎?此操作無法復原。`)) {
+    if (window.confirm(`確定要刪除「${label}」這筆排課需求嗎？此操作無法復原。`)) {
       void crud.submitDelete(id);
     }
   }
@@ -682,7 +682,7 @@ export default function RequirementsOverview(): ReactElement {
           run is NOT automatically kept in sync when a requirement changes
           here afterwards. */}
       <p className={HELP_TEXT}>
-        修改排課需求後,請記得回到排課控制台重新執行「展開課程清單」以同步最新變動。
+        修改排課需求後，請記得回到排課控制台重新執行「展開課程清單」以同步最新變動。
       </p>
       {isAdmin && (
         <p className="mb-3">

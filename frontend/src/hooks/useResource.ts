@@ -46,7 +46,7 @@ export function useResource<T>(
         ) {
           setErrorMessage(translateErrorMessage(error.response.data.detail));
         } else {
-          setErrorMessage("無法載入資料,請確認後端服務是否啟動。");
+          setErrorMessage("無法載入資料，請確認後端服務是否啟動。");
         }
       })
       .finally(() => {

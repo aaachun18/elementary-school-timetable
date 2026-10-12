@@ -8,9 +8,9 @@ import { Link } from "react-router-dom";
 export default function Home(): ReactElement {
   return (
     <div>
-      <p>登入成功,歡迎回來。系統功能建置中,更多頁面即將上線。</p>
+      <p>登入成功，歡迎回來。系統功能建置中，更多頁面即將上線。</p>
       <p>
-        <Link to="/data">查看基礎資料(老師/班級/科目/教室/時段)</Link>
+        <Link to="/data">查看基礎資料（老師/班級/科目/教室/時段）</Link>
       </p>
     </div>
   );

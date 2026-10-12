@@ -54,7 +54,7 @@ export type ViolationPageTarget = ViolationPageLink | ViolationPageText;
 // any type this table doesn't otherwise recognize -- never guess a link.
 const ENGINE_INTERNAL_TEXT: ViolationPageText = {
   kind: "text",
-  message: "此為排課引擎內部判斷,請聯絡系統開發者確認",
+  message: "此為排課引擎內部判斷，請聯絡系統開發者確認",
 };
 
 const REQUIREMENTS_PAGE: ViolationPageLink = {
@@ -65,15 +65,15 @@ const REQUIREMENTS_PAGE: ViolationPageLink = {
 
 const TEACHERS_TAB_PAGE: ViolationPageLink = {
   kind: "link",
-  label: "基礎資料瀏覽(老師分頁)",
+  label: "基礎資料瀏覽（老師分頁）",
   path: "/data?tab=teachers",
 };
 
 const DATA_BROWSER_TAB_LABEL: Record<InactiveEntityTab, string> = {
-  teachers: "基礎資料瀏覽(老師分頁)",
-  classes: "基礎資料瀏覽(班級分頁)",
-  subjects: "基礎資料瀏覽(科目分頁)",
-  rooms: "基礎資料瀏覽(教室分頁)",
+  teachers: "基礎資料瀏覽（老師分頁）",
+  classes: "基礎資料瀏覽（班級分頁）",
+  subjects: "基礎資料瀏覽（科目分頁）",
+  rooms: "基礎資料瀏覽（教室分頁）",
 };
 
 const STATIC_TARGET_BY_TYPE: Record<string, ViolationPageTarget> = {

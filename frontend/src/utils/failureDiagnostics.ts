@@ -267,9 +267,9 @@ export function groupLessonFailures(
   return [...groups.values()];
 }
 
-// "{班級}的{科目}(共 N 堂課):{reason},這些課無法排定!" for a group of 2+
-// lessons; "{班級}的{科目}:{reason},這堂課無法排定!" for exactly 1 -- no
-// "(共 1 堂課)" (a redundant thing to say about a single lesson) and
+// "{班級}的{科目}（共 N 堂課）：{reason}，這些課無法排定！" for a group of 2+
+// lessons; "{班級}的{科目}：{reason}，這堂課無法排定！" for exactly 1 -- no
+// "（共 1 堂課）" (a redundant thing to say about a single lesson) and
 // "這堂課" instead of "這些課" so the sentence still reads as natural
 // Chinese instead of grammatically implying a group of one.
 export function getGroupedLessonFailureSentence(
@@ -285,11 +285,13 @@ export function getGroupedLessonFailureSentence(
   const reason =
     reasonTemplate !== undefined
       ? applyTemplate(reasonTemplate, values)
-      : getViolationSentence(group.representative, lookups).replace(/!$/, "");
+      // Task 54: VIOLATION_TYPE_TEMPLATES' trailing punctuation is now the
+      // full-width "！" (not ASCII "!"), so the strip has to match that.
+      : getViolationSentence(group.representative, lookups).replace(/！$/, "");
 
   const count = group.lessonIds.length;
   if (count === 1) {
-    return `${requirementLabel}:${reason},這堂課無法排定!`;
+    return `${requirementLabel}：${reason}，這堂課無法排定！`;
   }
-  return `${requirementLabel}(共 ${count} 堂課):${reason},這些課無法排定!`;
+  return `${requirementLabel}（共 ${count} 堂課）：${reason}，這些課無法排定！`;
 }

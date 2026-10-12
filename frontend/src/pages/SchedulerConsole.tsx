@@ -24,7 +24,7 @@ import type {
   RunSchedulerFailureResponse,
   RunSchedulerSuccessResponse,
 } from "../types/scheduler";
-import type { ApiErrorResponse } from "../types/api";
+import { extractApiErrorMessage } from "../constants/errorMessages";
 import {
   formatSemesterLabel,
   formatVersionLabel,
@@ -51,17 +51,6 @@ import {
 } from "../styles/ui";
 
 type VersionPickerMode = "select" | "create";
-
-// Extracts the backend's raw `detail` string for the plain {detail: "..."}
-// error shape every endpoint EXCEPT run-scheduler's 422 uses. Task 32
-// deliberately does not translate this to Chinese -- that's a later Task's
-// job (failure diagnosis component).
-function extractDetailMessage(error: unknown): string {
-  if (axios.isAxiosError<ApiErrorResponse>(error) && error.response?.data?.detail) {
-    return error.response.data.detail;
-  }
-  return "無法連線到伺服器,請確認後端服務是否啟動。";
-}
 
 export default function SchedulerConsole(): ReactElement {
   const versionsResource = useResource(() => listScheduleVersions(), []);
@@ -239,7 +228,7 @@ export default function SchedulerConsole(): ReactElement {
       applyFixedTimeSlotValue(lessonId, previousValue);
       setFixedSlotRowErrors((previous) => {
         const next = new Map(previous);
-        next.set(lessonId, extractDetailMessage(error));
+        next.set(lessonId, extractApiErrorMessage(error));
         return next;
       });
     } finally {
@@ -287,7 +276,7 @@ export default function SchedulerConsole(): ReactElement {
       resetDownstreamResults();
       createFlash.showFlash(`已建立新版本 v${created.version_number}`);
     } catch (error) {
-      setCreateError(extractDetailMessage(error));
+      setCreateError(extractApiErrorMessage(error));
     } finally {
       setIsCreating(false);
     }
@@ -304,7 +293,7 @@ export default function SchedulerConsole(): ReactElement {
       const result = await generateLessons(selectedVersion.id);
       setGenerateResult(result);
     } catch (error) {
-      setGenerateError(extractDetailMessage(error));
+      setGenerateError(extractApiErrorMessage(error));
     } finally {
       setIsGenerating(false);
     }
@@ -332,7 +321,7 @@ export default function SchedulerConsole(): ReactElement {
       ) {
         setRunFailure(error.response.data);
       } else {
-        setRunError(extractDetailMessage(error));
+        setRunError(extractApiErrorMessage(error));
       }
     } finally {
       setIsRunning(false);
@@ -348,7 +337,7 @@ export default function SchedulerConsole(): ReactElement {
     // good (the backend's existing PUBLISHED rule means it can never be
     // turned back into a DRAFT, see update_schedule_version()).
     const confirmed = window.confirm(
-      "發布後這個版本將無法再修改(無法改回草稿、無法重新展開課程清單或重新排課),且 TEACHER 角色將能在課表檢視看到這個版本。確定要發布為最終確定版嗎?",
+      "發布後這個版本將無法再修改（無法改回草稿、無法重新展開課程清單或重新排課），且教師帳號將能在課表檢視看到這個版本。確定要發布為最終確定版嗎？",
     );
     if (!confirmed) {
       return;
@@ -365,7 +354,7 @@ export default function SchedulerConsole(): ReactElement {
       );
       publishFlash.showFlash("已發布為最終確定版");
     } catch (error) {
-      setPublishError(extractDetailMessage(error));
+      setPublishError(extractApiErrorMessage(error));
     } finally {
       setIsPublishing(false);
     }
@@ -410,7 +399,7 @@ export default function SchedulerConsole(): ReactElement {
       {/* 步驟一:選擇/建立 ScheduleVersion -- 二選一,任何時刻都只有其中
           一種輸入方式在畫面上,或是已確認狀態的說明文字,三者互斥。 */}
       <section className={SECTION}>
-        <h2 className={SECTION_TITLE}>步驟一:選擇排課版本</h2>
+        <h2 className={SECTION_TITLE}>步驟一：選擇排課版本</h2>
 
         {selectedVersion === null ? (
           <div className={CARD}>
@@ -530,7 +519,7 @@ export default function SchedulerConsole(): ReactElement {
           // 一致」的狀態顯示。
           <div className={CARD}>
             <p className="font-semibold text-gray-900">
-              目前操作版本:
+              目前操作版本：
               {formatVersionLabel(selectedVersion, semesterById, academicYearById)}
             </p>
             {createFlash.message !== null && (
@@ -548,7 +537,7 @@ export default function SchedulerConsole(): ReactElement {
             <div className="mt-4 border-t border-gray-200 pt-4">
               {selectedVersion.status === "PUBLISHED" ? (
                 <p className={SUCCESS_TEXT}>
-                  ✓ 此版本已發布為最終確定版,TEACHER 角色可以在課表檢視看到它。
+                  ✓ 此版本已發布為最終確定版，教師帳號可以在課表檢視看到它。
                 </p>
               ) : (
                 <div>
@@ -556,7 +545,7 @@ export default function SchedulerConsole(): ReactElement {
                     {isPublishing ? "發布中…" : "發布為最終確定版"}
                   </button>
                   <p className={`${HELP_TEXT} mt-2`}>
-                    發布後 TEACHER 角色才能在課表檢視看到這個版本;發布後無法再修改、
+                    發布後教師帳號才能在課表檢視看到這個版本；發布後無法再修改、
                     無法改回草稿、無法重新展開課程清單或重新排課。
                   </p>
                   {publishError !== null && (
@@ -578,7 +567,7 @@ export default function SchedulerConsole(): ReactElement {
         <>
           {/* 步驟二:展開課程清單 */}
           <section className={SECTION}>
-            <h2 className={SECTION_TITLE}>步驟二:展開課程清單</h2>
+            <h2 className={SECTION_TITLE}>步驟二：展開課程清單</h2>
             <div className={CARD}>
               <button type="button" onClick={handleGenerateLessons} disabled={isGenerating} className={BUTTON_PRIMARY}>
                 {isGenerating ? "展開中…" : "展開課程清單"}
@@ -594,7 +583,7 @@ export default function SchedulerConsole(): ReactElement {
                   {generateResult.created_count > 0 && (
                     <span className="font-normal text-gray-600">
                       {" "}
-                      (本次新增 {generateResult.created_count} 筆)
+                      （本次新增 {generateResult.created_count} 筆）
                     </span>
                   )}
                 </p>
@@ -611,7 +600,7 @@ export default function SchedulerConsole(): ReactElement {
                 onClick={() => setIsFixedSlotsExpanded((previous) => !previous)}
                 className={BUTTON_LINK}
               >
-                {isFixedSlotsExpanded ? "▾" : "▸"} 設定固定時段(選填)
+                {isFixedSlotsExpanded ? "▾" : "▸"} 設定固定時段（選填）
               </button>
 
               {isFixedSlotsExpanded && (
@@ -652,7 +641,7 @@ export default function SchedulerConsole(): ReactElement {
                                       }
                                       className={SELECT}
                                     >
-                                      <option value="">不固定(交給系統排)</option>
+                                      <option value="">不固定（交給系統排）</option>
                                       {(fixedSlotsResource.data?.teachingTimeSlots ?? []).map(
                                         (timeSlot) => (
                                           <option key={timeSlot.id} value={timeSlot.id}>
@@ -685,12 +674,12 @@ export default function SchedulerConsole(): ReactElement {
           {/* 步驟三:開始自動排課 */}
           {generateResult !== null && (
             <section className={SECTION}>
-              <h2 className={SECTION_TITLE}>步驟三:開始自動排課</h2>
+              <h2 className={SECTION_TITLE}>步驟三：開始自動排課</h2>
               <div className={CARD}>
                 <button type="button" onClick={handleRunScheduler} disabled={isRunning} className={BUTTON_PRIMARY}>
                   {isRunning ? "排課中…" : "開始自動排課"}
                 </button>
-                {isRunning && <p className={`${MUTED_TEXT} mt-2`}>排課可能需要一點時間,請耐心等候,畫面不會當機。</p>}
+                {isRunning && <p className={`${MUTED_TEXT} mt-2`}>排課可能需要一點時間，請耐心等候，畫面不會當機。</p>}
                 {runError !== null && (
                   <p role="alert" className={ERROR_TEXT}>
                     {runError}
@@ -700,8 +689,8 @@ export default function SchedulerConsole(): ReactElement {
                 {runResult !== null && (
                   <div className="mt-2">
                     <p className={SUCCESS_TEXT}>
-                      ✓ 成功排定 {runResult.scheduled_count} 堂課(回溯{" "}
-                      {runResult.backtrack_count} 次)
+                      ✓ 成功排定 {runResult.scheduled_count} 堂課（回溯{" "}
+                      {runResult.backtrack_count} 次）
                     </p>
                     <Link
                       to={`/timetable?scheduleVersionId=${selectedVersion.id}`}

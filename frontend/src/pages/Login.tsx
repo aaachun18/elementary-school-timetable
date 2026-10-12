@@ -80,7 +80,7 @@ export default function Login(): ReactElement {
         // fallback rule.
         setErrorMessage(translateErrorMessage(error.response.data.detail));
       } else {
-        setErrorMessage("無法連線到伺服器,請確認後端服務是否啟動。");
+        setErrorMessage("無法連線到伺服器，請確認後端服務是否啟動。");
       }
     } finally {
       setIsSubmitting(false);

@@ -219,13 +219,13 @@ function TeacherDetail({
   }
 
   function handleRemoveSubject(subjectId: number, name: string): void {
-    if (window.confirm(`確定要移除「${name}」這項任教資格嗎?`)) {
+    if (window.confirm(`確定要移除「${name}」這項任教資格嗎？`)) {
       void subjectsCrud.submitRemove(subjectId);
     }
   }
 
   function handleRemoveTimeSlot(timeSlotId: number, label: string): void {
-    if (window.confirm(`確定要移除「${label}」這個不可用時段嗎?`)) {
+    if (window.confirm(`確定要移除「${label}」這個不可用時段嗎？`)) {
       void slotsCrud.submitRemove(timeSlotId);
     }
   }
@@ -430,7 +430,7 @@ function TeacherDetail({
 // TeacherRow compute this from their own draft state on every render and
 // disable 確認 (plus show the same message inline) the moment it's
 // violated, before any request is ever sent.
-const TEACHER_PERIODS_RANGE_ERROR = "最低每週節數不能大於最高每週節數,請修正後再送出";
+const TEACHER_PERIODS_RANGE_ERROR = "最低每週節數不能大於最高每週節數，請修正後再送出";
 
 function TeacherNewRow({
   isPending,
@@ -468,7 +468,7 @@ function TeacherNewRow({
         className={INPUT}
         />
       </td>
-      <td className={`${TD} text-gray-400`}>啟用中(新增時固定)</td>
+      <td className={`${TD} text-gray-400`}>啟用中（新增時固定）</td>
       <td className={TD}>
         <input
           type="number"
@@ -700,7 +700,7 @@ function TeachersTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
   });
 
   function handleDelete(id: number, name: string): void {
-    if (window.confirm(`確定要刪除「${name}」嗎?此操作無法復原。`)) {
+    if (window.confirm(`確定要刪除「${name}」嗎？此操作無法復原。`)) {
       void crud.submitDelete(id);
     }
   }
@@ -968,7 +968,7 @@ function GradesTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
   });
 
   function handleDelete(id: number, name: string): void {
-    if (window.confirm(`確定要刪除「${name}」嗎?此操作無法復原。`)) {
+    if (window.confirm(`確定要刪除「${name}」嗎？此操作無法復原。`)) {
       void crud.submitDelete(id);
     }
   }
@@ -1059,7 +1059,7 @@ function SchoolNewRow({
           created active (Task 7/8's existing decision); only editing an
           existing row can change it, so this column has nothing to input
           here. */}
-      <td className={`${TD} text-gray-400`}>啟用中(新增時固定)</td>
+      <td className={`${TD} text-gray-400`}>啟用中（新增時固定）</td>
       <td className={TD}>
         <button
           type="button"
@@ -1190,7 +1190,7 @@ function SchoolsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
   });
 
   function handleDelete(id: number, name: string): void {
-    if (window.confirm(`確定要刪除「${name}」嗎?此操作無法復原。`)) {
+    if (window.confirm(`確定要刪除「${name}」嗎？此操作無法復原。`)) {
       void crud.submitDelete(id);
     }
   }
@@ -1286,7 +1286,7 @@ function AcademicYearNewRow({
         className={INPUT}
         />
       </td>
-      <td className={`${TD} text-gray-400`}>啟用中(新增時固定)</td>
+      <td className={`${TD} text-gray-400`}>啟用中（新增時固定）</td>
       <td className={TD}>
         <button
           type="button"
@@ -1423,7 +1423,7 @@ function AcademicYearsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
   });
 
   function handleDelete(id: number, year: number): void {
-    if (window.confirm(`確定要刪除「${year} 學年度」嗎?此操作無法復原。`)) {
+    if (window.confirm(`確定要刪除「${year} 學年度」嗎？此操作無法復原。`)) {
       void crud.submitDelete(id);
     }
   }
@@ -1550,7 +1550,7 @@ function SemesterNewRow({
           ))}
         </select>
       </td>
-      <td className={`${TD} text-gray-400`}>啟用中(新增時固定)</td>
+      <td className={`${TD} text-gray-400`}>啟用中（新增時固定）</td>
       <td className={TD}>
         <button
           type="button"
@@ -1726,7 +1726,7 @@ function SemestersTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
   });
 
   function handleDelete(id: number, label: string): void {
-    if (window.confirm(`確定要刪除「${label}」嗎?此操作無法復原。`)) {
+    if (window.confirm(`確定要刪除「${label}」嗎？此操作無法復原。`)) {
       void crud.submitDelete(id);
     }
   }
@@ -1881,7 +1881,7 @@ function ClassNewRow({
           ))}
         </select>
       </td>
-      <td className={`${TD} text-gray-400`}>啟用中(新增時固定)</td>
+      <td className={`${TD} text-gray-400`}>啟用中（新增時固定）</td>
       <td className={TD}>
         <button
           type="button"
@@ -2090,7 +2090,7 @@ function ClassesTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
   });
 
   function handleDelete(id: number, name: string): void {
-    if (window.confirm(`確定要刪除「${name}」嗎?此操作無法復原。`)) {
+    if (window.confirm(`確定要刪除「${name}」嗎？此操作無法復原。`)) {
       void crud.submitDelete(id);
     }
   }
@@ -2193,7 +2193,7 @@ function SubjectNewRow({
         className={INPUT}
         />
       </td>
-      <td className={`${TD} text-gray-400`}>啟用中(新增時固定)</td>
+      <td className={`${TD} text-gray-400`}>啟用中（新增時固定）</td>
       <td className={TD}>
         <button
           type="button"
@@ -2319,7 +2319,7 @@ function SubjectsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
   });
 
   function handleDelete(id: number, name: string): void {
-    if (window.confirm(`確定要刪除「${name}」嗎?此操作無法復原。`)) {
+    if (window.confirm(`確定要刪除「${name}」嗎？此操作無法復原。`)) {
       void crud.submitDelete(id);
     }
   }
@@ -2425,7 +2425,7 @@ function RoomNewRow({
           onChange={(event) => setRoomType(event.target.value)}
           disabled={isPending}
           aria-label="教室類型"
-          placeholder="例如:普通教室"
+          placeholder="例如：普通教室"
         className={INPUT}
         />
       </td>
@@ -2441,7 +2441,7 @@ function RoomNewRow({
         className={INPUT}
         />
       </td>
-      <td className={`${TD} text-gray-400`}>啟用中(新增時固定)</td>
+      <td className={`${TD} text-gray-400`}>啟用中（新增時固定）</td>
       <td className={TD}>
         <button
           type="button"
@@ -2603,7 +2603,7 @@ function RoomsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
   });
 
   function handleDelete(id: number, name: string): void {
-    if (window.confirm(`確定要刪除「${name}」嗎?此操作無法復原。`)) {
+    if (window.confirm(`確定要刪除「${name}」嗎？此操作無法復原。`)) {
       void crud.submitDelete(id);
     }
   }
@@ -2929,7 +2929,7 @@ function TimeSlotsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
   });
 
   function handleDelete(id: number, label: string): void {
-    if (window.confirm(`確定要刪除「${label}」嗎?此操作無法復原。`)) {
+    if (window.confirm(`確定要刪除「${label}」嗎？此操作無法復原。`)) {
       void crud.submitDelete(id);
     }
   }
@@ -2944,8 +2944,8 @@ function TimeSlotsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
               星期三第 3 節卻被建成午休時段)——這裡只是手動維護,打錯或漏
               建系統都不會主動提醒,請自行確認。 */}
           <p className={HELP_TEXT}>
-            請確保每個 period 編號在星期一到五的意義一致(例如都代表「第 3
-            節」),系統不會自動檢查這一點。
+            請確保每個節次編號在星期一到五的意義一致（例如都代表「第 3
+            節」），系統不會自動檢查這一點。
           </p>
           {isAdmin && (
             <p className="mb-3">
