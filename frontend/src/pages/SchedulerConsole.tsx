@@ -9,8 +9,13 @@ import {
 } from "../api/scheduleVersions";
 import { list as listSemesters } from "../api/semesters";
 import { list as listAcademicYears } from "../api/academicYears";
+import { fixTimeSlot } from "../api/lessons";
 import { useFlashMessage } from "../hooks/useFlashMessage";
 import { useResource } from "../hooks/useResource";
+import {
+  useFixedTimeSlotData,
+  type FixedTimeSlotGroup,
+} from "../hooks/useFixedTimeSlotData";
 import FailureDiagnostics from "../components/FailureDiagnostics";
 import type { ScheduleVersion } from "../types/scheduleVersion";
 import type {
@@ -23,6 +28,7 @@ import {
   formatSemesterLabel,
   formatVersionLabel,
 } from "../utils/scheduleVersionFormat";
+import { formatTimeSlotLabel } from "../utils/timeSlotFormat";
 
 type VersionPickerMode = "select" | "create";
 
@@ -114,6 +120,39 @@ export default function SchedulerConsole(): ReactElement {
   );
   const [runError, setRunError] = useState<string | null>(null);
 
+  // --- 設定固定時段(選填,Task 41): lets the user pin individual Lessons
+  // (not whole requirements) to a specific TimeSlot before running the
+  // scheduler. Only meaningful once generateResult !== null (Lessons must
+  // exist first), but the hook itself is called unconditionally -- React
+  // requires every hook call site to run every render regardless of what
+  // JSX ends up using its result.
+  const fixedSlotsResource = useFixedTimeSlotData(
+    selectedVersion?.semester_id ?? null,
+    generateResult,
+  );
+  // Local, mutable copy of the resource's groups -- same pattern as
+  // `versions` above: seeded from the fetch, then updated optimistically
+  // on each fix-time-slot PATCH so the "已固定" badge and dropdown value
+  // change immediately without waiting on (or forcing) a refetch.
+  const [fixedSlotGroups, setFixedSlotGroups] = useState<FixedTimeSlotGroup[]>([]);
+  useEffect(() => {
+    if (fixedSlotsResource.data !== null) {
+      setFixedSlotGroups(fixedSlotsResource.data.groups);
+    }
+  }, [fixedSlotsResource.data]);
+  // Collapsed by default (per spec: most scheduling runs never touch this,
+  // so it shouldn't add visual weight every time).
+  const [isFixedSlotsExpanded, setIsFixedSlotsExpanded] = useState(false);
+  // At most one row's <select> is ever mid-save at a time (a user can only
+  // change one dropdown per click) -- disables that row's <select> for the
+  // duration so a second change can't race the first one's PATCH.
+  const [savingLessonId, setSavingLessonId] = useState<number | null>(null);
+  // Per-lesson error message, shown under that lesson's row only -- a
+  // failed PATCH for one Lesson has no bearing on any other row.
+  const [fixedSlotRowErrors, setFixedSlotRowErrors] = useState<Map<number, string>>(
+    new Map(),
+  );
+
   // Shared by both "a version was just confirmed" paths AND "重新選擇版本"
   // -- a previous version's step 2/3 results must never survive onto a
   // newly-selected version's screen.
@@ -123,6 +162,58 @@ export default function SchedulerConsole(): ReactElement {
     setRunResult(null);
     setRunFailure(null);
     setRunError(null);
+    setIsFixedSlotsExpanded(false);
+    setSavingLessonId(null);
+    setFixedSlotRowErrors(new Map());
+  }
+
+  // Updates every row across every group matching lessonId -- a plain
+  // nested map, since a Lesson can only ever appear in exactly one group,
+  // but there's no cheap O(1) lookup worth building for a per-row edit
+  // this infrequent.
+  function applyFixedTimeSlotValue(lessonId: number, value: number | null): void {
+    setFixedSlotGroups((previousGroups) =>
+      previousGroups.map((group) => ({
+        ...group,
+        lessons: group.lessons.map((lessonRow) =>
+          lessonRow.lessonId === lessonId
+            ? { ...lessonRow, fixedTimeSlotId: value }
+            : lessonRow,
+        ),
+      })),
+    );
+  }
+
+  async function handleFixedTimeSlotChange(
+    lessonId: number,
+    previousValue: number | null,
+    rawValue: string,
+  ): Promise<void> {
+    const newValue = rawValue === "" ? null : Number(rawValue);
+    if (newValue === previousValue) {
+      return;
+    }
+    setSavingLessonId(lessonId);
+    setFixedSlotRowErrors((previous) => {
+      const next = new Map(previous);
+      next.delete(lessonId);
+      return next;
+    });
+    // Optimistic: apply immediately, per the "選了就生效" convention this
+    // page already uses elsewhere -- reverted below if the PATCH fails.
+    applyFixedTimeSlotValue(lessonId, newValue);
+    try {
+      await fixTimeSlot(lessonId, { time_slot_id: newValue });
+    } catch (error) {
+      applyFixedTimeSlotValue(lessonId, previousValue);
+      setFixedSlotRowErrors((previous) => {
+        const next = new Map(previous);
+        next.set(lessonId, extractDetailMessage(error));
+        return next;
+      });
+    } finally {
+      setSavingLessonId(null);
+    }
   }
 
   function handleConfirmExistingVersion(): void {
@@ -380,6 +471,98 @@ export default function SchedulerConsole(): ReactElement {
               </p>
             )}
           </section>
+
+          {/* 設定固定時段(選填,Task 41) -- 預設收合,只有在展開課程清單
+              成功後才出現;不影響下面「開始自動排課」按鈕是否可按。 */}
+          {generateResult !== null && (
+            <section>
+              <button
+                type="button"
+                onClick={() => setIsFixedSlotsExpanded((previous) => !previous)}
+              >
+                {isFixedSlotsExpanded ? "▾" : "▸"} 設定固定時段(選填)
+              </button>
+
+              {isFixedSlotsExpanded && (
+                <div style={{ marginTop: "0.5em" }}>
+                  {fixedSlotsResource.isLoading && <p>載入中…</p>}
+                  {fixedSlotsResource.errorMessage !== null && (
+                    <p role="alert">{fixedSlotsResource.errorMessage}</p>
+                  )}
+                  {!fixedSlotsResource.isLoading &&
+                    fixedSlotsResource.errorMessage === null &&
+                    (fixedSlotGroups.length === 0 ? (
+                      <p>目前沒有課程可供設定固定時段。</p>
+                    ) : (
+                      fixedSlotGroups.map((group) => (
+                        <div key={group.requirementId} style={{ marginBottom: "1em" }}>
+                          <p style={{ fontWeight: "bold" }}>{group.label}</p>
+                          {group.lessons.map((lessonRow) => {
+                            const selectId = `fixed-slot-${lessonRow.lessonId}`;
+                            return (
+                              <div
+                                key={lessonRow.lessonId}
+                                style={{ marginLeft: "1.5em", marginBottom: "0.5em" }}
+                              >
+                                <label htmlFor={selectId}>
+                                  第 {lessonRow.sequenceNumber} 堂
+                                </label>
+                                <select
+                                  id={selectId}
+                                  value={lessonRow.fixedTimeSlotId ?? ""}
+                                  disabled={savingLessonId === lessonRow.lessonId}
+                                  onChange={(event) =>
+                                    handleFixedTimeSlotChange(
+                                      lessonRow.lessonId,
+                                      lessonRow.fixedTimeSlotId,
+                                      event.target.value,
+                                    )
+                                  }
+                                  style={{ marginLeft: "0.5em" }}
+                                >
+                                  <option value="">不固定(交給系統排)</option>
+                                  {(fixedSlotsResource.data?.teachingTimeSlots ?? []).map(
+                                    (timeSlot) => (
+                                      <option key={timeSlot.id} value={timeSlot.id}>
+                                        {formatTimeSlotLabel(timeSlot)}
+                                      </option>
+                                    ),
+                                  )}
+                                </select>
+                                {lessonRow.fixedTimeSlotId !== null && (
+                                  <span
+                                    style={{
+                                      marginLeft: "0.5em",
+                                      padding: "0.1em 0.5em",
+                                      backgroundColor: "#d4edda",
+                                      color: "#155724",
+                                      borderRadius: "4px",
+                                      fontSize: "0.85em",
+                                      fontWeight: "bold",
+                                    }}
+                                  >
+                                    已固定
+                                  </span>
+                                )}
+                                {fixedSlotRowErrors.get(lessonRow.lessonId) !==
+                                  undefined && (
+                                  <p
+                                    role="alert"
+                                    style={{ color: "#b00020", margin: "0.25em 0 0 0" }}
+                                  >
+                                    {fixedSlotRowErrors.get(lessonRow.lessonId)}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))
+                    ))}
+                </div>
+              )}
+            </section>
+          )}
 
           {/* 步驟三:開始自動排課 */}
           {generateResult !== null && (
