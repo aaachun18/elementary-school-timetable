@@ -32,6 +32,11 @@ const KNOWN_ERROR_MESSAGES: Record<string, string> = {
   "Grade not found": "此年級資料已不存在,請重新整理頁面",
   "Teacher not found": "此教師資料已不存在,請重新整理頁面",
   "TimeSlot not found": "此時段資料已不存在,請重新整理頁面",
+  // Task 46's teacher sub-resources (任教資格/不可用時段) -- the DELETE
+  // endpoint's 404 when the record was already removed (e.g. by someone
+  // else, concurrently).
+  "Qualification record not found": "此任教資格已不存在,請重新整理頁面",
+  "Unavailable-slot record not found": "此不可用時段已不存在,請重新整理頁面",
 };
 
 // Falls back to the original (untranslated) message when it isn't in the

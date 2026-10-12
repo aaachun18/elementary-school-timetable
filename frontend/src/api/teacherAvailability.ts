@@ -11,3 +11,23 @@ export async function listByTeacher(teacherId: number): Promise<TimeSlot[]> {
   );
   return response.data;
 }
+
+// POST /api/v1/teachers/{id}/unavailable-slots -- Task 46. Same error
+// shapes as teacherSubjects.ts's create() (409 duplicate / 422 invalid
+// reference), both already generic and Chinese.
+export async function create(
+  teacherId: number,
+  timeSlotId: number,
+): Promise<TimeSlot> {
+  const response = await apiClient.post<TimeSlot>(
+    `/api/v1/teachers/${teacherId}/unavailable-slots`,
+    { time_slot_id: timeSlotId },
+  );
+  return response.data;
+}
+
+export async function remove(teacherId: number, timeSlotId: number): Promise<void> {
+  await apiClient.delete(
+    `/api/v1/teachers/${teacherId}/unavailable-slots/${timeSlotId}`,
+  );
+}

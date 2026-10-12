@@ -54,10 +54,19 @@ import {
   update as updateGrade,
   remove as removeGrade,
 } from "../api/grades";
-import { listByTeacher as listTeacherSubjects } from "../api/teacherSubjects";
-import { listByTeacher as listTeacherUnavailableSlots } from "../api/teacherAvailability";
+import {
+  listByTeacher as listTeacherSubjects,
+  create as createTeacherSubject,
+  remove as removeTeacherSubject,
+} from "../api/teacherSubjects";
+import {
+  listByTeacher as listTeacherUnavailableSlots,
+  create as createTeacherAvailability,
+  remove as removeTeacherAvailability,
+} from "../api/teacherAvailability";
 import { useResource } from "../hooks/useResource";
 import { useCrudList } from "../hooks/useCrudList";
+import { useMembershipList } from "../hooks/useMembershipList";
 import { formatTimeSlotLabel, formatWeekday } from "../utils/timeSlotFormat";
 import { isCurrentUserAdmin } from "../utils/auth";
 import type { School, SchoolCreate, SchoolUpdate } from "../types/school";
@@ -123,46 +132,259 @@ function LoadingOrError({
 // qualifications (H5) and unavailable slots (H4) -- exactly the two pieces
 // of data needed to check a "楊老師工作量超標"-style scheduling failure by
 // hand, without needing Swagger UI.
-function TeacherDetail({ teacherId }: { teacherId: number }): ReactElement {
-  const subjects = useResource(() => listTeacherSubjects(teacherId), [teacherId]);
-  const unavailableSlots = useResource(
+// Task 46: 任教資格(TeacherSubject)/不可用時段(TeacherAvailability) are
+// semantic sub-resources of Teacher (Task 5's existing decision -- see
+// backend/app/routers/teacher.py's own comment on why these are NOT
+// standalone /teacher-subjects, /teacher-availabilities CRUD tables).
+// This stays a section INSIDE TeacherDetail -- the already-expanded area
+// under a Teacher row -- never a new top-level tab, deliberately mirroring
+// that same "not a standalone resource" stance in the UI's own structure.
+function TeacherDetail({
+  teacherId,
+  isAdmin,
+}: {
+  teacherId: number;
+  isAdmin: boolean;
+}): ReactElement {
+  const subjectsResource = useResource(() => listTeacherSubjects(teacherId), [teacherId]);
+  const unavailableSlotsResource = useResource(
     () => listTeacherUnavailableSlots(teacherId),
     [teacherId],
+  );
+  // The "everything that could be added" lists -- only actually needed by
+  // ADMIN (to populate the add-dropdowns), but fetched unconditionally
+  // for the same reason every other hook call in this file is
+  // unconditional: React requires every hook call site to run every
+  // render regardless of what the JSX ends up using it for.
+  const allSubjectsResource = useResource(() => listSubjects(), []);
+  const allTimeSlotsResource = useResource(() => listTimeSlots(), []);
+
+  const subjectsCrud = useMembershipList<Subject>(subjectsResource.data, {
+    add: (subjectId) => createTeacherSubject(teacherId, subjectId),
+    remove: (subjectId) => removeTeacherSubject(teacherId, subjectId),
+  });
+  const slotsCrud = useMembershipList<TimeSlot>(unavailableSlotsResource.data, {
+    add: (timeSlotId) => createTeacherAvailability(teacherId, timeSlotId),
+    remove: (timeSlotId) => removeTeacherAvailability(teacherId, timeSlotId),
+  });
+
+  const [selectedSubjectId, setSelectedSubjectId] = useState<number | "">("");
+  const [selectedTimeSlotId, setSelectedTimeSlotId] = useState<number | "">("");
+
+  async function handleAddSubject(): Promise<void> {
+    if (selectedSubjectId === "") {
+      return;
+    }
+    const succeeded = await subjectsCrud.submitAdd(selectedSubjectId);
+    if (succeeded) {
+      setSelectedSubjectId("");
+    }
+  }
+
+  async function handleAddTimeSlot(): Promise<void> {
+    if (selectedTimeSlotId === "") {
+      return;
+    }
+    const succeeded = await slotsCrud.submitAdd(selectedTimeSlotId);
+    if (succeeded) {
+      setSelectedTimeSlotId("");
+    }
+  }
+
+  function handleRemoveSubject(subjectId: number, name: string): void {
+    if (window.confirm(`確定要移除「${name}」這項任教資格嗎?`)) {
+      void subjectsCrud.submitRemove(subjectId);
+    }
+  }
+
+  function handleRemoveTimeSlot(timeSlotId: number, label: string): void {
+    if (window.confirm(`確定要移除「${label}」這個不可用時段嗎?`)) {
+      void slotsCrud.submitRemove(timeSlotId);
+    }
+  }
+
+  // Dropdown options exclude whatever this teacher already has -- a
+  // teacher can't gain a SECOND qualification in the same subject (that's
+  // what uq_teacher_subject means), so offering an already-qualified
+  // subject again would just be a guaranteed 409 waiting to happen.
+  const qualifiedSubjectIds = new Set(subjectsCrud.items.map((subject) => subject.id));
+  const availableSubjectOptions = (allSubjectsResource.data ?? []).filter(
+    (subject) => !qualifiedSubjectIds.has(subject.id),
+  );
+
+  // Only is_teaching_period slots are even offered -- marking a
+  // non-teaching slot (早自習/午休 etc.) "unavailable" would be meaningless,
+  // the scheduler never considers placing a Lesson there regardless.
+  const unavailableSlotIds = new Set(slotsCrud.items.map((slot) => slot.id));
+  const availableTimeSlotOptions = (allTimeSlotsResource.data ?? []).filter(
+    (timeSlot) => timeSlot.is_teaching_period && !unavailableSlotIds.has(timeSlot.id),
   );
 
   return (
     <div>
       <h3>任教資格</h3>
       <LoadingOrError
-        isLoading={subjects.isLoading}
-        errorMessage={subjects.errorMessage}
+        isLoading={subjectsResource.isLoading}
+        errorMessage={subjectsResource.errorMessage}
       />
-      {subjects.data !== null &&
-        (subjects.data.length === 0 ? (
+      {subjectsResource.data !== null &&
+        (subjectsCrud.items.length === 0 ? (
           <p>無</p>
         ) : (
           <ul>
-            {subjects.data.map((subject) => (
-              <li key={subject.id}>{subject.name}</li>
+            {subjectsCrud.items.map((subject) => (
+              <li key={subject.id}>
+                {subject.name}
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveSubject(subject.id, subject.name)}
+                    disabled={subjectsCrud.pendingKey === subject.id}
+                    style={{ marginLeft: "0.5em" }}
+                  >
+                    移除
+                  </button>
+                )}
+                {subjectsCrud.rowErrors.get(subject.id) !== undefined && (
+                  <p role="alert" style={ROW_ERROR_STYLE}>
+                    {subjectsCrud.rowErrors.get(subject.id)}
+                  </p>
+                )}
+              </li>
             ))}
           </ul>
         ))}
+      {isAdmin && (
+        <div>
+          <LoadingOrError
+            isLoading={allSubjectsResource.isLoading}
+            errorMessage={allSubjectsResource.errorMessage}
+          />
+          {allSubjectsResource.data !== null && (
+            <>
+              <select
+                value={selectedSubjectId}
+                onChange={(event) =>
+                  setSelectedSubjectId(
+                    event.target.value === "" ? "" : Number(event.target.value),
+                  )
+                }
+                disabled={
+                  subjectsCrud.pendingKey === "new" || availableSubjectOptions.length === 0
+                }
+                aria-label="新增任教資格的科目"
+              >
+                {availableSubjectOptions.length > 0 ? (
+                  <>
+                    <option value="">請選擇…</option>
+                    {availableSubjectOptions.map((subject) => (
+                      <option key={subject.id} value={subject.id}>
+                        {subject.name}
+                      </option>
+                    ))}
+                  </>
+                ) : (
+                  <option value="">尚無可選項目</option>
+                )}
+              </select>
+              <button
+                type="button"
+                onClick={() => void handleAddSubject()}
+                disabled={subjectsCrud.pendingKey === "new" || selectedSubjectId === ""}
+              >
+                新增資格
+              </button>
+              {subjectsCrud.rowErrors.get("new") !== undefined && (
+                <p role="alert" style={ROW_ERROR_STYLE}>
+                  {subjectsCrud.rowErrors.get("new")}
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       <h3>不可用時段</h3>
       <LoadingOrError
-        isLoading={unavailableSlots.isLoading}
-        errorMessage={unavailableSlots.errorMessage}
+        isLoading={unavailableSlotsResource.isLoading}
+        errorMessage={unavailableSlotsResource.errorMessage}
       />
-      {unavailableSlots.data !== null &&
-        (unavailableSlots.data.length === 0 ? (
+      {unavailableSlotsResource.data !== null &&
+        (slotsCrud.items.length === 0 ? (
           <p>無</p>
         ) : (
           <ul>
-            {unavailableSlots.data.map((slot) => (
-              <li key={slot.id}>{formatTimeSlotLabel(slot)}</li>
+            {slotsCrud.items.map((slot) => (
+              <li key={slot.id}>
+                {formatTimeSlotLabel(slot)}
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveTimeSlot(slot.id, formatTimeSlotLabel(slot))}
+                    disabled={slotsCrud.pendingKey === slot.id}
+                    style={{ marginLeft: "0.5em" }}
+                  >
+                    移除
+                  </button>
+                )}
+                {slotsCrud.rowErrors.get(slot.id) !== undefined && (
+                  <p role="alert" style={ROW_ERROR_STYLE}>
+                    {slotsCrud.rowErrors.get(slot.id)}
+                  </p>
+                )}
+              </li>
             ))}
           </ul>
         ))}
+      {isAdmin && (
+        <div>
+          <LoadingOrError
+            isLoading={allTimeSlotsResource.isLoading}
+            errorMessage={allTimeSlotsResource.errorMessage}
+          />
+          {allTimeSlotsResource.data !== null && (
+            <>
+              <select
+                value={selectedTimeSlotId}
+                onChange={(event) =>
+                  setSelectedTimeSlotId(
+                    event.target.value === "" ? "" : Number(event.target.value),
+                  )
+                }
+                disabled={
+                  slotsCrud.pendingKey === "new" || availableTimeSlotOptions.length === 0
+                }
+                aria-label="新增不可用時段"
+              >
+                {availableTimeSlotOptions.length > 0 ? (
+                  <>
+                    <option value="">請選擇…</option>
+                    {availableTimeSlotOptions.map((timeSlot) => (
+                      <option key={timeSlot.id} value={timeSlot.id}>
+                        {formatTimeSlotLabel(timeSlot)}
+                      </option>
+                    ))}
+                  </>
+                ) : (
+                  <option value="">尚無可選項目</option>
+                )}
+              </select>
+              <button
+                type="button"
+                onClick={() => void handleAddTimeSlot()}
+                disabled={slotsCrud.pendingKey === "new" || selectedTimeSlotId === ""}
+              >
+                新增不可用時段
+              </button>
+              {slotsCrud.rowErrors.get("new") !== undefined && (
+                <p role="alert" style={ROW_ERROR_STYLE}>
+                  {slotsCrud.rowErrors.get("new")}
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -419,7 +641,7 @@ function TeacherRow({
       {isExpanded && (
         <tr style={{ backgroundColor: "#eef4ff" }}>
           <td colSpan={isAdmin ? 5 : 4}>
-            <TeacherDetail teacherId={teacher.id} />
+            <TeacherDetail teacherId={teacher.id} isAdmin={isAdmin} />
           </td>
         </tr>
       )}

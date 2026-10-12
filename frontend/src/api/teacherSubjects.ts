@@ -12,3 +12,19 @@ export async function listByTeacher(teacherId: number): Promise<Subject[]> {
   );
   return response.data;
 }
+
+// POST /api/v1/teachers/{id}/subjects -- Task 46. Duplicate (uq_teacher_subject)
+// surfaces as the usual 409 DuplicateValueError; an invalid subjectId
+// surfaces as the usual 422 InvalidReferenceError. Neither needs special
+// handling here -- both already have a generic Chinese message.
+export async function create(teacherId: number, subjectId: number): Promise<Subject> {
+  const response = await apiClient.post<Subject>(
+    `/api/v1/teachers/${teacherId}/subjects`,
+    { subject_id: subjectId },
+  );
+  return response.data;
+}
+
+export async function remove(teacherId: number, subjectId: number): Promise<void> {
+  await apiClient.delete(`/api/v1/teachers/${teacherId}/subjects/${subjectId}`);
+}
