@@ -35,5 +35,14 @@ def login(
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    access_token = create_access_token({"sub": user.username})
+    # Phase B (Task 42): `role` is now embedded in the token itself, not
+    # just looked up server-side on every request -- the frontend has no
+    # other way to know the logged-in user's role (there is no GET /me
+    # endpoint), and needs it to decide whether to show the
+    # create/edit/delete buttons at all (see DataBrowser.tsx). This is a
+    # UI convenience only, never an authorization decision by itself: every
+    # write endpoint still independently enforces role via require_admin
+    # (app/core/dependencies.py) regardless of what a client-decoded token
+    # claims.
+    access_token = create_access_token({"sub": user.username, "role": user.role})
     return Token(access_token=access_token)

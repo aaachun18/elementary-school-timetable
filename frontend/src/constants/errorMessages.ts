@@ -1,3 +1,6 @@
+import axios from "axios";
+import type { ApiErrorResponse } from "../types/api";
+
 // Known backend error message (English, verbatim from `detail`) -> 繁體中文.
 // This is a translation, not a rewording: the reason reported to the user
 // stays exactly what the backend said, just in Chinese instead of English
@@ -13,12 +16,35 @@
 const KNOWN_ERROR_MESSAGES: Record<string, string> = {
   // POST /api/v1/auth/login -- backend/app/routers/auth.py's only 401 case.
   "Incorrect username or password": "帳號或密碼錯誤",
+  // Task 42's CRUD tables (School/Subject/Room) -- each router's own
+  // literal 404 detail string for GET one/PATCH/DELETE on an id that
+  // doesn't exist, e.g. deleted concurrently by someone else.
+  "School not found": "此學校資料已不存在,請重新整理頁面",
+  "Subject not found": "此科目資料已不存在,請重新整理頁面",
+  "Room not found": "此教室資料已不存在,請重新整理頁面",
 };
 
 // Falls back to the original (untranslated) message when it isn't in the
 // table above -- never swallowed, never replaced with a generic string.
 export function translateErrorMessage(message: string): string {
   return KNOWN_ERROR_MESSAGES[message] ?? message;
+}
+
+// Task 42: the same "pull `detail` out of an axios error, translate it,
+// fall back to a connectivity message" sequence useResource.ts already
+// does internally -- pulled out here so per-row CRUD error handling
+// (useCrudList.ts) doesn't have to duplicate it. Every global exception
+// handler in backend/app/main.py, and every router's own HTTPException,
+// returns at least {detail: "..."} (see types/api.ts), so this covers
+// every error shape a create/update/delete call can produce EXCEPT
+// run-scheduler's structured 422 (RunSchedulerFailureResponse), which has
+// its own dedicated handling in SchedulerConsole.tsx and never flows
+// through here.
+export function extractApiErrorMessage(error: unknown): string {
+  if (axios.isAxiosError<ApiErrorResponse>(error) && typeof error.response?.data?.detail === "string") {
+    return translateErrorMessage(error.response.data.detail);
+  }
+  return "無法連線到伺服器,請確認後端服務是否啟動。";
 }
 
 // Task 36: RunSchedulerFailureResponse.failure_type -> 繁體中文 overall
