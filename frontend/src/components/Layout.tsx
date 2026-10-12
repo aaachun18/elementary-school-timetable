@@ -1,7 +1,8 @@
 import type { ReactElement } from "react";
-import { Link, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { TOKEN_KEY } from "../api/client";
 import { getCurrentUserRole } from "../utils/auth";
+import { BUTTON_SECONDARY_SM, NAV_BAR, NAV_LINK, NAV_LINK_ACTIVE } from "../styles/ui";
 
 // Shared shell for every protected page (see App.tsx: this is combined
 // with ProtectedRoute as one parent layout route, wrapping Home/DataBrowser
@@ -21,29 +22,43 @@ export default function Layout(): ReactElement {
     navigate("/login");
   }
 
+  // Task 48: NavLink (not plain Link) only to pick up its automatic
+  // isActive -> styling -- purely presentational (which page is
+  // highlighted), no change to where any link actually goes or what
+  // AdminOnlyRoute/ProtectedRoute decide.
+  function navLinkClassName({ isActive }: { isActive: boolean }): string {
+    return isActive ? NAV_LINK_ACTIVE : NAV_LINK;
+  }
+
   return (
-    <div>
-      <nav>
+    <div className="min-h-screen bg-gray-50">
+      <nav className={NAV_BAR}>
         {!isRestrictedToTimetable && (
           <>
-            <Link to="/">首頁</Link>
-            {" | "}
-            <Link to="/data">基礎資料</Link>
-            {" | "}
-            <Link to="/requirements">排課需求總覽</Link>
-            {" | "}
-            <Link to="/scheduler">排課控制台</Link>
-            {" | "}
+            <NavLink to="/" className={navLinkClassName}>
+              首頁
+            </NavLink>
+            <NavLink to="/data" className={navLinkClassName}>
+              基礎資料
+            </NavLink>
+            <NavLink to="/requirements" className={navLinkClassName}>
+              排課需求總覽
+            </NavLink>
+            <NavLink to="/scheduler" className={navLinkClassName}>
+              排課控制台
+            </NavLink>
           </>
         )}
-        <Link to="/timetable">課表檢視</Link>
-        {" | "}
-        <button type="button" onClick={handleLogout}>
+        <NavLink to="/timetable" className={navLinkClassName}>
+          課表檢視
+        </NavLink>
+        <button type="button" onClick={handleLogout} className={`${BUTTON_SECONDARY_SM} ml-auto`}>
           登出
         </button>
       </nav>
-      <hr />
-      <Outlet />
+      <main>
+        <Outlet />
+      </main>
     </div>
   );
 }

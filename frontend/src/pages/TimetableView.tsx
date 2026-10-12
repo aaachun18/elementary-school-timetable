@@ -10,6 +10,23 @@ import { useResource } from "../hooks/useResource";
 import { useTimetableData, timeSlotKey, type EnrichedSchedule } from "../hooks/useTimetableData";
 import { formatVersionLabel } from "../utils/scheduleVersionFormat";
 import { formatWeekday } from "../utils/timeSlotFormat";
+import {
+  ERROR_TEXT,
+  LABEL,
+  LOADING_TEXT,
+  MUTED_TEXT,
+  PAGE,
+  PAGE_TITLE,
+  SECTION,
+  SELECT,
+  TAB_BUTTON,
+  TAB_BUTTON_ACTIVE,
+  TABLE,
+  TABLE_HEAD_ROW,
+  TABLE_WRAPPER,
+  TD,
+  TH,
+} from "../styles/ui";
 
 type ViewMode = "class" | "teacher" | "room";
 
@@ -91,10 +108,20 @@ export default function TimetableView(): ReactElement {
     roomsResource.errorMessage;
 
   if (isLoadingLookups) {
-    return <p>載入中…</p>;
+    return (
+      <div className={PAGE}>
+        <p className={LOADING_TEXT}>載入中…</p>
+      </div>
+    );
   }
   if (lookupErrorMessage !== null) {
-    return <p role="alert">{lookupErrorMessage}</p>;
+    return (
+      <div className={PAGE}>
+        <p role="alert" className={ERROR_TEXT}>
+          {lookupErrorMessage}
+        </p>
+      </div>
+    );
   }
 
   const academicYearById = new Map(
@@ -141,12 +168,13 @@ export default function TimetableView(): ReactElement {
   }
 
   return (
-    <div>
-      <h1>課表檢視</h1>
+    <div className={PAGE}>
+      <h1 className={PAGE_TITLE}>課表檢視</h1>
 
-      <section>
-        <label htmlFor="timetable-version-select">選擇排課版本</label>
-        <br />
+      <section className={SECTION}>
+        <label htmlFor="timetable-version-select" className={`${LABEL} mb-1 block`}>
+          選擇排課版本
+        </label>
         {/* Task 43: TEACHER's GET /api/v1/schedule-versions/ already only
             ever returns PUBLISHED versions (backend/app/services/
             schedule_version.py) -- `versions` here is exactly what this
@@ -156,7 +184,7 @@ export default function TimetableView(): ReactElement {
             message instead of a dropdown with nothing but "請選擇…" in
             it. */}
         {versions.length === 0 ? (
-          <p>目前沒有可查看的課表版本。</p>
+          <p className={MUTED_TEXT}>目前沒有可查看的課表版本。</p>
         ) : (
           <select
             id="timetable-version-select"
@@ -167,6 +195,7 @@ export default function TimetableView(): ReactElement {
               );
               setSelectedTargetId(null);
             }}
+            className={SELECT}
           >
             <option value="">請選擇…</option>
             {versions.map((version) => (
@@ -179,24 +208,24 @@ export default function TimetableView(): ReactElement {
       </section>
 
       {selectedVersionId !== null && (
-        <section>
-          <nav>
+        <section className={SECTION}>
+          <nav className="mb-4 flex gap-2">
             {VIEW_MODES.map((mode) => (
               <button
                 key={mode.key}
                 type="button"
                 onClick={() => handleSelectViewMode(mode.key)}
                 aria-pressed={viewMode === mode.key}
+                className={viewMode === mode.key ? TAB_BUTTON_ACTIVE : TAB_BUTTON}
               >
                 {mode.label}
               </button>
             ))}
           </nav>
 
-          <label htmlFor="timetable-target-select">
+          <label htmlFor="timetable-target-select" className={`${LABEL} mb-1 block`}>
             {viewMode === "class" ? "選擇班級" : viewMode === "teacher" ? "選擇教師" : "選擇教室"}
           </label>
-          <br />
           <select
             id="timetable-target-select"
             value={selectedTargetId ?? ""}
@@ -205,6 +234,7 @@ export default function TimetableView(): ReactElement {
                 event.target.value === "" ? null : Number(event.target.value),
               )
             }
+            className={`${SELECT} mb-4`}
           >
             <option value="">請選擇…</option>
             {targetOptions.map((option) => (
@@ -214,66 +244,82 @@ export default function TimetableView(): ReactElement {
             ))}
           </select>
 
-          {timetable.isLoading && <p>載入中…</p>}
+          {timetable.isLoading && <p className={LOADING_TEXT}>載入中…</p>}
           {timetable.errorMessage !== null && (
-            <p role="alert">{timetable.errorMessage}</p>
+            <p role="alert" className={ERROR_TEXT}>
+              {timetable.errorMessage}
+            </p>
           )}
 
           {timetable.data !== null && selectedTargetId !== null && (
-            <table>
-              <thead>
-                <tr>
-                  <th>節次</th>
-                  {WEEKDAYS.map((weekday) => (
-                    <th key={weekday}>{formatWeekday(weekday)}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {periods.map((period) => (
-                  <tr key={period}>
-                    {/* Task 35.5: the row header is now a plain,
-                        weekday-independent period number -- no label is
-                        read here, since a single period can have
-                        different labels on different weekdays. */}
-                    <th scope="row">第 {period} 節</th>
-                    {WEEKDAYS.map((weekday) => {
-                      const nonTeachingLabel = cellLabelOf(weekday, period);
-                      // Non-teaching cells show only their own label (or
-                      // the generic fallback) -- never any guessed-at
-                      // administrative content, and never a schedule
-                      // lookup at all.
-                      if (nonTeachingLabel !== null) {
-                        return <td key={weekday}>{nonTeachingLabel}</td>;
-                      }
-                      const matches = schedules.filter(
-                        (schedule) =>
-                          schedule.period === period &&
-                          schedule.weekday === weekday &&
-                          targetIdOf(schedule, viewMode) === selectedTargetId,
-                      );
-                      const schedule = matches[0];
-                      return (
-                        <td key={weekday}>
-                          {schedule !== undefined && (
-                            <>
-                              {matches.length > 1 && (
-                                <span title="這個時段出現多筆排課結果,顯示第一筆">
-                                  ⚠️{" "}
-                                </span>
-                              )}
-                              {schedule.subjectName}
-                              <br />
-                              {cellDetailOf(schedule, viewMode)}
-                            </>
-                          )}
-                        </td>
-                      );
-                    })}
+            <div className={TABLE_WRAPPER}>
+              <table className={TABLE}>
+                <thead>
+                  <tr className={TABLE_HEAD_ROW}>
+                    <th className={TH}>節次</th>
+                    {WEEKDAYS.map((weekday) => (
+                      <th key={weekday} className={TH}>
+                        {formatWeekday(weekday)}
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {periods.map((period) => (
+                    <tr key={period} className="hover:bg-gray-50">
+                      {/* Task 35.5: the row header is now a plain,
+                          weekday-independent period number -- no label is
+                          read here, since a single period can have
+                          different labels on different weekdays. */}
+                      <th scope="row" className={`${TH} bg-white font-medium text-gray-600`}>
+                        第 {period} 節
+                      </th>
+                      {WEEKDAYS.map((weekday) => {
+                        const nonTeachingLabel = cellLabelOf(weekday, period);
+                        // Non-teaching cells show only their own label (or
+                        // the generic fallback) -- never any guessed-at
+                        // administrative content, and never a schedule
+                        // lookup at all.
+                        if (nonTeachingLabel !== null) {
+                          return (
+                            <td key={weekday} className={`${TD} bg-gray-50 text-gray-400`}>
+                              {nonTeachingLabel}
+                            </td>
+                          );
+                        }
+                        const matches = schedules.filter(
+                          (schedule) =>
+                            schedule.period === period &&
+                            schedule.weekday === weekday &&
+                            targetIdOf(schedule, viewMode) === selectedTargetId,
+                        );
+                        const schedule = matches[0];
+                        return (
+                          <td key={weekday} className={TD}>
+                            {schedule !== undefined && (
+                              <>
+                                {matches.length > 1 && (
+                                  <span title="這個時段出現多筆排課結果,顯示第一筆">
+                                    ⚠️{" "}
+                                  </span>
+                                )}
+                                <span className="font-medium text-gray-900">
+                                  {schedule.subjectName}
+                                </span>
+                                <br />
+                                <span className="text-gray-500">
+                                  {cellDetailOf(schedule, viewMode)}
+                                </span>
+                              </>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
       )}

@@ -82,6 +82,29 @@ import type { Class, ClassCreate, ClassUpdate } from "../types/class";
 import type { Grade, GradeCreate, GradeUpdate } from "../types/grade";
 import type { Teacher, TeacherCreate, TeacherUpdate } from "../types/teacher";
 import type { TimeSlot, TimeSlotCreate, TimeSlotUpdate } from "../types/timeSlot";
+import {
+  SUBSECTION_TITLE,
+  BUTTON_DANGER_SM,
+  BUTTON_PRIMARY,
+  BUTTON_PRIMARY_SM,
+  BUTTON_SECONDARY_SM,
+  ERROR_TEXT,
+  HELP_TEXT,
+  INPUT,
+  LOADING_TEXT,
+  MUTED_TEXT,
+  PAGE,
+  PAGE_TITLE,
+  SELECT,
+  TAB_BUTTON,
+  TAB_BUTTON_ACTIVE,
+  TABLE,
+  TABLE_HEAD_ROW,
+  TABLE_WRAPPER,
+  TD,
+  TH,
+  TR_HOVER,
+} from "../styles/ui";
 
 type TabKey =
   | "schools"
@@ -120,10 +143,14 @@ function LoadingOrError({
   errorMessage: string | null;
 }): ReactElement | null {
   if (isLoading) {
-    return <p>載入中…</p>;
+    return <p className={LOADING_TEXT}>載入中…</p>;
   }
   if (errorMessage !== null) {
-    return <p role="alert">{errorMessage}</p>;
+    return (
+      <p role="alert" className={ERROR_TEXT}>
+        {errorMessage}
+      </p>
+    );
   }
   return null;
 }
@@ -221,32 +248,33 @@ function TeacherDetail({
   );
 
   return (
-    <div>
-      <h3>任教資格</h3>
+    <div className="flex flex-col gap-4">
+      <section>
+        <h3 className={SUBSECTION_TITLE}>任教資格</h3>
       <LoadingOrError
         isLoading={subjectsResource.isLoading}
         errorMessage={subjectsResource.errorMessage}
       />
       {subjectsResource.data !== null &&
         (subjectsCrud.items.length === 0 ? (
-          <p>無</p>
+          <p className={MUTED_TEXT}>無</p>
         ) : (
-          <ul>
+          <ul className="flex flex-col gap-1 pl-0 list-none">
             {subjectsCrud.items.map((subject) => (
-              <li key={subject.id}>
+              <li key={subject.id} className="flex flex-wrap items-center gap-1 text-sm text-gray-700">
                 {subject.name}
                 {isAdmin && (
                   <button
                     type="button"
                     onClick={() => handleRemoveSubject(subject.id, subject.name)}
                     disabled={subjectsCrud.pendingKey === subject.id}
-                    style={{ marginLeft: "0.5em" }}
+                    className={`${BUTTON_DANGER_SM} ml-2`}
                   >
                     移除
                   </button>
                 )}
                 {subjectsCrud.rowErrors.get(subject.id) !== undefined && (
-                  <p role="alert" style={ROW_ERROR_STYLE}>
+                  <p role="alert" className={ERROR_TEXT}>
                     {subjectsCrud.rowErrors.get(subject.id)}
                   </p>
                 )}
@@ -255,7 +283,7 @@ function TeacherDetail({
           </ul>
         ))}
       {isAdmin && (
-        <div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <LoadingOrError
             isLoading={allSubjectsResource.isLoading}
             errorMessage={allSubjectsResource.errorMessage}
@@ -273,6 +301,7 @@ function TeacherDetail({
                   subjectsCrud.pendingKey === "new" || availableSubjectOptions.length === 0
                 }
                 aria-label="新增任教資格的科目"
+              className={SELECT}
               >
                 {availableSubjectOptions.length > 0 ? (
                   <>
@@ -291,11 +320,12 @@ function TeacherDetail({
                 type="button"
                 onClick={() => void handleAddSubject()}
                 disabled={subjectsCrud.pendingKey === "new" || selectedSubjectId === ""}
+                className={BUTTON_PRIMARY_SM}
               >
                 新增資格
               </button>
               {subjectsCrud.rowErrors.get("new") !== undefined && (
-                <p role="alert" style={ROW_ERROR_STYLE}>
+                <p role="alert" className={ERROR_TEXT}>
                   {subjectsCrud.rowErrors.get("new")}
                 </p>
               )}
@@ -304,31 +334,33 @@ function TeacherDetail({
         </div>
       )}
 
-      <h3>不可用時段</h3>
+      </section>
+      <section>
+        <h3 className={SUBSECTION_TITLE}>不可用時段</h3>
       <LoadingOrError
         isLoading={unavailableSlotsResource.isLoading}
         errorMessage={unavailableSlotsResource.errorMessage}
       />
       {unavailableSlotsResource.data !== null &&
         (slotsCrud.items.length === 0 ? (
-          <p>無</p>
+          <p className={MUTED_TEXT}>無</p>
         ) : (
-          <ul>
+          <ul className="flex flex-col gap-1 pl-0 list-none">
             {slotsCrud.items.map((slot) => (
-              <li key={slot.id}>
+              <li key={slot.id} className="flex flex-wrap items-center gap-1 text-sm text-gray-700">
                 {formatTimeSlotLabel(slot)}
                 {isAdmin && (
                   <button
                     type="button"
                     onClick={() => handleRemoveTimeSlot(slot.id, formatTimeSlotLabel(slot))}
                     disabled={slotsCrud.pendingKey === slot.id}
-                    style={{ marginLeft: "0.5em" }}
+                    className={`${BUTTON_DANGER_SM} ml-2`}
                   >
                     移除
                   </button>
                 )}
                 {slotsCrud.rowErrors.get(slot.id) !== undefined && (
-                  <p role="alert" style={ROW_ERROR_STYLE}>
+                  <p role="alert" className={ERROR_TEXT}>
                     {slotsCrud.rowErrors.get(slot.id)}
                   </p>
                 )}
@@ -337,7 +369,7 @@ function TeacherDetail({
           </ul>
         ))}
       {isAdmin && (
-        <div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <LoadingOrError
             isLoading={allTimeSlotsResource.isLoading}
             errorMessage={allTimeSlotsResource.errorMessage}
@@ -355,6 +387,7 @@ function TeacherDetail({
                   slotsCrud.pendingKey === "new" || availableTimeSlotOptions.length === 0
                 }
                 aria-label="新增不可用時段"
+              className={SELECT}
               >
                 {availableTimeSlotOptions.length > 0 ? (
                   <>
@@ -373,11 +406,12 @@ function TeacherDetail({
                 type="button"
                 onClick={() => void handleAddTimeSlot()}
                 disabled={slotsCrud.pendingKey === "new" || selectedTimeSlotId === ""}
+                className={BUTTON_PRIMARY_SM}
               >
                 新增不可用時段
               </button>
               {slotsCrud.rowErrors.get("new") !== undefined && (
-                <p role="alert" style={ROW_ERROR_STYLE}>
+                <p role="alert" className={ERROR_TEXT}>
                   {slotsCrud.rowErrors.get("new")}
                 </p>
               )}
@@ -385,6 +419,7 @@ function TeacherDetail({
           )}
         </div>
       )}
+      </section>
     </div>
   );
 }
@@ -423,49 +458,53 @@ function TeacherNewRow({
   }
 
   return (
-    <tr>
-      <td>
+    <tr className={TR_HOVER}>
+      <td className={TD}>
         <input
           value={name}
           onChange={(event) => setName(event.target.value)}
           disabled={isPending}
           aria-label="教師姓名"
+        className={INPUT}
         />
       </td>
-      <td style={{ color: "#777" }}>啟用中(新增時固定)</td>
-      <td>
+      <td className={`${TD} text-gray-400`}>啟用中(新增時固定)</td>
+      <td className={TD}>
         <input
           type="number"
           value={minText}
           onChange={(event) => setMinText(event.target.value)}
           disabled={isPending}
           aria-label="最低每週節數"
+        className={INPUT}
         />
       </td>
-      <td>
+      <td className={TD}>
         <input
           type="number"
           value={maxText}
           onChange={(event) => setMaxText(event.target.value)}
           disabled={isPending}
           aria-label="最高每週節數"
+        className={INPUT}
         />
       </td>
-      <td>
+      <td className={TD}>
         <button
           type="button"
           onClick={handleConfirm}
           disabled={isPending || name.trim() === "" || min === null || max === null || isRangeInvalid}
+          className={BUTTON_PRIMARY_SM}
         >
           確認
         </button>
-        <button type="button" onClick={onCancel} disabled={isPending}>
+        <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
           取消
         </button>
         {isRangeInvalid && (
-          <p role="alert" style={ROW_ERROR_STYLE}>{TEACHER_PERIODS_RANGE_ERROR}</p>
+          <p role="alert" className={ERROR_TEXT}>{TEACHER_PERIODS_RANGE_ERROR}</p>
         )}
-        {errorMessage !== null && <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>}
+        {errorMessage !== null && <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>}
       </td>
     </tr>
   );
@@ -528,45 +567,49 @@ function TeacherRow({
 
   if (isEditing) {
     return (
-      <tr>
-        <td>
+      <tr className="bg-blue-50/40">
+        <td className={TD}>
           <input
             value={draftName}
             onChange={(event) => setDraftName(event.target.value)}
             disabled={isPending}
             aria-label="教師姓名"
+          className={INPUT}
           />
         </td>
-        <td>
+        <td className={TD}>
           <label>
             <input
               type="checkbox"
               checked={draftIsActive}
               onChange={(event) => setDraftIsActive(event.target.checked)}
               disabled={isPending}
+            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
             啟用中
           </label>
         </td>
-        <td>
+        <td className={TD}>
           <input
             type="number"
             value={draftMinText}
             onChange={(event) => setDraftMinText(event.target.value)}
             disabled={isPending}
             aria-label="最低每週節數"
+          className={INPUT}
           />
         </td>
-        <td>
+        <td className={TD}>
           <input
             type="number"
             value={draftMaxText}
             onChange={(event) => setDraftMaxText(event.target.value)}
             disabled={isPending}
             aria-label="最高每週節數"
+          className={INPUT}
           />
         </td>
-        <td>
+        <td className={TD}>
           <button
             type="button"
             onClick={handleConfirmEdit}
@@ -577,17 +620,18 @@ function TeacherRow({
               draftMax === null ||
               isRangeInvalid
             }
+            className={BUTTON_PRIMARY_SM}
           >
             確認
           </button>
-          <button type="button" onClick={onCancelEdit} disabled={isPending}>
+          <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
             取消
           </button>
           {isRangeInvalid && (
-            <p role="alert" style={ROW_ERROR_STYLE}>{TEACHER_PERIODS_RANGE_ERROR}</p>
+            <p role="alert" className={ERROR_TEXT}>{TEACHER_PERIODS_RANGE_ERROR}</p>
           )}
           {errorMessage !== undefined && (
-            <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>
+            <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
           )}
         </td>
       </tr>
@@ -601,46 +645,43 @@ function TeacherRow({
           row also has Edit/Delete buttons in its own cell now (Task 45);
           scoping the click target this way means those buttons never
           need stopPropagation(). */}
-      <tr style={{ backgroundColor: isExpanded ? "#eef4ff" : undefined }}>
+      <tr className={isExpanded ? "bg-blue-50" : TR_HOVER}>
         <td
           onClick={onToggleExpand}
           aria-expanded={isExpanded}
-          style={{ cursor: "pointer" }}
+          className={`${TD} cursor-pointer`}
         >
           <span
             aria-hidden="true"
-            style={{
-              display: "inline-block",
-              transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)",
-              marginRight: "0.5em",
-            }}
+            className="mr-2 inline-block transition-transform"
+            style={{ transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}
           >
             ▶
           </span>
           {teacher.name}
         </td>
-        <td>{teacher.is_active ? "是" : "否"}</td>
-        <td>{teacher.min_weekly_periods}</td>
-        <td>{teacher.max_weekly_periods}</td>
-        <td>
+        <td className={TD}>{teacher.is_active ? "是" : "否"}</td>
+        <td className={TD}>{teacher.min_weekly_periods}</td>
+        <td className={TD}>{teacher.max_weekly_periods}</td>
+        <td className={TD}>
           {isAdmin && (
             <>
-              <button type="button" onClick={onStartEdit} disabled={isPending}>
+              <button type="button" onClick={onStartEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
                 編輯
               </button>
-              <button type="button" onClick={onDelete} disabled={isPending}>
+              <button type="button" onClick={onDelete} disabled={isPending} className={BUTTON_DANGER_SM}>
                 刪除
               </button>
             </>
           )}
           {errorMessage !== undefined && (
-            <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>
+            <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
           )}
         </td>
       </tr>
       {isExpanded && (
-        <tr style={{ backgroundColor: "#eef4ff" }}>
-          <td colSpan={isAdmin ? 5 : 4}>
+        <tr className="bg-blue-50">
+          <td colSpan={isAdmin ? 5 : 4} className={`${TD} align-top`}>
             <TeacherDetail teacherId={teacher.id} isAdmin={isAdmin} />
           </td>
         </tr>
@@ -680,24 +721,26 @@ function TeachersTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
       {data !== null && (
         <>
           {isAdmin && (
-            <p>
+            <p className="mb-3">
               <button
                 type="button"
                 onClick={crud.startAdding}
                 disabled={crud.isAdding || crud.pendingKey !== null}
+              className={BUTTON_PRIMARY}
               >
                 新增
               </button>
             </p>
           )}
-          <table>
+          <div className={TABLE_WRAPPER}>
+          <table className={TABLE}>
             <thead>
-              <tr>
-                <th>姓名</th>
-                <th>啟用中</th>
-                <th>最低每週節數</th>
-                <th>最高每週節數</th>
-                {isAdmin && <th>操作</th>}
+              <tr className={TABLE_HEAD_ROW}>
+                <th className={TH}>姓名</th>
+                <th className={TH}>啟用中</th>
+                <th className={TH}>最低每週節數</th>
+                <th className={TH}>最高每週節數</th>
+                {isAdmin && <th className={TH}>操作</th>}
               </tr>
             </thead>
             <tbody>
@@ -729,6 +772,7 @@ function TeachersTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
               ))}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </div>
@@ -742,12 +786,10 @@ function TeachersTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
 // <tr> and an inline-edit <tr> depending on whether it's the one being
 // edited), not just the useCrudList() mechanics underneath it.
 //
-// row error display: a plain <p role="alert"> inside the row's own
-// action <td>, same red (#b00020) FailureDiagnostics.tsx already uses --
-// deliberately NOT a toast/banner, since the point is that this one row's
-// failure is scoped to this one row, with every other row (and the rest
-// of the page) staying exactly as it was.
-const ROW_ERROR_STYLE = { color: "#b00020", margin: "0.25em 0 0 0" } as const;
+// row error display: a plain <p className={ERROR_TEXT}> inside the row's
+// own action <td className={TD}> -- deliberately NOT a toast/banner, since the point is
+// that this one row's failure is scoped to this one row, with every other
+// row (and the rest of the page) staying exactly as it was.
 
 // --- Task 45: Grade's CRUD tab. Unlike every other lookup table so far,
 // Grade has no is_active column at all (see backend/app/models/
@@ -773,25 +815,27 @@ function GradeNewRow({
   const level = levelText === "" ? null : Number(levelText);
 
   return (
-    <tr>
-      <td>
+    <tr className={TR_HOVER}>
+      <td className={TD}>
         <input
           value={name}
           onChange={(event) => setName(event.target.value)}
           disabled={isPending}
           aria-label="年級名稱"
+        className={INPUT}
         />
       </td>
-      <td>
+      <td className={TD}>
         <input
           type="number"
           value={levelText}
           onChange={(event) => setLevelText(event.target.value)}
           disabled={isPending}
           aria-label="年級序號"
+        className={INPUT}
         />
       </td>
-      <td>
+      <td className={TD}>
         <button
           type="button"
           onClick={() => {
@@ -800,13 +844,14 @@ function GradeNewRow({
             }
           }}
           disabled={isPending || name.trim() === "" || level === null}
+          className={BUTTON_PRIMARY_SM}
         >
           確認
         </button>
-        <button type="button" onClick={onCancel} disabled={isPending}>
+        <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
           取消
         </button>
-        {errorMessage !== null && <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>}
+        {errorMessage !== null && <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>}
       </td>
     </tr>
   );
@@ -847,25 +892,27 @@ function GradeRow({
 
   if (isEditing) {
     return (
-      <tr>
-        <td>
+      <tr className="bg-blue-50/40">
+        <td className={TD}>
           <input
             value={draftName}
             onChange={(event) => setDraftName(event.target.value)}
             disabled={isPending}
             aria-label="年級名稱"
+          className={INPUT}
           />
         </td>
-        <td>
+        <td className={TD}>
           <input
             type="number"
             value={draftLevelText}
             onChange={(event) => setDraftLevelText(event.target.value)}
             disabled={isPending}
             aria-label="年級序號"
+          className={INPUT}
           />
         </td>
-        <td>
+        <td className={TD}>
           <button
             type="button"
             onClick={() => {
@@ -874,14 +921,15 @@ function GradeRow({
               }
             }}
             disabled={isPending || draftName.trim() === "" || draftLevel === null}
+            className={BUTTON_PRIMARY_SM}
           >
             確認
           </button>
-          <button type="button" onClick={onCancelEdit} disabled={isPending}>
+          <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
             取消
           </button>
           {errorMessage !== undefined && (
-            <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>
+            <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
           )}
         </td>
       </tr>
@@ -889,22 +937,22 @@ function GradeRow({
   }
 
   return (
-    <tr>
-      <td>{grade.name}</td>
-      <td>{grade.level}</td>
-      <td>
+    <tr className={TR_HOVER}>
+      <td className={TD}>{grade.name}</td>
+      <td className={TD}>{grade.level}</td>
+      <td className={TD}>
         {isAdmin && (
           <>
-            <button type="button" onClick={onStartEdit} disabled={isPending}>
+            <button type="button" onClick={onStartEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
               編輯
             </button>
-            <button type="button" onClick={onDelete} disabled={isPending}>
+            <button type="button" onClick={onDelete} disabled={isPending} className={BUTTON_DANGER_SM}>
               刪除
             </button>
           </>
         )}
         {errorMessage !== undefined && (
-          <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>
+          <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
         )}
       </td>
     </tr>
@@ -931,22 +979,24 @@ function GradesTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
       {data !== null && (
         <>
           {isAdmin && (
-            <p>
+            <p className="mb-3">
               <button
                 type="button"
                 onClick={crud.startAdding}
                 disabled={crud.isAdding || crud.pendingKey !== null}
+              className={BUTTON_PRIMARY}
               >
                 新增
               </button>
             </p>
           )}
-          <table>
+          <div className={TABLE_WRAPPER}>
+          <table className={TABLE}>
             <thead>
-              <tr>
-                <th>名稱</th>
-                <th>年級序號</th>
-                {isAdmin && <th>操作</th>}
+              <tr className={TABLE_HEAD_ROW}>
+                <th className={TH}>名稱</th>
+                <th className={TH}>年級序號</th>
+                {isAdmin && <th className={TH}>操作</th>}
               </tr>
             </thead>
             <tbody>
@@ -974,6 +1024,7 @@ function GradesTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
               ))}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </div>
@@ -994,32 +1045,34 @@ function SchoolNewRow({
   const [name, setName] = useState("");
 
   return (
-    <tr>
-      <td>
+    <tr className={TR_HOVER}>
+      <td className={TD}>
         <input
           value={name}
           onChange={(event) => setName(event.target.value)}
           disabled={isPending}
           aria-label="學校名稱"
+        className={INPUT}
         />
       </td>
       {/* SchoolCreate has no is_active field -- a new School is always
           created active (Task 7/8's existing decision); only editing an
           existing row can change it, so this column has nothing to input
           here. */}
-      <td style={{ color: "#777" }}>啟用中(新增時固定)</td>
-      <td>
+      <td className={`${TD} text-gray-400`}>啟用中(新增時固定)</td>
+      <td className={TD}>
         <button
           type="button"
           onClick={() => onConfirm({ name })}
           disabled={isPending || name.trim() === ""}
+          className={BUTTON_PRIMARY_SM}
         >
           確認
         </button>
-        <button type="button" onClick={onCancel} disabled={isPending}>
+        <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
           取消
         </button>
-        {errorMessage !== null && <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>}
+        {errorMessage !== null && <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>}
       </td>
     </tr>
   );
@@ -1063,39 +1116,42 @@ function SchoolRow({
 
   if (isEditing) {
     return (
-      <tr>
-        <td>
+      <tr className="bg-blue-50/40">
+        <td className={TD}>
           <input
             value={draftName}
             onChange={(event) => setDraftName(event.target.value)}
             disabled={isPending}
             aria-label="學校名稱"
+          className={INPUT}
           />
         </td>
-        <td>
+        <td className={TD}>
           <label>
             <input
               type="checkbox"
               checked={draftIsActive}
               onChange={(event) => setDraftIsActive(event.target.checked)}
               disabled={isPending}
+            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
             啟用中
           </label>
         </td>
-        <td>
+        <td className={TD}>
           <button
             type="button"
             onClick={() => onConfirmEdit({ name: draftName, is_active: draftIsActive })}
             disabled={isPending || draftName.trim() === ""}
+            className={BUTTON_PRIMARY_SM}
           >
             確認
           </button>
-          <button type="button" onClick={onCancelEdit} disabled={isPending}>
+          <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
             取消
           </button>
           {errorMessage !== undefined && (
-            <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>
+            <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
           )}
         </td>
       </tr>
@@ -1103,22 +1159,22 @@ function SchoolRow({
   }
 
   return (
-    <tr>
-      <td>{school.name}</td>
-      <td>{school.is_active ? "是" : "否"}</td>
-      <td>
+    <tr className={TR_HOVER}>
+      <td className={TD}>{school.name}</td>
+      <td className={TD}>{school.is_active ? "是" : "否"}</td>
+      <td className={TD}>
         {isAdmin && (
           <>
-            <button type="button" onClick={onStartEdit} disabled={isPending}>
+            <button type="button" onClick={onStartEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
               編輯
             </button>
-            <button type="button" onClick={onDelete} disabled={isPending}>
+            <button type="button" onClick={onDelete} disabled={isPending} className={BUTTON_DANGER_SM}>
               刪除
             </button>
           </>
         )}
         {errorMessage !== undefined && (
-          <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>
+          <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
         )}
       </td>
     </tr>
@@ -1145,22 +1201,24 @@ function SchoolsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
       {data !== null && (
         <>
           {isAdmin && (
-            <p>
+            <p className="mb-3">
               <button
                 type="button"
                 onClick={crud.startAdding}
                 disabled={crud.isAdding || crud.pendingKey !== null}
+              className={BUTTON_PRIMARY}
               >
                 新增
               </button>
             </p>
           )}
-          <table>
+          <div className={TABLE_WRAPPER}>
+          <table className={TABLE}>
             <thead>
-              <tr>
-                <th>名稱</th>
-                <th>啟用中</th>
-                {isAdmin && <th>操作</th>}
+              <tr className={TABLE_HEAD_ROW}>
+                <th className={TH}>名稱</th>
+                <th className={TH}>啟用中</th>
+                {isAdmin && <th className={TH}>操作</th>}
               </tr>
             </thead>
             <tbody>
@@ -1188,6 +1246,7 @@ function SchoolsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
               ))}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </div>
@@ -1216,18 +1275,19 @@ function AcademicYearNewRow({
   const year = yearText === "" ? null : Number(yearText);
 
   return (
-    <tr>
-      <td>
+    <tr className={TR_HOVER}>
+      <td className={TD}>
         <input
           type="number"
           value={yearText}
           onChange={(event) => setYearText(event.target.value)}
           disabled={isPending}
           aria-label="學年度"
+        className={INPUT}
         />
       </td>
-      <td style={{ color: "#777" }}>啟用中(新增時固定)</td>
-      <td>
+      <td className={`${TD} text-gray-400`}>啟用中(新增時固定)</td>
+      <td className={TD}>
         <button
           type="button"
           onClick={() => {
@@ -1236,13 +1296,14 @@ function AcademicYearNewRow({
             }
           }}
           disabled={isPending || year === null}
+          className={BUTTON_PRIMARY_SM}
         >
           確認
         </button>
-        <button type="button" onClick={onCancel} disabled={isPending}>
+        <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
           取消
         </button>
-        {errorMessage !== null && <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>}
+        {errorMessage !== null && <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>}
       </td>
     </tr>
   );
@@ -1283,28 +1344,30 @@ function AcademicYearRow({
 
   if (isEditing) {
     return (
-      <tr>
-        <td>
+      <tr className="bg-blue-50/40">
+        <td className={TD}>
           <input
             type="number"
             value={draftYearText}
             onChange={(event) => setDraftYearText(event.target.value)}
             disabled={isPending}
             aria-label="學年度"
+          className={INPUT}
           />
         </td>
-        <td>
+        <td className={TD}>
           <label>
             <input
               type="checkbox"
               checked={draftIsActive}
               onChange={(event) => setDraftIsActive(event.target.checked)}
               disabled={isPending}
+            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
             啟用中
           </label>
         </td>
-        <td>
+        <td className={TD}>
           <button
             type="button"
             onClick={() => {
@@ -1313,14 +1376,15 @@ function AcademicYearRow({
               }
             }}
             disabled={isPending || draftYear === null}
+            className={BUTTON_PRIMARY_SM}
           >
             確認
           </button>
-          <button type="button" onClick={onCancelEdit} disabled={isPending}>
+          <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
             取消
           </button>
           {errorMessage !== undefined && (
-            <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>
+            <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
           )}
         </td>
       </tr>
@@ -1328,22 +1392,22 @@ function AcademicYearRow({
   }
 
   return (
-    <tr>
-      <td>{academicYear.year}</td>
-      <td>{academicYear.is_active ? "是" : "否"}</td>
-      <td>
+    <tr className={TR_HOVER}>
+      <td className={TD}>{academicYear.year}</td>
+      <td className={TD}>{academicYear.is_active ? "是" : "否"}</td>
+      <td className={TD}>
         {isAdmin && (
           <>
-            <button type="button" onClick={onStartEdit} disabled={isPending}>
+            <button type="button" onClick={onStartEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
               編輯
             </button>
-            <button type="button" onClick={onDelete} disabled={isPending}>
+            <button type="button" onClick={onDelete} disabled={isPending} className={BUTTON_DANGER_SM}>
               刪除
             </button>
           </>
         )}
         {errorMessage !== undefined && (
-          <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>
+          <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
         )}
       </td>
     </tr>
@@ -1370,22 +1434,24 @@ function AcademicYearsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
       {data !== null && (
         <>
           {isAdmin && (
-            <p>
+            <p className="mb-3">
               <button
                 type="button"
                 onClick={crud.startAdding}
                 disabled={crud.isAdding || crud.pendingKey !== null}
+              className={BUTTON_PRIMARY}
               >
                 新增
               </button>
             </p>
           )}
-          <table>
+          <div className={TABLE_WRAPPER}>
+          <table className={TABLE}>
             <thead>
-              <tr>
-                <th>學年度</th>
-                <th>啟用中</th>
-                {isAdmin && <th>操作</th>}
+              <tr className={TABLE_HEAD_ROW}>
+                <th className={TH}>學年度</th>
+                <th className={TH}>啟用中</th>
+                {isAdmin && <th className={TH}>操作</th>}
               </tr>
             </thead>
             <tbody>
@@ -1413,6 +1479,7 @@ function AcademicYearsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
               ))}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </div>
@@ -1443,8 +1510,8 @@ function SemesterNewRow({
   const hasAcademicYearOptions = academicYears.length > 0;
 
   return (
-    <tr>
-      <td>
+    <tr className={TR_HOVER}>
+      <td className={TD}>
         <select
           value={academicYearId}
           onChange={(event) =>
@@ -1452,6 +1519,7 @@ function SemesterNewRow({
           }
           disabled={isPending || !hasAcademicYearOptions}
           aria-label="學年度"
+        className={SELECT}
         >
           {hasAcademicYearOptions ? (
             <>
@@ -1467,12 +1535,13 @@ function SemesterNewRow({
           )}
         </select>
       </td>
-      <td>
+      <td className={TD}>
         <select
           value={numberValue}
           onChange={(event) => setNumberValue(Number(event.target.value))}
           disabled={isPending}
           aria-label="學期"
+        className={SELECT}
         >
           {SEMESTER_NUMBER_OPTIONS.map((number) => (
             <option key={number} value={number}>
@@ -1481,8 +1550,8 @@ function SemesterNewRow({
           ))}
         </select>
       </td>
-      <td style={{ color: "#777" }}>啟用中(新增時固定)</td>
-      <td>
+      <td className={`${TD} text-gray-400`}>啟用中(新增時固定)</td>
+      <td className={TD}>
         <button
           type="button"
           onClick={() => {
@@ -1491,13 +1560,14 @@ function SemesterNewRow({
             }
           }}
           disabled={isPending || academicYearId === ""}
+          className={BUTTON_PRIMARY_SM}
         >
           確認
         </button>
-        <button type="button" onClick={onCancel} disabled={isPending}>
+        <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
           取消
         </button>
-        {errorMessage !== null && <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>}
+        {errorMessage !== null && <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>}
       </td>
     </tr>
   );
@@ -1543,13 +1613,14 @@ function SemesterRow({
 
   if (isEditing) {
     return (
-      <tr>
-        <td>
+      <tr className="bg-blue-50/40">
+        <td className={TD}>
           <select
             value={draftAcademicYearId}
             onChange={(event) => setDraftAcademicYearId(Number(event.target.value))}
             disabled={isPending || !hasAcademicYearOptions}
             aria-label="學年度"
+          className={SELECT}
           >
             {hasAcademicYearOptions ? (
               academicYears.map((academicYear) => (
@@ -1562,12 +1633,13 @@ function SemesterRow({
             )}
           </select>
         </td>
-        <td>
+        <td className={TD}>
           <select
             value={draftNumber}
             onChange={(event) => setDraftNumber(Number(event.target.value))}
             disabled={isPending}
             aria-label="學期"
+          className={SELECT}
           >
             {SEMESTER_NUMBER_OPTIONS.map((number) => (
               <option key={number} value={number}>
@@ -1576,18 +1648,19 @@ function SemesterRow({
             ))}
           </select>
         </td>
-        <td>
+        <td className={TD}>
           <label>
             <input
               type="checkbox"
               checked={draftIsActive}
               onChange={(event) => setDraftIsActive(event.target.checked)}
               disabled={isPending}
+            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
             啟用中
           </label>
         </td>
-        <td>
+        <td className={TD}>
           <button
             type="button"
             onClick={() =>
@@ -1598,14 +1671,15 @@ function SemesterRow({
               })
             }
             disabled={isPending}
+            className={BUTTON_PRIMARY_SM}
           >
             確認
           </button>
-          <button type="button" onClick={onCancelEdit} disabled={isPending}>
+          <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
             取消
           </button>
           {errorMessage !== undefined && (
-            <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>
+            <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
           )}
         </td>
       </tr>
@@ -1615,27 +1689,27 @@ function SemesterRow({
   const academicYearLabel = academicYearById.get(semester.academic_year_id);
 
   return (
-    <tr>
-      <td>
+    <tr className={TR_HOVER}>
+      <td className={TD}>
         {academicYearLabel !== undefined
           ? `${academicYearLabel.year} 學年度`
           : `學年度 ID ${semester.academic_year_id}`}
       </td>
-      <td>第 {semester.number} 學期</td>
-      <td>{semester.is_active ? "是" : "否"}</td>
-      <td>
+      <td className={TD}>第 {semester.number} 學期</td>
+      <td className={TD}>{semester.is_active ? "是" : "否"}</td>
+      <td className={TD}>
         {isAdmin && (
           <>
-            <button type="button" onClick={onStartEdit} disabled={isPending}>
+            <button type="button" onClick={onStartEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
               編輯
             </button>
-            <button type="button" onClick={onDelete} disabled={isPending}>
+            <button type="button" onClick={onDelete} disabled={isPending} className={BUTTON_DANGER_SM}>
               刪除
             </button>
           </>
         )}
         {errorMessage !== undefined && (
-          <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>
+          <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
         )}
       </td>
     </tr>
@@ -1670,23 +1744,25 @@ function SemestersTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
       {data !== null && !isLoadingAny && combinedErrorMessage === null && (
         <>
           {isAdmin && (
-            <p>
+            <p className="mb-3">
               <button
                 type="button"
                 onClick={crud.startAdding}
                 disabled={crud.isAdding || crud.pendingKey !== null}
+              className={BUTTON_PRIMARY}
               >
                 新增
               </button>
             </p>
           )}
-          <table>
+          <div className={TABLE_WRAPPER}>
+          <table className={TABLE}>
             <thead>
-              <tr>
-                <th>學年度</th>
-                <th>學期</th>
-                <th>啟用中</th>
-                {isAdmin && <th>操作</th>}
+              <tr className={TABLE_HEAD_ROW}>
+                <th className={TH}>學年度</th>
+                <th className={TH}>學期</th>
+                <th className={TH}>啟用中</th>
+                {isAdmin && <th className={TH}>操作</th>}
               </tr>
             </thead>
             <tbody>
@@ -1725,6 +1801,7 @@ function SemestersTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
               })}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </div>
@@ -1752,16 +1829,17 @@ function ClassNewRow({
   const hasGradeOptions = grades.length > 0;
 
   return (
-    <tr>
-      <td>
+    <tr className={TR_HOVER}>
+      <td className={TD}>
         <input
           value={name}
           onChange={(event) => setName(event.target.value)}
           disabled={isPending}
           aria-label="班級名稱"
+        className={INPUT}
         />
       </td>
-      <td>
+      <td className={TD}>
         <select
           value={gradeId}
           onChange={(event) =>
@@ -1769,6 +1847,7 @@ function ClassNewRow({
           }
           disabled={isPending || !hasGradeOptions}
           aria-label="年級"
+        className={SELECT}
         >
           {hasGradeOptions ? (
             <>
@@ -1784,7 +1863,7 @@ function ClassNewRow({
           )}
         </select>
       </td>
-      <td>
+      <td className={TD}>
         <select
           value={homeroomRoomId}
           onChange={(event) =>
@@ -1792,6 +1871,7 @@ function ClassNewRow({
           }
           disabled={isPending}
           aria-label="導師班教室"
+        className={SELECT}
         >
           <option value="">不指定</option>
           {rooms.map((room) => (
@@ -1801,8 +1881,8 @@ function ClassNewRow({
           ))}
         </select>
       </td>
-      <td style={{ color: "#777" }}>啟用中(新增時固定)</td>
-      <td>
+      <td className={`${TD} text-gray-400`}>啟用中(新增時固定)</td>
+      <td className={TD}>
         <button
           type="button"
           onClick={() => {
@@ -1815,13 +1895,14 @@ function ClassNewRow({
             }
           }}
           disabled={isPending || gradeId === "" || name.trim() === ""}
+          className={BUTTON_PRIMARY_SM}
         >
           確認
         </button>
-        <button type="button" onClick={onCancel} disabled={isPending}>
+        <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
           取消
         </button>
-        {errorMessage !== null && <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>}
+        {errorMessage !== null && <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>}
       </td>
     </tr>
   );
@@ -1875,21 +1956,23 @@ function ClassRow({
 
   if (isEditing) {
     return (
-      <tr>
-        <td>
+      <tr className="bg-blue-50/40">
+        <td className={TD}>
           <input
             value={draftName}
             onChange={(event) => setDraftName(event.target.value)}
             disabled={isPending}
             aria-label="班級名稱"
+          className={INPUT}
           />
         </td>
-        <td>
+        <td className={TD}>
           <select
             value={draftGradeId}
             onChange={(event) => setDraftGradeId(Number(event.target.value))}
             disabled={isPending || !hasGradeOptions}
             aria-label="年級"
+          className={SELECT}
           >
             {hasGradeOptions ? (
               grades.map((grade) => (
@@ -1902,7 +1985,7 @@ function ClassRow({
             )}
           </select>
         </td>
-        <td>
+        <td className={TD}>
           <select
             value={draftHomeroomRoomId}
             onChange={(event) =>
@@ -1912,6 +1995,7 @@ function ClassRow({
             }
             disabled={isPending}
             aria-label="導師班教室"
+          className={SELECT}
           >
             <option value="">不指定</option>
             {rooms.map((room) => (
@@ -1921,18 +2005,19 @@ function ClassRow({
             ))}
           </select>
         </td>
-        <td>
+        <td className={TD}>
           <label>
             <input
               type="checkbox"
               checked={draftIsActive}
               onChange={(event) => setDraftIsActive(event.target.checked)}
               disabled={isPending}
+            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
             啟用中
           </label>
         </td>
-        <td>
+        <td className={TD}>
           <button
             type="button"
             onClick={() =>
@@ -1944,14 +2029,15 @@ function ClassRow({
               })
             }
             disabled={isPending || draftName.trim() === ""}
+            className={BUTTON_PRIMARY_SM}
           >
             確認
           </button>
-          <button type="button" onClick={onCancelEdit} disabled={isPending}>
+          <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
             取消
           </button>
           {errorMessage !== undefined && (
-            <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>
+            <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
           )}
         </td>
       </tr>
@@ -1963,30 +2049,30 @@ function ClassRow({
     classItem.homeroom_room_id !== null ? roomById.get(classItem.homeroom_room_id) : undefined;
 
   return (
-    <tr>
-      <td>{classItem.name}</td>
-      <td>{grade !== undefined ? grade.name : `年級 ID ${classItem.grade_id}`}</td>
-      <td>
+    <tr className={TR_HOVER}>
+      <td className={TD}>{classItem.name}</td>
+      <td className={TD}>{grade !== undefined ? grade.name : `年級 ID ${classItem.grade_id}`}</td>
+      <td className={TD}>
         {classItem.homeroom_room_id === null
           ? "未指定"
           : homeroomRoom !== undefined
             ? homeroomRoom.name
             : `教室 ID ${classItem.homeroom_room_id}`}
       </td>
-      <td>{classItem.is_active ? "是" : "否"}</td>
-      <td>
+      <td className={TD}>{classItem.is_active ? "是" : "否"}</td>
+      <td className={TD}>
         {isAdmin && (
           <>
-            <button type="button" onClick={onStartEdit} disabled={isPending}>
+            <button type="button" onClick={onStartEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
               編輯
             </button>
-            <button type="button" onClick={onDelete} disabled={isPending}>
+            <button type="button" onClick={onDelete} disabled={isPending} className={BUTTON_DANGER_SM}>
               刪除
             </button>
           </>
         )}
         {errorMessage !== undefined && (
-          <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>
+          <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
         )}
       </td>
     </tr>
@@ -2023,24 +2109,26 @@ function ClassesTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
       {data !== null && !isLoadingAny && combinedErrorMessage === null && (
         <>
           {isAdmin && (
-            <p>
+            <p className="mb-3">
               <button
                 type="button"
                 onClick={crud.startAdding}
                 disabled={crud.isAdding || crud.pendingKey !== null}
+              className={BUTTON_PRIMARY}
               >
                 新增
               </button>
             </p>
           )}
-          <table>
+          <div className={TABLE_WRAPPER}>
+          <table className={TABLE}>
             <thead>
-              <tr>
-                <th>名稱</th>
-                <th>年級</th>
-                <th>導師班教室</th>
-                <th>啟用中</th>
-                {isAdmin && <th>操作</th>}
+              <tr className={TABLE_HEAD_ROW}>
+                <th className={TH}>名稱</th>
+                <th className={TH}>年級</th>
+                <th className={TH}>導師班教室</th>
+                <th className={TH}>啟用中</th>
+                {isAdmin && <th className={TH}>操作</th>}
               </tr>
             </thead>
             <tbody>
@@ -2074,6 +2162,7 @@ function ClassesTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
               ))}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </div>
@@ -2094,28 +2183,30 @@ function SubjectNewRow({
   const [name, setName] = useState("");
 
   return (
-    <tr>
-      <td>
+    <tr className={TR_HOVER}>
+      <td className={TD}>
         <input
           value={name}
           onChange={(event) => setName(event.target.value)}
           disabled={isPending}
           aria-label="科目名稱"
+        className={INPUT}
         />
       </td>
-      <td style={{ color: "#777" }}>啟用中(新增時固定)</td>
-      <td>
+      <td className={`${TD} text-gray-400`}>啟用中(新增時固定)</td>
+      <td className={TD}>
         <button
           type="button"
           onClick={() => onConfirm({ name })}
           disabled={isPending || name.trim() === ""}
+          className={BUTTON_PRIMARY_SM}
         >
           確認
         </button>
-        <button type="button" onClick={onCancel} disabled={isPending}>
+        <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
           取消
         </button>
-        {errorMessage !== null && <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>}
+        {errorMessage !== null && <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>}
       </td>
     </tr>
   );
@@ -2154,39 +2245,42 @@ function SubjectRow({
 
   if (isEditing) {
     return (
-      <tr>
-        <td>
+      <tr className="bg-blue-50/40">
+        <td className={TD}>
           <input
             value={draftName}
             onChange={(event) => setDraftName(event.target.value)}
             disabled={isPending}
             aria-label="科目名稱"
+          className={INPUT}
           />
         </td>
-        <td>
+        <td className={TD}>
           <label>
             <input
               type="checkbox"
               checked={draftIsActive}
               onChange={(event) => setDraftIsActive(event.target.checked)}
               disabled={isPending}
+            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
             啟用中
           </label>
         </td>
-        <td>
+        <td className={TD}>
           <button
             type="button"
             onClick={() => onConfirmEdit({ name: draftName, is_active: draftIsActive })}
             disabled={isPending || draftName.trim() === ""}
+            className={BUTTON_PRIMARY_SM}
           >
             確認
           </button>
-          <button type="button" onClick={onCancelEdit} disabled={isPending}>
+          <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
             取消
           </button>
           {errorMessage !== undefined && (
-            <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>
+            <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
           )}
         </td>
       </tr>
@@ -2194,22 +2288,22 @@ function SubjectRow({
   }
 
   return (
-    <tr>
-      <td>{subject.name}</td>
-      <td>{subject.is_active ? "是" : "否"}</td>
-      <td>
+    <tr className={TR_HOVER}>
+      <td className={TD}>{subject.name}</td>
+      <td className={TD}>{subject.is_active ? "是" : "否"}</td>
+      <td className={TD}>
         {isAdmin && (
           <>
-            <button type="button" onClick={onStartEdit} disabled={isPending}>
+            <button type="button" onClick={onStartEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
               編輯
             </button>
-            <button type="button" onClick={onDelete} disabled={isPending}>
+            <button type="button" onClick={onDelete} disabled={isPending} className={BUTTON_DANGER_SM}>
               刪除
             </button>
           </>
         )}
         {errorMessage !== undefined && (
-          <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>
+          <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
         )}
       </td>
     </tr>
@@ -2236,22 +2330,24 @@ function SubjectsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
       {data !== null && (
         <>
           {isAdmin && (
-            <p>
+            <p className="mb-3">
               <button
                 type="button"
                 onClick={crud.startAdding}
                 disabled={crud.isAdding || crud.pendingKey !== null}
+              className={BUTTON_PRIMARY}
               >
                 新增
               </button>
             </p>
           )}
-          <table>
+          <div className={TABLE_WRAPPER}>
+          <table className={TABLE}>
             <thead>
-              <tr>
-                <th>名稱</th>
-                <th>啟用中</th>
-                {isAdmin && <th>操作</th>}
+              <tr className={TABLE_HEAD_ROW}>
+                <th className={TH}>名稱</th>
+                <th className={TH}>啟用中</th>
+                {isAdmin && <th className={TH}>操作</th>}
               </tr>
             </thead>
             <tbody>
@@ -2279,6 +2375,7 @@ function SubjectsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
               ))}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </div>
@@ -2312,25 +2409,27 @@ function RoomNewRow({
   }
 
   return (
-    <tr>
-      <td>
+    <tr className={TR_HOVER}>
+      <td className={TD}>
         <input
           value={name}
           onChange={(event) => setName(event.target.value)}
           disabled={isPending}
           aria-label="教室名稱"
+        className={INPUT}
         />
       </td>
-      <td>
+      <td className={TD}>
         <input
           value={roomType}
           onChange={(event) => setRoomType(event.target.value)}
           disabled={isPending}
           aria-label="教室類型"
           placeholder="例如:普通教室"
+        className={INPUT}
         />
       </td>
-      <td>
+      <td className={TD}>
         <input
           type="number"
           min={0}
@@ -2339,21 +2438,23 @@ function RoomNewRow({
           disabled={isPending}
           aria-label="容量"
           placeholder="留空即可"
+        className={INPUT}
         />
       </td>
-      <td style={{ color: "#777" }}>啟用中(新增時固定)</td>
-      <td>
+      <td className={`${TD} text-gray-400`}>啟用中(新增時固定)</td>
+      <td className={TD}>
         <button
           type="button"
           onClick={handleConfirm}
           disabled={isPending || name.trim() === "" || roomType.trim() === ""}
+          className={BUTTON_PRIMARY_SM}
         >
           確認
         </button>
-        <button type="button" onClick={onCancel} disabled={isPending}>
+        <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
           取消
         </button>
-        {errorMessage !== null && <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>}
+        {errorMessage !== null && <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>}
       </td>
     </tr>
   );
@@ -2398,24 +2499,26 @@ function RoomRow({
 
   if (isEditing) {
     return (
-      <tr>
-        <td>
+      <tr className="bg-blue-50/40">
+        <td className={TD}>
           <input
             value={draftName}
             onChange={(event) => setDraftName(event.target.value)}
             disabled={isPending}
             aria-label="教室名稱"
+          className={INPUT}
           />
         </td>
-        <td>
+        <td className={TD}>
           <input
             value={draftRoomType}
             onChange={(event) => setDraftRoomType(event.target.value)}
             disabled={isPending}
             aria-label="教室類型"
+          className={INPUT}
           />
         </td>
-        <td>
+        <td className={TD}>
           <input
             type="number"
             min={0}
@@ -2424,20 +2527,22 @@ function RoomRow({
             disabled={isPending}
             aria-label="容量"
             placeholder="留空即可"
+          className={INPUT}
           />
         </td>
-        <td>
+        <td className={TD}>
           <label>
             <input
               type="checkbox"
               checked={draftIsActive}
               onChange={(event) => setDraftIsActive(event.target.checked)}
               disabled={isPending}
+            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
             啟用中
           </label>
         </td>
-        <td>
+        <td className={TD}>
           <button
             type="button"
             onClick={() =>
@@ -2449,14 +2554,15 @@ function RoomRow({
               })
             }
             disabled={isPending || draftName.trim() === "" || draftRoomType.trim() === ""}
+            className={BUTTON_PRIMARY_SM}
           >
             確認
           </button>
-          <button type="button" onClick={onCancelEdit} disabled={isPending}>
+          <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
             取消
           </button>
           {errorMessage !== undefined && (
-            <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>
+            <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
           )}
         </td>
       </tr>
@@ -2464,24 +2570,24 @@ function RoomRow({
   }
 
   return (
-    <tr>
-      <td>{room.name}</td>
-      <td>{room.room_type}</td>
-      <td>{room.capacity ?? "未設定"}</td>
-      <td>{room.is_active ? "是" : "否"}</td>
-      <td>
+    <tr className={TR_HOVER}>
+      <td className={TD}>{room.name}</td>
+      <td className={TD}>{room.room_type}</td>
+      <td className={TD}>{room.capacity ?? "未設定"}</td>
+      <td className={TD}>{room.is_active ? "是" : "否"}</td>
+      <td className={TD}>
         {isAdmin && (
           <>
-            <button type="button" onClick={onStartEdit} disabled={isPending}>
+            <button type="button" onClick={onStartEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
               編輯
             </button>
-            <button type="button" onClick={onDelete} disabled={isPending}>
+            <button type="button" onClick={onDelete} disabled={isPending} className={BUTTON_DANGER_SM}>
               刪除
             </button>
           </>
         )}
         {errorMessage !== undefined && (
-          <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>
+          <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
         )}
       </td>
     </tr>
@@ -2508,24 +2614,26 @@ function RoomsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
       {data !== null && (
         <>
           {isAdmin && (
-            <p>
+            <p className="mb-3">
               <button
                 type="button"
                 onClick={crud.startAdding}
                 disabled={crud.isAdding || crud.pendingKey !== null}
+              className={BUTTON_PRIMARY}
               >
                 新增
               </button>
             </p>
           )}
-          <table>
+          <div className={TABLE_WRAPPER}>
+          <table className={TABLE}>
             <thead>
-              <tr>
-                <th>名稱</th>
-                <th>類型</th>
-                <th>容量</th>
-                <th>啟用中</th>
-                {isAdmin && <th>操作</th>}
+              <tr className={TABLE_HEAD_ROW}>
+                <th className={TH}>名稱</th>
+                <th className={TH}>類型</th>
+                <th className={TH}>容量</th>
+                <th className={TH}>啟用中</th>
+                {isAdmin && <th className={TH}>操作</th>}
               </tr>
             </thead>
             <tbody>
@@ -2553,6 +2661,7 @@ function RoomsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
               ))}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </div>
@@ -2582,13 +2691,14 @@ function TimeSlotNewRow({
   const period = periodText === "" ? null : Number(periodText);
 
   return (
-    <tr>
-      <td>
+    <tr className={TR_HOVER}>
+      <td className={TD}>
         <select
           value={weekday}
           onChange={(event) => setWeekday(Number(event.target.value))}
           disabled={isPending}
           aria-label="星期"
+        className={SELECT}
         >
           {WEEKDAY_OPTIONS.map((day) => (
             <option key={day} value={day}>
@@ -2597,41 +2707,44 @@ function TimeSlotNewRow({
           ))}
         </select>
       </td>
-      <td>
+      <td className={TD}>
         <input
           type="number"
           value={periodText}
           onChange={(event) => setPeriodText(event.target.value)}
           disabled={isPending}
           aria-label="節次"
+        className={INPUT}
         />
       </td>
-      <td>
+      <td className={TD}>
         <label>
           <input
             type="checkbox"
             checked={isTeachingPeriod}
             onChange={(event) => setIsTeachingPeriod(event.target.checked)}
             disabled={isPending}
+          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
           />
           教學節次
         </label>
       </td>
-      <td>
+      <td className={TD}>
         <input
           value={label}
           onChange={(event) => setLabel(event.target.value)}
           disabled={isPending}
           aria-label="標籤"
           placeholder="選填"
+        className={INPUT}
         />
       </td>
       {/* start_time/end_time: 顯示用欄位,本次不開放輸入(見 Task 45 報告
           的設計說明)-- 新增時一律是空值,所以這裡沒有輸入框可放,直接顯示
           「未設定」。 */}
-      <td>未設定</td>
-      <td>未設定</td>
-      <td>
+      <td className={TD}>未設定</td>
+      <td className={TD}>未設定</td>
+      <td className={TD}>
         <button
           type="button"
           onClick={() => {
@@ -2645,13 +2758,14 @@ function TimeSlotNewRow({
             }
           }}
           disabled={isPending || period === null}
+          className={BUTTON_PRIMARY_SM}
         >
           確認
         </button>
-        <button type="button" onClick={onCancel} disabled={isPending}>
+        <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
           取消
         </button>
-        {errorMessage !== null && <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>}
+        {errorMessage !== null && <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>}
       </td>
     </tr>
   );
@@ -2698,13 +2812,14 @@ function TimeSlotRow({
 
   if (isEditing) {
     return (
-      <tr>
-        <td>
+      <tr className="bg-blue-50/40">
+        <td className={TD}>
           <select
             value={draftWeekday}
             onChange={(event) => setDraftWeekday(Number(event.target.value))}
             disabled={isPending}
             aria-label="星期"
+          className={SELECT}
           >
             {WEEKDAY_OPTIONS.map((day) => (
               <option key={day} value={day}>
@@ -2713,40 +2828,43 @@ function TimeSlotRow({
             ))}
           </select>
         </td>
-        <td>
+        <td className={TD}>
           <input
             type="number"
             value={draftPeriodText}
             onChange={(event) => setDraftPeriodText(event.target.value)}
             disabled={isPending}
             aria-label="節次"
+          className={INPUT}
           />
         </td>
-        <td>
+        <td className={TD}>
           <label>
             <input
               type="checkbox"
               checked={draftIsTeachingPeriod}
               onChange={(event) => setDraftIsTeachingPeriod(event.target.checked)}
               disabled={isPending}
+            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
             教學節次
           </label>
         </td>
-        <td>
+        <td className={TD}>
           <input
             value={draftLabel}
             onChange={(event) => setDraftLabel(event.target.value)}
             disabled={isPending}
             aria-label="標籤"
             placeholder="選填"
+          className={INPUT}
           />
         </td>
         {/* start_time/end_time 不開放編輯,即使在編輯模式也只顯示目前的值
             (或「未設定」),不是輸入框。 */}
-        <td>{timeSlot.start_time ?? "未設定"}</td>
-        <td>{timeSlot.end_time ?? "未設定"}</td>
-        <td>
+        <td className={TD}>{timeSlot.start_time ?? "未設定"}</td>
+        <td className={TD}>{timeSlot.end_time ?? "未設定"}</td>
+        <td className={TD}>
           <button
             type="button"
             onClick={() => {
@@ -2760,14 +2878,15 @@ function TimeSlotRow({
               }
             }}
             disabled={isPending || draftPeriod === null}
+            className={BUTTON_PRIMARY_SM}
           >
             確認
           </button>
-          <button type="button" onClick={onCancelEdit} disabled={isPending}>
+          <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
             取消
           </button>
           {errorMessage !== undefined && (
-            <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>
+            <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
           )}
         </td>
       </tr>
@@ -2775,26 +2894,26 @@ function TimeSlotRow({
   }
 
   return (
-    <tr>
-      <td>{formatWeekday(timeSlot.weekday)}</td>
-      <td>{timeSlot.period}</td>
-      <td>{timeSlot.is_teaching_period ? "是" : "否"}</td>
-      <td>{timeSlot.label ?? "未設定"}</td>
-      <td>{timeSlot.start_time ?? "未設定"}</td>
-      <td>{timeSlot.end_time ?? "未設定"}</td>
-      <td>
+    <tr className={TR_HOVER}>
+      <td className={TD}>{formatWeekday(timeSlot.weekday)}</td>
+      <td className={TD}>{timeSlot.period}</td>
+      <td className={TD}>{timeSlot.is_teaching_period ? "是" : "否"}</td>
+      <td className={TD}>{timeSlot.label ?? "未設定"}</td>
+      <td className={TD}>{timeSlot.start_time ?? "未設定"}</td>
+      <td className={TD}>{timeSlot.end_time ?? "未設定"}</td>
+      <td className={TD}>
         {isAdmin && (
           <>
-            <button type="button" onClick={onStartEdit} disabled={isPending}>
+            <button type="button" onClick={onStartEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
               編輯
             </button>
-            <button type="button" onClick={onDelete} disabled={isPending}>
+            <button type="button" onClick={onDelete} disabled={isPending} className={BUTTON_DANGER_SM}>
               刪除
             </button>
           </>
         )}
         {errorMessage !== undefined && (
-          <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>
+          <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
         )}
       </td>
     </tr>
@@ -2824,31 +2943,33 @@ function TimeSlotsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
               星期一到五的意義是否一致(例如星期一第 3 節是數學課的時段,
               星期三第 3 節卻被建成午休時段)——這裡只是手動維護,打錯或漏
               建系統都不會主動提醒,請自行確認。 */}
-          <p style={{ color: "#555", fontSize: "0.9em" }}>
+          <p className={HELP_TEXT}>
             請確保每個 period 編號在星期一到五的意義一致(例如都代表「第 3
             節」),系統不會自動檢查這一點。
           </p>
           {isAdmin && (
-            <p>
+            <p className="mb-3">
               <button
                 type="button"
                 onClick={crud.startAdding}
                 disabled={crud.isAdding || crud.pendingKey !== null}
+              className={BUTTON_PRIMARY}
               >
                 新增
               </button>
             </p>
           )}
-          <table>
+          <div className={TABLE_WRAPPER}>
+          <table className={TABLE}>
             <thead>
-              <tr>
-                <th>星期</th>
-                <th>節次</th>
-                <th>教學節次</th>
-                <th>標籤</th>
-                <th>開始時間</th>
-                <th>結束時間</th>
-                {isAdmin && <th>操作</th>}
+              <tr className={TABLE_HEAD_ROW}>
+                <th className={TH}>星期</th>
+                <th className={TH}>節次</th>
+                <th className={TH}>教學節次</th>
+                <th className={TH}>標籤</th>
+                <th className={TH}>開始時間</th>
+                <th className={TH}>結束時間</th>
+                {isAdmin && <th className={TH}>操作</th>}
               </tr>
             </thead>
             <tbody>
@@ -2881,6 +3002,7 @@ function TimeSlotsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
               ))}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </div>
@@ -2908,15 +3030,16 @@ export default function DataBrowser(): ReactElement {
   const isAdmin = isCurrentUserAdmin();
 
   return (
-    <div>
-      <h1>基礎資料瀏覽</h1>
-      <nav>
+    <div className={PAGE}>
+      <h1 className={PAGE_TITLE}>基礎資料瀏覽</h1>
+      <nav className="mb-4 flex flex-wrap gap-1">
         {TABS.map((tab) => (
           <button
             key={tab.key}
             type="button"
             onClick={() => setActiveTab(tab.key)}
             aria-pressed={activeTab === tab.key}
+            className={activeTab === tab.key ? TAB_BUTTON_ACTIVE : TAB_BUTTON}
           >
             {tab.label}
           </button>

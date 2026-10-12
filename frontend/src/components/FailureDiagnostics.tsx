@@ -20,21 +20,19 @@ import type {
   ConstraintViolationDetail,
   RunSchedulerFailureResponse,
 } from "../types/scheduler";
+import { ERROR_TEXT, LOADING_TEXT, MUTED_TEXT, SUBSECTION_TITLE } from "../styles/ui";
 
 interface FailureDiagnosticsProps {
   response: RunSchedulerFailureResponse;
 }
 
-// Shared by both <ul> lists below: listStyle "none" drops the browser's
-// default bullet (•), and padding/margin go with it -- that padding exists
-// specifically to make room for the bullet marker, so leaving it in place
-// after removing the marker would strand each item in the same indented
-// position with nothing there to justify it. marginBottom on each <li>
+// Shared by both <ul> lists below: list-none drops the browser's default
+// bullet (•) and its reserved indent space along with it. space-y-4 on
+// each <li> (via the parent's own spacing, applied per-item below)
 // replaces the visual separation the bullet+indent used to imply, so
 // consecutive failure entries don't run together now that there's no
 // marker/indent to set them apart.
-const FAILURE_LIST_STYLE = { listStyle: "none", padding: 0, margin: 0 } as const;
-const FAILURE_LIST_ITEM_STYLE = { marginBottom: "1em" } as const;
+const FAILURE_LIST_CLASS = "list-none p-0 m-0 space-y-4";
 
 // Second line of every violation/group (Task 37): "請至 {頁面} 修正" with
 // {頁面} as a clickable react-router Link to whichever page/tab
@@ -53,10 +51,14 @@ function PageTargetLine({
 }): ReactElement {
   const target = resolveViolationPageTarget(violation, lookups);
   return (
-    <p style={{ color: "#555", fontSize: "0.9em" }}>
+    <p className={MUTED_TEXT}>
       {target.kind === "link" ? (
         <>
-          請至 <Link to={target.path}>{target.label}</Link> 修正
+          請至{" "}
+          <Link to={target.path} className="text-blue-600 hover:underline">
+            {target.label}
+          </Link>{" "}
+          修正
         </>
       ) : (
         target.message
@@ -79,8 +81,8 @@ function ViolationItem({
   lookups: NameLookups;
 }): ReactElement {
   return (
-    <li style={FAILURE_LIST_ITEM_STYLE}>
-      <p>{getViolationSentence(violation, lookups)}</p>
+    <li>
+      <p className="text-sm text-gray-800">{getViolationSentence(violation, lookups)}</p>
       <PageTargetLine violation={violation} lookups={lookups} />
     </li>
   );
@@ -100,8 +102,10 @@ function GroupedLessonFailureItem({
   lookups: NameLookups;
 }): ReactElement {
   return (
-    <li style={FAILURE_LIST_ITEM_STYLE}>
-      <p>{getGroupedLessonFailureSentence(group, lookups)}</p>
+    <li>
+      <p className="text-sm text-gray-800">
+        {getGroupedLessonFailureSentence(group, lookups)}
+      </p>
       <PageTargetLine violation={group.representative} lookups={lookups} />
     </li>
   );
@@ -151,10 +155,14 @@ export default function FailureDiagnostics({
     requirements.errorMessage;
 
   if (isLoading) {
-    return <p>診斷資料載入中…</p>;
+    return <p className={LOADING_TEXT}>診斷資料載入中…</p>;
   }
   if (errorMessage !== null) {
-    return <p role="alert">{errorMessage}</p>;
+    return (
+      <p role="alert" className={ERROR_TEXT}>
+        {errorMessage}
+      </p>
+    );
   }
 
   const lookups: NameLookups = {
@@ -169,15 +177,15 @@ export default function FailureDiagnostics({
   };
 
   return (
-    <div>
-      <p role="alert" style={{ color: "#b00020", fontWeight: "bold" }}>
+    <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-4">
+      <p role="alert" className="text-base font-bold text-red-600">
         ✗ 排課失敗:{translateFailureType(response.failure_type)}
       </p>
 
       {response.lesson_failures.length > 0 && (
-        <section>
-          <h3>各課程排課失敗原因</h3>
-          <ul style={FAILURE_LIST_STYLE}>
+        <section className="mt-4">
+          <h3 className={SUBSECTION_TITLE}>各課程排課失敗原因</h3>
+          <ul className={FAILURE_LIST_CLASS}>
             {groupLessonFailures(response.lesson_failures).map((group) => (
               <GroupedLessonFailureItem key={group.key} group={group} lookups={lookups} />
             ))}
@@ -186,9 +194,9 @@ export default function FailureDiagnostics({
       )}
 
       {response.post_hoc_violations.length > 0 && (
-        <section>
-          <h3>整體排課檢查未通過項目</h3>
-          <ul style={FAILURE_LIST_STYLE}>
+        <section className="mt-4">
+          <h3 className={SUBSECTION_TITLE}>整體排課檢查未通過項目</h3>
+          <ul className={FAILURE_LIST_CLASS}>
             {response.post_hoc_violations.map((violation, index) => (
               <ViolationItem key={`post-hoc-${index}`} violation={violation} lookups={lookups} />
             ))}

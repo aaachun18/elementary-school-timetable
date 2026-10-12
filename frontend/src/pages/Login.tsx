@@ -5,6 +5,7 @@ import { login } from "../api/auth";
 import { TOKEN_KEY } from "../api/client";
 import { translateErrorMessage } from "../constants/errorMessages";
 import type { ApiErrorResponse } from "../types/api";
+import { BUTTON_PRIMARY, ERROR_TEXT, INPUT, LABEL } from "../styles/ui";
 
 // Minimal inline SVGs -- no icon library added just for two static shapes
 // (see Task 29.5's explicit "smallest sufficient dependency" instruction).
@@ -87,48 +88,61 @@ export default function Login(): ReactElement {
   }
 
   return (
-    <div>
-      <h1>登入</h1>
-      <form onSubmit={handleSubmit}>
-        <div>
-          <label htmlFor="username">帳號</label>
-          <br />
-          <input
-            id="username"
-            name="username"
-            type="text"
-            autoComplete="username"
-            value={username}
-            onChange={handleUsernameChange}
-            required
-          />
-        </div>
-        <div>
-          <label htmlFor="password">密碼</label>
-          <br />
-          <input
-            id="password"
-            name="password"
-            type={isPasswordVisible ? "text" : "password"}
-            autoComplete="current-password"
-            value={password}
-            onChange={handlePasswordChange}
-            required
-          />
-          <button
-            type="button"
-            onClick={() => setIsPasswordVisible((visible) => !visible)}
-            aria-label={isPasswordVisible ? "隱藏密碼" : "顯示密碼"}
-            aria-pressed={isPasswordVisible}
-          >
-            {isPasswordVisible ? <EyeOffIcon /> : <EyeIcon />}
+    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
+      <div className="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-8 shadow-sm">
+        <h1 className="mb-6 text-2xl font-semibold text-gray-900">登入</h1>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1">
+            <label htmlFor="username" className={LABEL}>
+              帳號
+            </label>
+            <input
+              id="username"
+              name="username"
+              type="text"
+              autoComplete="username"
+              value={username}
+              onChange={handleUsernameChange}
+              required
+              className={INPUT}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="password" className={LABEL}>
+              密碼
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                id="password"
+                name="password"
+                type={isPasswordVisible ? "text" : "password"}
+                autoComplete="current-password"
+                value={password}
+                onChange={handlePasswordChange}
+                required
+                className={`${INPUT} flex-1`}
+              />
+              <button
+                type="button"
+                onClick={() => setIsPasswordVisible((visible) => !visible)}
+                aria-label={isPasswordVisible ? "隱藏密碼" : "顯示密碼"}
+                aria-pressed={isPasswordVisible}
+                className="shrink-0 rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+              >
+                {isPasswordVisible ? <EyeOffIcon /> : <EyeIcon />}
+              </button>
+            </div>
+          </div>
+          {errorMessage !== null && (
+            <p role="alert" className={ERROR_TEXT}>
+              {errorMessage}
+            </p>
+          )}
+          <button type="submit" disabled={isSubmitting} className={`${BUTTON_PRIMARY} mt-2`}>
+            {isSubmitting ? "登入中…" : "登入"}
           </button>
-        </div>
-        {errorMessage !== null && <p role="alert">{errorMessage}</p>}
-        <button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "登入中…" : "登入"}
-        </button>
-      </form>
+        </form>
+      </div>
     </div>
   );
 }

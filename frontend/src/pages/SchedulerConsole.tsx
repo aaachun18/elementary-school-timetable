@@ -30,6 +30,25 @@ import {
   formatVersionLabel,
 } from "../utils/scheduleVersionFormat";
 import { formatTimeSlotLabel } from "../utils/timeSlotFormat";
+import {
+  BADGE_SUCCESS,
+  BUTTON_LINK,
+  BUTTON_PRIMARY,
+  BUTTON_SECONDARY,
+  CARD,
+  ERROR_TEXT,
+  HELP_TEXT,
+  INPUT,
+  LABEL,
+  LOADING_TEXT,
+  MUTED_TEXT,
+  PAGE,
+  PAGE_TITLE,
+  SECTION,
+  SECTION_TITLE,
+  SELECT,
+  SUCCESS_TEXT,
+} from "../styles/ui";
 
 type VersionPickerMode = "select" | "create";
 
@@ -358,10 +377,20 @@ export default function SchedulerConsole(): ReactElement {
     versionsResource.errorMessage ?? semesters.errorMessage ?? academicYears.errorMessage;
 
   if (isLoadingLookups) {
-    return <p>載入中…</p>;
+    return (
+      <div className={PAGE}>
+        <p className={LOADING_TEXT}>載入中…</p>
+      </div>
+    );
   }
   if (lookupErrorMessage !== null) {
-    return <p role="alert">{lookupErrorMessage}</p>;
+    return (
+      <div className={PAGE}>
+        <p role="alert" className={ERROR_TEXT}>
+          {lookupErrorMessage}
+        </p>
+      </div>
+    );
   }
 
   const academicYearById = new Map(
@@ -375,102 +404,123 @@ export default function SchedulerConsole(): ReactElement {
   );
 
   return (
-    <div>
-      <h1>排課控制台</h1>
+    <div className={PAGE}>
+      <h1 className={PAGE_TITLE}>排課控制台</h1>
 
       {/* 步驟一:選擇/建立 ScheduleVersion -- 二選一,任何時刻都只有其中
           一種輸入方式在畫面上,或是已確認狀態的說明文字,三者互斥。 */}
-      <section>
-        <h2>步驟一:選擇排課版本</h2>
+      <section className={SECTION}>
+        <h2 className={SECTION_TITLE}>步驟一:選擇排課版本</h2>
 
         {selectedVersion === null ? (
-          <div>
-            <label>
-              <input
-                type="radio"
-                name="version-picker-mode"
-                checked={pickerMode === "select"}
-                onChange={() => setPickerMode("select")}
-              />
-              使用既有版本
-            </label>
-            <label style={{ marginLeft: "1.5em" }}>
-              <input
-                type="radio"
-                name="version-picker-mode"
-                checked={pickerMode === "create"}
-                onChange={() => setPickerMode("create")}
-              />
-              建立新版本
-            </label>
+          <div className={CARD}>
+            <div className="mb-4 flex gap-6">
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="radio"
+                  name="version-picker-mode"
+                  checked={pickerMode === "select"}
+                  onChange={() => setPickerMode("select")}
+                  className="accent-blue-600"
+                />
+                使用既有版本
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="radio"
+                  name="version-picker-mode"
+                  checked={pickerMode === "create"}
+                  onChange={() => setPickerMode("create")}
+                  className="accent-blue-600"
+                />
+                建立新版本
+              </label>
+            </div>
 
             {pickerMode === "select" && (
-              <div>
-                <label htmlFor="version-select">選擇版本</label>
-                <br />
-                <select
-                  id="version-select"
-                  value={pendingVersionId}
-                  onChange={(event) =>
-                    setPendingVersionId(
-                      event.target.value === "" ? "" : Number(event.target.value),
-                    )
-                  }
-                >
-                  <option value="">請選擇…</option>
-                  {versions.map((version) => (
-                    <option key={version.id} value={version.id}>
-                      {formatVersionLabel(version, semesterById, academicYearById)}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={handleConfirmExistingVersion}
-                  disabled={pendingVersionId === ""}
-                >
-                  選擇此版本
-                </button>
+              <div className="flex flex-col gap-2">
+                <label htmlFor="version-select" className={LABEL}>
+                  選擇版本
+                </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    id="version-select"
+                    value={pendingVersionId}
+                    onChange={(event) =>
+                      setPendingVersionId(
+                        event.target.value === "" ? "" : Number(event.target.value),
+                      )
+                    }
+                    className={SELECT}
+                  >
+                    <option value="">請選擇…</option>
+                    {versions.map((version) => (
+                      <option key={version.id} value={version.id}>
+                        {formatVersionLabel(version, semesterById, academicYearById)}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleConfirmExistingVersion}
+                    disabled={pendingVersionId === ""}
+                    className={BUTTON_PRIMARY}
+                  >
+                    選擇此版本
+                  </button>
+                </div>
               </div>
             )}
 
             {pickerMode === "create" && (
-              <form onSubmit={handleCreateVersion}>
-                <label htmlFor="new-version-semester">學期</label>
-                <br />
-                <select
-                  id="new-version-semester"
-                  value={newSemesterId}
-                  onChange={(event) =>
-                    setNewSemesterId(
-                      event.target.value === "" ? "" : Number(event.target.value),
-                    )
-                  }
-                  required
-                >
-                  <option value="">請選擇…</option>
-                  {(semesters.data ?? []).map((semester) => (
-                    <option key={semester.id} value={semester.id}>
-                      {formatSemesterLabel(semester, academicYearById)}
-                    </option>
-                  ))}
-                </select>
-                <br />
-                <label htmlFor="new-version-number">版本編號</label>
-                <br />
-                <input
-                  id="new-version-number"
-                  type="number"
-                  min={1}
-                  value={newVersionNumber}
-                  onChange={(event) => setNewVersionNumber(Number(event.target.value))}
-                  required
-                />
-                <br />
-                <button type="submit" disabled={isCreating}>
-                  {isCreating ? "建立中…" : "建立新版本"}
-                </button>
-                {createError !== null && <p role="alert">{createError}</p>}
+              <form onSubmit={handleCreateVersion} className="flex flex-col gap-3">
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="new-version-semester" className={LABEL}>
+                    學期
+                  </label>
+                  <select
+                    id="new-version-semester"
+                    value={newSemesterId}
+                    onChange={(event) =>
+                      setNewSemesterId(
+                        event.target.value === "" ? "" : Number(event.target.value),
+                      )
+                    }
+                    required
+                    className={`${SELECT} max-w-xs`}
+                  >
+                    <option value="">請選擇…</option>
+                    {(semesters.data ?? []).map((semester) => (
+                      <option key={semester.id} value={semester.id}>
+                        {formatSemesterLabel(semester, academicYearById)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="new-version-number" className={LABEL}>
+                    版本編號
+                  </label>
+                  <input
+                    id="new-version-number"
+                    type="number"
+                    min={1}
+                    value={newVersionNumber}
+                    onChange={(event) => setNewVersionNumber(Number(event.target.value))}
+                    required
+                    className={`${INPUT} max-w-xs`}
+                  />
+                </div>
+                <div>
+                  <button type="submit" disabled={isCreating} className={BUTTON_PRIMARY}>
+                    {isCreating ? "建立中…" : "建立新版本"}
+                  </button>
+                </div>
+                {createError !== null && (
+                  <p role="alert" className={ERROR_TEXT}>
+                    {createError}
+                  </p>
+                )}
               </form>
             )}
           </div>
@@ -478,17 +528,15 @@ export default function SchedulerConsole(): ReactElement {
           // 已確認狀態:不管是「選擇既有版本」還是「建立新版本」走到這裡,
           // 呈現方式完全一樣 -- 這就是修正方向 1、3 要求的「單一、明確、
           // 一致」的狀態顯示。
-          <div>
-            <p style={{ fontWeight: "bold" }}>
+          <div className={CARD}>
+            <p className="font-semibold text-gray-900">
               目前操作版本:
               {formatVersionLabel(selectedVersion, semesterById, academicYearById)}
             </p>
             {createFlash.message !== null && (
-              <p style={{ color: "green", fontWeight: "bold" }}>
-                ✓ {createFlash.message}
-              </p>
+              <p className={`${SUCCESS_TEXT} mt-1`}>✓ {createFlash.message}</p>
             )}
-            <button type="button" onClick={handleResetVersionSelection}>
+            <button type="button" onClick={handleResetVersionSelection} className={`${BUTTON_SECONDARY} mt-3`}>
               重新選擇版本
             </button>
 
@@ -497,27 +545,31 @@ export default function SchedulerConsole(): ReactElement {
                 才回到這個頁籤發布,甚至可能是完全不同的瀏覽階段、重新選一
                 次既有版本。只要選到的版本還是 DRAFT,這裡就一定出現,不
                 需要 runResult 還留著。 */}
-            {selectedVersion.status === "PUBLISHED" ? (
-              <p style={{ color: "green", fontWeight: "bold" }}>
-                ✓ 此版本已發布為最終確定版,TEACHER 角色可以在課表檢視看到它。
-              </p>
-            ) : (
-              <div>
-                <button type="button" onClick={handlePublish} disabled={isPublishing}>
-                  {isPublishing ? "發布中…" : "發布為最終確定版"}
-                </button>
-                <p style={{ color: "#555", fontSize: "0.9em" }}>
-                  發布後 TEACHER 角色才能在課表檢視看到這個版本;發布後無法再修改、
-                  無法改回草稿、無法重新展開課程清單或重新排課。
+            <div className="mt-4 border-t border-gray-200 pt-4">
+              {selectedVersion.status === "PUBLISHED" ? (
+                <p className={SUCCESS_TEXT}>
+                  ✓ 此版本已發布為最終確定版,TEACHER 角色可以在課表檢視看到它。
                 </p>
-                {publishError !== null && <p role="alert">{publishError}</p>}
-              </div>
-            )}
-            {publishFlash.message !== null && (
-              <p style={{ color: "green", fontWeight: "bold" }}>
-                ✓ {publishFlash.message}
-              </p>
-            )}
+              ) : (
+                <div>
+                  <button type="button" onClick={handlePublish} disabled={isPublishing} className={BUTTON_PRIMARY}>
+                    {isPublishing ? "發布中…" : "發布為最終確定版"}
+                  </button>
+                  <p className={`${HELP_TEXT} mt-2`}>
+                    發布後 TEACHER 角色才能在課表檢視看到這個版本;發布後無法再修改、
+                    無法改回草稿、無法重新展開課程清單或重新排課。
+                  </p>
+                  {publishError !== null && (
+                    <p role="alert" className={ERROR_TEXT}>
+                      {publishError}
+                    </p>
+                  )}
+                </div>
+              )}
+              {publishFlash.message !== null && (
+                <p className={SUCCESS_TEXT}>✓ {publishFlash.message}</p>
+              )}
+            </div>
           </div>
         )}
       </section>
@@ -525,110 +577,105 @@ export default function SchedulerConsole(): ReactElement {
       {selectedVersion !== null && (
         <>
           {/* 步驟二:展開課程清單 */}
-          <section>
-            <h2>步驟二:展開課程清單</h2>
-            <button type="button" onClick={handleGenerateLessons} disabled={isGenerating}>
-              {isGenerating ? "展開中…" : "展開課程清單"}
-            </button>
-            {generateError !== null && <p role="alert">{generateError}</p>}
-            {generateResult !== null && (
-              <p style={{ color: "green", fontWeight: "bold" }}>
-                ✓ 共 {generateResult.total_lesson_count} 堂課待排
-                {generateResult.created_count > 0 && (
-                  <span style={{ fontWeight: "normal" }}>
-                    (本次新增 {generateResult.created_count} 筆)
-                  </span>
-                )}
-              </p>
-            )}
+          <section className={SECTION}>
+            <h2 className={SECTION_TITLE}>步驟二:展開課程清單</h2>
+            <div className={CARD}>
+              <button type="button" onClick={handleGenerateLessons} disabled={isGenerating} className={BUTTON_PRIMARY}>
+                {isGenerating ? "展開中…" : "展開課程清單"}
+              </button>
+              {generateError !== null && (
+                <p role="alert" className={ERROR_TEXT}>
+                  {generateError}
+                </p>
+              )}
+              {generateResult !== null && (
+                <p className={`${SUCCESS_TEXT} mt-2`}>
+                  ✓ 共 {generateResult.total_lesson_count} 堂課待排
+                  {generateResult.created_count > 0 && (
+                    <span className="font-normal text-gray-600">
+                      {" "}
+                      (本次新增 {generateResult.created_count} 筆)
+                    </span>
+                  )}
+                </p>
+              )}
+            </div>
           </section>
 
           {/* 設定固定時段(選填,Task 41) -- 預設收合,只有在展開課程清單
               成功後才出現;不影響下面「開始自動排課」按鈕是否可按。 */}
           {generateResult !== null && (
-            <section>
+            <section className={SECTION}>
               <button
                 type="button"
                 onClick={() => setIsFixedSlotsExpanded((previous) => !previous)}
+                className={BUTTON_LINK}
               >
                 {isFixedSlotsExpanded ? "▾" : "▸"} 設定固定時段(選填)
               </button>
 
               {isFixedSlotsExpanded && (
-                <div style={{ marginTop: "0.5em" }}>
-                  {fixedSlotsResource.isLoading && <p>載入中…</p>}
+                <div className={`${CARD} mt-2`}>
+                  {fixedSlotsResource.isLoading && <p className={LOADING_TEXT}>載入中…</p>}
                   {fixedSlotsResource.errorMessage !== null && (
-                    <p role="alert">{fixedSlotsResource.errorMessage}</p>
+                    <p role="alert" className={ERROR_TEXT}>
+                      {fixedSlotsResource.errorMessage}
+                    </p>
                   )}
                   {!fixedSlotsResource.isLoading &&
                     fixedSlotsResource.errorMessage === null &&
                     (fixedSlotGroups.length === 0 ? (
-                      <p>目前沒有課程可供設定固定時段。</p>
+                      <p className={MUTED_TEXT}>目前沒有課程可供設定固定時段。</p>
                     ) : (
-                      fixedSlotGroups.map((group) => (
-                        <div key={group.requirementId} style={{ marginBottom: "1em" }}>
-                          <p style={{ fontWeight: "bold" }}>{group.label}</p>
-                          {group.lessons.map((lessonRow) => {
-                            const selectId = `fixed-slot-${lessonRow.lessonId}`;
-                            return (
-                              <div
-                                key={lessonRow.lessonId}
-                                style={{ marginLeft: "1.5em", marginBottom: "0.5em" }}
-                              >
-                                <label htmlFor={selectId}>
-                                  第 {lessonRow.sequenceNumber} 堂
-                                </label>
-                                <select
-                                  id={selectId}
-                                  value={lessonRow.fixedTimeSlotId ?? ""}
-                                  disabled={savingLessonId === lessonRow.lessonId}
-                                  onChange={(event) =>
-                                    handleFixedTimeSlotChange(
-                                      lessonRow.lessonId,
-                                      lessonRow.fixedTimeSlotId,
-                                      event.target.value,
-                                    )
-                                  }
-                                  style={{ marginLeft: "0.5em" }}
-                                >
-                                  <option value="">不固定(交給系統排)</option>
-                                  {(fixedSlotsResource.data?.teachingTimeSlots ?? []).map(
-                                    (timeSlot) => (
-                                      <option key={timeSlot.id} value={timeSlot.id}>
-                                        {formatTimeSlotLabel(timeSlot)}
-                                      </option>
-                                    ),
-                                  )}
-                                </select>
-                                {lessonRow.fixedTimeSlotId !== null && (
-                                  <span
-                                    style={{
-                                      marginLeft: "0.5em",
-                                      padding: "0.1em 0.5em",
-                                      backgroundColor: "#d4edda",
-                                      color: "#155724",
-                                      borderRadius: "4px",
-                                      fontSize: "0.85em",
-                                      fontWeight: "bold",
-                                    }}
-                                  >
-                                    已固定
-                                  </span>
-                                )}
-                                {fixedSlotRowErrors.get(lessonRow.lessonId) !==
-                                  undefined && (
-                                  <p
-                                    role="alert"
-                                    style={{ color: "#b00020", margin: "0.25em 0 0 0" }}
-                                  >
-                                    {fixedSlotRowErrors.get(lessonRow.lessonId)}
-                                  </p>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ))
+                      <div className="flex flex-col gap-4">
+                        {fixedSlotGroups.map((group) => (
+                          <div key={group.requirementId}>
+                            <p className="mb-2 font-semibold text-gray-900">{group.label}</p>
+                            <div className="ml-4 flex flex-col gap-2">
+                              {group.lessons.map((lessonRow) => {
+                                const selectId = `fixed-slot-${lessonRow.lessonId}`;
+                                return (
+                                  <div key={lessonRow.lessonId} className="flex flex-wrap items-center gap-2">
+                                    <label htmlFor={selectId} className={LABEL}>
+                                      第 {lessonRow.sequenceNumber} 堂
+                                    </label>
+                                    <select
+                                      id={selectId}
+                                      value={lessonRow.fixedTimeSlotId ?? ""}
+                                      disabled={savingLessonId === lessonRow.lessonId}
+                                      onChange={(event) =>
+                                        handleFixedTimeSlotChange(
+                                          lessonRow.lessonId,
+                                          lessonRow.fixedTimeSlotId,
+                                          event.target.value,
+                                        )
+                                      }
+                                      className={SELECT}
+                                    >
+                                      <option value="">不固定(交給系統排)</option>
+                                      {(fixedSlotsResource.data?.teachingTimeSlots ?? []).map(
+                                        (timeSlot) => (
+                                          <option key={timeSlot.id} value={timeSlot.id}>
+                                            {formatTimeSlotLabel(timeSlot)}
+                                          </option>
+                                        ),
+                                      )}
+                                    </select>
+                                    {lessonRow.fixedTimeSlotId !== null && (
+                                      <span className={BADGE_SUCCESS}>已固定</span>
+                                    )}
+                                    {fixedSlotRowErrors.get(lessonRow.lessonId) !== undefined && (
+                                      <p role="alert" className={`${ERROR_TEXT} w-full`}>
+                                        {fixedSlotRowErrors.get(lessonRow.lessonId)}
+                                      </p>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     ))}
                 </div>
               )}
@@ -637,27 +684,36 @@ export default function SchedulerConsole(): ReactElement {
 
           {/* 步驟三:開始自動排課 */}
           {generateResult !== null && (
-            <section>
-              <h2>步驟三:開始自動排課</h2>
-              <button type="button" onClick={handleRunScheduler} disabled={isRunning}>
-                {isRunning ? "排課中…" : "開始自動排課"}
-              </button>
-              {isRunning && <p>排課可能需要一點時間,請耐心等候,畫面不會當機。</p>}
-              {runError !== null && <p role="alert">{runError}</p>}
-
-              {runResult !== null && (
-                <div>
-                  <p style={{ color: "green", fontWeight: "bold" }}>
-                    ✓ 成功排定 {runResult.scheduled_count} 堂課(回溯{" "}
-                    {runResult.backtrack_count} 次)
+            <section className={SECTION}>
+              <h2 className={SECTION_TITLE}>步驟三:開始自動排課</h2>
+              <div className={CARD}>
+                <button type="button" onClick={handleRunScheduler} disabled={isRunning} className={BUTTON_PRIMARY}>
+                  {isRunning ? "排課中…" : "開始自動排課"}
+                </button>
+                {isRunning && <p className={`${MUTED_TEXT} mt-2`}>排課可能需要一點時間,請耐心等候,畫面不會當機。</p>}
+                {runError !== null && (
+                  <p role="alert" className={ERROR_TEXT}>
+                    {runError}
                   </p>
-                  <Link to={`/timetable?scheduleVersionId=${selectedVersion.id}`}>
-                    查看課表
-                  </Link>
-                </div>
-              )}
+                )}
 
-              {runFailure !== null && <FailureDiagnostics response={runFailure} />}
+                {runResult !== null && (
+                  <div className="mt-2">
+                    <p className={SUCCESS_TEXT}>
+                      ✓ 成功排定 {runResult.scheduled_count} 堂課(回溯{" "}
+                      {runResult.backtrack_count} 次)
+                    </p>
+                    <Link
+                      to={`/timetable?scheduleVersionId=${selectedVersion.id}`}
+                      className="text-sm font-medium text-blue-600 hover:underline"
+                    >
+                      查看課表
+                    </Link>
+                  </div>
+                )}
+
+                {runFailure !== null && <FailureDiagnostics response={runFailure} />}
+              </div>
             </section>
           )}
         </>

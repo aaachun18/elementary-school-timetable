@@ -23,12 +23,30 @@ import type { Class } from "../types/class";
 import type { Subject } from "../types/subject";
 import type { Teacher } from "../types/teacher";
 import { isCurrentUserAdmin } from "../utils/auth";
+import {
+  BUTTON_DANGER_SM,
+  BUTTON_PRIMARY,
+  BUTTON_PRIMARY_SM,
+  BUTTON_SECONDARY_SM,
+  ERROR_TEXT,
+  HELP_TEXT,
+  LOADING_TEXT,
+  PAGE,
+  PAGE_TITLE,
+  SELECT,
+  TABLE,
+  TABLE_HEAD_ROW,
+  TABLE_WRAPPER,
+  TD,
+  TH,
+  TR_HOVER,
+} from "../styles/ui";
 
-// Same red (#b00020), row-scoped error display every CRUD tab in
-// DataBrowser.tsx already uses -- this page lives separately from that
-// file, so it gets its own copy of the constant rather than importing
-// across pages.
-const ROW_ERROR_STYLE = { color: "#b00020", margin: "0.25em 0 0 0" } as const;
+// Same red error text every CRUD table in DataBrowser.tsx already uses --
+// this page lives separately from that file, so it imports the shared
+// token from styles/ui.ts the same way, rather than duplicating a literal
+// color value.
+const ROW_SELECT = `${SELECT} w-full`;
 
 // Task 47: this table's UNIQUE constraint is (semester_id, class_id,
 // subject_id) -- the frontend can't know for certain whether a given
@@ -117,8 +135,8 @@ function RequirementNewRow({
   }
 
   return (
-    <tr>
-      <td>
+    <tr className="bg-blue-50/40">
+      <td className={TD}>
         <select
           value={semesterId}
           onChange={(event) => {
@@ -127,6 +145,7 @@ function RequirementNewRow({
           }}
           disabled={isPending || !hasSemesterOptions}
           aria-label="學期"
+          className={ROW_SELECT}
         >
           {hasSemesterOptions ? (
             <>
@@ -142,7 +161,7 @@ function RequirementNewRow({
           )}
         </select>
       </td>
-      <td>
+      <td className={TD}>
         <select
           value={classId}
           onChange={(event) => {
@@ -151,6 +170,7 @@ function RequirementNewRow({
           }}
           disabled={isPending || !hasClassOptions}
           aria-label="班級"
+          className={ROW_SELECT}
         >
           {hasClassOptions ? (
             <>
@@ -166,7 +186,7 @@ function RequirementNewRow({
           )}
         </select>
       </td>
-      <td>
+      <td className={TD}>
         <select
           value={subjectId}
           onChange={(event) =>
@@ -174,6 +194,7 @@ function RequirementNewRow({
           }
           disabled={isPending || !hasSubjectOptions}
           aria-label="科目"
+          className={ROW_SELECT}
         >
           {hasSubjectOptions ? (
             <>
@@ -189,16 +210,17 @@ function RequirementNewRow({
           )}
         </select>
       </td>
-      <td>
+      <td className={TD}>
         <input
           type="number"
           value={weeklyPeriodsText}
           onChange={(event) => setWeeklyPeriodsText(event.target.value)}
           disabled={isPending}
           aria-label="每週節數"
+          className={`${SELECT} w-20`}
         />
       </td>
-      <td>
+      <td className={TD}>
         <select
           value={requiredTeacherId}
           onChange={(event) =>
@@ -208,6 +230,7 @@ function RequirementNewRow({
           }
           disabled={isPending}
           aria-label="指定教師"
+          className={ROW_SELECT}
         >
           <option value="">不指定(由系統自動分配)</option>
           {teachers.map((teacher) => (
@@ -217,16 +240,17 @@ function RequirementNewRow({
           ))}
         </select>
       </td>
-      <td>
+      <td className={TD}>
         <input
           value={requiredRoomType}
           onChange={(event) => setRequiredRoomType(event.target.value)}
           disabled={isPending}
           aria-label="指定教室類型"
           placeholder="原班教室"
+          className={`${SELECT} w-28`}
         />
       </td>
-      <td>
+      <td className={TD}>
         <input
           type="number"
           value={consecutiveLimitText}
@@ -234,26 +258,34 @@ function RequirementNewRow({
           disabled={isPending}
           aria-label="連續節數限制"
           placeholder="未設定"
+          className={`${SELECT} w-20`}
         />
       </td>
-      <td>
-        <button
-          type="button"
-          onClick={handleConfirm}
-          disabled={
-            isPending ||
-            semesterId === "" ||
-            classId === "" ||
-            subjectId === "" ||
-            weeklyPeriods === null
-          }
-        >
-          確認
-        </button>
-        <button type="button" onClick={onCancel} disabled={isPending}>
-          取消
-        </button>
-        {errorMessage !== null && <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>}
+      <td className={TD}>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={handleConfirm}
+            disabled={
+              isPending ||
+              semesterId === "" ||
+              classId === "" ||
+              subjectId === "" ||
+              weeklyPeriods === null
+            }
+            className={BUTTON_PRIMARY_SM}
+          >
+            確認
+          </button>
+          <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
+            取消
+          </button>
+        </div>
+        {errorMessage !== null && (
+          <p role="alert" className={ERROR_TEXT}>
+            {errorMessage}
+          </p>
+        )}
       </td>
     </tr>
   );
@@ -370,8 +402,8 @@ function RequirementRow({
 
   if (isEditing) {
     return (
-      <tr>
-        <td>
+      <tr className="bg-blue-50/40">
+        <td className={TD}>
           <select
             value={draftSemesterId}
             onChange={(event) => {
@@ -379,6 +411,7 @@ function RequirementRow({
             }}
             disabled={isPending || semesters.length === 0}
             aria-label="學期"
+            className={ROW_SELECT}
           >
             {semesters.length > 0 ? (
               semesters.map((semester) => (
@@ -391,12 +424,13 @@ function RequirementRow({
             )}
           </select>
         </td>
-        <td>
+        <td className={TD}>
           <select
             value={draftClassId}
             onChange={(event) => setDraftClassId(Number(event.target.value))}
             disabled={isPending || classes.length === 0}
             aria-label="班級"
+            className={ROW_SELECT}
           >
             {classes.length > 0 ? (
               classes.map((classItem) => (
@@ -409,12 +443,13 @@ function RequirementRow({
             )}
           </select>
         </td>
-        <td>
+        <td className={TD}>
           <select
             value={draftSubjectId}
             onChange={(event) => setDraftSubjectId(Number(event.target.value))}
             disabled={isPending || availableSubjects.length === 0}
             aria-label="科目"
+            className={ROW_SELECT}
           >
             {availableSubjects.length > 0 ? (
               availableSubjects.map((subject) => (
@@ -427,16 +462,17 @@ function RequirementRow({
             )}
           </select>
         </td>
-        <td>
+        <td className={TD}>
           <input
             type="number"
             value={draftWeeklyPeriodsText}
             onChange={(event) => setDraftWeeklyPeriodsText(event.target.value)}
             disabled={isPending}
             aria-label="每週節數"
+            className={`${SELECT} w-20`}
           />
         </td>
-        <td>
+        <td className={TD}>
           <select
             value={draftRequiredTeacherId}
             onChange={(event) =>
@@ -446,6 +482,7 @@ function RequirementRow({
             }
             disabled={isPending}
             aria-label="指定教師"
+            className={ROW_SELECT}
           >
             <option value="">不指定(由系統自動分配)</option>
             {teachers.map((teacher) => (
@@ -455,16 +492,17 @@ function RequirementRow({
             ))}
           </select>
         </td>
-        <td>
+        <td className={TD}>
           <input
             value={draftRequiredRoomType}
             onChange={(event) => setDraftRequiredRoomType(event.target.value)}
             disabled={isPending}
             aria-label="指定教室類型"
             placeholder="原班教室"
+            className={`${SELECT} w-28`}
           />
         </td>
-        <td>
+        <td className={TD}>
           <input
             type="number"
             value={draftConsecutiveLimitText}
@@ -472,21 +510,27 @@ function RequirementRow({
             disabled={isPending}
             aria-label="連續節數限制"
             placeholder="未設定"
+            className={`${SELECT} w-20`}
           />
         </td>
-        <td>
-          <button
-            type="button"
-            onClick={handleConfirmEdit}
-            disabled={isPending || draftWeeklyPeriods === null}
-          >
-            確認
-          </button>
-          <button type="button" onClick={onCancelEdit} disabled={isPending}>
-            取消
-          </button>
+        <td className={TD}>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleConfirmEdit}
+              disabled={isPending || draftWeeklyPeriods === null}
+              className={BUTTON_PRIMARY_SM}
+            >
+              確認
+            </button>
+            <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
+              取消
+            </button>
+          </div>
           {errorMessage !== undefined && (
-            <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>
+            <p role="alert" className={ERROR_TEXT}>
+              {errorMessage}
+            </p>
           )}
         </td>
       </tr>
@@ -494,8 +538,8 @@ function RequirementRow({
   }
 
   return (
-    <tr>
-      <td>
+    <tr className={TR_HOVER}>
+      <td className={TD}>
         {(() => {
           const semester = semesterById.get(requirement.semester_id);
           return semester !== undefined
@@ -503,34 +547,36 @@ function RequirementRow({
             : `學期 ID ${requirement.semester_id}`;
         })()}
       </td>
-      <td>
+      <td className={TD}>
         {classNameById.get(requirement.class_id) ?? `班級 ID ${requirement.class_id}`}
       </td>
-      <td>
+      <td className={TD}>
         {subjectNameById.get(requirement.subject_id) ?? `科目 ID ${requirement.subject_id}`}
       </td>
-      <td>{requirement.weekly_periods}</td>
-      <td>
+      <td className={TD}>{requirement.weekly_periods}</td>
+      <td className={TD}>
         {requirement.required_teacher_id === null
           ? "未指定(由系統自動分配)"
           : (teacherNameById.get(requirement.required_teacher_id) ??
             `教師 ID ${requirement.required_teacher_id}`)}
       </td>
-      <td>{requirement.required_room_type ?? "原班教室"}</td>
-      <td>{requirement.consecutive_limit ?? "未設定"}</td>
-      <td>
+      <td className={TD}>{requirement.required_room_type ?? "原班教室"}</td>
+      <td className={TD}>{requirement.consecutive_limit ?? "未設定"}</td>
+      <td className={TD}>
         {isAdmin && (
-          <>
-            <button type="button" onClick={onStartEdit} disabled={isPending}>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={onStartEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
               編輯
             </button>
-            <button type="button" onClick={onDelete} disabled={isPending}>
+            <button type="button" onClick={onDelete} disabled={isPending} className={BUTTON_DANGER_SM}>
               刪除
             </button>
-          </>
+          </div>
         )}
         {errorMessage !== undefined && (
-          <p role="alert" style={ROW_ERROR_STYLE}>{errorMessage}</p>
+          <p role="alert" className={ERROR_TEXT}>
+            {errorMessage}
+          </p>
         )}
       </td>
     </tr>
@@ -576,17 +622,33 @@ export default function RequirementsOverview(): ReactElement {
     teachersResource.errorMessage;
 
   if (isLoading) {
-    return <p>載入中…</p>;
+    return (
+      <div className={PAGE}>
+        <p className={LOADING_TEXT}>載入中…</p>
+      </div>
+    );
   }
   if (errorMessage !== null) {
-    return <p role="alert">{errorMessage}</p>;
+    return (
+      <div className={PAGE}>
+        <p role="alert" className={ERROR_TEXT}>
+          {errorMessage}
+        </p>
+      </div>
+    );
   }
   if (requirementsResource.data === null) {
     // Not reachable in practice -- useResource only leaves both isLoading
     // and errorMessage falsy after a successful fetch, which always sets
     // data -- but TypeScript can't see that invariant, so this is a real
     // (if defensive) fallback rather than a type-cast to satisfy it.
-    return <p role="alert">資料載入異常,請重新整理頁面。</p>;
+    return (
+      <div className={PAGE}>
+        <p role="alert" className={ERROR_TEXT}>
+          資料載入異常,請重新整理頁面。
+        </p>
+      </div>
+    );
   }
 
   function handleDelete(id: number, label: string): void {
@@ -613,87 +675,90 @@ export default function RequirementsOverview(): ReactElement {
   const teacherNameById = new Map(teachers.map((teacher) => [teacher.id, teacher.name]));
 
   return (
-    <div>
-      <h1>排課需求總覽</h1>
+    <div className={PAGE}>
+      <h1 className={PAGE_TITLE}>排課需求總覽</h1>
       {/* Task 47: generate-lessons diff-syncs off this table's CURRENT
           contents (Task 21) -- a version that's already had 展開課程清單
           run is NOT automatically kept in sync when a requirement changes
           here afterwards. */}
-      <p style={{ color: "#555", fontSize: "0.9em" }}>
+      <p className={HELP_TEXT}>
         修改排課需求後,請記得回到排課控制台重新執行「展開課程清單」以同步最新變動。
       </p>
       {isAdmin && (
-        <p>
+        <p className="mb-3">
           <button
             type="button"
             onClick={crud.startAdding}
             disabled={crud.isAdding || crud.pendingKey !== null}
+            className={BUTTON_PRIMARY}
           >
             新增
           </button>
         </p>
       )}
-      <table>
-        <thead>
-          <tr>
-            <th>學期</th>
-            <th>班級</th>
-            <th>科目</th>
-            <th>每週節數</th>
-            <th>指定教師</th>
-            <th>指定教室類型</th>
-            <th>連續節數限制</th>
-            {isAdmin && <th>操作</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {crud.isAdding && (
-            <RequirementNewRow
-              requirements={crud.items}
-              semesters={semesters}
-              academicYearById={academicYearById}
-              classes={classes}
-              subjects={subjects}
-              teachers={teachers}
-              isPending={crud.pendingKey === "new"}
-              errorMessage={crud.rowErrors.get("new") ?? null}
-              onConfirm={(data) => void crud.submitCreate(data)}
-              onCancel={crud.cancelAdding}
-            />
-          )}
-          {crud.items.map((requirement) => (
-            <RequirementRow
-              key={requirement.id}
-              requirement={requirement}
-              requirements={crud.items}
-              semesters={semesters}
-              academicYearById={academicYearById}
-              semesterById={semesterById}
-              classes={classes}
-              classNameById={classNameById}
-              subjects={subjects}
-              subjectNameById={subjectNameById}
-              teachers={teachers}
-              teacherNameById={teacherNameById}
-              isAdmin={isAdmin}
-              isEditing={crud.editingId === requirement.id}
-              isPending={crud.pendingKey === requirement.id}
-              errorMessage={crud.rowErrors.get(requirement.id)}
-              onStartEdit={() => crud.startEditing(requirement.id)}
-              onCancelEdit={crud.cancelEditing}
-              onConfirmEdit={(data) => void crud.submitUpdate(requirement.id, data)}
-              onDelete={() =>
-                handleDelete(
-                  requirement.id,
-                  `${classNameById.get(requirement.class_id) ?? requirement.class_id}的${
-                    subjectNameById.get(requirement.subject_id) ?? requirement.subject_id
-                  }`,
-                )
-              }
-            />
-          ))}
-        </tbody>
-      </table>
+      <div className={TABLE_WRAPPER}>
+        <table className={TABLE}>
+          <thead>
+            <tr className={TABLE_HEAD_ROW}>
+              <th className={TH}>學期</th>
+              <th className={TH}>班級</th>
+              <th className={TH}>科目</th>
+              <th className={TH}>每週節數</th>
+              <th className={TH}>指定教師</th>
+              <th className={TH}>指定教室類型</th>
+              <th className={TH}>連續節數限制</th>
+              {isAdmin && <th className={TH}>操作</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {crud.isAdding && (
+              <RequirementNewRow
+                requirements={crud.items}
+                semesters={semesters}
+                academicYearById={academicYearById}
+                classes={classes}
+                subjects={subjects}
+                teachers={teachers}
+                isPending={crud.pendingKey === "new"}
+                errorMessage={crud.rowErrors.get("new") ?? null}
+                onConfirm={(data) => void crud.submitCreate(data)}
+                onCancel={crud.cancelAdding}
+              />
+            )}
+            {crud.items.map((requirement) => (
+              <RequirementRow
+                key={requirement.id}
+                requirement={requirement}
+                requirements={crud.items}
+                semesters={semesters}
+                academicYearById={academicYearById}
+                semesterById={semesterById}
+                classes={classes}
+                classNameById={classNameById}
+                subjects={subjects}
+                subjectNameById={subjectNameById}
+                teachers={teachers}
+                teacherNameById={teacherNameById}
+                isAdmin={isAdmin}
+                isEditing={crud.editingId === requirement.id}
+                isPending={crud.pendingKey === requirement.id}
+                errorMessage={crud.rowErrors.get(requirement.id)}
+                onStartEdit={() => crud.startEditing(requirement.id)}
+                onCancelEdit={crud.cancelEditing}
+                onConfirmEdit={(data) => void crud.submitUpdate(requirement.id, data)}
+                onDelete={() =>
+                  handleDelete(
+                    requirement.id,
+                    `${classNameById.get(requirement.class_id) ?? requirement.class_id}的${
+                      subjectNameById.get(requirement.subject_id) ?? requirement.subject_id
+                    }`,
+                  )
+                }
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
