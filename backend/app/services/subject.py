@@ -3,6 +3,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.subject import Subject
+from app.models.teacher import TeacherSubject
 from app.schemas.subject import SubjectCreate, SubjectUpdate
 from app.services.exceptions import (
     DependentRecordsExistError,
@@ -55,8 +56,27 @@ def delete_subject(db: Session, subject_id: int) -> bool:
     if subject is None:
         return False
 
+    # Task 49: same reasoning as Task 48's delete_teacher() -- TeacherSubject
+    # is a join entity between Teacher and Subject with no independent
+    # meaning of its own ("qualified to teach a subject" stops meaning
+    # anything once the subject itself is gone), and its FK to subjects.id
+    # has no ON DELETE CASCADE, so without this ANY subject that was ever
+    # given to a teacher as a qualification could never be deleted at all.
+    # ClassSubjectRequirement.subject_id is deliberately left alone -- a
+    # subject some class's requirement still needs must stay blocked.
+    #
+    # Everything below is staged on `db` but not committed yet -- if the
+    # final commit() fails (a real ClassSubjectRequirement reference), the
+    # rollback() undoes the whole transaction, including these deletes, so
+    # no teacher's qualifications are lost on a failed delete attempt.
+    qualifications = db.scalars(
+        select(TeacherSubject).where(TeacherSubject.subject_id == subject_id)
+    ).all()
+    for qualification in qualifications:
+        db.delete(qualification)
+
+    db.delete(subject)
     try:
-        db.delete(subject)
         db.commit()
     except IntegrityError as exc:
         db.rollback()

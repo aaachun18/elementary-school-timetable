@@ -549,3 +549,63 @@ def test_admin_still_sees_draft_versions(client: TestClient) -> None:
 
     assert draft_id in [version["id"] for version in list_response.json()]
     assert get_response.status_code == 200
+
+
+# --- Task 50: deleting a DRAFT ScheduleVersion must also clear its own
+# Schedule rows (owned sub-resource -- a Schedule only means anything
+# within the version it was placed under), but a PUBLISHED version stays
+# fully locked (Task 25), including against deletion. ---
+
+
+def test_delete_draft_schedule_version_with_schedules_succeeds(
+    client: TestClient,
+) -> None:
+    semester_id = _create_semester(client, year=2120)
+    class_id = _create_class(client, level=50)
+    subject_id = _create_subject(client, name="Subject 2120")
+    _create_requirement(client, semester_id, class_id, subject_id, weekly_periods=1)
+    version_id = _create_schedule_version(client, semester_id)
+    generate_response = client.post(
+        f"/api/v1/schedule-versions/{version_id}/generate-lessons"
+    )
+    lesson_id = generate_response.json()["created_lessons"][0]["lesson_id"]
+    create_schedule_response = client.post(
+        "/api/v1/schedules/",
+        json={"schedule_version_id": version_id, "lesson_id": lesson_id},
+    )
+    schedule_id = create_schedule_response.json()["id"]
+
+    response = client.delete(f"/api/v1/schedule-versions/{version_id}")
+
+    assert response.status_code == 204
+    # The Schedule row is genuinely gone too, not just the version.
+    assert client.get(f"/api/v1/schedules/{schedule_id}").status_code == 404
+    assert client.get(f"/api/v1/schedule-versions/{version_id}").status_code == 404
+    # The Lesson itself (not a sub-resource of ScheduleVersion -- it
+    # belongs to the semester via the requirement) is untouched.
+    assert client.get(f"/api/v1/lessons/{lesson_id}").status_code == 200
+
+
+def test_delete_published_schedule_version_returns_409(client: TestClient) -> None:
+    semester_id = _create_semester(client, year=2121)
+    class_id = _create_class(client, level=51)
+    subject_id = _create_subject(client, name="Subject 2121")
+    _create_requirement(client, semester_id, class_id, subject_id, weekly_periods=1)
+    version_id = _create_schedule_version(client, semester_id)
+    generate_response = client.post(
+        f"/api/v1/schedule-versions/{version_id}/generate-lessons"
+    )
+    lesson_id = generate_response.json()["created_lessons"][0]["lesson_id"]
+    schedule_id = client.post(
+        "/api/v1/schedules/",
+        json={"schedule_version_id": version_id, "lesson_id": lesson_id},
+    ).json()["id"]
+    _publish(client, version_id)
+
+    response = client.delete(f"/api/v1/schedule-versions/{version_id}")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "已發布版本不可修改,請建立新草稿版本"
+    # Nothing was touched -- version and its Schedule both survived.
+    assert client.get(f"/api/v1/schedule-versions/{version_id}").status_code == 200
+    assert client.get(f"/api/v1/schedules/{schedule_id}").status_code == 200

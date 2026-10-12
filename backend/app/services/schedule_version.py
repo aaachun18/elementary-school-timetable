@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.models.class_subject_requirement import ClassSubjectRequirement
 from app.models.lesson import Lesson
+from app.models.schedule import Schedule
 from app.models.schedule_version import ScheduleVersion
 from app.schemas.schedule_version import ScheduleVersionCreate, ScheduleVersionUpdate
 from app.services.exceptions import (
@@ -98,8 +99,36 @@ def delete_schedule_version(db: Session, schedule_version_id: int) -> bool:
     if schedule_version is None:
         return False
 
+    # Task 25's existing lock: a PUBLISHED version is fully immutable,
+    # including deletion -- same stance update_schedule_version() already
+    # takes, raised before touching anything (no point staging Schedule
+    # deletes for a version that can never actually be deleted).
+    if schedule_version.status == "PUBLISHED":
+        raise PublishedVersionImmutableError(
+            f"ScheduleVersion {schedule_version_id} is PUBLISHED and "
+            "cannot be deleted."
+        )
+
+    # Task 50: Schedule is a semantic sub-resource of ScheduleVersion (a
+    # row only means anything within the version it was placed under --
+    # see app/models/schedule.py), and schedules.schedule_version_id has
+    # no ON DELETE CASCADE, so without this ANY DRAFT version that ever
+    # had a Schedule row (e.g. from a completed run-scheduler call) could
+    # never be deleted at all.
+    #
+    # Staged on `db` but not committed yet -- if the final commit() below
+    # somehow still fails (no other FK currently points at
+    # schedule_versions.id, but this stays defensive in case one is added
+    # later), the rollback() undoes the whole transaction, including these
+    # deletes, so no Schedule row is lost on a failed delete attempt.
+    schedules = db.scalars(
+        select(Schedule).where(Schedule.schedule_version_id == schedule_version_id)
+    ).all()
+    for schedule in schedules:
+        db.delete(schedule)
+
+    db.delete(schedule_version)
     try:
-        db.delete(schedule_version)
         db.commit()
     except IntegrityError as exc:
         db.rollback()
