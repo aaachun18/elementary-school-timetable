@@ -1,0 +1,5 @@
+# Build context for frontend/Dockerfile is frontend/.
+node_modules
+dist
+.env
+.env.*

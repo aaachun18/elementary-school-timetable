@@ -232,6 +232,8 @@ TEST_DATABASE_URL=postgresql+psycopg://timetable:timetable_pw@localhost:5433/tim
 
 ⚠️ **`POSTGRES_USER`、`POSTGRES_PASSWORD`、`POSTGRES_DB` 必須與 `DATABASE_URL` 裡的帳號、密碼、資料庫名一致**——`POSTGRES_*` 決定容器實際建立的帳號與資料庫,`DATABASE_URL` 則是後端拿來連線的位址,兩者不一致時後端會連線失敗(驗證錯誤或資料庫不存在)。`TEST_DATABASE_URL` 的帳號、密碼也要與上述相同。
 
+⚠️ `POSTGRES_PASSWORD` 請避免 `@ : / # ? %` 等特殊字元,否則 Docker 模式組出的 `DATABASE_URL` 會壞掉。
+
 `TEST_DATABASE_URL` 的資料庫名稱**必須**與 `DATABASE_URL` 不同——測試套件會對它執行 `Base.metadata.drop_all()`,兩者相同的話 `tests/conftest.py` 會直接拒絕執行。本機 PostgreSQL 預設跑在 `5433`(而非 `5432`),是因為 `docker-compose.yml` 刻意把它對應到這個 host port:為避免與本機既有的 PostgreSQL 衝突,對外使用 `5433`。
 
 ### 2. 啟動 PostgreSQL
@@ -328,6 +330,47 @@ python scripts/seed_test_data.py
 ```
 
 這個腳本直接呼叫 Service 層函式(不透過 HTTP API),灌入一組可以直接跑完整個「展開課程清單 → 自動排課」流程的示範資料。重複執行需要加 `--confirm` 參數清掉上一次的結果,詳見腳本內的 docstring。
+
+## 用 Docker 一次啟動全部服務
+
+不想在本機安裝 Python / Node 時,可以改用 Docker 同時啟動資料庫、後端、前端。只需要完成上面的「1. 設定環境變數」(`.env` 放在專案根目錄),然後在專案根目錄執行:
+
+```bash
+docker compose --profile full up --build
+```
+
+（加上 `-d` 可在背景執行。）後端與前端服務放在 `full` 這個 profile 裡,所以上面「2. 啟動 PostgreSQL」的 `docker compose up -d` 不受影響,仍然只會啟動資料庫。
+
+| 服務 | 網址 / 埠 | 說明 |
+|---|---|---|
+| 前端 | `http://localhost:5173` | nginx 提供建置好的靜態檔(容器內 80 埠,對外 5173) |
+| 後端 | `http://localhost:8000`(API 文件:`/docs`) | 啟動前會自動執行 `alembic upgrade head`,不需要手動遷移 |
+| PostgreSQL | `localhost:5433` | 與本機開發流程使用同一個資料庫容器與 volume,資料互通 |
+
+後端容器會沿用 `.env` 的帳號、密碼與 `SECRET_KEY`,只把資料庫位址改成容器內部的 `postgres:5432`(`.env` 裡給本機開發用的 `DATABASE_URL` 不需要修改)。
+
+**第一次啟動後建立管理員帳號**:做法與上面「8. 建立第一個管理員帳號」相同——後端已對外開在 `8000` 埠,直接用同一段 curl 指令,或打開 `http://127.0.0.1:8000/docs` 呼叫 `POST /api/v1/auth/register` 即可。
+
+**停止**:
+
+```bash
+docker compose --profile full down
+```
+
+⚠️ 不要加 `-v`——`-v` 會連同資料庫 volume 一起刪除,所有資料都會消失。
+
+⚠️ **Docker 模式與本機開發流程(venv + `python -m uvicorn` + `npm run dev`)共用同一個 postgres 容器與 volume,資料互通;但後端與前端只能二選一啟動**,否則 `8000`(後端)與 `5173`(前端)會發生埠號衝突。切換前先停掉另一邊的後端與前端。
+
+### 載入測試資料
+
+`scripts/seed_test_data.py` 請在**本機的虛擬環境內**執行(與上面「9.(可選)灌入測試資料」完全相同),它會依 `.env` 的 `DATABASE_URL` 連到 Docker 對外的 `5433` 埠,寫入的就是 Docker 模式正在使用的同一個資料庫:
+
+```bash
+# 在專案根目錄、已啟用虛擬環境
+python scripts/seed_test_data.py
+```
+
+**不要在容器內執行**:腳本會把這次灌入的資料記錄在 `scripts/.seed_manifest.json`,之後用 `--confirm` 重複執行時要靠它清掉上一次的結果;在容器內產生的這個檔案不會被保留(容器重建後就消失,本機也看不到),下一次執行時腳本找到上次灌入的資料、卻找不到紀錄檔,會因為不知道哪些資料可以安全刪除而直接拒絕執行。後端 image 本身也沒有包含 `scripts/` 目錄。
 
 ## 測試
 
