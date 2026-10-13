@@ -230,6 +230,8 @@ POSTGRES_PASSWORD=timetable_pw
 TEST_DATABASE_URL=postgresql+psycopg://timetable:timetable_pw@localhost:5433/timetable_test
 ```
 
+⚠️ **`POSTGRES_USER`、`POSTGRES_PASSWORD`、`POSTGRES_DB` 三個都必須填值,尤其 `POSTGRES_PASSWORD` 不可為空**——留空的話 PostgreSQL 容器會拒絕初始化並反覆重啟,資料庫無法啟動(症狀與處理方式見下方「疑難排解」)。
+
 ⚠️ **`POSTGRES_USER`、`POSTGRES_PASSWORD`、`POSTGRES_DB` 必須與 `DATABASE_URL` 裡的帳號、密碼、資料庫名一致**——`POSTGRES_*` 決定容器實際建立的帳號與資料庫,`DATABASE_URL` 則是後端拿來連線的位址,兩者不一致時後端會連線失敗(驗證錯誤或資料庫不存在)。`TEST_DATABASE_URL` 的帳號、密碼也要與上述相同。
 
 ⚠️ `POSTGRES_PASSWORD` 請避免 `@ : / # ? %` 等特殊字元,否則 Docker 模式組出的 `DATABASE_URL` 會壞掉。
@@ -298,6 +300,8 @@ alembic upgrade head
 cd backend
 python -m uvicorn app.main:app --reload
 ```
+
+用 `python -m uvicorn` 而不是直接執行 `uvicorn`,是因為部分 Windows 環境的應用程式控制原則會阻擋虛擬環境裡的 `uvicorn.exe` 啟動檔;透過 `python -m` 啟動則不受影響。
 
 預設監聽 `http://127.0.0.1:8000`,API 文件見 `/docs`。
 
@@ -456,6 +460,8 @@ docs/                 系統設計文件、截圖
 - **Windows 上 `psycopg` 連線失敗或載入錯誤**:部分 Windows 環境的應用程式控制原則(如 WDAC)可能封鎖 `psycopg` 的 C 擴充套件,若遇到此狀況可改用 `requirements.txt` 已一併列出的 `psycopg-binary`。
 - **`uvicorn.exe` 被應用程式控制原則封鎖**:改用 `python -m uvicorn app.main:app --reload`(在 `backend/` 目錄內執行),不經過 `uvicorn.exe` 啟動檔。
 - **前端被改到 `5174` 埠**:前端固定使用 `5173` 埠(後端 CORS 只允許 `http://localhost:5173` 這個來源);若 `npm run dev` 顯示改用 `5174`,代表已有舊的前端程式佔用 `5173`,請先關閉舊的前端程式再重新啟動,否則所有 API 呼叫都會被 CORS 擋下。
+- **`docker compose --profile full up` 出現「dependency postgres failed to start」**:這個訊息本身看不出原因,請執行 `docker compose --profile full logs postgres` 查看資料庫容器的紀錄。若看到「superuser password is not specified」,代表 `.env` 的 `POSTGRES_PASSWORD` 是空的;填入值後,先執行 `docker compose --profile full down`,再執行 `docker compose --profile full up --build -d`。⚠️ `down` 不要加 `-v`——`-v` 會連同資料庫 volume 一起刪除,所有資料都會消失。
+- **Docker 啟動時顯示埠號已被使用(`port is already allocated` / `address already in use`)**:先停掉本機開發流程啟動的後端(`python -m uvicorn`)與前端(`npm run dev`);若另一個資料夾(例如原本的專案資料夾)的資料庫容器也還在跑,先到該資料夾執行 `docker compose stop`。`5173`(前端)、`8000`(後端)、`5433`(PostgreSQL)三個埠都要確認沒被佔用,再重新執行 `docker compose --profile full up --build -d`。
 
 ## 相關文件
 
