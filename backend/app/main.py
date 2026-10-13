@@ -22,6 +22,7 @@ from app.routers.users import router as users_router
 from app.services.exceptions import (
     ArchivedVersionImmutableError,
     CannotDeleteSelfError,
+    CannotSwapWithSelfError,
     CopyAcrossAcademicYearsError,
     CopySourceInconsistentError,
     DependentRecordsExistError,
@@ -31,10 +32,11 @@ from app.services.exceptions import (
     InvalidStatusTransitionError,
     LessonOverProvisionedError,
     PublishedVersionImmutableError,
-    ReassignmentTargetNotFoundError,
     RequirementSemesterMismatchError,
     RequirementUsedByPublishedScheduleError,
+    ScheduleNotInVersionError,
     ScheduleVersionAlreadyScheduledError,
+    TargetRecordNotFoundError,
     TargetSemesterHasRequirementsError,
     TargetSemesterNotFoundError,
 )
@@ -215,12 +217,13 @@ def handle_copy_source_inconsistent(
     )
 
 
-@app.exception_handler(ReassignmentTargetNotFoundError)
-def handle_reassignment_target_not_found(
-    request: Request, exc: ReassignmentTargetNotFoundError
+@app.exception_handler(TargetRecordNotFoundError)
+def handle_target_record_not_found(
+    request: Request, exc: TargetRecordNotFoundError
 ) -> JSONResponse:
-    # Same English detail the requirement/teacher routers' own 404s use, so
-    # the frontend's translation table already covers it.
+    # Covers every subclass (reassign-teacher, move-lesson, swap-lessons).
+    # Same English detail the corresponding routers' own 404s use, so the
+    # frontend's translation table already covers it.
     return JSONResponse(
         status_code=404,
         content={"detail": exc.detail},
@@ -264,6 +267,26 @@ def handle_invalid_status_transition(
     return JSONResponse(
         status_code=409,
         content={"detail": "不允許的課表狀態變更"},
+    )
+
+
+@app.exception_handler(ScheduleNotInVersionError)
+def handle_schedule_not_in_version(
+    request: Request, exc: ScheduleNotInVersionError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "此排課紀錄不屬於該課表"},
+    )
+
+
+@app.exception_handler(CannotSwapWithSelfError)
+def handle_cannot_swap_with_self(
+    request: Request, exc: CannotSwapWithSelfError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "不能與自己對調"},
     )
 
 

@@ -17,12 +17,17 @@ from app.schemas.schedule_version import (
 from app.schemas.scheduler import (
     ConstraintViolationDetail,
     LessonFailureDetail,
+    MoveLessonRequest,
+    ScheduleAdjustmentResult,
+    ScheduleChangeDetail,
     ScheduleCheckResult,
     SchedulerFailureDetail,
+    SwapLessonsRequest,
     SchedulerRunResult,
     TeacherReassignmentRequest,
     TeacherReassignmentResult,
 )
+from app.services import schedule_adjustment as schedule_adjustment_service
 from app.services import schedule_check as schedule_check_service
 from app.services import schedule_copy as schedule_copy_service
 from app.services import schedule_version as schedule_version_service
@@ -334,3 +339,69 @@ def reassign_teacher(
         dry_run=reassignment.dry_run,
         check=_build_check_result(schedule_version_id, outcome.violations),
     )
+
+
+# --- move-lesson / swap-lessons (Task 65): manual time-slot adjustments ---
+# PublishedVersionImmutableError / ArchivedVersionImmutableError /
+# AdjustmentTargetNotFoundError / ScheduleNotInVersionError /
+# CannotSwapWithSelfError are intentionally not caught here -- the global
+# exception handlers in main.py convert them to 409/404.
+
+
+def _build_adjustment_result(
+    schedule_version_id: int,
+    dry_run: bool,
+    outcome: schedule_adjustment_service.AdjustmentOutcome | None,
+) -> ScheduleAdjustmentResult:
+    if outcome is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ScheduleVersion not found",
+        )
+    return ScheduleAdjustmentResult(
+        schedule_version_id=schedule_version_id,
+        dry_run=dry_run,
+        changes=[ScheduleChangeDetail.model_validate(change) for change in outcome.changes],
+        check=_build_check_result(schedule_version_id, outcome.violations),
+    )
+
+
+@router.post(
+    "/{schedule_version_id}/move-lesson",
+    response_model=ScheduleAdjustmentResult,
+    dependencies=[Depends(require_admin)],
+)
+def move_lesson(
+    schedule_version_id: int,
+    move: MoveLessonRequest,
+    db: Session = Depends(get_db),
+) -> ScheduleAdjustmentResult:
+    outcome = schedule_adjustment_service.move_lesson(
+        db,
+        schedule_version_id,
+        move.schedule_id,
+        move.target_time_slot_id,
+        move.target_room_id,
+        dry_run=move.dry_run,
+    )
+    return _build_adjustment_result(schedule_version_id, move.dry_run, outcome)
+
+
+@router.post(
+    "/{schedule_version_id}/swap-lessons",
+    response_model=ScheduleAdjustmentResult,
+    dependencies=[Depends(require_admin)],
+)
+def swap_lessons(
+    schedule_version_id: int,
+    swap: SwapLessonsRequest,
+    db: Session = Depends(get_db),
+) -> ScheduleAdjustmentResult:
+    outcome = schedule_adjustment_service.swap_lessons(
+        db,
+        schedule_version_id,
+        swap.schedule_id,
+        swap.swap_with_schedule_id,
+        dry_run=swap.dry_run,
+    )
+    return _build_adjustment_result(schedule_version_id, swap.dry_run, outcome)

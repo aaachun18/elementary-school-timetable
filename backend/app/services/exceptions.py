@@ -77,11 +77,12 @@ class ArchivedVersionImmutableError(Exception):
 
 class InvalidStatusTransitionError(Exception):
     """Task 64: raised by update_schedule_version() for a status change that
-    isn't allowed. Only DRAFT -> PUBLISHED and ARCHIVED -> PUBLISHED are
-    (publishing archives the semester's current PUBLISHED version); an
-    unchanged status is a no-op. Everything else -- PUBLISHED -> DRAFT,
-    ARCHIVED -> DRAFT, DRAFT -> ARCHIVED, PUBLISHED -> ARCHIVED -- is
-    refused before anything changes.
+    isn't allowed. Only DRAFT -> PUBLISHED and ARCHIVED -> PUBLISHED
+    (publishing archives the semester's current PUBLISHED version) and,
+    since Task 65, PUBLISHED -> ARCHIVED (unpublish) are; an unchanged
+    status is a no-op. Everything else -- PUBLISHED -> DRAFT,
+    ARCHIVED -> DRAFT, DRAFT -> ARCHIVED -- is refused before anything
+    changes.
     """
 
 
@@ -163,20 +164,42 @@ class CopySourceInconsistentError(Exception):
     """
 
 
-class ReassignmentTargetNotFoundError(Exception):
-    """Raised by reassign_teacher() (Task 63) when the requested
-    ClassSubjectRequirement or new Teacher does not exist (-> 404).
+class TargetRecordNotFoundError(Exception):
+    """A record named in a version-level operation's request body does not
+    exist (-> 404). Base for the operation-specific subclasses below.
 
     Carries the exact same English `detail` the corresponding router's own
-    404 already uses ("ClassSubjectRequirement not found" / "Teacher not
-    found"), so the frontend's existing translation table keeps working.
-    A separate exception rather than "service returns None", because None
-    already means "the ScheduleVersion doesn't exist" for that call.
+    404 already uses (e.g. "Teacher not found", "Schedule not found"), so
+    the frontend's existing translation table keeps working. A separate
+    exception rather than "service returns None", because None already
+    means "the ScheduleVersion doesn't exist" for these calls.
     """
 
     def __init__(self, detail: str) -> None:
         self.detail = detail
         super().__init__(detail)
+
+
+class ReassignmentTargetNotFoundError(TargetRecordNotFoundError):
+    """Raised by reassign_teacher() (Task 63) when the requested
+    ClassSubjectRequirement or new Teacher does not exist (-> 404)."""
+
+
+class AdjustmentTargetNotFoundError(TargetRecordNotFoundError):
+    """Raised by move_lesson()/swap_lessons() (Task 65) when a requested
+    Schedule row, target TimeSlot or target Room does not exist (-> 404)."""
+
+
+class ScheduleNotInVersionError(Exception):
+    """Raised by move_lesson()/swap_lessons() (Task 65) when a Schedule row
+    exists but belongs to a different ScheduleVersion than the one in the
+    URL -- moving it would silently edit another (possibly locked)
+    version."""
+
+
+class CannotSwapWithSelfError(Exception):
+    """Raised by swap_lessons() (Task 65) when both ids name the same
+    Schedule row."""
 
 
 class RequirementSemesterMismatchError(Exception):

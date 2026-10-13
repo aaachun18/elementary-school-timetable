@@ -112,3 +112,45 @@ class TeacherReassignmentResult(BaseModel):
     updated_schedule_row_count: int
     dry_run: bool
     check: ScheduleCheckResult
+
+
+class MoveLessonRequest(BaseModel):
+    """Task 65: body of POST /schedule-versions/{id}/move-lesson.
+    target_room_id None (or omitted) keeps the current room -- this API
+    cannot clear a room."""
+
+    schedule_id: int
+    target_time_slot_id: int
+    target_room_id: int | None = None
+    dry_run: bool = False
+
+
+class SwapLessonsRequest(BaseModel):
+    """Task 65: body of POST /schedule-versions/{id}/swap-lessons."""
+
+    schedule_id: int
+    swap_with_schedule_id: int
+    dry_run: bool = False
+
+
+class ScheduleChangeDetail(BaseModel):
+    """Task 65: one Schedule row whose time slot and/or room changed."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    schedule_id: int
+    previous_time_slot_id: int | None
+    new_time_slot_id: int | None
+    previous_room_id: int | None
+    new_room_id: int | None
+
+
+class ScheduleAdjustmentResult(BaseModel):
+    """Task 65: 200 response of move-lesson and swap-lessons. `changes`
+    lists only rows that actually changed (for dry_run: would change);
+    `check` is the version's full schedule check after the change."""
+
+    schedule_version_id: int
+    dry_run: bool
+    changes: list[ScheduleChangeDetail]
+    check: ScheduleCheckResult
