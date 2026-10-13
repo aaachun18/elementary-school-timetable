@@ -54,6 +54,17 @@ const KNOWN_ERROR_MESSAGES: Record<string, string> = {
   "Lesson not found": "此課程已不存在，請重新整理頁面",
   "Schedule not found": "此排課結果已不存在，請重新整理頁面",
   "ScheduleVersion not found": "此排課版本已不存在，請重新整理頁面",
+  // Task 59: account management (帳號管理) and register. "User not found"
+  // is backend/app/routers/users.py's own 404; the other three come from
+  // backend/app/core/dependencies.py (require_admin's 403,
+  // get_current_user's 401) and FastAPI's own OAuth2PasswordBearer 401
+  // when no token is sent at all. A 401 also sends the user back to
+  // /login (api/client.ts), but the message is still translated in case
+  // it is ever shown first.
+  "User not found": "此帳號已不存在，請重新整理頁面",
+  "This action requires ADMIN role": "此操作需要管理員權限",
+  "Not authenticated": "尚未登入，請重新登入",
+  "Could not validate credentials": "登入狀態已失效，請重新登入",
   // Task 53 originally added entries here for
   // handle_schedule_version_already_scheduled()'s and
   // handle_lesson_over_provisioned()'s messages, which at the time had

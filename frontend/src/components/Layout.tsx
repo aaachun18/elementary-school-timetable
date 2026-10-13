@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { TOKEN_KEY } from "../api/client";
-import { getCurrentUserRole } from "../utils/auth";
+import { getCurrentUserRole, isCurrentUserAdmin } from "../utils/auth";
 import { BUTTON_SECONDARY_SM, NAV_BAR, NAV_LINK, NAV_LINK_ACTIVE } from "../styles/ui";
 
 // Shared shell for every protected page (see App.tsx: this is combined
@@ -16,6 +16,7 @@ export default function Layout(): ReactElement {
   // disabled. An unknown role (null) sees the full nav, same "only block a
   // CONFIRMED TEACHER" stance AdminOnlyRoute takes.
   const isRestrictedToTimetable = getCurrentUserRole() === "TEACHER";
+  const isAdmin = isCurrentUserAdmin();
 
   function handleLogout(): void {
     sessionStorage.removeItem(TOKEN_KEY);
@@ -48,6 +49,15 @@ export default function Layout(): ReactElement {
               排課控制台
             </NavLink>
           </>
+        )}
+        {/* Task 59: unlike the links above, 帳號管理 is shown only to a
+            CONFIRMED ADMIN -- an unknown role (null) does not see it. Kept
+            last among the admin links: an administrative page, not part of
+            the scheduling flow. */}
+        {isAdmin && (
+          <NavLink to="/users" className={navLinkClassName}>
+            帳號管理
+          </NavLink>
         )}
         <NavLink to="/timetable" className={navLinkClassName}>
           課表檢視

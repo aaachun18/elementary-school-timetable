@@ -9,6 +9,7 @@ import Login from "./pages/Login";
 import RequirementsOverview from "./pages/RequirementsOverview";
 import SchedulerConsole from "./pages/SchedulerConsole";
 import TimetableView from "./pages/TimetableView";
+import UserManagement from "./pages/UserManagement";
 
 export default function App(): ReactElement {
   return (
@@ -59,6 +60,16 @@ export default function App(): ReactElement {
             element={
               <AdminOnlyRoute>
                 <SchedulerConsole />
+              </AdminOnlyRoute>
+            }
+          />
+          {/* Task 59: account management -- ADMIN only, same wrapper as the
+              pages above; the backend's require_admin is the real lock. */}
+          <Route
+            path="/users"
+            element={
+              <AdminOnlyRoute>
+                <UserManagement />
               </AdminOnlyRoute>
             }
           />

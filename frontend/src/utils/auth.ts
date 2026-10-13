@@ -55,6 +55,19 @@ export function getCurrentUserRole(): UserRole | null {
   return null;
 }
 
+// Task 59: the logged-in account's username -- the JWT's `sub` claim
+// (backend/app/routers/auth.py's login() puts the username there). Used
+// only to disable the 帳號管理 page's delete button on the user's own row;
+// the backend independently refuses self-deletion regardless.
+export function getCurrentUsername(): string | null {
+  const token = sessionStorage.getItem(TOKEN_KEY);
+  if (token === null) {
+    return null;
+  }
+  const sub = decodeAccessTokenPayload(token)?.sub;
+  return typeof sub === "string" ? sub : null;
+}
+
 export function isCurrentUserAdmin(): boolean {
   return getCurrentUserRole() === "ADMIN";
 }
