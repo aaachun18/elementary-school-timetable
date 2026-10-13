@@ -167,3 +167,53 @@ def test_register_admin_creates_admin(client: TestClient) -> None:
 
     assert response.status_code == 201
     assert response.json()["role"] == "ADMIN"
+
+
+# --- Task 59: password rule (8 characters to 72 UTF-8 bytes) ---
+
+
+def test_register_password_too_short_rejected(
+    unauthenticated_client: TestClient,
+) -> None:
+    response = unauthenticated_client.post(
+        "/api/v1/auth/register",
+        json={"username": "shortpw", "password": "7chars!", "role": "ADMIN"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_register_password_too_long_rejected(
+    unauthenticated_client: TestClient,
+) -> None:
+    response = unauthenticated_client.post(
+        "/api/v1/auth/register",
+        json={"username": "longpw", "password": "a" * 73, "role": "ADMIN"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_register_password_exactly_8_characters_accepted(
+    unauthenticated_client: TestClient,
+) -> None:
+    response = unauthenticated_client.post(
+        "/api/v1/auth/register",
+        json={"username": "eightpw", "password": "8chars!!", "role": "ADMIN"},
+    )
+
+    assert response.status_code == 201
+
+
+def test_register_password_over_72_bytes_rejected(
+    unauthenticated_client: TestClient,
+) -> None:
+    # 25 Chinese characters = 75 UTF-8 bytes: within 72 characters, but
+    # over bcrypt's 72-byte input limit, so it must be rejected rather than
+    # silently truncated.
+    response = unauthenticated_client.post(
+        "/api/v1/auth/register",
+        json={"username": "bytespw", "password": "密" * 25, "role": "ADMIN"},
+    )
+
+    assert response.status_code == 422

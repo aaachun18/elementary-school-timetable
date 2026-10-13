@@ -18,7 +18,9 @@ from app.routers.semester import router as semester_router
 from app.routers.subject import router as subject_router
 from app.routers.teacher import router as teacher_router
 from app.routers.time_slot import router as time_slot_router
+from app.routers.users import router as users_router
 from app.services.exceptions import (
+    CannotDeleteSelfError,
     DependentRecordsExistError,
     DuplicateValueError,
     InvalidReferenceError,
@@ -58,6 +60,7 @@ app.include_router(class_subject_requirement_router)
 app.include_router(lesson_router)
 app.include_router(schedule_version_router)
 app.include_router(schedule_router)
+app.include_router(users_router)
 
 # Convention: every service-layer delete_xxx()/create_xxx()/update_xxx() that
 # can hit a SQLAlchemy IntegrityError raises one of the three exceptions
@@ -127,6 +130,16 @@ def handle_requirement_used_by_published_schedule(
     return JSONResponse(
         status_code=409,
         content={"detail": "此排課需求已被已發布的課表使用，無法刪除"},
+    )
+
+
+@app.exception_handler(CannotDeleteSelfError)
+def handle_cannot_delete_self(
+    request: Request, exc: CannotDeleteSelfError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "不能刪除目前登入中的帳號"},
     )
 
 

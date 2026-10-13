@@ -78,6 +78,17 @@ class RequirementUsedByPublishedScheduleError(Exception):
     """
 
 
+class CannotDeleteSelfError(Exception):
+    """Raised by delete_user() when an ADMIN tries to delete the account
+    they are currently logged in as.
+
+    Task 59: this rule alone guarantees at least one ADMIN always remains
+    -- only an ADMIN can delete accounts, and never their own, so the one
+    doing the deleting always survives. Without that guarantee, an empty
+    users table would reopen anonymous first-ADMIN registration (Task 57).
+    """
+
+
 class ScheduleVersionAlreadyScheduledError(Exception):
     """Raised by run_scheduler() when the target ScheduleVersion already has
     one or more Schedule rows.
