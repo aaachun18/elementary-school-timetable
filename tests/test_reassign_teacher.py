@@ -311,8 +311,34 @@ def test_reassign_to_current_teacher_is_a_no_op(
     )
 
     assert data["previous_teacher_id"] == world.old_teacher.id
+    # Task 64: only rows that actually change are counted.
+    assert data["updated_schedule_row_count"] == 0
     assert data["check"]["is_valid"] is True
     assert _snapshot(db_session) == before
+
+
+def test_reassign_counts_only_rows_that_change(
+    client: TestClient, db_session: Session
+) -> None:
+    # Task 64: one of English's two rows already has the new teacher.
+    world = _build_world(db_session)
+    first_row = _rows_of(db_session, world.version.id, world.english_requirement.id)[0]
+    first_row.teacher_id = world.new_teacher.id
+    db_session.commit()
+
+    dry = _reassign_ok(
+        client, world.version.id, world.english_requirement.id, world.new_teacher.id, dry_run=True
+    )
+    real = _reassign_ok(
+        client, world.version.id, world.english_requirement.id, world.new_teacher.id
+    )
+
+    assert dry["updated_schedule_row_count"] == 1
+    assert real["updated_schedule_row_count"] == 1
+    assert {
+        r.teacher_id
+        for r in _rows_of(db_session, world.version.id, world.english_requirement.id)
+    } == {world.new_teacher.id}
 
 
 def test_reassign_requirement_without_schedule_rows(

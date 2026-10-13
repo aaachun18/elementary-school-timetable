@@ -10,7 +10,7 @@ and both are updated:
 - teacher_id on this version's Schedule rows for that requirement's
   Lessons (other versions' rows are never touched).
 
-Only a missing record, a PUBLISHED version, a requirement from another
+Only a missing record, a PUBLISHED/ARCHIVED version, a requirement from another
 semester, or an inactive new teacher is refused. Qualification (H5),
 availability (H4), workload (H8) and double-booking (H1) do NOT block: the
 change is still saved, and the returned check lists them. dry_run performs
@@ -30,10 +30,10 @@ from app.models.teacher import Teacher
 from app.services import schedule_check
 from app.services.exceptions import (
     InactiveTeacherAssignmentError,
-    PublishedVersionImmutableError,
     ReassignmentTargetNotFoundError,
     RequirementSemesterMismatchError,
 )
+from app.services.schedule_version import raise_if_version_locked
 
 # schedule_check returns the engine's own ConstraintViolation objects; the
 # alias keeps this module from importing scheduling_engine directly (see
@@ -52,11 +52,7 @@ def _validate(
     db: Session, schedule_version: ScheduleVersion, requirement_id: int, new_teacher_id: int
 ) -> ClassSubjectRequirement:
     """Every refusal happens here, before anything is changed."""
-    if schedule_version.status == "PUBLISHED":
-        raise PublishedVersionImmutableError(
-            f"ScheduleVersion {schedule_version.id} is PUBLISHED and "
-            "cannot be modified."
-        )
+    raise_if_version_locked(schedule_version)
 
     requirement = db.get(ClassSubjectRequirement, requirement_id)
     if requirement is None:
@@ -118,16 +114,18 @@ def reassign_teacher(
     dry_run: bool,
 ) -> ReassignmentOutcome | None:
     """Returns None if the ScheduleVersion doesn't exist (caller -> 404).
-    Raises PublishedVersionImmutableError / ReassignmentTargetNotFoundError
+    Raises PublishedVersionImmutableError / ArchivedVersionImmutableError /
+    ReassignmentTargetNotFoundError
     / RequirementSemesterMismatchError / InactiveTeacherAssignmentError
     before changing anything. Otherwise updates the requirement and this
     version's matching Schedule rows, runs the schedule check against the
     updated (flushed) state, and commits -- even when the check finds
     violations -- or rolls back when dry_run is True.
 
-    updated_schedule_row_count is the number of this version's Schedule
-    rows for the requirement, i.e. every row whose teacher_id is set to the
-    new teacher (rows that already had that teacher included).
+    updated_schedule_row_count counts only the rows whose teacher_id
+    actually changes (Task 64) -- rows that already had the new teacher are
+    not counted, so reassigning to the current teacher reports 0. For
+    dry_run it is the count a real call would change.
     """
     schedule_version = db.get(ScheduleVersion, schedule_version_id)
     if schedule_version is None:
@@ -140,7 +138,8 @@ def reassign_teacher(
         previous_teacher_id = _previous_teacher_id(requirement, rows)
 
         requirement.required_teacher_id = new_teacher_id
-        for row in rows:
+        changed_rows = [row for row in rows if row.teacher_id != new_teacher_id]
+        for row in changed_rows:
             row.teacher_id = new_teacher_id
         db.flush()
 
@@ -160,6 +159,6 @@ def reassign_teacher(
 
     return ReassignmentOutcome(
         previous_teacher_id=previous_teacher_id,
-        updated_schedule_row_count=len(rows),
+        updated_schedule_row_count=len(changed_rows),
         violations=violations,
     )
