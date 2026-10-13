@@ -54,7 +54,7 @@ flowchart TB
 
 **為什麼 Scheduling Engine 要獨立於框架**:`scheduling_engine/` 底下沒有任何一行 import SQLAlchemy、FastAPI,或是直接碰資料庫,只吃/吐純 Python dataclass(`LessonAssignment`、`SchedulingResources`、`ConstraintViolation`…)。這個邊界帶來幾個具體、可驗證的好處:
 
-- **測試速度**:`tests/scheduling_engine/` 底下總共 73 個測試(Constraint、Greedy、Backtracking、靜態可行性檢查、Fixed Time Slot),實測 `pytest tests/scheduling_engine/ -q` 只要 **0.12 秒**,因為完全不需要 `Base.metadata.create_all()`/`drop_all()` 這種資料庫層級的操作。相對地,`tests/` 底下 213 個 API 層測試,因為每個測試都要對真實 PostgreSQL 建表/清表,總耗時約 94 秒。
+- **測試速度**:`tests/scheduling_engine/` 底下總共 73 個測試(Constraint、Greedy、Backtracking、靜態可行性檢查、Fixed Time Slot),實測 `pytest tests/scheduling_engine/ -q` 只要 **0.12 秒**,因為完全不需要 `Base.metadata.create_all()`/`drop_all()` 這種資料庫層級的操作。相對地,`tests/` 底下 219 個 API 層測試,因為每個測試都要對真實 PostgreSQL 建表/清表,總耗時約 94 秒。
 - **獨立可測試性**:Task 17 到 Task 23 開發整個約束引擎、Greedy、Backtracking、靜態可行性檢查的過程中,一次都沒有啟動過 FastAPI 或連過資料庫——所有邏輯都是用手寫的 dataclass 資料直接驗證。直到 Task 21 才第一次需要「接上真實資料庫」,而那個轉接層(`backend/app/services/scheduler.py`)清楚地被隔離在 Service 層,`scheduling_engine/` 本身完全沒被碰過。
 - **關注點分離**:排課邏輯的正確性(這組候選會不會衝突、這樣排合不合法)跟「這筆資料在資料庫裡長怎樣」是兩個完全不同層次的問題,混在一起會讓兩邊都難測試、難改。
 
@@ -344,6 +344,7 @@ HTTP 422
 | 10 | 前端要怎麼知道目前登入者是 `ADMIN` 還是 `TEACHER`,以決定要不要顯示新增/編輯/刪除按鈕?(Task 42) | (a) 新增 `GET /me` 端點查詢 (b) 登入時把 `role` 寫進 JWT claim,前端解碼 payload | (b) | 後端本來就沒有 `GET /me`,而 role 在 token 有效期間內不會變動,放進 claim 可以少一次請求。前提是把它定位成**純 UI 用途**:前端不驗證簽章,解出來的 role 只決定按鈕要不要顯示,所有寫入端點仍由後端 `require_admin` 獨立檢查——竄改 token 最多讓按鈕出現,按下去仍是 403。 |
 | 11 | `TEACHER` 帳號只該看已發布課表,這個限制放在哪一層?(Task 43) | (a) 前端過濾掉草稿版本 (b) 後端查詢時依 role 過濾 | (b) | `AGENTS.md` 要求 Authorization 必須由後端強制,不能只靠前端隱藏。`get_schedule_versions()` 對 `TEACHER` 加上 `status == "PUBLISHED"` 條件,`get_schedule_version()`/`get_schedule()`/`get_schedules()` 同樣依 role 過濾;`TEACHER` 查詢草稿版本的 id 會得到與「不存在」相同的 404,而不是 403——看不到內容的人,也沒必要知道那個 id 存在一份草稿。 |
 | 12 | 刪除一筆被其他資料參照的紀錄時,要一律擋下,還是連同參照它的資料一起刪?(Task 48–50、Task 56) | (a) 一律擋下(409) (b) 資料庫層 `ON DELETE CASCADE` 全部連動刪除 (c) 依參照的性質區分:只清掉「自己的附屬資料」,真實依賴仍擋下 | (c) | 一律擋下會讓「只是被標記過不可用時段的老師」永遠刪不掉(見第 8 節案例五);全面 cascade 則會默默刪掉排課需求或已排定的課表。實際做法在 Service 層判斷:老師連同自己的任教資格、不可用時段一起刪;科目連同指向它的任教資格一起刪;時段連同指向它的不可用時段紀錄一起刪;草稿版本連同其 `Schedule` 一起刪;排課需求連同其 `Lesson`(以及這些 `Lesson` 在草稿版本裡的 `Schedule`)一起刪,但這些 `Lesson` 只要有任何一筆被 PUBLISHED 版本的 `Schedule` 引用,就整批擋下(Task 56)。但被排課需求參照(指定教師 `required_teacher_id`、需求的科目)、被 `Schedule` 排入、被 `Lesson` 固定時段參照的情況仍然擋下,已發布版本也仍不可刪。附屬資料的刪除與主資料在同一個交易內,只要最後 commit 失敗就整批 rollback,不會出現「附屬資料被刪了、主資料卻還在」的狀態。 |
+| 13 | `POST /auth/register` 要怎麼開放?(Task 57) | (a) 維持完全開放 (b) 永遠需要 `ADMIN` 登入,但第一個帳號要怎麼建立? (c) `users` 表為空時允許匿名建立第一個帳號(強制為 `ADMIN`),之後一律需要 `ADMIN` 登入 | (c) | (a) 等於任何人都能自己建一個 `ADMIN`,後端的 `require_admin` 形同虛設。(b) 會遇到雞生蛋問題:第一個 `ADMIN` 只能靠直接寫資料庫或額外的初始化腳本建立,多一道部署步驟,也多一條繞過 API 驗證的路徑。(c) 讓「系統裡完全沒有人」成為唯一允許匿名的狀態,而且建出來的帳號一律是 `ADMIN`(不讓匿名呼叫端自己挑角色);一旦有任何使用者,行為就與其他寫入端點相同(沒帶 token 回 401、非 `ADMIN` 回 403)。「是否為空」的判斷與 insert 在同一個交易內,並先取得 `users` 表的 `SHARE ROW EXCLUSIVE` 鎖:兩個同時進來的 register 會被序列化,第二個要等第一個 commit 後才計數,不會同時建出兩個匿名 `ADMIN`。**剩餘風險**:空庫期間(剛部署、尚未建立第一個帳號)誰先呼叫誰就成為 `ADMIN`,部署後應立即建立第一個帳號;若日後所有使用者都被刪除,匿名建立的窗口會重新打開。鎖的語法是 PostgreSQL 專用,與本專案固定使用 PostgreSQL 一致。 |
 
 ---
 
@@ -424,11 +425,11 @@ HTTP 422
 測試分成兩個完全獨立的層級,理由直接對應第 2 節提到的架構分離:
 
 - **`tests/scheduling_engine/`(73 個測試)**:純 Python 邏輯測試,輸入輸出都是手寫的 dataclass,不碰資料庫、不啟動 FastAPI。這一層測試的是「約束有沒有正確判斷違規」「MRV 排序對不對」「回溯的邊界語意精不精確」這些領域邏輯的正確性,可以用最小、最精確的手造資料涵蓋邊界案例(例如刻意讓 Greedy 失敗、Backtracking 成功的對照組)。
-- **`tests/`(213 個測試)**:透過 `TestClient` 打真實的 FastAPI + PostgreSQL(獨立的 `timetable_test` 資料庫,每個測試前後 `create_all`/`drop_all`),測試的是「這一層有沒有正確接起來」——路由、認證/授權、Pydantic 驗證、資料庫約束、例外轉譯成正確的 HTTP 狀態碼。
+- **`tests/`(219 個測試)**:透過 `TestClient` 打真實的 FastAPI + PostgreSQL(獨立的 `timetable_test` 資料庫,每個測試前後 `create_all`/`drop_all`),測試的是「這一層有沒有正確接起來」——路由、認證/授權、Pydantic 驗證、資料庫約束、例外轉譯成正確的 HTTP 狀態碼。
 
 兩層分開測試,是因為它們回答的問題完全不同:引擎層測試不應該因為資料庫連線設定錯誤而失敗,API 層測試也不需要重新驗證約束邏輯本身對不對(那是引擎層的責任)。前端(第 3 節)目前沒有對應的自動化測試層,以真實資料手動驗證取代,見 3.3 節末段。
 
-**目前總計 286 個測試,全數通過**(2026-10-13 以 `python -m pytest tests/` 實際執行,`286 passed`;各類數字取自 `pytest --collect-only` 依檔案統計),分佈:
+**目前總計 292 個測試,全數通過**(2026-10-13 以 `python -m pytest tests/` 實際執行,`292 passed`;各類數字取自 `pytest --collect-only` 依檔案統計),分佈:
 
 | 類別 | 測試數 |
 |---|---|
@@ -438,16 +439,17 @@ HTTP 422
 | ├─ Backtracking | 10 |
 | ├─ Greedy | 7 |
 | └─ Fixed Time Slot(Task 28) | 6 |
-| API / 整合測試 | 213 |
+| API / 整合測試 | 219 |
 | ├─ ScheduleVersion(含 PUBLISHED 鎖定、TEACHER 過濾、草稿連同排課結果刪除) | 28 |
 | ├─ Schedule(含 PUBLISHED 鎖定、TEACHER 過濾) | 20 |
 | ├─ TimeSlot(含 label,Task 35;連同不可用時段刪除) | 17 |
 | ├─ ClassSubjectRequirement(含連同 Lesson 刪除、PUBLISHED 引用時擋下,Task 56) | 16 |
+| ├─ Auth(含 register 首個帳號匿名、之後需 ADMIN,Task 57) | 15 |
 | ├─ Class / Scheduler(排課 API 端到端)/ Teacher(含連同附屬資料刪除) | 各 13 |
 | ├─ Subject | 12 |
 | ├─ Semester | 11 |
 | ├─ AcademicYear / Room | 各 10 |
-| ├─ Auth / Grade / School | 各 9 |
+| ├─ Grade / School | 各 9 |
 | ├─ TeacherAvailability / TeacherSubject | 各 8 |
 | └─ Lesson(含 fixed_time_slot,Task 28) | 7 |
 
@@ -461,7 +463,7 @@ HTTP 422
 - **Soft Constraints(S1–S7)完全未開始**:例如教師每日負擔平衡、避免連續過多堂課等。`AGENTS.md` 明訂「先滿足所有 Hard Constraint,再比較 Soft Constraint 分數」,Soft Constraint 排在後面。
 - **版本複製機制未實作**:Published 版本的鎖定機制(Task 25)本身完整,但「從 Published 複製一份新 Draft 出來修改」這個配套動作還沒做——目前一個版本被發布後,理論上沒有任何合法路徑可以再產生它的修改版。
 - **手動調整課表沒有重新驗證**:`AGENTS.md` 第 15 節要求手動調整課表時後端仍要重新驗證 Hard Constraint,但目前 `PATCH /schedules/{id}` 只檢查了型別、外鍵存在性、與 PUBLISHED 鎖定,沒有跑任何一條 H1–H12 檢查——也就是說目前可以透過手動 PATCH 把兩堂課排到同一個老師的同一個時段。這項限制截至目前(含第 3 節描述的前端範圍)依然完全成立:前端還沒有任何「手動調課」的操作介面,不影響這項限制的現況描述。
-- **使用者/角色管理介面未實作**:階段 B 完成了基礎資料與排課需求的 CRUD(第 3.4 節),但建立帳號、指定角色仍只能透過 `POST /api/v1/auth/register`(目前完全開放,見 README)直接呼叫,前端沒有對應畫面。
+- **使用者/角色管理介面未實作**:階段 B 完成了基礎資料與排課需求的 CRUD(第 3.4 節),但建立帳號、指定角色仍只能直接呼叫 `POST /api/v1/auth/register`:第一個帳號可匿名建立(一律為 `ADMIN`),之後須由 `ADMIN` 登入後建立(第 7 節決策 13);前端沒有對應的管理畫面。
 - **錯誤翻譯依賴後端英文原文字串比對**:前端 `constants/errorMessages.ts` 的 `KNOWN_ERROR_MESSAGES` 以後端 `detail` 的完整英文字串當 key 對照中文。後端只要改一個字、一個標點,對照就會靜默失效,畫面改顯示英文原文(有 fallback,不會變空白,但使用者會看到英文)。較穩固的做法是後端回傳穩定的錯誤代碼(例如 `error_code`)讓前端依代碼翻譯,或由後端直接送出使用者看得懂的訊息;目前部分全域例外處理器已採後者(第 8 節案例六),但各 router 自己的 404 訊息仍是英文原文比對。
 - **修改資料可能讓既有排課結果失效,系統不會察覺**:排課結果寫入 `Schedule` 之後,若再修改老師的任教資格、不可用時段、工作量上限、停用狀態,或修改排課需求,既有的 `Schedule` 不會被重新驗證,也不會被標記為「可能已不合法」——例如把某位老師標記為週一第 2 節不可用,他原本就排在那一節的課仍留在課表上,沒有任何提示。已發布版本同樣適用:發布後鎖定的是版本本身,不是它所依賴的基礎資料。
 - **刪除排課需求與發布草稿版本之間存在極小的競爭視窗**:`delete_class_subject_requirement()`(Task 56)先查詢需求底下的 `Lesson` 是否被 PUBLISHED 版本的 `Schedule` 引用,確認沒有之後才刪除這些 `Lesson` 在草稿版本裡的 `Schedule`、`Lesson` 與需求本身。若在檢查之後、commit 之前,另一位管理員剛好把引用這些 `Lesson` 的草稿版本發布,該版本(此時已是 PUBLISHED)的 `Schedule` 會被一併刪除。發生條件是兩人在同一瞬間操作,目前以單一管理員為主的使用情境下風險很低,暫不加鎖。
@@ -478,6 +480,6 @@ HTTP 422
 
 ## 11. 電梯簡報草稿(30 秒版本)
 
-> 這是一個國小排課系統。核心是把老師的任教資格、可用時段、工作量上限,還有班級的每週需求、教室類型,建成一套完全獨立於 API 框架跟資料庫的 Constraint Engine,自己實作了 Greedy 跟 Backtracking 兩種排課演算法。系統的重點之一是「可解釋」——每次排不出課表,都能講出具體是哪個老師、哪個限制造成的,不會只回一句排不出來,前端的排課控制台跟失敗診斷畫面把這件事直接視覺化,不用查資料庫就能看懂。目前有 286 個自動化測試,排課引擎那部分完全不需要資料庫,秒級就能跑完。
+> 這是一個國小排課系統。核心是把老師的任教資格、可用時段、工作量上限,還有班級的每週需求、教室類型,建成一套完全獨立於 API 框架跟資料庫的 Constraint Engine,自己實作了 Greedy 跟 Backtracking 兩種排課演算法。系統的重點之一是「可解釋」——每次排不出課表,都能講出具體是哪個老師、哪個限制造成的,不會只回一句排不出來,前端的排課控制台跟失敗診斷畫面把這件事直接視覺化,不用查資料庫就能看懂。目前有 292 個自動化測試,排課引擎那部分完全不需要資料庫,秒級就能跑完。
 
 （可依實際口語習慣調整用詞與停頓,上面這版大約落在 30 秒中等語速。）
