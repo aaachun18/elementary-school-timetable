@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# A newer run on the same branch (or PR) cancels the older one still running.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # Every value below is a throwaway CI-only placeholder -- this postgres
+    # service exists only for the lifetime of the job. Nothing here comes
+    # from (or is used by) the local .env, which is not in the repo.
+    env:
+      POSTGRES_USER: ci_user
+      POSTGRES_PASSWORD: ci_password
+      SECRET_KEY: ci-test-secret-not-for-production
+
+    services:
+      postgres:
+        # Same major version as docker-compose.yml.
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci_user
+          POSTGRES_PASSWORD: ci_password
+          # tests/conftest.py needs TEST_DATABASE_URL's database to already
+          # exist; the image creates POSTGRES_DB on startup.
+          POSTGRES_DB: timetable_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci_user -d timetable_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same Python version as backend/Dockerfile (python:3.13-slim) and README.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        env:
+          # conftest.py refuses to run if these two are the same database.
+          # DATABASE_URL only satisfies app.config.Settings here; the tests
+          # themselves only ever connect to TEST_DATABASE_URL.
+          DATABASE_URL: postgresql+psycopg://ci_user:ci_password@localhost:5432/timetable_ci_unused
+          TEST_DATABASE_URL: postgresql+psycopg://ci_user:ci_password@localhost:5432/timetable_test
+          POSTGRES_DB: timetable_test
+        run: python -m pytest tests/ -q
+
+      # Separate, brand-new database, so the migration check never shares
+      # tables with the test suite's create_all()/drop_all().
+      - name: Create empty database for migration check
+        env:
+          PGPASSWORD: ci_password
+        run: psql -h localhost -U ci_user -d timetable_test -c "CREATE DATABASE timetable_migration_check;"
+
+      - name: Run all migrations from scratch
+        env:
+          DATABASE_URL: postgresql+psycopg://ci_user:ci_password@localhost:5432/timetable_migration_check
+          POSTGRES_DB: timetable_migration_check
+        # From the repo root: alembic.ini's script_location is relative to it.
+        run: alembic upgrade head
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same Node major version as frontend/Dockerfile (node:24-alpine).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
