@@ -8,6 +8,13 @@ from app.models.user import User
 from app.services.user import get_user_by_username
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+# Task 57: same Bearer-token parsing as oauth2_scheme, but a missing
+# Authorization header yields None instead of an automatic 401 -- for the
+# one endpoint (register) that must accept anonymous calls in one case
+# (empty users table) and require ADMIN in every other case.
+optional_oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl="/api/v1/auth/login", auto_error=False
+)
 
 
 def _credentials_exception() -> HTTPException:

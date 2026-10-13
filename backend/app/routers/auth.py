@@ -2,6 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
+from app.core.dependencies import (
+    get_current_user,
+    optional_oauth2_scheme,
+    require_admin,
+)
 from app.core.security import create_access_token, verify_password
 from app.database import get_db
 from app.models.user import User
@@ -13,10 +18,33 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
-def register(user_data: UserCreate, db: Session = Depends(get_db)) -> User:
-    # Deliberately no auth dependency here: bootstrapping the very first
-    # ADMIN account has no existing account that could authorize it.
-    # Locking down who may register is a later Task, not this one.
+def register(
+    user_data: UserCreate,
+    token: str | None = Depends(optional_oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> User:
+    # Task 57: anonymous registration is allowed ONLY to bootstrap the very
+    # first account (nothing exists yet that could authorize it), and that
+    # account is always ADMIN regardless of the requested role. Once any
+    # user exists, this behaves exactly like every other write endpoint:
+    # no token -> 401, non-ADMIN token -> 403 (same get_current_user /
+    # require_admin logic, called directly instead of via Depends because
+    # whether they apply depends on the emptiness check below).
+    #
+    # The emptiness check and the insert share one transaction, under a
+    # table lock -- see lock_users_and_check_empty().
+    if user_service.lock_users_and_check_empty(db):
+        return user_service.create_user(
+            db, user_data.model_copy(update={"role": "ADMIN"})
+        )
+
+    if token is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    require_admin(get_current_user(token, db))
     return user_service.create_user(db, user_data)
 
 
