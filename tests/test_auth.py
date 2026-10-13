@@ -171,6 +171,15 @@ def test_register_admin_creates_admin(client: TestClient) -> None:
 
 # --- Task 59: password rule (8 characters to 72 UTF-8 bytes) ---
 
+# Task 60: the exact Chinese messages backend/app/schemas/user.py raises
+# (frontend/src/utils/passwordRule.ts uses the same text).
+PASSWORD_TOO_SHORT_MESSAGE = "密碼至少需要 8 個字元"
+PASSWORD_TOO_LONG_MESSAGE = "密碼太長，請縮短（中文等非英數字元每字會佔用較多長度）"
+
+
+def _validation_messages(response_json: dict) -> list[str]:
+    return [item["msg"] for item in response_json["detail"]]
+
 
 def test_register_password_too_short_rejected(
     unauthenticated_client: TestClient,
@@ -181,6 +190,10 @@ def test_register_password_too_short_rejected(
     )
 
     assert response.status_code == 422
+    assert any(
+        PASSWORD_TOO_SHORT_MESSAGE in msg
+        for msg in _validation_messages(response.json())
+    )
 
 
 def test_register_password_too_long_rejected(
@@ -192,6 +205,10 @@ def test_register_password_too_long_rejected(
     )
 
     assert response.status_code == 422
+    assert any(
+        PASSWORD_TOO_LONG_MESSAGE in msg
+        for msg in _validation_messages(response.json())
+    )
 
 
 def test_register_password_exactly_8_characters_accepted(
@@ -200,6 +217,19 @@ def test_register_password_exactly_8_characters_accepted(
     response = unauthenticated_client.post(
         "/api/v1/auth/register",
         json={"username": "eightpw", "password": "8chars!!", "role": "ADMIN"},
+    )
+
+    assert response.status_code == 201
+
+
+def test_register_password_40_ascii_characters_accepted(
+    unauthenticated_client: TestClient,
+) -> None:
+    # Regression guard: a 40-character ASCII password is well inside the
+    # rule (40 characters, 40 bytes) and must never be reported as too long.
+    response = unauthenticated_client.post(
+        "/api/v1/auth/register",
+        json={"username": "fortypw", "password": "a" * 40, "role": "ADMIN"},
     )
 
     assert response.status_code == 201
@@ -217,3 +247,7 @@ def test_register_password_over_72_bytes_rejected(
     )
 
     assert response.status_code == 422
+    assert any(
+        PASSWORD_TOO_LONG_MESSAGE in msg
+        for msg in _validation_messages(response.json())
+    )

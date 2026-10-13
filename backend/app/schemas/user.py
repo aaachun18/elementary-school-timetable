@@ -14,17 +14,18 @@ from pydantic import AfterValidator, BaseModel, ConfigDict
 PASSWORD_MIN_LENGTH = 8
 PASSWORD_MAX_BYTES = 72
 
-PASSWORD_LENGTH_MESSAGE = "密碼長度必須為 8 到 72 個字元"
-PASSWORD_BYTES_MESSAGE = (
-    "密碼長度必須為 8 到 72 個字元，中文等非英數字元每字會佔用 2 到 4 個字元的長度"
-)
+PASSWORD_TOO_SHORT_MESSAGE = "密碼至少需要 8 個字元"
+PASSWORD_TOO_LONG_MESSAGE = "密碼太長，請縮短（中文等非英數字元每字會佔用較多長度）"
 
 
 def validate_password(password: str) -> str:
-    if len(password) < PASSWORD_MIN_LENGTH or len(password) > PASSWORD_MAX_BYTES:
-        raise ValueError(PASSWORD_LENGTH_MESSAGE)
-    if len(password.encode("utf-8")) > PASSWORD_MAX_BYTES:
-        raise ValueError(PASSWORD_BYTES_MESSAGE)
+    if len(password) < PASSWORD_MIN_LENGTH:
+        raise ValueError(PASSWORD_TOO_SHORT_MESSAGE)
+    if (
+        len(password) > PASSWORD_MAX_BYTES
+        or len(password.encode("utf-8")) > PASSWORD_MAX_BYTES
+    ):
+        raise ValueError(PASSWORD_TOO_LONG_MESSAGE)
     return password
 
 

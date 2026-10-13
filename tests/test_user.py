@@ -144,6 +144,15 @@ def test_deleted_users_token_is_rejected(
 
 # --- Task 59: password rule (8 characters to 72 UTF-8 bytes) ---
 
+# Task 60: the exact Chinese messages backend/app/schemas/user.py raises
+# (frontend/src/utils/passwordRule.ts uses the same text).
+PASSWORD_TOO_SHORT_MESSAGE = "密碼至少需要 8 個字元"
+PASSWORD_TOO_LONG_MESSAGE = "密碼太長，請縮短（中文等非英數字元每字會佔用較多長度）"
+
+
+def _validation_messages(response_json: dict) -> list[str]:
+    return [item["msg"] for item in response_json["detail"]]
+
 
 def test_reset_password_too_short_rejected(
     client: TestClient, teacher_user: User
@@ -153,6 +162,10 @@ def test_reset_password_too_short_rejected(
     )
 
     assert response.status_code == 422
+    assert any(
+        PASSWORD_TOO_SHORT_MESSAGE in msg
+        for msg in _validation_messages(response.json())
+    )
     assert _login(client, "teacher_test", "teacher-test-password") == 200
 
 
@@ -164,6 +177,40 @@ def test_reset_password_too_long_rejected(
     )
 
     assert response.status_code == 422
+    assert any(
+        PASSWORD_TOO_LONG_MESSAGE in msg
+        for msg in _validation_messages(response.json())
+    )
+    assert _login(client, "teacher_test", "teacher-test-password") == 200
+
+
+def test_reset_password_40_ascii_characters_accepted(
+    client: TestClient, teacher_user: User
+) -> None:
+    # Regression guard: a 40-character ASCII password is well inside the
+    # rule (40 characters, 40 bytes) and must never be reported as too long.
+    response = client.patch(
+        f"/api/v1/users/{teacher_user.id}/password", json={"password": "a" * 40}
+    )
+
+    assert response.status_code == 204
+    assert _login(client, "teacher_test", "a" * 40) == 200
+
+
+def test_reset_password_over_72_bytes_rejected(
+    client: TestClient, teacher_user: User
+) -> None:
+    # 25 Chinese characters = 75 UTF-8 bytes: within 72 characters, but
+    # over bcrypt's 72-byte input limit -- same rule as register.
+    response = client.patch(
+        f"/api/v1/users/{teacher_user.id}/password", json={"password": "密" * 25}
+    )
+
+    assert response.status_code == 422
+    assert any(
+        PASSWORD_TOO_LONG_MESSAGE in msg
+        for msg in _validation_messages(response.json())
+    )
     assert _login(client, "teacher_test", "teacher-test-password") == 200
 
 
