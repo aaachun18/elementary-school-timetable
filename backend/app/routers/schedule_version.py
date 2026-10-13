@@ -9,6 +9,7 @@ from app.models.user import User
 from app.schemas.schedule_version import (
     GeneratedLessonInfo,
     GenerateLessonsResult,
+    ScheduleVersionCopy,
     ScheduleVersionCreate,
     ScheduleVersionRead,
     ScheduleVersionUpdate,
@@ -21,6 +22,7 @@ from app.schemas.scheduler import (
     SchedulerRunResult,
 )
 from app.services import schedule_check as schedule_check_service
+from app.services import schedule_copy as schedule_copy_service
 from app.services import schedule_version as schedule_version_service
 from app.services import scheduler as scheduler_service
 
@@ -116,6 +118,36 @@ def delete_schedule_version(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="ScheduleVersion not found",
         )
+
+
+# --- copy (Task 62): new DRAFT from an existing version ---
+# TargetSemesterNotFoundError / CopyAcrossAcademicYearsError /
+# TargetSemesterHasRequirementsError / CopySourceInconsistentError are
+# intentionally not caught here -- the global exception handlers in main.py
+# convert them to 404/409.
+
+
+@router.post(
+    "/{schedule_version_id}/copy",
+    response_model=ScheduleVersionRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
+)
+def copy_schedule_version(
+    schedule_version_id: int,
+    copy_data: ScheduleVersionCopy | None = None,
+    db: Session = Depends(get_db),
+) -> ScheduleVersion:
+    target_semester_id = copy_data.target_semester_id if copy_data else None
+    new_version = schedule_copy_service.copy_schedule_version(
+        db, schedule_version_id, target_semester_id
+    )
+    if new_version is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ScheduleVersion not found",
+        )
+    return new_version
 
 
 # --- generate-lessons: diff-sync (not standard CRUD) ---

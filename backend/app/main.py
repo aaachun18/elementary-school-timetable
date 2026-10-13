@@ -21,6 +21,8 @@ from app.routers.time_slot import router as time_slot_router
 from app.routers.users import router as users_router
 from app.services.exceptions import (
     CannotDeleteSelfError,
+    CopyAcrossAcademicYearsError,
+    CopySourceInconsistentError,
     DependentRecordsExistError,
     DuplicateValueError,
     InvalidReferenceError,
@@ -28,6 +30,8 @@ from app.services.exceptions import (
     PublishedVersionImmutableError,
     RequirementUsedByPublishedScheduleError,
     ScheduleVersionAlreadyScheduledError,
+    TargetSemesterHasRequirementsError,
+    TargetSemesterNotFoundError,
 )
 
 app = FastAPI(title="Elementary School Timetable System")
@@ -163,6 +167,46 @@ def handle_published_version_immutable(
     return JSONResponse(
         status_code=409,
         content={"detail": "已發布版本不可修改，請建立新草稿版本"},
+    )
+
+
+@app.exception_handler(TargetSemesterNotFoundError)
+def handle_target_semester_not_found(
+    request: Request, exc: TargetSemesterNotFoundError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=404,
+        content={"detail": "目標學期不存在"},
+    )
+
+
+@app.exception_handler(CopyAcrossAcademicYearsError)
+def handle_copy_across_academic_years(
+    request: Request, exc: CopyAcrossAcademicYearsError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "目標學期與來源課表不在同一學年，無法複製"},
+    )
+
+
+@app.exception_handler(TargetSemesterHasRequirementsError)
+def handle_target_semester_has_requirements(
+    request: Request, exc: TargetSemesterHasRequirementsError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "目標學期已有排課需求，無法複製"},
+    )
+
+
+@app.exception_handler(CopySourceInconsistentError)
+def handle_copy_source_inconsistent(
+    request: Request, exc: CopySourceInconsistentError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "來源課表含有不屬於來源學期的課程，無法複製"},
     )
 
 

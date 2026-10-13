@@ -28,6 +28,17 @@ class ScheduleVersionUpdate(BaseModel):
     status: Literal["DRAFT", "PUBLISHED"] | None = None
 
 
+# --- copy (Task 62), not standard CRUD ---
+
+
+class ScheduleVersionCopy(BaseModel):
+    """Body of POST /schedule-versions/{id}/copy. Omitted (or the body left
+    out entirely), or equal to the source's own semester -> same-semester
+    copy; any other semester -> cross-semester copy."""
+
+    target_semester_id: int | None = None
+
+
 # --- generate-lessons (diff sync), not standard CRUD ---
 
 

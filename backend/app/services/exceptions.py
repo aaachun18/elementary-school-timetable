@@ -60,8 +60,8 @@ class PublishedVersionImmutableError(Exception):
 
     A PUBLISHED version is the authoritative, in-use timetable -- the spec
     requires it to be fully locked; the only sanctioned way to change
-    anything is to create a new DRAFT version first (that cloning workflow
-    is a separate, not-yet-implemented Task).
+    anything is to create a new DRAFT version first (Task 62:
+    POST /schedule-versions/{id}/copy).
     """
 
 
@@ -99,6 +99,47 @@ class ScheduleVersionAlreadyScheduledError(Exception):
     schedule). The caller must explicitly delete the existing Schedule rows
     first (via the existing DELETE /api/v1/schedules/{id} endpoint) before
     running the scheduler again.
+    """
+
+
+class TargetSemesterNotFoundError(Exception):
+    """Raised by copy_schedule_version() (Task 62) when target_semester_id
+    points at a Semester that does not exist. Its own exception (-> 404)
+    rather than the router's usual "service returned None" 404, because
+    None already means "the SOURCE version doesn't exist" for that call.
+    """
+
+
+class CopyAcrossAcademicYearsError(Exception):
+    """Raised by copy_schedule_version() (Task 62) when the target semester
+    belongs to a different AcademicYear than the source version's semester.
+
+    Class has no semester column, so a class is the same row in every
+    semester of every year -- copying across years would put last year's
+    classes (which have since moved up a grade) into next year's
+    timetable, and the current model cannot express that promotion.
+    """
+
+
+class TargetSemesterHasRequirementsError(Exception):
+    """Raised by copy_schedule_version() (Task 62) when a cross-semester
+    copy targets a semester that already has ClassSubjectRequirement rows.
+
+    Requirements and Lessons are per-semester and shared by every version
+    in that semester; merging a copied set into an existing one would
+    either duplicate (class, subject) pairs or silently change what the
+    target semester's existing versions point at. Refused instead, before
+    anything is written.
+    """
+
+
+class CopySourceInconsistentError(Exception):
+    """Raised by copy_schedule_version() (Task 62) when a Schedule row of
+    the source version points at a Lesson that is not under the source
+    semester's requirements -- the database doesn't enforce that a
+    version's Schedule rows belong to its own semester, and such a row has
+    no new Lesson to be remapped to. The whole copy is aborted rather than
+    silently dropping the row.
     """
 
 
