@@ -77,3 +77,16 @@ class SchedulerFailureDetail(BaseModel):
     lesson_failures: list[LessonFailureDetail]
     post_hoc_violations: list[ConstraintViolationDetail]
     backtrack_count: int
+
+
+class ScheduleCheckResult(BaseModel):
+    """Task 61: 200 response of GET /schedule-versions/{id}/check -- every
+    Hard Constraint violation in the version's current Schedule rows.
+    is_valid/violation_count are derived from `violations` (is_valid is
+    simply violation_count == 0), included so a caller doesn't have to
+    compute them."""
+
+    schedule_version_id: int
+    is_valid: bool
+    violation_count: int
+    violations: list[ConstraintViolationDetail]

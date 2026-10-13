@@ -4,9 +4,11 @@ converts them into scheduling_engine's plain dataclasses, runs the
 Backtracking Scheduler, and (on success) writes the result back as
 Schedule rows.
 
-This is the ONLY file in backend/app/ that imports scheduling_engine.
-Nothing under scheduling_engine/ imports anything from here, or from
-SQLAlchemy/FastAPI at all -- see AGENTS.md section 4.
+This file and services/schedule_check.py (Task 61, which reuses this
+file's load_semester_requirements()/build_scheduling_resources() and its
+sys.path bootstrap below) are the only files in backend/app/ that import
+scheduling_engine. Nothing under scheduling_engine/ imports anything from
+here, or from SQLAlchemy/FastAPI at all -- see AGENTS.md section 4.
 """
 
 import sys
@@ -69,6 +71,22 @@ from app.services.exceptions import (
 )
 
 
+def load_semester_requirements(
+    db: Session, semester_id: int
+) -> list[ClassSubjectRequirement]:
+    """Every ClassSubjectRequirement in one semester. Task 61: pulled out of
+    _build_lessons_and_resources() (unchanged query) so the read-only
+    schedule check (services/schedule_check.py) loads exactly the same
+    requirement set the scheduler does."""
+    return list(
+        db.scalars(
+            select(ClassSubjectRequirement).where(
+                ClassSubjectRequirement.semester_id == semester_id
+            )
+        ).all()
+    )
+
+
 def _build_lessons_and_resources(
     db: Session, schedule_version: ScheduleVersion
 ) -> tuple[list[LessonAssignment], SchedulingResources]:
@@ -78,21 +96,10 @@ def _build_lessons_and_resources(
     semester, and every Lesson already generated for them (via
     generate-lessons, a separate, earlier Task).
 
-    Reference data (teacher qualifications/availability, room/time-slot
-    info, active status, workload limits) is queried globally rather than
-    scoped down to "only what's relevant" -- any teacher/room in the
-    system could in principle be a candidate, and at this project's scale
-    there's no benefit to a narrower query, only more code.
+    Reference data is built by build_scheduling_resources() -- see its
+    docstring.
     """
-    semester_id = schedule_version.semester_id
-
-    requirements = list(
-        db.scalars(
-            select(ClassSubjectRequirement).where(
-                ClassSubjectRequirement.semester_id == semester_id
-            )
-        ).all()
-    )
+    requirements = load_semester_requirements(db, schedule_version.semester_id)
     requirement_by_id = {requirement.id: requirement for requirement in requirements}
 
     lessons_orm = (
@@ -127,6 +134,26 @@ def _build_lessons_and_resources(
         for lesson in lessons_orm
     ]
 
+    return lessons, build_scheduling_resources(db, requirements)
+
+
+def build_scheduling_resources(
+    db: Session, requirements: list[ClassSubjectRequirement]
+) -> SchedulingResources:
+    """Converts the DB's reference data into the engine's
+    SchedulingResources. Task 61: pulled out of
+    _build_lessons_and_resources() (logic unchanged) so the read-only
+    schedule check (services/schedule_check.py) validates against exactly
+    the same resources the scheduler searches with.
+
+    Per-requirement rules (required teacher, room type, weekly periods)
+    come from `requirements` -- one semester's ClassSubjectRequirements.
+    Reference data (teacher qualifications/availability, room/time-slot
+    info, active status, workload limits) is queried globally rather than
+    scoped down to "only what's relevant" -- any teacher/room in the
+    system could in principle be a candidate, and at this project's scale
+    there's no benefit to a narrower query, only more code.
+    """
     teacher_qualifications = [
         TeacherQualification(teacher_id=row.teacher_id, subject_id=row.subject_id)
         for row in db.scalars(select(TeacherSubject)).all()
@@ -214,7 +241,7 @@ def _build_lessons_and_resources(
         for teacher in all_teachers
     ]
 
-    resources = SchedulingResources(
+    return SchedulingResources(
         time_slot_ids=time_slot_ids,
         teacher_qualifications=teacher_qualifications,
         teacher_unavailability=teacher_unavailability,
@@ -226,8 +253,6 @@ def _build_lessons_and_resources(
         requirement_periods=requirement_periods,
         teacher_workload_limits=teacher_workload_limits,
     )
-
-    return lessons, resources
 
 
 @dataclass

@@ -16,9 +16,11 @@ from app.schemas.schedule_version import (
 from app.schemas.scheduler import (
     ConstraintViolationDetail,
     LessonFailureDetail,
+    ScheduleCheckResult,
     SchedulerFailureDetail,
     SchedulerRunResult,
 )
+from app.services import schedule_check as schedule_check_service
 from app.services import schedule_version as schedule_version_service
 from app.services import scheduler as scheduler_service
 
@@ -221,4 +223,32 @@ def run_scheduler(
     return JSONResponse(
         status_code=422,
         content=detail.model_dump(),
+    )
+
+
+@router.get("/{schedule_version_id}/check", response_model=ScheduleCheckResult)
+def check_schedule_version(
+    schedule_version_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ScheduleCheckResult:
+    # Task 61: read-only. Same permission as GET /{schedule_version_id}:
+    # any logged-in user, but a TEACHER only for PUBLISHED versions (a
+    # DRAFT id is a 404 for them, exactly like get_schedule_version()).
+    violations = schedule_check_service.check_schedule_version(
+        db, schedule_version_id, role=current_user.role
+    )
+    if violations is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ScheduleVersion not found",
+        )
+    return ScheduleCheckResult(
+        schedule_version_id=schedule_version_id,
+        is_valid=not violations,
+        violation_count=len(violations),
+        violations=[
+            ConstraintViolationDetail.model_validate(violation)
+            for violation in violations
+        ],
     )
