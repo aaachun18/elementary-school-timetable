@@ -20,11 +20,14 @@ from app.schemas.scheduler import (
     ScheduleCheckResult,
     SchedulerFailureDetail,
     SchedulerRunResult,
+    TeacherReassignmentRequest,
+    TeacherReassignmentResult,
 )
 from app.services import schedule_check as schedule_check_service
 from app.services import schedule_copy as schedule_copy_service
 from app.services import schedule_version as schedule_version_service
 from app.services import scheduler as scheduler_service
+from app.services import teacher_reassignment as teacher_reassignment_service
 
 router = APIRouter(
     prefix="/api/v1/schedule-versions",
@@ -275,6 +278,13 @@ def check_schedule_version(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="ScheduleVersion not found",
         )
+    return _build_check_result(schedule_version_id, violations)
+
+
+def _build_check_result(
+    schedule_version_id: int, violations: list
+) -> ScheduleCheckResult:
+    """Shared by /check and /reassign-teacher (Task 63)."""
     return ScheduleCheckResult(
         schedule_version_id=schedule_version_id,
         is_valid=not violations,
@@ -283,4 +293,44 @@ def check_schedule_version(
             ConstraintViolationDetail.model_validate(violation)
             for violation in violations
         ],
+    )
+
+
+# --- reassign-teacher (Task 63): manual adjustment, one requirement ---
+# PublishedVersionImmutableError / ReassignmentTargetNotFoundError /
+# RequirementSemesterMismatchError / InactiveTeacherAssignmentError are
+# intentionally not caught here -- the global exception handlers in main.py
+# convert them to 409/404.
+
+
+@router.post(
+    "/{schedule_version_id}/reassign-teacher",
+    response_model=TeacherReassignmentResult,
+    dependencies=[Depends(require_admin)],
+)
+def reassign_teacher(
+    schedule_version_id: int,
+    reassignment: TeacherReassignmentRequest,
+    db: Session = Depends(get_db),
+) -> TeacherReassignmentResult:
+    outcome = teacher_reassignment_service.reassign_teacher(
+        db,
+        schedule_version_id,
+        reassignment.class_subject_requirement_id,
+        reassignment.new_teacher_id,
+        dry_run=reassignment.dry_run,
+    )
+    if outcome is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ScheduleVersion not found",
+        )
+    return TeacherReassignmentResult(
+        schedule_version_id=schedule_version_id,
+        class_subject_requirement_id=reassignment.class_subject_requirement_id,
+        previous_teacher_id=outcome.previous_teacher_id,
+        new_teacher_id=reassignment.new_teacher_id,
+        updated_schedule_row_count=outcome.updated_schedule_row_count,
+        dry_run=reassignment.dry_run,
+        check=_build_check_result(schedule_version_id, outcome.violations),
     )

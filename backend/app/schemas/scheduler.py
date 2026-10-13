@@ -90,3 +90,25 @@ class ScheduleCheckResult(BaseModel):
     is_valid: bool
     violation_count: int
     violations: list[ConstraintViolationDetail]
+
+
+class TeacherReassignmentRequest(BaseModel):
+    """Task 63: body of POST /schedule-versions/{id}/reassign-teacher."""
+
+    class_subject_requirement_id: int
+    new_teacher_id: int
+    dry_run: bool = False
+
+
+class TeacherReassignmentResult(BaseModel):
+    """Task 63: 200 response of reassign-teacher. `check` is the version's
+    full schedule check AFTER the change (for dry_run, the state the change
+    would have produced -- nothing was saved)."""
+
+    schedule_version_id: int
+    class_subject_requirement_id: int
+    previous_teacher_id: int | None
+    new_teacher_id: int
+    updated_schedule_row_count: int
+    dry_run: bool
+    check: ScheduleCheckResult

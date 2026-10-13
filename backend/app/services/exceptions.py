@@ -143,6 +143,39 @@ class CopySourceInconsistentError(Exception):
     """
 
 
+class ReassignmentTargetNotFoundError(Exception):
+    """Raised by reassign_teacher() (Task 63) when the requested
+    ClassSubjectRequirement or new Teacher does not exist (-> 404).
+
+    Carries the exact same English `detail` the corresponding router's own
+    404 already uses ("ClassSubjectRequirement not found" / "Teacher not
+    found"), so the frontend's existing translation table keeps working.
+    A separate exception rather than "service returns None", because None
+    already means "the ScheduleVersion doesn't exist" for that call.
+    """
+
+    def __init__(self, detail: str) -> None:
+        self.detail = detail
+        super().__init__(detail)
+
+
+class RequirementSemesterMismatchError(Exception):
+    """Raised by reassign_teacher() (Task 63) when the requirement belongs to
+    a different semester than the ScheduleVersion being edited -- none of
+    its Lessons can be in that version's timetable, and setting its
+    required_teacher_id would silently change another semester's data.
+    """
+
+
+class InactiveTeacherAssignmentError(Exception):
+    """Raised by reassign_teacher() (Task 63) when the new teacher's
+    is_active is False. Every other rule (qualification, availability,
+    workload, double-booking) is reported by the schedule check instead of
+    blocking; assigning someone already deactivated is never a sensible
+    manual adjustment, so this one is refused up front.
+    """
+
+
 def raise_for_integrity_error(exc: IntegrityError) -> None:
     """Classify a SQLAlchemy IntegrityError raised during create/update into
     one of our domain-specific exceptions above, and raise it.

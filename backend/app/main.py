@@ -25,9 +25,12 @@ from app.services.exceptions import (
     CopySourceInconsistentError,
     DependentRecordsExistError,
     DuplicateValueError,
+    InactiveTeacherAssignmentError,
     InvalidReferenceError,
     LessonOverProvisionedError,
     PublishedVersionImmutableError,
+    ReassignmentTargetNotFoundError,
+    RequirementSemesterMismatchError,
     RequirementUsedByPublishedScheduleError,
     ScheduleVersionAlreadyScheduledError,
     TargetSemesterHasRequirementsError,
@@ -207,6 +210,38 @@ def handle_copy_source_inconsistent(
     return JSONResponse(
         status_code=409,
         content={"detail": "來源課表含有不屬於來源學期的課程，無法複製"},
+    )
+
+
+@app.exception_handler(ReassignmentTargetNotFoundError)
+def handle_reassignment_target_not_found(
+    request: Request, exc: ReassignmentTargetNotFoundError
+) -> JSONResponse:
+    # Same English detail the requirement/teacher routers' own 404s use, so
+    # the frontend's translation table already covers it.
+    return JSONResponse(
+        status_code=404,
+        content={"detail": exc.detail},
+    )
+
+
+@app.exception_handler(RequirementSemesterMismatchError)
+def handle_requirement_semester_mismatch(
+    request: Request, exc: RequirementSemesterMismatchError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "此排課需求不屬於該課表的學期"},
+    )
+
+
+@app.exception_handler(InactiveTeacherAssignmentError)
+def handle_inactive_teacher_assignment(
+    request: Request, exc: InactiveTeacherAssignmentError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "無法指派已停用的老師"},
     )
 
 
