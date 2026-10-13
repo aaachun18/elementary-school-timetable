@@ -11,7 +11,7 @@
 - **排課引擎**:自行實作 MRV(Minimum Remaining Values)候選排序、Greedy Scheduler、Backtracking Scheduler 三層演算法,涵蓋 11 條 Hard Constraint(H1–H9、H11、H12;H10 教室容量延後,見下方狀態表)。
 - **Explainable Scheduling**:排課失敗時不會只回一句「排不出來」——結構化的 `ConstraintViolation` 會講出具體是哪個老師、哪個限制、建議去哪個畫面修正;另外有四類**靜態可行性預檢**(教師工作量超標、可用時段不足、停用狀態衝突、零合格教師),不需要跑一次搜尋就能直接證明無解。
 - **JWT 認證 + 兩種帳號角色**:`ADMIN`(完整管理權限)與 `TEACHER`(唯讀,僅能查看已發布課表)。
-- **草稿 / 已發布版本管理**:排課版本分 `DRAFT`/`PUBLISHED` 兩種狀態,已發布版本完全鎖定不可修改,教師帳號只看得到已發布版本。
+- **草稿 / 已發布 / 已封存版本管理**:排課版本分 `DRAFT`/`PUBLISHED`/`ARCHIVED` 三種狀態。發布某個版本時,同學期原本的已發布版本會自動封存,每學期恰好一個已發布版本,封存的版本可以再發布回來;已發布與已封存的版本都完全鎖定不可修改,教師帳號只看得到已發布版本。
 - **前端完整 CRUD 與課表檢視**:9 張基礎資料表(學校/學年度/學期/年級/老師/班級/科目/教室/時段)與排課需求均可在畫面上新增、編輯、刪除;排課控制台提供「選版本 → 展開課程清單 → 自動排課 → 發布」的完整流程;課表檢視支援依班級/依教師/依教室三種視角切換。
 
 ## 畫面截圖
@@ -409,12 +409,12 @@ python -m pytest ../tests/
 
 ### 測試數量
 
-**目前總計 374 個測試,全數通過**(2026-10-13 實際執行確認):
+**目前總計 396 個測試,全數通過**(2026-10-13 實際執行確認):
 
 | 類別 | 測試數 | 執行方式 |
 |---|---|---|
 | Scheduling Engine(純 Python 邏輯,不碰資料庫) | 73 | `pytest tests/scheduling_engine/` |
-| API / 整合測試(真實 FastAPI + PostgreSQL) | 301 | 其餘 `tests/test_*.py` |
+| API / 整合測試(真實 FastAPI + PostgreSQL) | 323 | 其餘 `tests/test_*.py` |
 
 Scheduling Engine 那組測試不需要啟動 FastAPI 或連資料庫,秒級內跑完;API 測試會對 `TEST_DATABASE_URL` 指到的資料庫逐一 `create_all`/`drop_all`,耗時較長。測試策略的完整理由見 `docs/SYSTEM_DESIGN.md` 第 9 節。
 
@@ -454,7 +454,7 @@ docs/                 系統設計文件、截圖
 - **H10 教室容量**未實作 Constraint(欄位已預留)。
 - **Soft Constraints(S1–S7)** 完全未開始(教師每日負擔平衡等)。
 - **版本複製有使用範圍限制**:可以把任何版本(含已發布的)複製成新草稿(`POST /api/v1/schedule-versions/{id}/copy`),但跨學期只能在同一學年內、目標學期必須還沒有排課需求,複製出的版本只能手動調整,不能重新排課;目前也還沒有前端操作介面。
-- **手動調整課表沒有重新驗證 Hard Constraint**:`PATCH /schedules/{id}` 目前只檢查型別、外鍵、PUBLISHED 鎖定。
+- **手動調整課表沒有重新驗證 Hard Constraint**:`PATCH /schedules/{id}` 目前只檢查型別、外鍵、已發布/已封存鎖定。
 - **`User` 帳號與 `Teacher` 網域實體沒有關聯**:`TEACHER` 角色帳號無法對應到特定一位老師,還做不到「老師只看自己的課表」。
 - **`School` 沒有實際接進資料模型**:目前是隱含單一學校假設。
 - **`TimeSlot.period` 跨星期一致性依賴人工維護紀律**,資料庫層級沒有強制。
