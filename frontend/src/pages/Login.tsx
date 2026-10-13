@@ -1,10 +1,8 @@
 import { useState, type ChangeEvent, type FormEvent, type ReactElement } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
 import { login } from "../api/auth";
 import { TOKEN_KEY } from "../api/client";
-import { translateErrorMessage } from "../constants/errorMessages";
-import type { ApiErrorResponse } from "../types/api";
+import { extractApiErrorMessage } from "../constants/errorMessages";
 import { BUTTON_PRIMARY, ERROR_TEXT, INPUT, LABEL } from "../styles/ui";
 
 // Minimal inline SVGs -- no icon library added just for two static shapes
@@ -72,16 +70,15 @@ export default function Login(): ReactElement {
       // Password is cleared so the user can retype it; username is kept so
       // they don't have to retype that too (see docs/FRONTEND_REQUIREMENTS.md).
       setPassword("");
-      if (axios.isAxiosError<ApiErrorResponse>(error) && error.response?.data?.detail) {
-        // The backend's own message -- translated to Chinese (see
-        // constants/errorMessages.ts), never replaced with a generic
-        // "登入失敗,請重試". An unrecognized message still shows verbatim
-        // (in English) rather than being dropped, per that module's
-        // fallback rule.
-        setErrorMessage(translateErrorMessage(error.response.data.detail));
-      } else {
-        setErrorMessage("無法連線到伺服器，請確認後端服務是否啟動。");
-      }
+      // The backend's own message -- translated to Chinese (see
+      // constants/errorMessages.ts), never replaced with a generic
+      // "登入失敗,請重試". An unrecognized message still shows verbatim
+      // (in English) rather than being dropped, per that module's
+      // fallback rule. Task 60: extractApiErrorMessage() is the same
+      // "string detail -> translate, no response -> connectivity message"
+      // logic this page used to do by hand, plus FastAPI's 422 array
+      // detail, which used to reach React as an array of objects.
+      setErrorMessage(extractApiErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }

@@ -1,7 +1,6 @@
 import { useEffect, useState, type DependencyList } from "react";
 import axios from "axios";
-import { translateErrorMessage } from "../constants/errorMessages";
-import type { ApiErrorResponse } from "../types/api";
+import { extractApiErrorMessage } from "../constants/errorMessages";
 
 interface UseResourceResult<T> {
   data: T | null;
@@ -40,11 +39,13 @@ export function useResource<T>(
         if (cancelled) {
           return;
         }
-        if (
-          axios.isAxiosError<ApiErrorResponse>(error) &&
-          error.response?.data?.detail
-        ) {
-          setErrorMessage(translateErrorMessage(error.response.data.detail));
+        // Task 60: any error WITH a response goes through
+        // extractApiErrorMessage() (string detail -> translated, 422 array
+        // -> Chinese, anything else -> "伺服器回應異常..."), the same rules
+        // as every other call site. Only "no response at all" keeps this
+        // hook's own loading-specific connectivity message.
+        if (axios.isAxiosError(error) && error.response !== undefined) {
+          setErrorMessage(extractApiErrorMessage(error));
         } else {
           setErrorMessage("無法載入資料，請確認後端服務是否啟動。");
         }

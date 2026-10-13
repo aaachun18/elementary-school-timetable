@@ -82,7 +82,7 @@ export function translateErrorMessage(message: string): string {
 }
 
 // Task 42: the same "pull `detail` out of an axios error, translate it,
-// fall back to a connectivity message" sequence useResource.ts already
+// fall back to a generic message" sequence useResource.ts already
 // does internally -- pulled out here so per-row CRUD error handling
 // (useCrudList.ts) doesn't have to duplicate it. Every global exception
 // handler in backend/app/main.py, and every router's own HTTPException,
@@ -91,11 +91,125 @@ export function translateErrorMessage(message: string): string {
 // run-scheduler's structured 422 (RunSchedulerFailureResponse), which has
 // its own dedicated handling in SchedulerConsole.tsx and never flows
 // through here.
+//
+// Task 60: FastAPI's own request-validation 422 is the one other shape --
+// its `detail` is an ARRAY of {loc, msg, type, ...} items, not a string.
+// Before this, that array fell through to the connectivity message below,
+// which was simply wrong (the server did answer). It is now turned into
+// readable Chinese by formatValidationErrorDetail().
+//
+// The connectivity message is reserved for "no response at all". A
+// response that is neither of the two shapes above (e.g. a plain-text 500,
+// an unexpected object) means the server DID answer, just not in a form
+// this function understands -- that gets SERVER_RESPONSE_ERROR_MESSAGE.
+const NO_RESPONSE_MESSAGE = "無法連線到伺服器，請確認後端服務是否啟動。";
+const SERVER_RESPONSE_ERROR_MESSAGE = "伺服器回應異常，請稍後再試或聯絡管理員";
+
 export function extractApiErrorMessage(error: unknown): string {
   if (axios.isAxiosError<ApiErrorResponse>(error) && typeof error.response?.data?.detail === "string") {
     return translateErrorMessage(error.response.data.detail);
   }
-  return "無法連線到伺服器，請確認後端服務是否啟動。";
+  if (axios.isAxiosError(error) && isValidationErrorResponse(error.response)) {
+    return formatValidationErrorDetail(error.response.data.detail);
+  }
+  if (axios.isAxiosError(error) && error.response !== undefined) {
+    return SERVER_RESPONSE_ERROR_MESSAGE;
+  }
+  return NO_RESPONSE_MESSAGE;
+}
+
+// --- Task 60: FastAPI 422 validation-error array -------------------------
+
+// One item of FastAPI's 422 `detail` array (pydantic's ValidationError
+// entries). Only the two fields read below are declared; the rest (loc,
+// input, ctx, url) are deliberately ignored -- `loc` is an English field
+// path, not something to show a user.
+interface ValidationErrorItem {
+  msg?: unknown;
+  type?: unknown;
+}
+
+interface ValidationErrorResponse {
+  status: number;
+  data: { detail: ValidationErrorItem[] };
+}
+
+const HTTP_UNPROCESSABLE_ENTITY = 422;
+const MAX_VALIDATION_MESSAGES = 3;
+
+// pydantic prefixes a custom validator's ValueError message with this
+// (e.g. backend/app/schemas/user.py's password rule arrives as
+// "Value error, 密碼至少需要 8 個字元").
+const PYDANTIC_VALUE_ERROR_PREFIX = "Value error, ";
+
+const MISSING_FIELD_MESSAGE = "缺少必填欄位";
+const INVALID_FORMAT_MESSAGE = "欄位格式不正確";
+const INVALID_CHOICE_MESSAGE = "欄位值不在允許的選項內";
+const GENERIC_VALIDATION_MESSAGE = "輸入的資料格式不正確，請檢查後再送出";
+
+// pydantic error `type` -> short Chinese. Anything not listed here uses
+// GENERIC_VALIDATION_MESSAGE.
+const VALIDATION_TYPE_MESSAGES: Record<string, string> = {
+  missing: MISSING_FIELD_MESSAGE,
+  string_type: INVALID_FORMAT_MESSAGE,
+  int_type: INVALID_FORMAT_MESSAGE,
+  int_parsing: INVALID_FORMAT_MESSAGE,
+  float_type: INVALID_FORMAT_MESSAGE,
+  float_parsing: INVALID_FORMAT_MESSAGE,
+  bool_type: INVALID_FORMAT_MESSAGE,
+  bool_parsing: INVALID_FORMAT_MESSAGE,
+  literal_error: INVALID_CHOICE_MESSAGE,
+  enum: INVALID_CHOICE_MESSAGE,
+};
+
+const CJK_CHARACTER = /[一-鿿]/;
+
+function isValidationErrorResponse(
+  response: { status: number; data: unknown } | undefined,
+): response is ValidationErrorResponse {
+  if (response === undefined || response.status !== HTTP_UNPROCESSABLE_ENTITY) {
+    return false;
+  }
+  const data = response.data;
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    "detail" in data &&
+    Array.isArray((data as { detail: unknown }).detail)
+  );
+}
+
+// A backend-written Chinese message (custom validator) is shown as-is;
+// otherwise the pydantic error type decides the wording.
+function getValidationItemMessage(item: ValidationErrorItem): string {
+  if (typeof item.msg === "string" && item.msg.startsWith(PYDANTIC_VALUE_ERROR_PREFIX)) {
+    const customMessage = item.msg.slice(PYDANTIC_VALUE_ERROR_PREFIX.length);
+    if (CJK_CHARACTER.test(customMessage)) {
+      return customMessage;
+    }
+  }
+  // hasOwnProperty, not `in`: `in` would also match inherited keys such as
+  // "toString".
+  if (
+    typeof item.type === "string" &&
+    Object.prototype.hasOwnProperty.call(VALIDATION_TYPE_MESSAGES, item.type)
+  ) {
+    return VALIDATION_TYPE_MESSAGES[item.type];
+  }
+  return GENERIC_VALIDATION_MESSAGE;
+}
+
+function formatValidationErrorDetail(detail: ValidationErrorItem[]): string {
+  const messages = detail.map((item) =>
+    typeof item === "object" && item !== null
+      ? getValidationItemMessage(item)
+      : GENERIC_VALIDATION_MESSAGE,
+  );
+  const uniqueMessages = Array.from(new Set(messages)).slice(0, MAX_VALIDATION_MESSAGES);
+  if (uniqueMessages.length === 0) {
+    return GENERIC_VALIDATION_MESSAGE;
+  }
+  return uniqueMessages.join("；");
 }
 
 // Task 36: RunSchedulerFailureResponse.failure_type -> 繁體中文 overall
