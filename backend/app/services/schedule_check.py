@@ -28,6 +28,7 @@ from scheduling_engine.algorithms.resources import (  # noqa: E402
 from scheduling_engine.constraints.base import (  # noqa: E402
     BaseConstraint,
     ConstraintViolation,
+    Severity,
 )
 from scheduling_engine.constraints.weekly_periods import (  # noqa: E402
     WeeklyPeriodsConstraint,
@@ -79,6 +80,54 @@ def _all_hard_constraints(resources: SchedulingResources) -> list[BaseConstraint
     ]
 
 
+# Task 62: a Schedule row that exists but is missing its teacher or time
+# slot. Every engine constraint that needs those values (H1/H4/H5/...)
+# simply skips such a row, so without this check a half-filled timetable
+# could come back as valid. Detected here in the service layer, not in
+# scheduling_engine/: the engine's own search never produces such a row --
+# it only exists in stored data (manual edits, copies).
+INCOMPLETE_SCHEDULE_ROW = "INCOMPLETE_SCHEDULE_ROW"
+
+
+def _incomplete_row_violations(
+    assignments: list[LessonAssignment],
+) -> list[ConstraintViolation]:
+    violations: list[ConstraintViolation] = []
+    for assignment in assignments:
+        missing = [
+            field_name
+            for field_name, value in (
+                ("teacher", assignment.teacher_id),
+                ("time slot", assignment.time_slot_id),
+            )
+            if value is None
+        ]
+        if not missing:
+            continue
+        violations.append(
+            ConstraintViolation(
+                type=INCOMPLETE_SCHEDULE_ROW,
+                severity=Severity.ERROR,
+                lesson_id=assignment.lesson_id,
+                teacher_id=assignment.teacher_id,
+                class_id=assignment.class_id,
+                subject_id=assignment.subject_id,
+                time_slot_id=assignment.time_slot_id,
+                room_id=assignment.room_id,
+                class_subject_requirement_id=assignment.class_subject_requirement_id,
+                message=(
+                    f"Lesson {assignment.lesson_id} is in the schedule but has "
+                    f"no {' or '.join(missing)} assigned."
+                ),
+                suggested_action=(
+                    "Assign the missing teacher/time slot to this lesson, or "
+                    "remove its schedule row."
+                ),
+            )
+        )
+    return violations
+
+
 def _load_assignments(
     db: Session, schedule_version_id: int
 ) -> list[LessonAssignment]:
@@ -122,7 +171,9 @@ def check_schedule_version(
     TEACHER, isn't PUBLISHED (same visibility rule as
     get_schedule_version(); caller -> 404). Otherwise returns every Hard
     Constraint violation in the version's current Schedule rows, sorted by
-    type, lesson_id, time_slot_id. An empty list means the timetable is
+    type, lesson_id, time_slot_id. Besides the engine's Hard Constraints,
+    a Schedule row missing its teacher or time slot is reported as
+    INCOMPLETE_SCHEDULE_ROW (Task 62). An empty list means the timetable is
     valid. A version with no Schedule rows at all is checked as-is (H7
     then reports every requirement as under-scheduled)."""
     schedule_version = schedule_version_service.get_schedule_version(
@@ -135,7 +186,7 @@ def check_schedule_version(
     resources = build_scheduling_resources(db, requirements)
     assignments = _load_assignments(db, schedule_version_id)
 
-    violations: list[ConstraintViolation] = []
+    violations: list[ConstraintViolation] = _incomplete_row_violations(assignments)
     for constraint in _all_hard_constraints(resources):
         violations.extend(constraint.explain_violations(assignments))
     return sorted(violations, key=_violation_sort_key)

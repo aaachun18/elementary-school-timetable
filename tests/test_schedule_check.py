@@ -235,6 +235,61 @@ def test_check_reports_teacher_unavailable_slot(
     assert h4[0]["time_slot_id"] == unavailable_slot_id
 
 
+def test_check_reports_schedule_row_without_time_slot(
+    client: TestClient, db_session: Session
+) -> None:
+    # Task 62: such a row used to be skipped by every rule (all of them need
+    # a time slot), so the version came back as valid.
+    setup = _build_setup(db_session)
+    _add_schedule(db_session, setup, setup.lesson_ids[0], setup.time_slot_ids[0])
+    db_session.add(
+        Schedule(
+            schedule_version_id=setup.version_id,
+            lesson_id=setup.lesson_ids[1],
+            teacher_id=setup.teacher_id,
+            time_slot_id=None,
+            room_id=None,
+        )
+    )
+    db_session.commit()
+
+    data = _check(client, setup.version_id)
+
+    assert data["is_valid"] is False
+    incomplete = _violations_of_type(data, "INCOMPLETE_SCHEDULE_ROW")
+    assert len(incomplete) == 1
+    assert incomplete[0]["lesson_id"] == setup.lesson_ids[1]
+    assert incomplete[0]["teacher_id"] == setup.teacher_id
+    assert incomplete[0]["time_slot_id"] is None
+    assert incomplete[0]["severity"] == "ERROR"
+
+
+def test_check_reports_schedule_row_without_teacher(
+    client: TestClient, db_session: Session
+) -> None:
+    setup = _build_setup(db_session)
+    _add_schedule(db_session, setup, setup.lesson_ids[0], setup.time_slot_ids[0])
+    db_session.add(
+        Schedule(
+            schedule_version_id=setup.version_id,
+            lesson_id=setup.lesson_ids[1],
+            teacher_id=None,
+            time_slot_id=setup.time_slot_ids[1],
+            room_id=None,
+        )
+    )
+    db_session.commit()
+
+    data = _check(client, setup.version_id)
+
+    assert data["is_valid"] is False
+    incomplete = _violations_of_type(data, "INCOMPLETE_SCHEDULE_ROW")
+    assert len(incomplete) == 1
+    assert incomplete[0]["lesson_id"] == setup.lesson_ids[1]
+    assert incomplete[0]["teacher_id"] is None
+    assert incomplete[0]["time_slot_id"] == setup.time_slot_ids[1]
+
+
 # --- PUBLISHED versions ---
 
 
