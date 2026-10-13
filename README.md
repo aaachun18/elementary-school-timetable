@@ -197,7 +197,7 @@ erDiagram
 
 ### 1. 設定環境變數
 
-複製 `.env.example` 為 `.env`,填入實際值(以下只列出 key,不附真實值):
+在專案根目錄複製 `.env.example` 為 `.env`,填入實際值(以下只列出 key,不附真實值):
 
 ```
 DATABASE_URL=postgresql+psycopg://<user>:<password>@localhost:5433/<dbname>
@@ -208,7 +208,31 @@ POSTGRES_PASSWORD=
 TEST_DATABASE_URL=postgresql+psycopg://<user>:<password>@localhost:5433/<test_dbname>
 ```
 
-`TEST_DATABASE_URL` 的資料庫名稱**必須**與 `DATABASE_URL` 不同——測試套件會對它執行 `Base.metadata.drop_all()`,兩者相同的話 `tests/conftest.py` 會直接拒絕執行。本機 PostgreSQL 預設跑在 `5433`(而非 `5432`),是因為 `docker-compose.yml` 刻意把它對應到這個 host port,避開本機既有的原生 PostgreSQL 服務佔用 `5432` 的情況。
+各欄位用途:
+
+| 欄位 | 用途 |
+|---|---|
+| `DATABASE_URL` | 後端與 Alembic 連線的開發資料庫位址 |
+| `SECRET_KEY` | 簽發 / 驗證 JWT 用的密鑰,請填一段夠長的隨機字串 |
+| `POSTGRES_DB` | Docker 容器啟動時建立的資料庫名稱 |
+| `POSTGRES_USER` | Docker 容器啟動時建立的資料庫帳號 |
+| `POSTGRES_PASSWORD` | 上述帳號的密碼 |
+| `TEST_DATABASE_URL` | pytest 專用的測試資料庫位址(同一個 PostgreSQL、不同資料庫名) |
+
+填寫範例(僅供本機開發參考,請自行替換密碼與密鑰):
+
+```
+DATABASE_URL=postgresql+psycopg://timetable:timetable_pw@localhost:5433/timetable
+SECRET_KEY=change-me-to-a-long-random-string
+POSTGRES_DB=timetable
+POSTGRES_USER=timetable
+POSTGRES_PASSWORD=timetable_pw
+TEST_DATABASE_URL=postgresql+psycopg://timetable:timetable_pw@localhost:5433/timetable_test
+```
+
+⚠️ **`POSTGRES_USER`、`POSTGRES_PASSWORD`、`POSTGRES_DB` 必須與 `DATABASE_URL` 裡的帳號、密碼、資料庫名一致**——`POSTGRES_*` 決定容器實際建立的帳號與資料庫,`DATABASE_URL` 則是後端拿來連線的位址,兩者不一致時後端會連線失敗(驗證錯誤或資料庫不存在)。`TEST_DATABASE_URL` 的帳號、密碼也要與上述相同。
+
+`TEST_DATABASE_URL` 的資料庫名稱**必須**與 `DATABASE_URL` 不同——測試套件會對它執行 `Base.metadata.drop_all()`,兩者相同的話 `tests/conftest.py` 會直接拒絕執行。本機 PostgreSQL 預設跑在 `5433`(而非 `5432`),是因為 `docker-compose.yml` 刻意把它對應到這個 host port:為避免與本機既有的 PostgreSQL 衝突,對外使用 `5433`。
 
 ### 2. 啟動 PostgreSQL
 
@@ -228,8 +252,26 @@ docker compose exec postgres psql -U <POSTGRES_USER> -d <POSTGRES_DB> -c "CREATE
 
 ### 4. 安裝依賴
 
+先在專案根目錄建立並啟用虛擬環境:
+
 ```bash
-# 後端(建議先建立並啟用虛擬環境)
+# 建立虛擬環境(只需一次)
+python -m venv .venv
+
+# 啟用 — Windows PowerShell
+.venv\Scripts\Activate.ps1
+
+# 啟用 — Windows Git Bash
+source .venv/Scripts/activate
+
+# 啟用 — macOS / Linux
+source .venv/bin/activate
+```
+
+之後每次開新的終端機執行後端、遷移或測試指令前,都要先啟用虛擬環境。
+
+```bash
+# 後端(在專案根目錄、已啟用虛擬環境)
 pip install -r requirements.txt
 
 # 前端
@@ -252,7 +294,7 @@ alembic upgrade head
 
 ```bash
 cd backend
-uvicorn app.main:app --reload
+python -m uvicorn app.main:app --reload
 ```
 
 預設監聽 `http://127.0.0.1:8000`,API 文件見 `/docs`。
@@ -300,6 +342,16 @@ pytest tests/
 # 方式二:在 backend/ 目錄內
 cd backend
 pytest ../tests/
+```
+
+若 `pytest` 指令找不到或被系統封鎖,可改用 `python -m pytest`,參數相同:
+
+```bash
+# 在專案根目錄
+python -m pytest tests/
+
+# 在 backend/ 目錄內
+python -m pytest ../tests/
 ```
 
 ### 測試數量
@@ -359,6 +411,8 @@ docs/                 系統設計文件、截圖
 ## 疑難排解
 
 - **Windows 上 `psycopg` 連線失敗或載入錯誤**:部分 Windows 環境的應用程式控制原則(如 WDAC)可能封鎖 `psycopg` 的 C 擴充套件,若遇到此狀況可改用 `requirements.txt` 已一併列出的 `psycopg-binary`。
+- **`uvicorn.exe` 被應用程式控制原則封鎖**:改用 `python -m uvicorn app.main:app --reload`(在 `backend/` 目錄內執行),不經過 `uvicorn.exe` 啟動檔。
+- **前端被改到 `5174` 埠**:前端固定使用 `5173` 埠(後端 CORS 只允許 `http://localhost:5173` 這個來源);若 `npm run dev` 顯示改用 `5174`,代表已有舊的前端程式佔用 `5173`,請先關閉舊的前端程式再重新啟動,否則所有 API 呼叫都會被 CORS 擋下。
 
 ## 相關文件
 
