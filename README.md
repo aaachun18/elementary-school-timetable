@@ -328,22 +328,9 @@ curl -X POST http://127.0.0.1:8000/api/v1/auth/register \
   -d '{"username": "admin", "password": "<your-password>", "role": "ADMIN"}'
 ```
 
-**之後新增帳號**(`ADMIN` 或 `TEACHER`):先用管理員帳號登入取得 token,再帶著 token 呼叫 register。
+**之後新增帳號**(`ADMIN` 或 `TEACHER`):用管理員帳號登入前端,到導覽列的「帳號管理」頁面新增。同一頁也可以重設任何帳號的密碼、刪除其他帳號(不能刪除目前登入中的自己)。
 
-- **用 `/docs`**:點右上角 **Authorize**,填入管理員的帳號密碼登入,之後在同一頁呼叫 `POST /api/v1/auth/register` 就會自動帶上 token。
-- **用 curl**:
-
-```bash
-# 1. 登入取得 token(回應裡的 access_token)
-curl -X POST http://127.0.0.1:8000/api/v1/auth/login \
-  -d "username=admin&password=<your-password>"
-
-# 2. 帶著 token 建立新帳號
-curl -X POST http://127.0.0.1:8000/api/v1/auth/register \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <access_token>" \
-  -d '{"username": "teacher1", "password": "<teacher-password>", "role": "TEACHER"}'
-```
+（備註:不透過前端時,也可以在 `/docs` 按右上角 **Authorize** 用管理員帳號登入後呼叫 `POST /api/v1/auth/register`,或用 curl 在請求加上 `Authorization: Bearer <access_token>` 標頭。）
 
 ### 9.(可選)灌入測試資料
 
@@ -372,7 +359,7 @@ docker compose --profile full up --build
 
 後端容器會沿用 `.env` 的帳號、密碼與 `SECRET_KEY`,只把資料庫位址改成容器內部的 `postgres:5432`(`.env` 裡給本機開發用的 `DATABASE_URL` 不需要修改)。
 
-**第一次啟動後建立管理員帳號**:做法與上面「8. 建立第一個管理員帳號」相同——後端已對外開在 `8000` 埠,直接用同一段 curl 指令,或打開 `http://127.0.0.1:8000/docs` 呼叫 `POST /api/v1/auth/register` 即可。只有資料庫內還沒有任何使用者時才能這樣匿名建立(帳號一律是 `ADMIN`);Docker 模式與本機開發流程共用同一個資料庫,若之前已經在本機建過帳號,這裡就要改用上面「之後新增帳號」的做法,先登入再帶 token 呼叫。
+**第一次啟動後建立管理員帳號**:做法與上面「8. 建立第一個管理員帳號」相同——後端已對外開在 `8000` 埠,直接用同一段 curl 指令,或打開 `http://127.0.0.1:8000/docs` 呼叫 `POST /api/v1/auth/register` 即可。只有資料庫內還沒有任何使用者時才能這樣匿名建立(帳號一律是 `ADMIN`);Docker 模式與本機開發流程共用同一個資料庫,若之前已經在本機建過帳號,直接用既有的管理員帳號登入前端 `http://localhost:5173`,到「帳號管理」頁面新增即可。
 
 **停止**:
 
@@ -422,12 +409,12 @@ python -m pytest ../tests/
 
 ### 測試數量
 
-**目前總計 292 個測試,全數通過**(2026-10-13 實際執行確認):
+**目前總計 311 個測試,全數通過**(2026-10-13 實際執行確認):
 
 | 類別 | 測試數 | 執行方式 |
 |---|---|---|
 | Scheduling Engine(純 Python 邏輯,不碰資料庫) | 73 | `pytest tests/scheduling_engine/` |
-| API / 整合測試(真實 FastAPI + PostgreSQL) | 219 | 其餘 `tests/test_*.py` |
+| API / 整合測試(真實 FastAPI + PostgreSQL) | 238 | 其餘 `tests/test_*.py` |
 
 Scheduling Engine 那組測試不需要啟動 FastAPI 或連資料庫,秒級內跑完;API 測試會對 `TEST_DATABASE_URL` 指到的資料庫逐一 `create_all`/`drop_all`,耗時較長。測試策略的完整理由見 `docs/SYSTEM_DESIGN.md` 第 9 節。
 
