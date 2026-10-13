@@ -409,12 +409,12 @@ python -m pytest ../tests/
 
 ### 測試數量
 
-**目前總計 326 個測試,全數通過**(2026-10-13 實際執行確認):
+**目前總計 351 個測試,全數通過**(2026-10-13 實際執行確認):
 
 | 類別 | 測試數 | 執行方式 |
 |---|---|---|
 | Scheduling Engine(純 Python 邏輯,不碰資料庫) | 73 | `pytest tests/scheduling_engine/` |
-| API / 整合測試(真實 FastAPI + PostgreSQL) | 253 | 其餘 `tests/test_*.py` |
+| API / 整合測試(真實 FastAPI + PostgreSQL) | 278 | 其餘 `tests/test_*.py` |
 
 Scheduling Engine 那組測試不需要啟動 FastAPI 或連資料庫,秒級內跑完;API 測試會對 `TEST_DATABASE_URL` 指到的資料庫逐一 `create_all`/`drop_all`,耗時較長。測試策略的完整理由見 `docs/SYSTEM_DESIGN.md` 第 9 節。
 
@@ -453,7 +453,7 @@ docs/                 系統設計文件、截圖
 
 - **H10 教室容量**未實作 Constraint(欄位已預留)。
 - **Soft Constraints(S1–S7)** 完全未開始(教師每日負擔平衡等)。
-- **版本複製機制未實作**:已發布版本無法複製成新草稿修改。
+- **版本複製有使用範圍限制**:可以把任何版本(含已發布的)複製成新草稿(`POST /api/v1/schedule-versions/{id}/copy`),但跨學期只能在同一學年內、目標學期必須還沒有排課需求,複製出的版本只能手動調整,不能重新排課;目前也還沒有前端操作介面。
 - **手動調整課表沒有重新驗證 Hard Constraint**:`PATCH /schedules/{id}` 目前只檢查型別、外鍵、PUBLISHED 鎖定。
 - **`User` 帳號與 `Teacher` 網域實體沒有關聯**:`TEACHER` 角色帳號無法對應到特定一位老師,還做不到「老師只看自己的課表」。
 - **`School` 沒有實際接進資料模型**:目前是隱含單一學校假設。
