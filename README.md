@@ -403,12 +403,12 @@ python -m pytest ../tests/
 
 ### 測試數量
 
-**目前總計 282 個測試,全數通過**(2026-10-12 實際執行確認):
+**目前總計 286 個測試,全數通過**(2026-10-13 實際執行確認):
 
 | 類別 | 測試數 | 執行方式 |
 |---|---|---|
 | Scheduling Engine(純 Python 邏輯,不碰資料庫) | 73 | `pytest tests/scheduling_engine/` |
-| API / 整合測試(真實 FastAPI + PostgreSQL) | 209 | 其餘 `tests/test_*.py` |
+| API / 整合測試(真實 FastAPI + PostgreSQL) | 213 | 其餘 `tests/test_*.py` |
 
 Scheduling Engine 那組測試不需要啟動 FastAPI 或連資料庫,秒級內跑完;API 測試會對 `TEST_DATABASE_URL` 指到的資料庫逐一 `create_all`/`drop_all`,耗時較長。測試策略的完整理由見 `docs/SYSTEM_DESIGN.md` 第 9 節。
 
