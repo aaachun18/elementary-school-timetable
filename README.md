@@ -1,5 +1,7 @@
 # 國小智慧排課系統 Elementary School Timetable System
 
+[![CI](https://github.com/aaachun18/elementary-school-timetable/actions/workflows/ci.yml/badge.svg)](https://github.com/aaachun18/elementary-school-timetable/actions/workflows/ci.yml)
+
 ## 專案簡介
 
 這是一個**約束滿足問題(Constraint Satisfaction Problem, CSP)的建模與求解專案**,不是一套 CRUD 練習。核心是 `scheduling_engine/`——一個完全獨立於 Web 框架與資料庫的排課引擎:輸入教師的任教資格、可用時段、工作量上限,班級的每週授課節數需求與教室類型限制,輸出一份滿足所有 Hard Constraint 的課表;當排不出來的時候,輸出的是一份講得出具體原因的失敗報告,而不是一句「排不出來」。FastAPI、PostgreSQL、React 前端,是把這個求解引擎包裝成可操作系統所需要的基礎設施。
