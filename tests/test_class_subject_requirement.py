@@ -368,7 +368,7 @@ def test_delete_requirement_blocked_by_published_schedule(client: TestClient) ->
     response = client.delete(f"/api/v1/class-subject-requirements/{requirement_id}")
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "此排課需求已被已發布的課表使用，無法刪除"
+    assert response.json()["detail"] == "此排課需求已被已發布或已封存的課表使用，無法刪除"
     get_response = client.get(f"/api/v1/class-subject-requirements/{requirement_id}")
     assert get_response.status_code == 200
     for lesson_id in lesson_ids:

@@ -20,6 +20,7 @@ from app.routers.teacher import router as teacher_router
 from app.routers.time_slot import router as time_slot_router
 from app.routers.users import router as users_router
 from app.services.exceptions import (
+    ArchivedVersionImmutableError,
     CannotDeleteSelfError,
     CopyAcrossAcademicYearsError,
     CopySourceInconsistentError,
@@ -27,6 +28,7 @@ from app.services.exceptions import (
     DuplicateValueError,
     InactiveTeacherAssignmentError,
     InvalidReferenceError,
+    InvalidStatusTransitionError,
     LessonOverProvisionedError,
     PublishedVersionImmutableError,
     ReassignmentTargetNotFoundError,
@@ -132,11 +134,11 @@ def handle_requirement_used_by_published_schedule(
     request: Request, exc: RequirementUsedByPublishedScheduleError
 ) -> JSONResponse:
     # Task 56: deliberately NOT the generic DependentRecordsExistError
-    # message -- the user needs to know it's the PUBLISHED lock blocking
-    # this, not some unspecified reference.
+    # message -- the user needs to know it's the PUBLISHED (Task 64: or
+    # ARCHIVED) lock blocking this, not some unspecified reference.
     return JSONResponse(
         status_code=409,
-        content={"detail": "此排課需求已被已發布的課表使用，無法刪除"},
+        content={"detail": "此排課需求已被已發布或已封存的課表使用，無法刪除"},
     )
 
 
@@ -242,6 +244,26 @@ def handle_inactive_teacher_assignment(
     return JSONResponse(
         status_code=409,
         content={"detail": "無法指派已停用的老師"},
+    )
+
+
+@app.exception_handler(ArchivedVersionImmutableError)
+def handle_archived_version_immutable(
+    request: Request, exc: ArchivedVersionImmutableError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "已封存的課表無法修改，請先複製成新草稿"},
+    )
+
+
+@app.exception_handler(InvalidStatusTransitionError)
+def handle_invalid_status_transition(
+    request: Request, exc: InvalidStatusTransitionError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "不允許的課表狀態變更"},
     )
 
 

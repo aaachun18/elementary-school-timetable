@@ -24,7 +24,7 @@ from app.models.academic_year import Semester
 from app.models.class_subject_requirement import ClassSubjectRequirement
 from app.models.lesson import Lesson
 from app.models.schedule import Schedule
-from app.models.schedule_version import ScheduleVersion
+from app.models.schedule_version import DRAFT, ScheduleVersion
 from app.services.exceptions import (
     CopyAcrossAcademicYearsError,
     CopySourceInconsistentError,
@@ -50,7 +50,7 @@ COPIED_REQUIREMENT_FIELDS = (
 )
 NOT_COPIED_REQUIREMENT_FIELDS = ("id", "semester_id", "created_at", "updated_at")
 
-NEW_VERSION_STATUS = "DRAFT"
+NEW_VERSION_STATUS = DRAFT
 
 
 def _next_version_number(db: Session, semester_id: int) -> int:

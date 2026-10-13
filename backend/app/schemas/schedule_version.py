@@ -7,14 +7,16 @@ from pydantic import BaseModel, ConfigDict
 class ScheduleVersionBase(BaseModel):
     semester_id: int
     version_number: int
-    status: Literal["DRAFT", "PUBLISHED"]
 
 
 class ScheduleVersionCreate(ScheduleVersionBase):
-    pass
+    # Task 64: ARCHIVED is not creatable -- a version only becomes ARCHIVED
+    # when a later publish replaces it.
+    status: Literal["DRAFT", "PUBLISHED"]
 
 
 class ScheduleVersionRead(ScheduleVersionBase):
+    status: Literal["DRAFT", "PUBLISHED", "ARCHIVED"]
     id: int
     created_at: datetime
     updated_at: datetime
@@ -25,7 +27,9 @@ class ScheduleVersionRead(ScheduleVersionBase):
 class ScheduleVersionUpdate(BaseModel):
     semester_id: int | None = None
     version_number: int | None = None
-    status: Literal["DRAFT", "PUBLISHED"] | None = None
+    # Task 64: ARCHIVED is accepted here only so a request for it reaches
+    # the status-transition rules and gets their 409, instead of a 422.
+    status: Literal["DRAFT", "PUBLISHED", "ARCHIVED"] | None = None
 
 
 # --- copy (Task 62), not standard CRUD ---

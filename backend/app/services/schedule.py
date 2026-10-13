@@ -3,27 +3,25 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.schedule import Schedule
-from app.models.schedule_version import ScheduleVersion
+from app.models.schedule_version import PUBLISHED, ScheduleVersion
 from app.schemas.schedule import ScheduleCreate, ScheduleUpdate
 from app.services.exceptions import (
     DependentRecordsExistError,
-    PublishedVersionImmutableError,
     raise_for_integrity_error,
 )
+from app.services.schedule_version import raise_if_version_locked
 
 
 def _raise_if_version_published(db: Session, schedule_version_id: int) -> None:
     """Task 25/25.5: a Schedule row -- new or existing -- belonging to a
-    PUBLISHED ScheduleVersion is locked, same as the version itself.
+    PUBLISHED (Task 64: or ARCHIVED) ScheduleVersion is locked, same as the
+    version itself.
     schedule_version_id is always set on a Schedule (see
     app/models/schedule.py), so this lookup never needs a None check the
     way an optional FK would."""
     schedule_version = db.get(ScheduleVersion, schedule_version_id)
-    if schedule_version is not None and schedule_version.status == "PUBLISHED":
-        raise PublishedVersionImmutableError(
-            f"ScheduleVersion {schedule_version_id} is PUBLISHED and "
-            "cannot be modified."
-        )
+    if schedule_version is not None:
+        raise_if_version_locked(schedule_version)
 
 
 def _raise_if_published(db: Session, schedule: Schedule) -> None:
@@ -57,7 +55,7 @@ def get_schedule(
         return None
     if role == "TEACHER":
         version = db.get(ScheduleVersion, schedule.schedule_version_id)
-        if version is None or version.status != "PUBLISHED":
+        if version is None or version.status != PUBLISHED:
             return None
     return schedule
 
@@ -69,7 +67,7 @@ def get_schedules(
     if role == "TEACHER":
         stmt = stmt.join(
             ScheduleVersion, Schedule.schedule_version_id == ScheduleVersion.id
-        ).where(ScheduleVersion.status == "PUBLISHED")
+        ).where(ScheduleVersion.status == PUBLISHED)
     stmt = stmt.offset(skip).limit(limit)
     return list(db.scalars(stmt).all())
 

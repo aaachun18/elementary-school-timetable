@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.models.class_subject_requirement import ClassSubjectRequirement
 from app.models.lesson import Lesson
 from app.models.schedule import Schedule
-from app.models.schedule_version import ScheduleVersion
+from app.models.schedule_version import LOCKED_STATUSES, ScheduleVersion
 from app.schemas.class_subject_requirement import (
     ClassSubjectRequirementCreate,
     ClassSubjectRequirementUpdate,
@@ -86,22 +86,23 @@ def delete_class_subject_requirement(db: Session, requirement_id: int) -> bool:
     )
 
     if lesson_ids:
-        # A PUBLISHED version is fully locked (Task 25): if any of these
-        # lessons is placed in one, the whole delete is refused up front,
-        # before anything is staged.
+        # A PUBLISHED or (Task 64) ARCHIVED version is fully locked
+        # (Task 25): if any of these lessons is placed in one, the whole
+        # delete is refused up front, before anything is staged.
         published_schedule_id = db.scalars(
             select(Schedule.id)
             .join(ScheduleVersion, Schedule.schedule_version_id == ScheduleVersion.id)
             .where(
                 Schedule.lesson_id.in_(lesson_ids),
-                ScheduleVersion.status == "PUBLISHED",
+                ScheduleVersion.status.in_(LOCKED_STATUSES),
             )
             .limit(1)
         ).first()
         if published_schedule_id is not None:
             raise RequirementUsedByPublishedScheduleError(
                 f"ClassSubjectRequirement {requirement_id} cannot be deleted: "
-                "its lessons are used by a PUBLISHED schedule version."
+                "its lessons are used by a PUBLISHED or ARCHIVED schedule "
+                "version."
             )
 
     # Everything below is staged on `db` but not committed yet. Each step is
@@ -111,7 +112,8 @@ def delete_class_subject_requirement(db: Session, requirement_id: int) -> bool:
     # never lost while its requirement survives.
     try:
         if lesson_ids:
-            # Only DRAFT rows can remain here (PUBLISHED was refused above).
+            # Only DRAFT rows can remain here (PUBLISHED/ARCHIVED was
+            # refused above).
             draft_schedules = db.scalars(
                 select(Schedule).where(Schedule.lesson_id.in_(lesson_ids))
             ).all()

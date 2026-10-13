@@ -5,14 +5,45 @@ from sqlalchemy.orm import Session
 from app.models.class_subject_requirement import ClassSubjectRequirement
 from app.models.lesson import Lesson
 from app.models.schedule import Schedule
-from app.models.schedule_version import ScheduleVersion
+from app.models.schedule_version import (
+    ARCHIVED,
+    DRAFT,
+    LOCKED_STATUSES,
+    PUBLISHED,
+    ScheduleVersion,
+)
 from app.schemas.schedule_version import ScheduleVersionCreate, ScheduleVersionUpdate
 from app.services.exceptions import (
+    ArchivedVersionImmutableError,
     DependentRecordsExistError,
+    InvalidStatusTransitionError,
     LessonOverProvisionedError,
     PublishedVersionImmutableError,
     raise_for_integrity_error,
 )
+
+# Task 64: the only status changes allowed (an unchanged status is a
+# separate no-op case). Publishing always archives the semester's current
+# PUBLISHED version in the same transaction -- see _publish().
+ALLOWED_STATUS_TRANSITIONS = frozenset({(DRAFT, PUBLISHED), (ARCHIVED, PUBLISHED)})
+
+
+def raise_if_version_locked(schedule_version: ScheduleVersion) -> None:
+    """Task 25/64: a PUBLISHED or ARCHIVED version is fully locked -- its
+    fields, its Schedule rows, generate-lessons, run-scheduler, reassigning
+    a teacher, and deleting it. Shared by every service that modifies a
+    version or anything under it, so the two statuses can never drift
+    apart. The two exceptions differ only in the message the user sees."""
+    if schedule_version.status == PUBLISHED:
+        raise PublishedVersionImmutableError(
+            f"ScheduleVersion {schedule_version.id} is PUBLISHED and "
+            "cannot be modified."
+        )
+    if schedule_version.status == ARCHIVED:
+        raise ArchivedVersionImmutableError(
+            f"ScheduleVersion {schedule_version.id} is ARCHIVED and "
+            "cannot be modified."
+        )
 
 # --- Standard CRUD ---
 
@@ -50,7 +81,8 @@ def get_schedule_version(
     schedule_version = db.get(ScheduleVersion, schedule_version_id)
     if schedule_version is None:
         return None
-    if role == "TEACHER" and schedule_version.status != "PUBLISHED":
+    # Task 64: ARCHIVED is hidden from a TEACHER exactly like DRAFT.
+    if role == "TEACHER" and schedule_version.status != PUBLISHED:
         return None
     return schedule_version
 
@@ -60,36 +92,96 @@ def get_schedule_versions(
 ) -> list[ScheduleVersion]:
     stmt = select(ScheduleVersion)
     if role == "TEACHER":
-        stmt = stmt.where(ScheduleVersion.status == "PUBLISHED")
+        stmt = stmt.where(ScheduleVersion.status == PUBLISHED)
     stmt = stmt.offset(skip).limit(limit)
     return list(db.scalars(stmt).all())
+
+
+def _changed_fields(
+    schedule_version: ScheduleVersion, version_data: ScheduleVersionUpdate
+) -> dict[str, object]:
+    """Non-status fields in the request whose value actually differs from
+    the stored one (sending a field's current value is not a change)."""
+    requested = version_data.model_dump(exclude_unset=True)
+    requested.pop("status", None)
+    return {
+        field: value
+        for field, value in requested.items()
+        if getattr(schedule_version, field) != value
+    }
+
+
+def _mark_published(schedule_version: ScheduleVersion) -> None:
+    """The publish step itself -- its own function so tests can make
+    exactly this last step fail and verify the rollback."""
+    schedule_version.status = PUBLISHED
+
+
+def _publish(db: Session, schedule_version: ScheduleVersion) -> None:
+    """Archives the semester's current PUBLISHED version (if any) and then
+    publishes this one, staged on `db` (the caller commits). The archive is
+    flushed first: the partial unique index allows only one PUBLISHED per
+    semester at any moment, so the old one must stop being PUBLISHED before
+    the new one starts."""
+    current_published = db.scalars(
+        select(ScheduleVersion).where(
+            ScheduleVersion.semester_id == schedule_version.semester_id,
+            ScheduleVersion.status == PUBLISHED,
+            ScheduleVersion.id != schedule_version.id,
+        )
+    ).all()
+    for version in current_published:
+        version.status = ARCHIVED
+    db.flush()
+    _mark_published(schedule_version)
 
 
 def update_schedule_version(
     db: Session, schedule_version_id: int, version_data: ScheduleVersionUpdate
 ) -> ScheduleVersion | None:
+    """Task 64 status rules (see ALLOWED_STATUS_TRANSITIONS):
+    - unchanged status: a no-op for the status, other versions untouched;
+    - DRAFT/ARCHIVED -> PUBLISHED: the semester's current PUBLISHED version
+      (if any) becomes ARCHIVED in the same transaction;
+    - any other change: InvalidStatusTransitionError, nothing changes.
+    A PUBLISHED/ARCHIVED version's other fields can never change
+    (raise_if_version_locked). Everything is one transaction: a failure
+    never leaves the old version archived without the new one published.
+    """
     schedule_version = db.get(ScheduleVersion, schedule_version_id)
     if schedule_version is None:
         return None
 
-    if schedule_version.status == "PUBLISHED":
-        # Task 25: a PUBLISHED version is fully locked -- including
-        # changing status itself (e.g. back to DRAFT). The only sanctioned
-        # way to change anything is to clone a new DRAFT version first
-        # (not yet implemented).
-        raise PublishedVersionImmutableError(
-            f"ScheduleVersion {schedule_version_id} is PUBLISHED and "
-            "cannot be modified."
+    current_status = schedule_version.status
+    new_status = version_data.status or current_status
+    changed_fields = _changed_fields(schedule_version, version_data)
+
+    if current_status in LOCKED_STATUSES and changed_fields:
+        raise_if_version_locked(schedule_version)
+    if (
+        new_status != current_status
+        and (current_status, new_status) not in ALLOWED_STATUS_TRANSITIONS
+    ):
+        raise InvalidStatusTransitionError(
+            f"ScheduleVersion {schedule_version_id} cannot change status from "
+            f"{current_status} to {new_status}."
         )
 
-    for field, value in version_data.model_dump(exclude_unset=True).items():
-        setattr(schedule_version, field, value)
-
     try:
+        # Only a DRAFT can reach here with changed fields (checked above).
+        for field, value in changed_fields.items():
+            setattr(schedule_version, field, value)
+        if new_status != current_status:
+            _publish(db, schedule_version)
         db.commit()
     except IntegrityError as exc:
         db.rollback()
         raise_for_integrity_error(exc)
+    except Exception:
+        # Not swallowed: re-raised after undoing everything staged so far,
+        # so an archived old version is never left without a new one.
+        db.rollback()
+        raise
     db.refresh(schedule_version)
     return schedule_version
 
@@ -102,12 +194,9 @@ def delete_schedule_version(db: Session, schedule_version_id: int) -> bool:
     # Task 25's existing lock: a PUBLISHED version is fully immutable,
     # including deletion -- same stance update_schedule_version() already
     # takes, raised before touching anything (no point staging Schedule
-    # deletes for a version that can never actually be deleted).
-    if schedule_version.status == "PUBLISHED":
-        raise PublishedVersionImmutableError(
-            f"ScheduleVersion {schedule_version_id} is PUBLISHED and "
-            "cannot be deleted."
-        )
+    # deletes for a version that can never actually be deleted). Task 64:
+    # an ARCHIVED one too -- it is kept as history.
+    raise_if_version_locked(schedule_version)
 
     # Task 50: Schedule is a semantic sub-resource of ScheduleVersion (a
     # row only means anything within the version it was placed under --
@@ -188,11 +277,7 @@ def generate_lessons(
     if schedule_version is None:
         return None
 
-    if schedule_version.status == "PUBLISHED":
-        raise PublishedVersionImmutableError(
-            f"ScheduleVersion {schedule_version_id} is PUBLISHED and "
-            "cannot be modified."
-        )
+    raise_if_version_locked(schedule_version)
 
     requirements = list(
         db.scalars(

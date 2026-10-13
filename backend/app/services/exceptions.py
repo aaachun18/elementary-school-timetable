@@ -65,14 +65,34 @@ class PublishedVersionImmutableError(Exception):
     """
 
 
+class ArchivedVersionImmutableError(Exception):
+    """Task 64: the ARCHIVED counterpart of PublishedVersionImmutableError --
+    same lock (no field change, no Schedule change, no deletion, no
+    generate-lessons/run-scheduler/reassign), separate exception only so
+    the user is told the version is archived, not "published". Republishing
+    it (status -> PUBLISHED) is the one change still allowed, and goes
+    through the status-transition rules, not this exception.
+    """
+
+
+class InvalidStatusTransitionError(Exception):
+    """Task 64: raised by update_schedule_version() for a status change that
+    isn't allowed. Only DRAFT -> PUBLISHED and ARCHIVED -> PUBLISHED are
+    (publishing archives the semester's current PUBLISHED version); an
+    unchanged status is a no-op. Everything else -- PUBLISHED -> DRAFT,
+    ARCHIVED -> DRAFT, DRAFT -> ARCHIVED, PUBLISHED -> ARCHIVED -- is
+    refused before anything changes.
+    """
+
+
 class RequirementUsedByPublishedScheduleError(Exception):
     """Raised by delete_class_subject_requirement() when one or more of the
     requirement's Lesson rows are referenced by a Schedule row under a
-    PUBLISHED ScheduleVersion.
+    PUBLISHED or (Task 64) ARCHIVED ScheduleVersion.
 
     Task 56: deleting a requirement normally takes its Lesson rows (and
-    their DRAFT Schedule rows) with it, but a PUBLISHED timetable is fully
-    locked -- removing a lesson it actually uses would silently alter it.
+    their DRAFT Schedule rows) with it, but a PUBLISHED or ARCHIVED
+    timetable is fully locked -- removing a lesson it actually uses would silently alter it.
     Kept separate from DependentRecordsExistError so the caller gets a
     specific reason instead of the generic "still referenced" message.
     """
