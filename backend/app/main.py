@@ -24,6 +24,7 @@ from app.services.exceptions import (
     InvalidReferenceError,
     LessonOverProvisionedError,
     PublishedVersionImmutableError,
+    RequirementUsedByPublishedScheduleError,
     ScheduleVersionAlreadyScheduledError,
 )
 
@@ -113,6 +114,19 @@ def handle_lesson_over_provisioned(
             "detail": detail,
             "over_provisioned": exc.over_provisioned,
         },
+    )
+
+
+@app.exception_handler(RequirementUsedByPublishedScheduleError)
+def handle_requirement_used_by_published_schedule(
+    request: Request, exc: RequirementUsedByPublishedScheduleError
+) -> JSONResponse:
+    # Task 56: deliberately NOT the generic DependentRecordsExistError
+    # message -- the user needs to know it's the PUBLISHED lock blocking
+    # this, not some unspecified reference.
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "此排課需求已被已發布的課表使用，無法刪除"},
     )
 
 

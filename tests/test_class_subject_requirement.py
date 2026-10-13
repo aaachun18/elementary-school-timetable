@@ -251,3 +251,161 @@ def test_create_class_subject_requirement_invalid_subject_id(
     )
 
     assert response.status_code == 422
+
+
+# --- Task 56: deleting a requirement takes its Lesson rows with it ---
+
+
+def _create_requirement(
+    client: TestClient,
+    semester_id: int,
+    class_id: int,
+    subject_id: int,
+    weekly_periods: int,
+) -> int:
+    response = client.post(
+        "/api/v1/class-subject-requirements/",
+        json={
+            "semester_id": semester_id,
+            "class_id": class_id,
+            "subject_id": subject_id,
+            "weekly_periods": weekly_periods,
+        },
+    )
+    requirement_id: int = response.json()["id"]
+    return requirement_id
+
+
+def _create_draft_version(client: TestClient, semester_id: int, number: int) -> int:
+    response = client.post(
+        "/api/v1/schedule-versions/",
+        json={"semester_id": semester_id, "version_number": number, "status": "DRAFT"},
+    )
+    version_id: int = response.json()["id"]
+    return version_id
+
+
+def _generate_lessons(client: TestClient, version_id: int) -> dict[int, list[int]]:
+    """Returns {requirement_id: [lesson_id, ...]} for the lessons created."""
+    response = client.post(f"/api/v1/schedule-versions/{version_id}/generate-lessons")
+    assert response.status_code == 200
+    lessons_by_requirement: dict[int, list[int]] = {}
+    for item in response.json()["created_lessons"]:
+        lessons_by_requirement.setdefault(
+            item["class_subject_requirement_id"], []
+        ).append(item["lesson_id"])
+    return lessons_by_requirement
+
+
+def _create_schedule(client: TestClient, version_id: int, lesson_id: int) -> int:
+    response = client.post(
+        "/api/v1/schedules/",
+        json={"schedule_version_id": version_id, "lesson_id": lesson_id},
+    )
+    assert response.status_code == 201
+    schedule_id: int = response.json()["id"]
+    return schedule_id
+
+
+def test_delete_requirement_with_lessons_and_no_schedules(client: TestClient) -> None:
+    semester_id = _create_semester(client, year=2061)
+    class_id = _create_class(client, level=1)
+    subject_id = _create_subject(client)
+    requirement_id = _create_requirement(client, semester_id, class_id, subject_id, 2)
+    version_id = _create_draft_version(client, semester_id, number=1)
+    lesson_ids = _generate_lessons(client, version_id)[requirement_id]
+    assert len(lesson_ids) == 2
+
+    response = client.delete(f"/api/v1/class-subject-requirements/{requirement_id}")
+
+    assert response.status_code == 204
+    for lesson_id in lesson_ids:
+        assert client.get(f"/api/v1/lessons/{lesson_id}").status_code == 404
+    get_response = client.get(f"/api/v1/class-subject-requirements/{requirement_id}")
+    assert get_response.status_code == 404
+
+
+def test_delete_requirement_removes_draft_schedules(client: TestClient) -> None:
+    semester_id = _create_semester(client, year=2062)
+    class_id = _create_class(client, level=2)
+    subject_id = _create_subject(client)
+    requirement_id = _create_requirement(client, semester_id, class_id, subject_id, 1)
+    version_id = _create_draft_version(client, semester_id, number=1)
+    lesson_id = _generate_lessons(client, version_id)[requirement_id][0]
+    schedule_id = _create_schedule(client, version_id, lesson_id)
+
+    response = client.delete(f"/api/v1/class-subject-requirements/{requirement_id}")
+
+    assert response.status_code == 204
+    assert client.get(f"/api/v1/schedules/{schedule_id}").status_code == 404
+    assert client.get(f"/api/v1/lessons/{lesson_id}").status_code == 404
+    get_response = client.get(f"/api/v1/class-subject-requirements/{requirement_id}")
+    assert get_response.status_code == 404
+    # The DRAFT version itself is not part of the requirement -- it stays.
+    assert client.get(f"/api/v1/schedule-versions/{version_id}").status_code == 200
+
+
+def test_delete_requirement_blocked_by_published_schedule(client: TestClient) -> None:
+    semester_id = _create_semester(client, year=2063)
+    class_id = _create_class(client, level=3)
+    subject_id = _create_subject(client)
+    requirement_id = _create_requirement(client, semester_id, class_id, subject_id, 2)
+    draft_version_id = _create_draft_version(client, semester_id, number=1)
+    published_version_id = _create_draft_version(client, semester_id, number=2)
+    lesson_ids = _generate_lessons(client, draft_version_id)[requirement_id]
+    # One lesson sits in a DRAFT version, the other in a PUBLISHED one --
+    # the DRAFT schedule must survive too, since the whole delete is refused.
+    draft_schedule_id = _create_schedule(client, draft_version_id, lesson_ids[0])
+    published_schedule_id = _create_schedule(
+        client, published_version_id, lesson_ids[1]
+    )
+    publish_response = client.patch(
+        f"/api/v1/schedule-versions/{published_version_id}",
+        json={"status": "PUBLISHED"},
+    )
+    assert publish_response.status_code == 200
+
+    response = client.delete(f"/api/v1/class-subject-requirements/{requirement_id}")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "此排課需求已被已發布的課表使用，無法刪除"
+    get_response = client.get(f"/api/v1/class-subject-requirements/{requirement_id}")
+    assert get_response.status_code == 200
+    for lesson_id in lesson_ids:
+        assert client.get(f"/api/v1/lessons/{lesson_id}").status_code == 200
+    assert client.get(f"/api/v1/schedules/{draft_schedule_id}").status_code == 200
+    assert client.get(f"/api/v1/schedules/{published_schedule_id}").status_code == 200
+
+
+def test_delete_requirement_leaves_other_requirements_untouched(
+    client: TestClient,
+) -> None:
+    semester_id = _create_semester(client, year=2064)
+    class_id = _create_class(client, level=4)
+    subject_a_id = _create_subject(client, name="Subject A")
+    subject_b_id = _create_subject(client, name="Subject B")
+    requirement_a_id = _create_requirement(
+        client, semester_id, class_id, subject_a_id, 1
+    )
+    requirement_b_id = _create_requirement(
+        client, semester_id, class_id, subject_b_id, 2
+    )
+    version_id = _create_draft_version(client, semester_id, number=1)
+    lessons_by_requirement = _generate_lessons(client, version_id)
+    lesson_a_id = lessons_by_requirement[requirement_a_id][0]
+    lesson_b_ids = lessons_by_requirement[requirement_b_id]
+    _create_schedule(client, version_id, lesson_a_id)
+    schedule_b_ids = [
+        _create_schedule(client, version_id, lesson_id) for lesson_id in lesson_b_ids
+    ]
+
+    response = client.delete(f"/api/v1/class-subject-requirements/{requirement_a_id}")
+
+    assert response.status_code == 204
+    get_response = client.get(f"/api/v1/class-subject-requirements/{requirement_b_id}")
+    assert get_response.status_code == 200
+    for lesson_id in lesson_b_ids:
+        assert client.get(f"/api/v1/lessons/{lesson_id}").status_code == 200
+    for schedule_id in schedule_b_ids:
+        schedule_response = client.get(f"/api/v1/schedules/{schedule_id}")
+        assert schedule_response.status_code == 200

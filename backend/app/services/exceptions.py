@@ -65,6 +65,19 @@ class PublishedVersionImmutableError(Exception):
     """
 
 
+class RequirementUsedByPublishedScheduleError(Exception):
+    """Raised by delete_class_subject_requirement() when one or more of the
+    requirement's Lesson rows are referenced by a Schedule row under a
+    PUBLISHED ScheduleVersion.
+
+    Task 56: deleting a requirement normally takes its Lesson rows (and
+    their DRAFT Schedule rows) with it, but a PUBLISHED timetable is fully
+    locked -- removing a lesson it actually uses would silently alter it.
+    Kept separate from DependentRecordsExistError so the caller gets a
+    specific reason instead of the generic "still referenced" message.
+    """
+
+
 class ScheduleVersionAlreadyScheduledError(Exception):
     """Raised by run_scheduler() when the target ScheduleVersion already has
     one or more Schedule rows.

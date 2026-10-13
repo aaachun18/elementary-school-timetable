@@ -652,7 +652,7 @@ export default function RequirementsOverview(): ReactElement {
   }
 
   function handleDelete(id: number, label: string): void {
-    if (window.confirm(`確定要刪除「${label}」這筆排課需求嗎？此操作無法復原。`)) {
+    if (window.confirm(`確定要刪除「${label}」這筆排課需求嗎？會連同已展開的課程清單一併刪除，此操作無法復原。`)) {
       void crud.submitDelete(id);
     }
   }
