@@ -10,9 +10,11 @@ class ScheduleVersionBase(BaseModel):
 
 
 class ScheduleVersionCreate(ScheduleVersionBase):
-    # Task 64: ARCHIVED is not creatable -- a version only becomes ARCHIVED
-    # when a later publish replaces it.
-    status: Literal["DRAFT", "PUBLISHED"]
+    # Task 65: a new version is always a DRAFT. Publishing goes through
+    # PATCH status -> PUBLISHED, so it always archives the semester's
+    # current PUBLISHED version (Task 64); creating one directly as
+    # PUBLISHED would bypass that. PUBLISHED/ARCHIVED here -> 422.
+    status: Literal["DRAFT"] = "DRAFT"
 
 
 class ScheduleVersionRead(ScheduleVersionBase):

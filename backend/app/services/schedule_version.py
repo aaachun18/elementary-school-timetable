@@ -24,8 +24,12 @@ from app.services.exceptions import (
 
 # Task 64: the only status changes allowed (an unchanged status is a
 # separate no-op case). Publishing always archives the semester's current
-# PUBLISHED version in the same transaction -- see _publish().
-ALLOWED_STATUS_TRANSITIONS = frozenset({(DRAFT, PUBLISHED), (ARCHIVED, PUBLISHED)})
+# PUBLISHED version in the same transaction -- see _publish(). Task 65:
+# PUBLISHED -> ARCHIVED is "unpublish" -- the semester is then left with no
+# PUBLISHED version at all, which is a valid state.
+ALLOWED_STATUS_TRANSITIONS = frozenset(
+    {(DRAFT, PUBLISHED), (ARCHIVED, PUBLISHED), (PUBLISHED, ARCHIVED)}
+)
 
 
 def raise_if_version_locked(schedule_version: ScheduleVersion) -> None:
@@ -143,6 +147,8 @@ def update_schedule_version(
     - unchanged status: a no-op for the status, other versions untouched;
     - DRAFT/ARCHIVED -> PUBLISHED: the semester's current PUBLISHED version
       (if any) becomes ARCHIVED in the same transaction;
+    - PUBLISHED -> ARCHIVED (Task 65, unpublish): only this version changes;
+      the semester then has no PUBLISHED version;
     - any other change: InvalidStatusTransitionError, nothing changes.
     A PUBLISHED/ARCHIVED version's other fields can never change
     (raise_if_version_locked). Everything is one transaction: a failure
@@ -171,8 +177,12 @@ def update_schedule_version(
         # Only a DRAFT can reach here with changed fields (checked above).
         for field, value in changed_fields.items():
             setattr(schedule_version, field, value)
-        if new_status != current_status:
+        if new_status == PUBLISHED and current_status != PUBLISHED:
             _publish(db, schedule_version)
+        elif new_status != current_status:
+            # Unpublish (PUBLISHED -> ARCHIVED) -- the only other allowed
+            # transition; no other version is affected.
+            schedule_version.status = new_status
         db.commit()
     except IntegrityError as exc:
         db.rollback()

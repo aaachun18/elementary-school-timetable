@@ -193,7 +193,7 @@ def test_unchanged_status_is_a_no_op(client: TestClient, db_session: Session) ->
         ("PUBLISHED", "DRAFT"),
         ("ARCHIVED", "DRAFT"),
         ("DRAFT", "ARCHIVED"),
-        ("PUBLISHED", "ARCHIVED"),
+        # PUBLISHED -> ARCHIVED became "unpublish" in Task 65.
     ],
 )
 def test_invalid_status_transition_returns_409(
@@ -213,6 +213,106 @@ def test_invalid_status_transition_returns_409(
     assert response.status_code == 409
     assert response.json()["detail"] == INVALID_TRANSITION_MESSAGE
     assert _version_snapshot(db_session) == before
+
+
+# --- Task 65: unpublish (PUBLISHED -> ARCHIVED) ---
+
+
+def test_unpublish_leaves_semester_without_published_version(
+    client: TestClient, db_session: Session
+) -> None:
+    builder = Builder(db_session)
+    v1 = builder.version(number=1)
+    v2 = builder.version(number=2)
+    _publish(client, v1.id)
+
+    response = _patch(client, v1.id, {"status": "ARCHIVED"})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ARCHIVED"
+    assert _statuses(db_session, v1, v2) == ["ARCHIVED", "DRAFT"]
+    assert _published_count(db_session, builder.semester.id) == 0
+
+
+def test_after_unpublish_teacher_sees_no_version(
+    client: TestClient, teacher_client: TestClient, db_session: Session
+) -> None:
+    builder = Builder(db_session)
+    v1 = builder.version(number=1)
+    _publish(client, v1.id)
+    _patch(client, v1.id, {"status": "ARCHIVED"})
+
+    teacher_versions = teacher_client.get("/api/v1/schedule-versions/").json()
+    admin_versions = client.get("/api/v1/schedule-versions/").json()
+
+    assert teacher_versions == []
+    assert [v["id"] for v in admin_versions] == [v1.id]
+
+
+@pytest.mark.parametrize("republish", ["archived", "draft"])
+def test_after_unpublish_any_version_can_be_published(
+    client: TestClient, db_session: Session, republish: str
+) -> None:
+    builder = Builder(db_session)
+    v1 = builder.version(number=1)
+    v2 = builder.version(number=2)
+    _publish(client, v1.id)
+    _patch(client, v1.id, {"status": "ARCHIVED"})
+
+    _publish(client, v1.id if republish == "archived" else v2.id)
+
+    assert _published_count(db_session, builder.semester.id) == 1
+    expected = ["PUBLISHED", "DRAFT"] if republish == "archived" else ["ARCHIVED", "PUBLISHED"]
+    assert _statuses(db_session, v1, v2) == expected
+
+
+def test_unpublished_version_stays_locked(client: TestClient, db_session: Session) -> None:
+    builder = Builder(db_session)
+    v1 = builder.version(number=1)
+    _publish(client, v1.id)
+    _patch(client, v1.id, {"status": "ARCHIVED"})
+    before = _version_snapshot(db_session)
+
+    edit = _patch(client, v1.id, {"version_number": 9})
+    delete = client.delete(f"/api/v1/schedule-versions/{v1.id}")
+    back_to_draft = _patch(client, v1.id, {"status": "DRAFT"})
+
+    _assert_archived_lock(edit)
+    _assert_archived_lock(delete)
+    assert back_to_draft.status_code == 409
+    assert back_to_draft.json()["detail"] == INVALID_TRANSITION_MESSAGE
+    assert _version_snapshot(db_session) == before
+
+
+# --- Task 65: a new version is always a DRAFT ---
+
+
+@pytest.mark.parametrize("status", ["PUBLISHED", "ARCHIVED"])
+def test_create_version_with_non_draft_status_returns_422(
+    client: TestClient, db_session: Session, status: str
+) -> None:
+    builder = Builder(db_session)
+    before = _version_snapshot(db_session)
+
+    response = client.post(
+        "/api/v1/schedule-versions/",
+        json={"semester_id": builder.semester.id, "version_number": 1, "status": status},
+    )
+
+    assert response.status_code == 422
+    assert _version_snapshot(db_session) == before
+
+
+def test_create_version_defaults_to_draft(client: TestClient, db_session: Session) -> None:
+    builder = Builder(db_session)
+
+    response = client.post(
+        "/api/v1/schedule-versions/",
+        json={"semester_id": builder.semester.id, "version_number": 1},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["status"] == "DRAFT"
 
 
 def test_failed_publish_rolls_back_the_archive(
