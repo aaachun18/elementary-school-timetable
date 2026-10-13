@@ -1,52 +1,366 @@
-# Elementary School Timetable System
+# 國小智慧排課系統 Elementary School Timetable System
 
-## Overview
+## 專案簡介
 
-國小智慧排課系統，目標是建立一個具備實際學校排課情境的 full-stack web application，涵蓋教師/班級/科目/教室/時段等資料管理、自動排課、限制條件驗證與人工調課。目前專案處於初始骨架建立階段，尚未實作任何業務邏輯。
+這是一個**約束滿足問題(Constraint Satisfaction Problem, CSP)的建模與求解專案**,不是一套 CRUD 練習。核心是 `scheduling_engine/`——一個完全獨立於 Web 框架與資料庫的排課引擎:輸入教師的任教資格、可用時段、工作量上限,班級的每週授課節數需求與教室類型限制,輸出一份滿足所有 Hard Constraint 的課表;當排不出來的時候,輸出的是一份講得出具體原因的失敗報告,而不是一句「排不出來」。FastAPI、PostgreSQL、React 前端,是把這個求解引擎包裝成可操作系統所需要的基礎設施。
 
-## Tech Stack
+## 功能特色
 
-- Frontend: React, TypeScript, Vite
-- Backend: Python, FastAPI, Pydantic, SQLAlchemy, Alembic
-- Database: PostgreSQL
-- Testing: pytest（frontend testing framework 待定）
-- Infrastructure: Docker, Docker Compose
-- Version Control: Git, GitHub
+- **排課引擎**:自行實作 MRV(Minimum Remaining Values)候選排序、Greedy Scheduler、Backtracking Scheduler 三層演算法,涵蓋 11 條 Hard Constraint(H1–H9、H11、H12;H10 教室容量延後,見下方狀態表)。
+- **Explainable Scheduling**:排課失敗時不會只回一句「排不出來」——結構化的 `ConstraintViolation` 會講出具體是哪個老師、哪個限制、建議去哪個畫面修正;另外有四類**靜態可行性預檢**(教師工作量超標、可用時段不足、停用狀態衝突、零合格教師),不需要跑一次搜尋就能直接證明無解。
+- **JWT 認證 + 兩種帳號角色**:`ADMIN`(完整管理權限)與 `TEACHER`(唯讀,僅能查看已發布課表)。
+- **草稿 / 已發布版本管理**:排課版本分 `DRAFT`/`PUBLISHED` 兩種狀態,已發布版本完全鎖定不可修改,教師帳號只看得到已發布版本。
+- **前端完整 CRUD 與課表檢視**:9 張基礎資料表(學校/學年度/學期/年級/老師/班級/科目/教室/時段)與排課需求均可在畫面上新增、編輯、刪除;排課控制台提供「選版本 → 展開課程清單 → 自動排課 → 發布」的完整流程;課表檢視支援依班級/依教師/依教室三種視角切換。
 
-## Architecture
+## 畫面截圖
 
-React / TypeScript
-→ FastAPI (API Layer)
-→ Service Layer
-→ Domain / Scheduling Engine
-→ Repository / ORM
-→ PostgreSQL
+| 截圖 | 說明 |
+|---|---|
+| ![基礎資料瀏覽](docs/images/data-browser.png) | 基礎資料瀏覽(老師分頁展開):CRUD 操作按鈕,以及任教資格、不可用時段的即時管理。 |
+| ![排課控制台](docs/images/scheduler-success.png) | 排課控制台:三步驟流程(選版本/展開課程清單/自動排課)+ 發布為最終確定版。 |
+| ![失敗診斷](docs/images/failure-diagnostics.png) | 排課失敗診斷:具體列出每堂課失敗原因與建議修正頁面連結,而非單純回報失敗。 |
+| ![課表檢視](docs/images/timetable-view.png) | 課表檢視:依班級/教師/教室切換視角,含非教學時段(早自習、午餐/午休)顯示。 |
 
-詳細架構原則與 Scheduling Engine 邊界請見 `AGENTS.md`。
+## 架構
 
-## Project Structure
+```mermaid
+flowchart TB
+    subgraph Client["前端 — frontend/(階段 A + 階段 B,已完成)"]
+        React["React / TypeScript / Vite<br/>6 個核心頁面(登入/基礎資料/<br/>需求總覽/排課控制台/課表/失敗診斷)<br/>含完整 CRUD 表單與角色權限控制"]
+    end
 
-```text
-backend/          FastAPI application
-scheduling_engine/ Scheduling domain logic (framework-independent)
-frontend/          React + TypeScript application（尚未初始化）
-tests/             Automated tests
-docs/               Project documentation
-scripts/            Utility scripts
+    subgraph API["API Layer — backend/app/routers/"]
+        FastAPI["FastAPI Routers<br/>/api/v1/*<br/>JWT Auth + RBAC"]
+    end
+
+    subgraph Service["Service Layer — backend/app/services/"]
+        SVC["業務邏輯 / Session 管理<br/>ORM ↔ Domain Dataclass 轉換<br/>例外分類與轉譯"]
+    end
+
+    subgraph Engine["Scheduling Engine — scheduling_engine/(框架獨立)"]
+        Domain["Domain Dataclasses<br/>LessonAssignment / SchedulingResources"]
+        Static["Static Feasibility Checks<br/>(工作量 / 可用時段 / 停用狀態)"]
+        Constraints["Constraint Engine<br/>H1–H9, H11, H12"]
+        Algo["Greedy Scheduler<br/>Backtracking Scheduler"]
+    end
+
+    subgraph Data["Data Layer"]
+        ORM["SQLAlchemy Models"]
+        PG[("PostgreSQL")]
+    end
+
+    React -->|"axios + JWT(sessionStorage)"| FastAPI
+    FastAPI --> SVC
+    SVC -->|"組裝"| Domain
+    Domain --> Static
+    Static -->|"通過"| Algo
+    Domain --> Constraints
+    Constraints -->|"提供即時驗證"| Algo
+    Algo -->|"排課結果 / 失敗原因"| SVC
+    SVC --> ORM
+    ORM --> PG
+
+    style Engine fill:#f0f7ff,stroke:#4a7fc9,stroke-width:2px
 ```
 
-## Development
+`scheduling_engine/` 刻意獨立於 FastAPI 與 SQLAlchemy——不 import 任何一行框架程式碼,只吃/吐純 Python dataclass,原因與完整說明見 `docs/SYSTEM_DESIGN.md` 第 2 節。
 
-開發環境設定與啟動流程待專案基礎依賴建立後補充。
+## 技術棧
 
-## Testing
+| 分類 | 技術 | 版本 |
+|---|---|---|
+| 前端框架 | React / React DOM | 19.2.8 |
+| 前端語言 | TypeScript | ~6.0.2 |
+| 前端建置工具 | Vite | 8.3.0 |
+| 前端路由 | React Router DOM | 7.18.3 |
+| HTTP 客戶端 | axios | 1.20.0 |
+| CSS | Tailwind CSS | 4.3.3 |
+| 前端 Lint | oxlint | 1.81.0 |
+| 後端框架 | FastAPI | 0.141.1 |
+| ASGI Server | uvicorn | 0.52.4 |
+| 資料驗證 | Pydantic | 2.13.5 |
+| ORM | SQLAlchemy | 2.0.52 |
+| 資料庫遷移 | Alembic | 1.19.2 |
+| 資料庫驅動 | psycopg | 3.3.5 |
+| 密碼雜湊 | passlib (bcrypt) | 1.7.4 |
+| JWT | python-jose | 3.5.0 |
+| 測試框架 | pytest | 9.1.1 |
+| 資料庫 | PostgreSQL | 16(Docker image） |
 
-測試策略與執行方式待測試套件建立後補充。
+版本號直接讀自 `requirements.txt`(後端)與 `frontend/package.json`(前端,`^`/`~` 前綴皆為目前 lockfile 實際安裝的版本)。
 
-## Scheduling Engine
+## ER Diagram
 
-Scheduling Engine 的核心規則與邊界定義於 `AGENTS.md`，目前尚未實作。
+```mermaid
+erDiagram
+    ACADEMIC_YEAR ||--o{ SEMESTER : "有"
+    SEMESTER ||--o{ CLASS_SUBJECT_REQUIREMENT : "有"
+    SEMESTER ||--o{ SCHEDULE_VERSION : "有"
+    GRADE ||--o{ CLASS_GROUP : "有"
+    ROOM |o--o{ CLASS_GROUP : "擔任導師班教室(選填)"
+    CLASS_GROUP ||--o{ CLASS_SUBJECT_REQUIREMENT : "有"
+    SUBJECT ||--o{ CLASS_SUBJECT_REQUIREMENT : "有"
+    TEACHER |o--o{ CLASS_SUBJECT_REQUIREMENT : "指定教師(選填)"
+    TEACHER ||--o{ TEACHER_SUBJECT : "任教資格"
+    SUBJECT ||--o{ TEACHER_SUBJECT : "被授資格"
+    TEACHER ||--o{ TEACHER_AVAILABILITY : "不可用時段"
+    TIME_SLOT ||--o{ TEACHER_AVAILABILITY : "被標記不可用"
+    CLASS_SUBJECT_REQUIREMENT ||--o{ LESSON : "產生(diff-sync)"
+    LESSON ||--o{ SCHEDULE : "在某版本中被排入"
+    SCHEDULE_VERSION ||--o{ SCHEDULE : "包含"
+    TEACHER |o--o{ SCHEDULE : "被指派(選填)"
+    TIME_SLOT |o--o{ SCHEDULE : "被指派(選填)"
+    ROOM |o--o{ SCHEDULE : "被指派(選填)"
 
-## Future Improvements
+    SCHOOL {
+        int id PK
+        string name
+        bool is_active
+    }
+    USER {
+        int id PK
+        string username
+        string hashed_password
+        string role
+    }
+    CLASS_SUBJECT_REQUIREMENT {
+        int id PK
+        int semester_id FK
+        int class_id FK
+        int subject_id FK
+        int weekly_periods
+        int required_teacher_id FK
+        string required_room_type
+        int consecutive_limit
+    }
+    LESSON {
+        int id PK
+        int class_subject_requirement_id FK
+        int sequence_number
+    }
+    SCHEDULE_VERSION {
+        int id PK
+        int semester_id FK
+        int version_number
+        string status
+    }
+    SCHEDULE {
+        int id PK
+        int schedule_version_id FK
+        int lesson_id FK
+        int teacher_id FK
+        int time_slot_id FK
+        int room_id FK
+    }
+    TEACHER {
+        int id PK
+        string name
+        bool is_active
+        int min_weekly_periods
+        int max_weekly_periods
+    }
+```
 
-待專案累積更多進度後補充。
+> 圖中 `CLASS_GROUP` 對應程式碼裡的 `Class`(班級)——`CLASS` 是 Mermaid erDiagram 語法保留字。完整欄位、四個非直覺設計決策的理由見 `docs/SYSTEM_DESIGN.md` 第 4 節。
+
+## 排課演算法摘要
+
+**MRV → Greedy → Backtracking** 三層分工:MRV 排序決定「先處理候選最少的課」;Greedy 依序選第一個可行候選,選完不回頭,快但可能卡死;Backtracking 候選產生邏輯與 Greedy 共用,差別是沒有候選時會撤回前一堂課的選擇再試一次。完整推導(含 H7/H8 為什麼一個永遠整批驗證、一個可以即時過濾)見 `docs/SYSTEM_DESIGN.md` 第 5 節。
+
+### Hard Constraint 實作狀態
+
+| # | 名稱 | 狀態 |
+|---|------|------|
+| H1 | Teacher Conflict | ✅ 已做 |
+| H2 | Class Conflict | ✅ 已做 |
+| H3 | Room Conflict | ✅ 已做 |
+| H4 | Teacher Availability | ✅ 已做 |
+| H5 | Teacher Qualification | ✅ 已做 |
+| H6 | Required Teacher | ✅ 已做 |
+| H7 | Weekly Subject Requirement | ✅ 已做(僅整批驗證) |
+| H8 | Teacher Maximum Workload | ✅ 已做(Greedy 整批 / Backtracking 即時) |
+| H9 | Room Type | ✅ 已做 |
+| H10 | Room Capacity | ⏸️ **延後**(`Room.capacity` 欄位已預留,Constraint 未實作) |
+| H11 | Non-teaching Period | ✅ 已做 |
+| H12 | Active Status | ✅ 已做 |
+
+12 條 Hard Constraint 中 11 條已實作,H10 是唯一延後項目。各條狀態的完整說明、`ConstraintViolation` 共同格式、三種搜尋層級失敗類型、四類靜態可行性預檢,見 `docs/SYSTEM_DESIGN.md` 第 5、6 節。
+
+## 安裝與啟動
+
+### 前置需求
+
+- Python 3.13
+- Node.js(建議 20+;開發時用的是 24.x)
+- Docker Desktop(跑 PostgreSQL)
+- Git
+
+### 1. 設定環境變數
+
+複製 `.env.example` 為 `.env`,填入實際值(以下只列出 key,不附真實值):
+
+```
+DATABASE_URL=postgresql+psycopg://<user>:<password>@localhost:5433/<dbname>
+SECRET_KEY=
+POSTGRES_DB=
+POSTGRES_USER=
+POSTGRES_PASSWORD=
+TEST_DATABASE_URL=postgresql+psycopg://<user>:<password>@localhost:5433/<test_dbname>
+```
+
+`TEST_DATABASE_URL` 的資料庫名稱**必須**與 `DATABASE_URL` 不同——測試套件會對它執行 `Base.metadata.drop_all()`,兩者相同的話 `tests/conftest.py` 會直接拒絕執行。本機 PostgreSQL 預設跑在 `5433`(而非 `5432`),是因為 `docker-compose.yml` 刻意把它對應到這個 host port,避開本機既有的原生 PostgreSQL 服務佔用 `5432` 的情況。
+
+### 2. 啟動 PostgreSQL
+
+```bash
+docker compose up -d
+```
+
+### 3. 建立測試資料庫(只需一次)
+
+`TEST_DATABASE_URL` 指到的資料庫不會自動建立,需要手動連進容器建立(`postgres` 是 `docker-compose.yml` 裡的服務名稱,`docker compose exec` 會自動帶入 `.env` 裡的帳密,不用自己再替換一次):
+
+```bash
+docker compose exec postgres psql -U <POSTGRES_USER> -d <POSTGRES_DB> -c "CREATE DATABASE <test_dbname>;"
+```
+
+（`<POSTGRES_USER>`/`<POSTGRES_DB>`/`<test_dbname>` 對應到你在 `.env` 裡填的 `POSTGRES_USER`、`POSTGRES_DB`、`TEST_DATABASE_URL` 裡的資料庫名稱。）
+
+### 4. 安裝依賴
+
+```bash
+# 後端(建議先建立並啟用虛擬環境)
+pip install -r requirements.txt
+
+# 前端
+cd frontend
+npm install
+```
+
+### 5. 執行資料庫遷移
+
+⚠️ **必須在專案根目錄執行**(`alembic.ini` 的 `script_location` 是以它自己所在目錄為基準,指到 `backend/alembic`;在 `backend/` 目錄內執行會直接失敗,回報「No 'script_location' key found」):
+
+```bash
+# 在專案根目錄
+alembic upgrade head
+```
+
+### 6. 啟動後端
+
+⚠️ **必須在 `backend/` 目錄內執行**(`app.main:app` 是相對於 `backend/` 的模組路徑;在專案根目錄執行會找不到 `app` 模組):
+
+```bash
+cd backend
+uvicorn app.main:app --reload
+```
+
+預設監聽 `http://127.0.0.1:8000`,API 文件見 `/docs`。
+
+### 7. 啟動前端
+
+```bash
+cd frontend
+npm run dev
+```
+
+預設監聽 `http://localhost:5173`。
+
+### 8. 建立第一個管理員帳號
+
+`POST /api/v1/auth/register` 目前**完全開放、不需要任何既有帳號授權就能呼叫**——這是刻意的開發期設計,用來解決「第一個 ADMIN 帳號該由誰建立」的雞生蛋問題(詳見 `backend/app/routers/auth.py` 的程式碼註解)。正式上線前必須鎖定這個端點,目前尚未實作存取限制。
+
+透過 `/docs` 互動式文件,或用 curl:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username": "admin", "password": "<your-password>", "role": "ADMIN"}'
+```
+
+### 9.(可選)灌入測試資料
+
+```bash
+# 在專案根目錄
+python scripts/seed_test_data.py
+```
+
+這個腳本直接呼叫 Service 層函式(不透過 HTTP API),灌入一組可以直接跑完整個「展開課程清單 → 自動排課」流程的示範資料。重複執行需要加 `--confirm` 參數清掉上一次的結果,詳見腳本內的 docstring。
+
+## 測試
+
+### 執行方式
+
+已實測確認兩種執行位置皆可正常運作(專案沒有 `pytest.ini`/`pyproject.toml` 固定其中一種):
+
+```bash
+# 方式一:在專案根目錄
+pytest tests/
+
+# 方式二:在 backend/ 目錄內
+cd backend
+pytest ../tests/
+```
+
+### 測試數量
+
+**目前總計 282 個測試,全數通過**(2026-10-12 實際執行確認):
+
+| 類別 | 測試數 | 執行方式 |
+|---|---|---|
+| Scheduling Engine(純 Python 邏輯,不碰資料庫) | 73 | `pytest tests/scheduling_engine/` |
+| API / 整合測試(真實 FastAPI + PostgreSQL) | 209 | 其餘 `tests/test_*.py` |
+
+Scheduling Engine 那組測試不需要啟動 FastAPI 或連資料庫,秒級內跑完;API 測試會對 `TEST_DATABASE_URL` 指到的資料庫逐一 `create_all`/`drop_all`,耗時較長。測試策略的完整理由見 `docs/SYSTEM_DESIGN.md` 第 9 節。
+
+## API 文件
+
+後端啟動後,互動式 API 文件(Swagger UI)在 `http://127.0.0.1:8000/docs`,涵蓋所有端點的請求/回應格式,可直接在頁面上測試呼叫(右上角 Authorize 填入登入拿到的 JWT token)。
+
+## 專案結構
+
+```text
+backend/
+  app/
+    routers/         FastAPI 路由(/api/v1/*)
+    services/        業務邏輯層
+    models/           SQLAlchemy ORM models
+    schemas/          Pydantic schemas
+    core/             安全性(JWT/密碼雜湊)、依賴注入
+  alembic/            資料庫遷移腳本
+scheduling_engine/    排課引擎(框架獨立)
+  constraints/        H1–H12 Hard Constraint
+  algorithms/         Greedy / Backtracking / MRV
+  models/             純 Python domain dataclass
+frontend/
+  src/
+    pages/            6 個核心頁面
+    components/       共用元件(Layout、失敗診斷等)
+    api/              axios 呼叫層
+    hooks/            共用 CRUD / 資料擷取邏輯
+    styles/           Tailwind 共用樣式 token
+tests/                後端測試(API 層 + scheduling_engine 子目錄)
+scripts/              工具腳本(測試資料灌入)
+docs/                 系統設計文件、截圖
+```
+
+## 已知限制與未來規劃
+
+- **H10 教室容量**未實作 Constraint(欄位已預留)。
+- **Soft Constraints(S1–S7)** 完全未開始(教師每日負擔平衡等)。
+- **版本複製機制未實作**:已發布版本無法複製成新草稿修改。
+- **手動調整課表沒有重新驗證 Hard Constraint**:`PATCH /schedules/{id}` 目前只檢查型別、外鍵、PUBLISHED 鎖定。
+- **`User` 帳號與 `Teacher` 網域實體沒有關聯**:`TEACHER` 角色帳號無法對應到特定一位老師,還做不到「老師只看自己的課表」。
+- **`School` 沒有實際接進資料模型**:目前是隱含單一學校假設。
+- **`TimeSlot.period` 跨星期一致性依賴人工維護紀律**,資料庫層級沒有強制。
+
+完整清單(含每一項的理由)見 `docs/SYSTEM_DESIGN.md` 第 10 節。
+
+## 疑難排解
+
+- **Windows 上 `psycopg` 連線失敗或載入錯誤**:部分 Windows 環境的應用程式控制原則(如 WDAC)可能封鎖 `psycopg` 的 C 擴充套件,若遇到此狀況可改用 `requirements.txt` 已一併列出的 `psycopg-binary`。
+
+## 相關文件
+
+- [`docs/SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md) — 系統設計文件:架構決策紀錄、除錯歷程、演算法細節、ER 圖完整版。
+- [`docs/FRONTEND_REQUIREMENTS.md`](docs/FRONTEND_REQUIREMENTS.md) — 前端需求文件:頁面範圍取捨原則、技術選型理由。
