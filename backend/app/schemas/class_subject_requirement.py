@@ -21,6 +21,11 @@ class ClassSubjectRequirementRead(ClassSubjectRequirementBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    # Task 73: computed per request, not a column -- whether a PUBLISHED or
+    # ARCHIVED version uses this requirement's lessons (then PATCH/DELETE
+    # are refused with 409). Response-only: it is not in Create/Update, so a
+    # request carrying it is simply ignored (pydantic drops unknown fields).
+    is_locked: bool
 
     model_config = ConfigDict(from_attributes=True)
 

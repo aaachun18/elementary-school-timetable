@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -388,26 +389,27 @@ def test_check_unauthenticated_returns_401(
     assert response.status_code == 401
 
 
-def test_check_teacher_sees_published_only(
-    teacher_client: TestClient, db_session: Session
+@pytest.mark.parametrize("status", ["DRAFT", "PUBLISHED", "ARCHIVED"])
+def test_check_is_admin_only(
+    teacher_client: TestClient, db_session: Session, status: str
 ) -> None:
-    # Same visibility as GET /schedule-versions/{id}: a DRAFT is a 404 for
-    # a TEACHER, a PUBLISHED one is checkable.
+    # Task 72 (was: a TEACHER could check a PUBLISHED version): the check
+    # is an administrative tool -- 403 for a TEACHER whatever the status.
     setup = _build_setup(db_session)
     _place_both_lessons_validly(db_session, setup)
-
-    draft_response = teacher_client.get(
-        f"/api/v1/schedule-versions/{setup.version_id}/check"
-    )
-    assert draft_response.status_code == 404
-
     version = db_session.get(ScheduleVersion, setup.version_id)
     assert version is not None
-    version.status = "PUBLISHED"
+    version.status = status
     db_session.commit()
 
-    published_response = teacher_client.get(
-        f"/api/v1/schedule-versions/{setup.version_id}/check"
-    )
-    assert published_response.status_code == 200
-    assert published_response.json()["is_valid"] is True
+    response = teacher_client.get(f"/api/v1/schedule-versions/{setup.version_id}/check")
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "This action requires ADMIN role"
+
+
+def test_check_missing_version_is_403_for_teacher(teacher_client: TestClient) -> None:
+    # The role check comes first, so a TEACHER can't probe which ids exist.
+    response = teacher_client.get("/api/v1/schedule-versions/999999/check")
+
+    assert response.status_code == 403

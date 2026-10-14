@@ -470,7 +470,9 @@ def test_teacher_cannot_see_archived_versions(
     assert listed_ids == [v2.id]
     assert archived_one.status_code == 404
     assert published_one.status_code == 200
-    assert archived_check.status_code == 404
+    # Task 72: the check is ADMIN-only now (403 for any version), not a
+    # visibility-based 404.
+    assert archived_check.status_code == 403
     assert archived_id not in schedule_version_ids
     # ADMIN still sees every version.
     admin_ids = {v["id"] for v in client.get("/api/v1/schedule-versions/").json()}

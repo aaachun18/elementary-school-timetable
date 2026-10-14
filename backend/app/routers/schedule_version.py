@@ -266,17 +266,21 @@ def run_scheduler(
     )
 
 
-@router.get("/{schedule_version_id}/check", response_model=ScheduleCheckResult)
+@router.get(
+    "/{schedule_version_id}/check",
+    response_model=ScheduleCheckResult,
+    dependencies=[Depends(require_admin)],
+)
 def check_schedule_version(
     schedule_version_id: int,
-    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ScheduleCheckResult:
-    # Task 61: read-only. Same permission as GET /{schedule_version_id}:
-    # any logged-in user, but a TEACHER only for PUBLISHED versions (a
-    # DRAFT id is a 404 for them, exactly like get_schedule_version()).
+    # Task 61: read-only. Task 72: ADMIN only -- the conflict details (and,
+    # for a DRAFT, its content) are an administrative tool, not something
+    # the read-only TEACHER role needs; a TEACHER gets 403 for every
+    # version, including PUBLISHED ones.
     violations = schedule_check_service.check_schedule_version(
-        db, schedule_version_id, role=current_user.role
+        db, schedule_version_id
     )
     if violations is None:
         raise HTTPException(

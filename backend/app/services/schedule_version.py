@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -68,6 +68,28 @@ def create_schedule_version(
         raise_for_integrity_error(exc)
     db.refresh(schedule_version)
     return schedule_version
+
+
+def published_semester_ids() -> Select[tuple[int]]:
+    """Task 72: ids of the semesters that currently have a PUBLISHED
+    version -- the only semesters whose Lessons and requirements a TEACHER
+    may read (the same "PUBLISHED only" rule as versions and Schedule rows,
+    applied to the semester-level data a published timetable is built
+    from). A subquery: `.where(column.in_(published_semester_ids()))`."""
+    return select(ScheduleVersion.semester_id).where(ScheduleVersion.status == PUBLISHED)
+
+
+def semester_has_published_version(db: Session, semester_id: int) -> bool:
+    """Task 72: the single-record form of published_semester_ids()."""
+    published_id = db.scalar(
+        select(ScheduleVersion.id)
+        .where(
+            ScheduleVersion.semester_id == semester_id,
+            ScheduleVersion.status == PUBLISHED,
+        )
+        .limit(1)
+    )
+    return published_id is not None
 
 
 def get_schedule_version(

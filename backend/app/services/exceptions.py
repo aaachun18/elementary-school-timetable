@@ -99,6 +99,19 @@ class RequirementUsedByPublishedScheduleError(Exception):
     """
 
 
+class RequirementEditBlockedByPublishedScheduleError(Exception):
+    """Raised by update_class_subject_requirement() (Task 72) when a request
+    would change a field of a requirement whose Lesson rows are referenced
+    by a Schedule row under a PUBLISHED or ARCHIVED ScheduleVersion -- the
+    edit counterpart of RequirementUsedByPublishedScheduleError, decided by
+    the same is_used_by_locked_schedule() check.
+
+    The requirement is shared by every version of its semester, so editing
+    it would leave the locked timetable inconsistent with it (e.g. an H6 or
+    H7 violation appearing in an already-published version).
+    """
+
+
 class CannotDeleteSelfError(Exception):
     """Raised by delete_user() when an ADMIN tries to delete the account
     they are currently logged in as.

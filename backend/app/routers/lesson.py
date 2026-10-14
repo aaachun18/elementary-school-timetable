@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_current_user, require_admin
 from app.database import get_db
 from app.models.lesson import Lesson
+from app.models.user import User
 from app.schemas.lesson import LessonFixTimeSlot, LessonRead
 from app.services import lesson as lesson_service
 
@@ -24,16 +25,28 @@ def list_lessons(
     skip: int = 0,
     limit: int = 100,
     semester_id: int | None = None,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[Lesson]:
+    # Task 72: a TEACHER only sees Lessons of semesters with a PUBLISHED
+    # version -- a silent filter, same as /schedules (Task 43).
     return lesson_service.get_lessons(
-        db, skip=skip, limit=limit, semester_id=semester_id
+        db,
+        skip=skip,
+        limit=limit,
+        semester_id=semester_id,
+        role=current_user.role,
     )
 
 
 @router.get("/{lesson_id}", response_model=LessonRead)
-def get_lesson(lesson_id: int, db: Session = Depends(get_db)) -> Lesson:
-    lesson = lesson_service.get_lesson(db, lesson_id)
+def get_lesson(
+    lesson_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Lesson:
+    # Task 72: a hidden Lesson is the same 404 as a missing one.
+    lesson = lesson_service.get_lesson(db, lesson_id, role=current_user.role)
     if lesson is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Lesson not found"

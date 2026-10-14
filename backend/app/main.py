@@ -32,6 +32,7 @@ from app.services.exceptions import (
     InvalidStatusTransitionError,
     LessonOverProvisionedError,
     PublishedVersionImmutableError,
+    RequirementEditBlockedByPublishedScheduleError,
     RequirementSemesterMismatchError,
     RequirementUsedByPublishedScheduleError,
     ScheduleNotInVersionError,
@@ -141,6 +142,17 @@ def handle_requirement_used_by_published_schedule(
     return JSONResponse(
         status_code=409,
         content={"detail": "此排課需求已被已發布或已封存的課表使用，無法刪除"},
+    )
+
+
+@app.exception_handler(RequirementEditBlockedByPublishedScheduleError)
+def handle_requirement_edit_blocked_by_published_schedule(
+    request: Request, exc: RequirementEditBlockedByPublishedScheduleError
+) -> JSONResponse:
+    # Task 72: same wording as the delete guard's message above.
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "此排課需求已被已發布或已封存的課表使用，無法修改"},
     )
 
 
