@@ -31,6 +31,7 @@ import {
   ERROR_TEXT,
   HELP_TEXT,
   LOADING_TEXT,
+  LOCK_BADGE,
   PAGE,
   PAGE_TITLE,
   SELECT,
@@ -38,6 +39,7 @@ import {
   TABLE_HEAD_ROW,
   TABLE_WRAPPER,
   TD,
+  TD_LOCKED,
   TH,
   TR_HOVER,
 } from "../styles/ui";
@@ -135,7 +137,7 @@ function RequirementNewRow({
   }
 
   return (
-    <tr className="bg-blue-50/40">
+    <tr data-row-key="new" className="bg-blue-50/40">
       <td className={TD}>
         <select
           value={semesterId}
@@ -275,7 +277,7 @@ function RequirementNewRow({
             }
             className={BUTTON_PRIMARY_SM}
           >
-            確認
+            {isPending ? "送出中…" : "確認"}
           </button>
           <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
             取消
@@ -402,7 +404,7 @@ function RequirementRow({
 
   if (isEditing) {
     return (
-      <tr className="bg-blue-50/40">
+      <tr className="bg-blue-50/40" data-row-key={requirement.id}>
         <td className={TD}>
           <select
             value={draftSemesterId}
@@ -521,7 +523,7 @@ function RequirementRow({
               disabled={isPending || draftWeeklyPeriods === null}
               className={BUTTON_PRIMARY_SM}
             >
-              確認
+              {isPending ? "送出中…" : "確認"}
             </button>
             <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
               取消
@@ -537,9 +539,16 @@ function RequirementRow({
     );
   }
 
+  // Task 73: used by a PUBLISHED or ARCHIVED version (decided by the
+  // backend's is_locked) -- shown greyed out with its reason, edit/delete
+  // disabled. The backend's 409 stays as the last line of defense.
+  const isLocked = requirement.is_locked;
+  const cellClass = isLocked ? TD_LOCKED : TD;
+  const lockedReason = "被已發布或已封存的課表使用，如需調整請先複製成草稿";
+
   return (
     <tr className={TR_HOVER}>
-      <td className={TD}>
+      <td className={cellClass}>
         {(() => {
           const semester = semesterById.get(requirement.semester_id);
           return semester !== undefined
@@ -547,28 +556,50 @@ function RequirementRow({
             : `學期 ID ${requirement.semester_id}`;
         })()}
       </td>
-      <td className={TD}>
+      <td className={cellClass}>
         {classNameById.get(requirement.class_id) ?? `班級 ID ${requirement.class_id}`}
       </td>
-      <td className={TD}>
+      <td className={cellClass}>
         {subjectNameById.get(requirement.subject_id) ?? `科目 ID ${requirement.subject_id}`}
       </td>
-      <td className={TD}>{requirement.weekly_periods}</td>
-      <td className={TD}>
+      <td className={cellClass}>{requirement.weekly_periods}</td>
+      <td className={cellClass}>
         {requirement.required_teacher_id === null
           ? "未指定（由系統自動分配）"
           : (teacherNameById.get(requirement.required_teacher_id) ??
             `教師 ID ${requirement.required_teacher_id}`)}
       </td>
-      <td className={TD}>{requirement.required_room_type ?? "原班教室"}</td>
-      <td className={TD}>{requirement.consecutive_limit ?? "未設定"}</td>
+      <td className={cellClass}>{requirement.required_room_type ?? "原班教室"}</td>
+      <td className={cellClass}>{requirement.consecutive_limit ?? "未設定"}</td>
       <td className={TD}>
+        {isLocked && (
+          <div className="mb-1 flex flex-col items-start gap-1">
+            <span className={LOCK_BADGE}>
+              <span aria-hidden="true">🔒</span>已鎖定
+            </span>
+            <span className="text-xs text-gray-500">{lockedReason}</span>
+          </div>
+        )}
         {isAdmin && (
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={onStartEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
+            <button
+              type="button"
+              onClick={onStartEdit}
+              disabled={isPending || isLocked}
+              title={isLocked ? `無法編輯：${lockedReason}` : undefined}
+              aria-label={isLocked ? `編輯（已鎖定，${lockedReason}）` : undefined}
+              className={BUTTON_SECONDARY_SM}
+            >
               編輯
             </button>
-            <button type="button" onClick={onDelete} disabled={isPending} className={BUTTON_DANGER_SM}>
+            <button
+              type="button"
+              onClick={onDelete}
+              disabled={isPending || isLocked}
+              title={isLocked ? `無法刪除：${lockedReason}` : undefined}
+              aria-label={isLocked ? `刪除（已鎖定，${lockedReason}）` : undefined}
+              className={BUTTON_DANGER_SM}
+            >
               刪除
             </button>
           </div>
@@ -710,7 +741,7 @@ export default function RequirementsOverview(): ReactElement {
               {isAdmin && <th className={TH}>操作</th>}
             </tr>
           </thead>
-          <tbody>
+          <tbody onChange={crud.handleRowChange}>
             {crud.isAdding && (
               <RequirementNewRow
                 requirements={crud.items}

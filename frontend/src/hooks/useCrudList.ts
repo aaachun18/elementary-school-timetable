@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { extractApiErrorMessage } from "../constants/errorMessages";
 
 // One row's create()/update()/remove() functions -- exactly the shape
@@ -13,6 +13,39 @@ export interface CrudApi<T, TCreate, TUpdate> {
 // Which row a piece of per-row state belongs to -- "new" for the add-row
 // draft (which has no id yet), or an existing row's id.
 export type RowKey = number | "new";
+
+// Task 73: the attribute an add/edit row's <tr> carries so handleRowChange
+// (attached once to the table's <tbody>) knows which row a change came from:
+// data-row-key="new" or data-row-key={id}.
+const ROW_KEY_SELECTOR = "tr[data-row-key]";
+
+// Task 73: a failed submit's message is shown no sooner than this after the
+// click. A fast 409 would otherwise clear and re-show the same red text
+// within a few milliseconds -- invisible, so a retry looked like nothing
+// happened. Successful submits are never delayed.
+const MIN_FAILED_SUBMIT_FEEDBACK_MS = 400;
+
+function waitUntil(startedAt: number, minimumMs: number): Promise<void> {
+  const remaining = minimumMs - (Date.now() - startedAt);
+  return remaining > 0
+    ? new Promise((resolve) => window.setTimeout(resolve, remaining))
+    : Promise.resolve();
+}
+
+function rowKeyOf(element: EventTarget): RowKey | null {
+  if (!(element instanceof Element)) {
+    return null;
+  }
+  const raw = element.closest(ROW_KEY_SELECTOR)?.getAttribute("data-row-key");
+  if (raw === undefined || raw === null) {
+    return null;
+  }
+  if (raw === "new") {
+    return "new";
+  }
+  const id = Number(raw);
+  return Number.isInteger(id) ? id : null;
+}
 
 export interface CrudListController<T, TCreate, TUpdate> {
   items: T[];
@@ -32,6 +65,10 @@ export interface CrudListController<T, TCreate, TUpdate> {
   submitCreate: (data: TCreate) => Promise<void>;
   submitUpdate: (id: number, data: TUpdate) => Promise<void>;
   submitDelete: (id: number) => Promise<void>;
+  // Task 73: attach to the table's <tbody> as onChange. Editing any field of
+  // an add/edit row (marked with data-row-key) clears that row's error --
+  // React's change events bubble, so one handler covers every input.
+  handleRowChange: (event: FormEvent<HTMLElement>) => void;
 }
 
 // Phase B's shared add/edit/delete interaction mechanics (Task 42) --
@@ -90,10 +127,21 @@ export function useCrudList<T extends { id: number }, TCreate, TUpdate>(
   }
 
   function cancelEditing(): void {
+    if (editingId !== null) {
+      clearRowError(editingId);
+    }
     setEditingId(null);
   }
 
+  function handleRowChange(event: FormEvent<HTMLElement>): void {
+    const key = rowKeyOf(event.target);
+    if (key !== null) {
+      clearRowError(key);
+    }
+  }
+
   async function submitCreate(data: TCreate): Promise<void> {
+    const startedAt = Date.now();
     setPendingKey("new");
     clearRowError("new");
     try {
@@ -101,6 +149,7 @@ export function useCrudList<T extends { id: number }, TCreate, TUpdate>(
       setItems((previous) => [...previous, created]);
       setIsAdding(false);
     } catch (error) {
+      await waitUntil(startedAt, MIN_FAILED_SUBMIT_FEEDBACK_MS);
       setRowErrors((previous) => new Map(previous).set("new", extractApiErrorMessage(error)));
     } finally {
       setPendingKey(null);
@@ -108,6 +157,7 @@ export function useCrudList<T extends { id: number }, TCreate, TUpdate>(
   }
 
   async function submitUpdate(id: number, data: TUpdate): Promise<void> {
+    const startedAt = Date.now();
     setPendingKey(id);
     clearRowError(id);
     try {
@@ -115,6 +165,7 @@ export function useCrudList<T extends { id: number }, TCreate, TUpdate>(
       setItems((previous) => previous.map((item) => (item.id === id ? updated : item)));
       setEditingId(null);
     } catch (error) {
+      await waitUntil(startedAt, MIN_FAILED_SUBMIT_FEEDBACK_MS);
       setRowErrors((previous) => new Map(previous).set(id, extractApiErrorMessage(error)));
     } finally {
       setPendingKey(null);
@@ -122,12 +173,14 @@ export function useCrudList<T extends { id: number }, TCreate, TUpdate>(
   }
 
   async function submitDelete(id: number): Promise<void> {
+    const startedAt = Date.now();
     setPendingKey(id);
     clearRowError(id);
     try {
       await api.remove(id);
       setItems((previous) => previous.filter((item) => item.id !== id));
     } catch (error) {
+      await waitUntil(startedAt, MIN_FAILED_SUBMIT_FEEDBACK_MS);
       setRowErrors((previous) => new Map(previous).set(id, extractApiErrorMessage(error)));
     } finally {
       setPendingKey(null);
@@ -147,5 +200,6 @@ export function useCrudList<T extends { id: number }, TCreate, TUpdate>(
     submitCreate,
     submitUpdate,
     submitDelete,
+    handleRowChange,
   };
 }

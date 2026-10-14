@@ -63,6 +63,10 @@ export const TABLE_HEAD_ROW = "bg-gray-50";
 export const TH = "border-b border-gray-200 px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap";
 export const TD = "border-b border-gray-100 px-3 py-2 text-gray-700";
 export const TR_HOVER = "hover:bg-gray-50";
+// Task 73: a cell of a locked (read-only) row -- TD with lighter text. A
+// separate constant, not TD + "text-gray-400", so the two text colors never
+// compete.
+export const TD_LOCKED = "border-b border-gray-100 px-3 py-2 text-gray-400";
 
 // --- Nav ---
 export const NAV_BAR =
@@ -76,6 +80,10 @@ export const TAB_BUTTON =
 export const TAB_BUTTON_ACTIVE = "rounded-md bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700";
 
 // --- Badges / status pills ---
+// Task 73: marks a row that can't be edited or deleted (shown with an
+// explanation line next to it, not only as a tooltip).
+export const LOCK_BADGE =
+  "inline-flex items-center gap-1 rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-700";
 export const BADGE_SUCCESS = "inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700";
 export const BADGE_NEUTRAL = "inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600";
 // Task 67: version status pills -- DRAFT uses the accent blue (BADGE_INFO),

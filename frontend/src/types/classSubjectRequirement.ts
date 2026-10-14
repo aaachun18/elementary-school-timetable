@@ -11,6 +11,10 @@ export interface ClassSubjectRequirement {
   consecutive_limit: number | null;
   created_at: string;
   updated_at: string;
+  // Task 73: computed by the backend on every response -- true when a
+  // PUBLISHED or ARCHIVED version uses this requirement's lessons, in which
+  // case PATCH/DELETE are refused (409). Response-only; never sent back.
+  is_locked: boolean;
 }
 
 export interface ClassSubjectRequirementCreate {

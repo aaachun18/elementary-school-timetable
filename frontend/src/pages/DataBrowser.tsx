@@ -458,7 +458,7 @@ function TeacherNewRow({
   }
 
   return (
-    <tr className={TR_HOVER}>
+    <tr data-row-key="new" className={TR_HOVER}>
       <td className={TD}>
         <input
           value={name}
@@ -496,7 +496,7 @@ function TeacherNewRow({
           disabled={isPending || name.trim() === "" || min === null || max === null || isRangeInvalid}
           className={BUTTON_PRIMARY_SM}
         >
-          確認
+          {isPending ? "送出中…" : "確認"}
         </button>
         <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
           取消
@@ -567,7 +567,7 @@ function TeacherRow({
 
   if (isEditing) {
     return (
-      <tr className="bg-blue-50/40">
+      <tr className="bg-blue-50/40" data-row-key={teacher.id}>
         <td className={TD}>
           <input
             value={draftName}
@@ -622,7 +622,7 @@ function TeacherRow({
             }
             className={BUTTON_PRIMARY_SM}
           >
-            確認
+            {isPending ? "送出中…" : "確認"}
           </button>
           <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
             取消
@@ -743,7 +743,7 @@ function TeachersTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
                 {isAdmin && <th className={TH}>操作</th>}
               </tr>
             </thead>
-            <tbody>
+            <tbody onChange={crud.handleRowChange}>
               {crud.isAdding && (
                 <TeacherNewRow
                   isPending={crud.pendingKey === "new"}
@@ -815,7 +815,7 @@ function GradeNewRow({
   const level = levelText === "" ? null : Number(levelText);
 
   return (
-    <tr className={TR_HOVER}>
+    <tr data-row-key="new" className={TR_HOVER}>
       <td className={TD}>
         <input
           value={name}
@@ -846,7 +846,7 @@ function GradeNewRow({
           disabled={isPending || name.trim() === "" || level === null}
           className={BUTTON_PRIMARY_SM}
         >
-          確認
+          {isPending ? "送出中…" : "確認"}
         </button>
         <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
           取消
@@ -892,7 +892,7 @@ function GradeRow({
 
   if (isEditing) {
     return (
-      <tr className="bg-blue-50/40">
+      <tr className="bg-blue-50/40" data-row-key={grade.id}>
         <td className={TD}>
           <input
             value={draftName}
@@ -923,7 +923,7 @@ function GradeRow({
             disabled={isPending || draftName.trim() === "" || draftLevel === null}
             className={BUTTON_PRIMARY_SM}
           >
-            確認
+            {isPending ? "送出中…" : "確認"}
           </button>
           <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
             取消
@@ -999,7 +999,7 @@ function GradesTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
                 {isAdmin && <th className={TH}>操作</th>}
               </tr>
             </thead>
-            <tbody>
+            <tbody onChange={crud.handleRowChange}>
               {crud.isAdding && (
                 <GradeNewRow
                   isPending={crud.pendingKey === "new"}
@@ -1045,7 +1045,7 @@ function SchoolNewRow({
   const [name, setName] = useState("");
 
   return (
-    <tr className={TR_HOVER}>
+    <tr data-row-key="new" className={TR_HOVER}>
       <td className={TD}>
         <input
           value={name}
@@ -1067,7 +1067,7 @@ function SchoolNewRow({
           disabled={isPending || name.trim() === ""}
           className={BUTTON_PRIMARY_SM}
         >
-          確認
+          {isPending ? "送出中…" : "確認"}
         </button>
         <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
           取消
@@ -1116,7 +1116,7 @@ function SchoolRow({
 
   if (isEditing) {
     return (
-      <tr className="bg-blue-50/40">
+      <tr className="bg-blue-50/40" data-row-key={school.id}>
         <td className={TD}>
           <input
             value={draftName}
@@ -1145,7 +1145,7 @@ function SchoolRow({
             disabled={isPending || draftName.trim() === ""}
             className={BUTTON_PRIMARY_SM}
           >
-            確認
+            {isPending ? "送出中…" : "確認"}
           </button>
           <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
             取消
@@ -1221,7 +1221,7 @@ function SchoolsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
                 {isAdmin && <th className={TH}>操作</th>}
               </tr>
             </thead>
-            <tbody>
+            <tbody onChange={crud.handleRowChange}>
               {crud.isAdding && (
                 <SchoolNewRow
                   isPending={crud.pendingKey === "new"}
@@ -1275,7 +1275,7 @@ function AcademicYearNewRow({
   const year = yearText === "" ? null : Number(yearText);
 
   return (
-    <tr className={TR_HOVER}>
+    <tr data-row-key="new" className={TR_HOVER}>
       <td className={TD}>
         <input
           type="number"
@@ -1298,7 +1298,7 @@ function AcademicYearNewRow({
           disabled={isPending || year === null}
           className={BUTTON_PRIMARY_SM}
         >
-          確認
+          {isPending ? "送出中…" : "確認"}
         </button>
         <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
           取消
@@ -1344,7 +1344,7 @@ function AcademicYearRow({
 
   if (isEditing) {
     return (
-      <tr className="bg-blue-50/40">
+      <tr className="bg-blue-50/40" data-row-key={academicYear.id}>
         <td className={TD}>
           <input
             type="number"
@@ -1378,7 +1378,7 @@ function AcademicYearRow({
             disabled={isPending || draftYear === null}
             className={BUTTON_PRIMARY_SM}
           >
-            確認
+            {isPending ? "送出中…" : "確認"}
           </button>
           <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
             取消
@@ -1454,7 +1454,7 @@ function AcademicYearsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
                 {isAdmin && <th className={TH}>操作</th>}
               </tr>
             </thead>
-            <tbody>
+            <tbody onChange={crud.handleRowChange}>
               {crud.isAdding && (
                 <AcademicYearNewRow
                   isPending={crud.pendingKey === "new"}
@@ -1510,7 +1510,7 @@ function SemesterNewRow({
   const hasAcademicYearOptions = academicYears.length > 0;
 
   return (
-    <tr className={TR_HOVER}>
+    <tr data-row-key="new" className={TR_HOVER}>
       <td className={TD}>
         <select
           value={academicYearId}
@@ -1562,7 +1562,7 @@ function SemesterNewRow({
           disabled={isPending || academicYearId === ""}
           className={BUTTON_PRIMARY_SM}
         >
-          確認
+          {isPending ? "送出中…" : "確認"}
         </button>
         <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
           取消
@@ -1613,7 +1613,7 @@ function SemesterRow({
 
   if (isEditing) {
     return (
-      <tr className="bg-blue-50/40">
+      <tr className="bg-blue-50/40" data-row-key={semester.id}>
         <td className={TD}>
           <select
             value={draftAcademicYearId}
@@ -1673,7 +1673,7 @@ function SemesterRow({
             disabled={isPending}
             className={BUTTON_PRIMARY_SM}
           >
-            確認
+            {isPending ? "送出中…" : "確認"}
           </button>
           <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
             取消
@@ -1765,7 +1765,7 @@ function SemestersTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
                 {isAdmin && <th className={TH}>操作</th>}
               </tr>
             </thead>
-            <tbody>
+            <tbody onChange={crud.handleRowChange}>
               {crud.isAdding && (
                 <SemesterNewRow
                   academicYears={academicYears}
@@ -1829,7 +1829,7 @@ function ClassNewRow({
   const hasGradeOptions = grades.length > 0;
 
   return (
-    <tr className={TR_HOVER}>
+    <tr data-row-key="new" className={TR_HOVER}>
       <td className={TD}>
         <input
           value={name}
@@ -1897,7 +1897,7 @@ function ClassNewRow({
           disabled={isPending || gradeId === "" || name.trim() === ""}
           className={BUTTON_PRIMARY_SM}
         >
-          確認
+          {isPending ? "送出中…" : "確認"}
         </button>
         <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
           取消
@@ -1956,7 +1956,7 @@ function ClassRow({
 
   if (isEditing) {
     return (
-      <tr className="bg-blue-50/40">
+      <tr className="bg-blue-50/40" data-row-key={classItem.id}>
         <td className={TD}>
           <input
             value={draftName}
@@ -2031,7 +2031,7 @@ function ClassRow({
             disabled={isPending || draftName.trim() === ""}
             className={BUTTON_PRIMARY_SM}
           >
-            確認
+            {isPending ? "送出中…" : "確認"}
           </button>
           <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
             取消
@@ -2131,7 +2131,7 @@ function ClassesTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
                 {isAdmin && <th className={TH}>操作</th>}
               </tr>
             </thead>
-            <tbody>
+            <tbody onChange={crud.handleRowChange}>
               {crud.isAdding && (
                 <ClassNewRow
                   grades={grades}
@@ -2183,7 +2183,7 @@ function SubjectNewRow({
   const [name, setName] = useState("");
 
   return (
-    <tr className={TR_HOVER}>
+    <tr data-row-key="new" className={TR_HOVER}>
       <td className={TD}>
         <input
           value={name}
@@ -2201,7 +2201,7 @@ function SubjectNewRow({
           disabled={isPending || name.trim() === ""}
           className={BUTTON_PRIMARY_SM}
         >
-          確認
+          {isPending ? "送出中…" : "確認"}
         </button>
         <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
           取消
@@ -2245,7 +2245,7 @@ function SubjectRow({
 
   if (isEditing) {
     return (
-      <tr className="bg-blue-50/40">
+      <tr className="bg-blue-50/40" data-row-key={subject.id}>
         <td className={TD}>
           <input
             value={draftName}
@@ -2274,7 +2274,7 @@ function SubjectRow({
             disabled={isPending || draftName.trim() === ""}
             className={BUTTON_PRIMARY_SM}
           >
-            確認
+            {isPending ? "送出中…" : "確認"}
           </button>
           <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
             取消
@@ -2350,7 +2350,7 @@ function SubjectsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
                 {isAdmin && <th className={TH}>操作</th>}
               </tr>
             </thead>
-            <tbody>
+            <tbody onChange={crud.handleRowChange}>
               {crud.isAdding && (
                 <SubjectNewRow
                   isPending={crud.pendingKey === "new"}
@@ -2409,7 +2409,7 @@ function RoomNewRow({
   }
 
   return (
-    <tr className={TR_HOVER}>
+    <tr data-row-key="new" className={TR_HOVER}>
       <td className={TD}>
         <input
           value={name}
@@ -2449,7 +2449,7 @@ function RoomNewRow({
           disabled={isPending || name.trim() === "" || roomType.trim() === ""}
           className={BUTTON_PRIMARY_SM}
         >
-          確認
+          {isPending ? "送出中…" : "確認"}
         </button>
         <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
           取消
@@ -2499,7 +2499,7 @@ function RoomRow({
 
   if (isEditing) {
     return (
-      <tr className="bg-blue-50/40">
+      <tr className="bg-blue-50/40" data-row-key={room.id}>
         <td className={TD}>
           <input
             value={draftName}
@@ -2556,7 +2556,7 @@ function RoomRow({
             disabled={isPending || draftName.trim() === "" || draftRoomType.trim() === ""}
             className={BUTTON_PRIMARY_SM}
           >
-            確認
+            {isPending ? "送出中…" : "確認"}
           </button>
           <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
             取消
@@ -2636,7 +2636,7 @@ function RoomsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
                 {isAdmin && <th className={TH}>操作</th>}
               </tr>
             </thead>
-            <tbody>
+            <tbody onChange={crud.handleRowChange}>
               {crud.isAdding && (
                 <RoomNewRow
                   isPending={crud.pendingKey === "new"}
@@ -2691,7 +2691,7 @@ function TimeSlotNewRow({
   const period = periodText === "" ? null : Number(periodText);
 
   return (
-    <tr className={TR_HOVER}>
+    <tr data-row-key="new" className={TR_HOVER}>
       <td className={TD}>
         <select
           value={weekday}
@@ -2760,7 +2760,7 @@ function TimeSlotNewRow({
           disabled={isPending || period === null}
           className={BUTTON_PRIMARY_SM}
         >
-          確認
+          {isPending ? "送出中…" : "確認"}
         </button>
         <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
           取消
@@ -2812,7 +2812,7 @@ function TimeSlotRow({
 
   if (isEditing) {
     return (
-      <tr className="bg-blue-50/40">
+      <tr className="bg-blue-50/40" data-row-key={timeSlot.id}>
         <td className={TD}>
           <select
             value={draftWeekday}
@@ -2880,7 +2880,7 @@ function TimeSlotRow({
             disabled={isPending || draftPeriod === null}
             className={BUTTON_PRIMARY_SM}
           >
-            確認
+            {isPending ? "送出中…" : "確認"}
           </button>
           <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
             取消
@@ -2972,7 +2972,7 @@ function TimeSlotsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
                 {isAdmin && <th className={TH}>操作</th>}
               </tr>
             </thead>
-            <tbody>
+            <tbody onChange={crud.handleRowChange}>
               {crud.isAdding && (
                 <TimeSlotNewRow
                   isPending={crud.pendingKey === "new"}
