@@ -74,3 +74,41 @@ export interface ScheduleCheckResult {
   violation_count: number;
   violations: ConstraintViolationDetail[];
 }
+
+// --- Task 69: manual timetable adjustment (Task 65 endpoints) ---
+
+// POST /schedule-versions/{id}/move-lesson. target_room_id omitted/null =
+// room unchanged.
+export interface MoveLessonRequest {
+  schedule_id: number;
+  target_time_slot_id: number;
+  target_room_id?: number | null;
+  dry_run?: boolean;
+}
+
+// POST /schedule-versions/{id}/swap-lessons. Only the two rows' time slots
+// are exchanged; each keeps its own teacher and room.
+export interface SwapLessonsRequest {
+  schedule_id: number;
+  swap_with_schedule_id: number;
+  dry_run?: boolean;
+}
+
+// One Schedule row that actually changed (unchanged rows are not listed).
+export interface ScheduleChangeDetail {
+  schedule_id: number;
+  previous_time_slot_id: number | null;
+  new_time_slot_id: number | null;
+  previous_room_id: number | null;
+  new_room_id: number | null;
+}
+
+// 200 response of both endpoints. `check` is the WHOLE version's check
+// after the change (including problems that existed before it); with
+// dry_run nothing was saved and this is what would happen.
+export interface ScheduleAdjustmentResult {
+  schedule_version_id: number;
+  dry_run: boolean;
+  changes: ScheduleChangeDetail[];
+  check: ScheduleCheckResult;
+}

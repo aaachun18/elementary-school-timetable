@@ -7,8 +7,11 @@ import type {
 } from "../types/scheduleVersion";
 import type {
   GenerateLessonsResponse,
+  MoveLessonRequest,
   RunSchedulerSuccessResponse,
+  ScheduleAdjustmentResult,
   ScheduleCheckResult,
+  SwapLessonsRequest,
 } from "../types/scheduler";
 
 // Mirrors backend/app/routers/schedule_version.py's 5 CRUD endpoints -- see
@@ -114,6 +117,32 @@ export async function copy(
 export async function check(versionId: number): Promise<ScheduleCheckResult> {
   const response = await apiClient.get<ScheduleCheckResult>(
     `/api/v1/schedule-versions/${versionId}/check`,
+  );
+  return response.data;
+}
+
+// --- Task 69: manual adjustment of a DRAFT's timetable (ADMIN only). Both
+// save unless dry_run is true; conflicts never block, they're reported in
+// the response's `check`. ---
+
+export async function moveLesson(
+  versionId: number,
+  body: MoveLessonRequest,
+): Promise<ScheduleAdjustmentResult> {
+  const response = await apiClient.post<ScheduleAdjustmentResult>(
+    `/api/v1/schedule-versions/${versionId}/move-lesson`,
+    body,
+  );
+  return response.data;
+}
+
+export async function swapLessons(
+  versionId: number,
+  body: SwapLessonsRequest,
+): Promise<ScheduleAdjustmentResult> {
+  const response = await apiClient.post<ScheduleAdjustmentResult>(
+    `/api/v1/schedule-versions/${versionId}/swap-lessons`,
+    body,
   );
   return response.data;
 }

@@ -75,3 +75,35 @@ export function groupMergedViolationsByType(
     .sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
     .map(([type, groupItems]) => ({ type, items: groupItems }));
 }
+
+// --- Task 69: before/after comparison for a move/swap preview ---
+
+export interface ViolationDiff {
+  // In `after` only: problems this change would introduce.
+  added: MergedViolation[];
+  // In `before` only: problems this change would fix.
+  resolved: MergedViolation[];
+  // In both: problems the change doesn't touch (as they look after it).
+  unchanged: MergedViolation[];
+}
+
+// Compares two checks of the same version by merged Chinese sentence -- the
+// same key the checklist shows, so "added" means "a line the user would
+// newly see". A line present in both counts as unchanged even if its ×N
+// changed. Each list keeps its source's merged order (`after` for added and
+// unchanged, `before` for resolved).
+export function diffViolations(
+  before: ConstraintViolationDetail[],
+  after: ConstraintViolationDetail[],
+  sentenceOf: (violation: ConstraintViolationDetail) => string,
+): ViolationDiff {
+  const beforeItems = mergeViolationsBySentence(before, sentenceOf);
+  const afterItems = mergeViolationsBySentence(after, sentenceOf);
+  const beforeSentences = new Set(beforeItems.map((item) => item.sentence));
+  const afterSentences = new Set(afterItems.map((item) => item.sentence));
+  return {
+    added: afterItems.filter((item) => !beforeSentences.has(item.sentence)),
+    resolved: beforeItems.filter((item) => !afterSentences.has(item.sentence)),
+    unchanged: afterItems.filter((item) => beforeSentences.has(item.sentence)),
+  };
+}

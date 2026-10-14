@@ -19,6 +19,10 @@ interface UseScheduleCheckResult {
   // check is a deliberate user action (a button), not part of loading.
   run: () => void;
   clear: () => void;
+  // Task 69: shows a result obtained elsewhere for the current version --
+  // e.g. the `check` a move/swap response already carries -- as if run()
+  // had returned it. Supersedes any check still in flight.
+  setResult: (result: ScheduleCheckResult) => void;
 }
 
 // Task 68: GET /schedule-versions/{id}/check, triggered on demand.
@@ -26,7 +30,7 @@ interface UseScheduleCheckResult {
 //   request superseded by a newer run()/clear(), is dropped.
 // - Nothing is set after the component unmounts.
 export function useScheduleCheck(scheduleVersionId: number | null): UseScheduleCheckResult {
-  const [result, setResult] = useState<ForVersion<ScheduleCheckResult> | null>(null);
+  const [result, setStoredResult] = useState<ForVersion<ScheduleCheckResult> | null>(null);
   const [error, setError] = useState<ForVersion<string> | null>(null);
   const [checkingVersionId, setCheckingVersionId] = useState<number | null>(null);
 
@@ -37,7 +41,7 @@ export function useScheduleCheck(scheduleVersionId: number | null): UseScheduleC
   const [trackedVersionId, setTrackedVersionId] = useState(scheduleVersionId);
   if (trackedVersionId !== scheduleVersionId) {
     setTrackedVersionId(scheduleVersionId);
-    setResult(null);
+    setStoredResult(null);
     setError(null);
     setCheckingVersionId(null);
   }
@@ -68,12 +72,12 @@ export function useScheduleCheck(scheduleVersionId: number | null): UseScheduleC
     checkScheduleVersion(versionId)
       .then((data) => {
         if (isCurrent()) {
-          setResult({ versionId, value: data });
+          setStoredResult({ versionId, value: data });
         }
       })
       .catch((caught: unknown) => {
         if (isCurrent()) {
-          setResult(null);
+          setStoredResult(null);
           setError({ versionId, value: extractApiErrorMessage(caught) });
         }
       })
@@ -86,10 +90,23 @@ export function useScheduleCheck(scheduleVersionId: number | null): UseScheduleC
 
   const clear = useCallback(() => {
     latestRequestRef.current += 1;
-    setResult(null);
+    setStoredResult(null);
     setError(null);
     setCheckingVersionId(null);
   }, []);
+
+  const setResult = useCallback(
+    (value: ScheduleCheckResult) => {
+      if (scheduleVersionId === null) {
+        return;
+      }
+      latestRequestRef.current += 1;
+      setStoredResult({ versionId: scheduleVersionId, value });
+      setError(null);
+      setCheckingVersionId(null);
+    },
+    [scheduleVersionId],
+  );
 
   const isCurrentVersion = (versionId: number): boolean => versionId === scheduleVersionId;
 
@@ -99,5 +116,6 @@ export function useScheduleCheck(scheduleVersionId: number | null): UseScheduleC
     errorMessage: error !== null && isCurrentVersion(error.versionId) ? error.value : null,
     run,
     clear,
+    setResult,
   };
 }

@@ -98,3 +98,17 @@ export const DIALOG_TITLE = "text-lg font-semibold text-gray-900";
 // Task 68: the cell 「在課表中查看」 points at -- an amber inset ring plus a
 // light fill: clearly visible, but not the red used for errors.
 export const TD_HIGHLIGHT = "bg-amber-50 ring-2 ring-inset ring-amber-400";
+
+// --- Timetable edit mode (Task 69) ---
+// A lesson in edit mode is a full-width button; the selected one gets a
+// thick blue border AND a 「已選取」 text marker (never color alone).
+export const LESSON_BUTTON =
+  "flex w-full flex-col items-start rounded-md border border-gray-300 bg-white px-2 py-1 text-left text-sm hover:border-blue-400 hover:bg-blue-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60";
+export const LESSON_BUTTON_SELECTED =
+  "flex w-full flex-col items-start rounded-md border-2 border-blue-600 bg-blue-50 px-2 py-1 text-left text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60";
+// 「移到這裡」 drop target inside a cell.
+export const MOVE_TARGET_BUTTON =
+  "w-full rounded-md border border-dashed border-blue-400 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50";
+// The 「已選取：…」 status bar above the grid.
+export const SELECTION_BAR =
+  "flex flex-wrap items-center gap-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900";

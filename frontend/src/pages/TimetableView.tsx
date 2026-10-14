@@ -6,18 +6,25 @@ import { list as listAcademicYears } from "../api/academicYears";
 import { list as listClasses } from "../api/classes";
 import { list as listTeachers } from "../api/teachers";
 import { list as listRooms } from "../api/rooms";
+import AdjustmentPreviewDialog from "../components/AdjustmentPreviewDialog";
 import ConflictChecklist from "../components/ConflictChecklist";
+import TimetableGrid from "../components/TimetableGrid";
+import { useFlashMessage } from "../hooks/useFlashMessage";
+import { useLessonAdjustment, type SavedAdjustment } from "../hooks/useLessonAdjustment";
 import { useResource } from "../hooks/useResource";
 import { useScheduleCheck } from "../hooks/useScheduleCheck";
-import { useTimetableData, timeSlotKey, type EnrichedSchedule } from "../hooks/useTimetableData";
+import { useTimetableData, type EnrichedSchedule } from "../hooks/useTimetableData";
 import { isCurrentUserAdmin } from "../utils/auth";
-import { getViolationSentence, type NameLookups } from "../utils/failureDiagnostics";
+import { getViolationSentence, resolveTimeSlotLabel } from "../utils/failureDiagnostics";
 import { formatVersionLabel } from "../utils/scheduleVersionFormat";
 import { mergeViolationsBySentence } from "../utils/violationMerge";
+import { resolveLocateTarget, type TimetableViewMode } from "../utils/violationLocate";
 import type { ConstraintViolationDetail } from "../types/scheduler";
-import { formatWeekday } from "../utils/timeSlotFormat";
+import type { TimeSlot } from "../types/timeSlot";
 import {
   BUTTON_PRIMARY,
+  BUTTON_SECONDARY,
+  BUTTON_SECONDARY_SM,
   CARD,
   ERROR_TEXT,
   LABEL,
@@ -28,78 +35,17 @@ import {
   PAGE_TITLE,
   SECTION,
   SELECT,
+  SELECTION_BAR,
+  SUCCESS_TEXT,
   TAB_BUTTON,
   TAB_BUTTON_ACTIVE,
-  TABLE,
-  TABLE_HEAD_ROW,
-  TABLE_WRAPPER,
-  TD,
-  TD_HIGHLIGHT,
-  TH,
 } from "../styles/ui";
 
-type ViewMode = "class" | "teacher" | "room";
-
-const VIEW_MODES: { key: ViewMode; label: string }[] = [
+const VIEW_MODES: { key: TimetableViewMode; label: string }[] = [
   { key: "class", label: "依班級" },
   { key: "teacher", label: "依教師" },
   { key: "room", label: "依教室" },
 ];
-
-const WEEKDAYS = [1, 2, 3, 4, 5];
-
-function targetIdOf(row: EnrichedSchedule, viewMode: ViewMode): number | null {
-  if (viewMode === "class") {
-    return row.classId;
-  }
-  if (viewMode === "teacher") {
-    return row.teacherId;
-  }
-  return row.roomId;
-}
-
-// What a cell shows besides the subject name -- "the other party" for
-// whichever axis isn't the one currently being browsed. Room view shows
-// the same pairing as teacher view (subject + class): which class is
-// occupying the room is the most room-relevant question; see Task 34's
-// report for this being my own reasonable extension, not spelled out in
-// the spec.
-function cellDetailOf(row: EnrichedSchedule, viewMode: ViewMode): string {
-  if (viewMode === "class") {
-    return row.teacherName ?? "未指定教師";
-  }
-  return row.className;
-}
-
-// Task 68: where 「在課表中查看」 takes the user -- which view, and whose
-// timetable. A class (or, for H7, which only names a requirement, that
-// requirement's class) wins over a teacher, which wins over a room. null =
-// nothing to show (the button is hidden).
-interface LocateTarget {
-  viewMode: ViewMode;
-  targetId: number;
-}
-
-function resolveLocateTarget(
-  violation: ConstraintViolationDetail,
-  lookups: NameLookups,
-): LocateTarget | null {
-  const classId =
-    violation.class_id ??
-    (violation.class_subject_requirement_id === null
-      ? null
-      : (lookups.requirementById.get(violation.class_subject_requirement_id)?.class_id ?? null));
-  if (classId !== null) {
-    return { viewMode: "class", targetId: classId };
-  }
-  if (violation.teacher_id !== null) {
-    return { viewMode: "teacher", targetId: violation.teacher_id };
-  }
-  if (violation.room_id !== null) {
-    return { viewMode: "room", targetId: violation.room_id };
-  }
-  return null;
-}
 
 export default function TimetableView(): ReactElement {
   const [searchParams] = useSearchParams();
@@ -120,7 +66,7 @@ export default function TimetableView(): ReactElement {
     const parsed = raw !== null ? Number(raw) : NaN;
     return Number.isInteger(parsed) ? parsed : null;
   });
-  const [viewMode, setViewMode] = useState<ViewMode>("class");
+  const [viewMode, setViewMode] = useState<TimetableViewMode>("class");
   const [selectedTargetId, setSelectedTargetId] = useState<number | null>(null);
 
   const timetable = useTimetableData(selectedVersionId);
@@ -129,8 +75,9 @@ export default function TimetableView(): ReactElement {
   // check a PUBLISHED version, this is a UI scoping choice). ---
   const isAdmin = isCurrentUserAdmin();
   const scheduleCheck = useScheduleCheck(selectedVersionId);
-  // The TimeSlot whose cell 「在課表中查看」 marked. Cleared by any other
-  // change of what the grid shows (view, target, version) and by re-checking.
+  // The TimeSlot whose cell 「在課表中查看」 (or, Task 69, a saved move/swap)
+  // marked. Cleared by any other change of what the grid shows (view,
+  // target, version) and by re-checking.
   const [highlightedTimeSlotId, setHighlightedTimeSlotId] = useState<number | null>(null);
   // Bumped on every locate so the grid scrolls into view even when the
   // same line is located twice in a row.
@@ -142,12 +89,50 @@ export default function TimetableView(): ReactElement {
     }
   }, [locateRequestCount]);
 
-  function handleSelectViewMode(mode: ViewMode): void {
+  // --- Task 69: 編輯模式 (ADMIN, DRAFT only) -- click a lesson, then click
+  // 「移到這裡」 or another lesson; every change is previewed first. ---
+  const [isEditModeOn, setIsEditModeOn] = useState(false);
+  const adjustment = useLessonAdjustment(selectedVersionId);
+  const adjustmentFlash = useFlashMessage(4000);
+
+  // Esc deselects (when no dialog is open -- the dialog handles its own
+  // Esc). Listening on the document so it works wherever focus is.
+  const hasSelection = adjustment.selectedScheduleId !== null;
+  const canClearSelection = hasSelection && adjustment.phase === "idle";
+  const clearSelection = adjustment.clearSelection;
+  useEffect(() => {
+    if (!canClearSelection) {
+      return;
+    }
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.key === "Escape") {
+        clearSelection();
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [canClearSelection, clearSelection]);
+
+  function handleSelectVersion(versionId: number | null): void {
+    setSelectedVersionId(versionId);
+    setSelectedTargetId(null);
+    setHighlightedTimeSlotId(null);
+    // Task 69: a new version always starts out of edit mode.
+    setIsEditModeOn(false);
+    adjustment.reset();
+  }
+
+  function handleSelectViewMode(mode: TimetableViewMode): void {
     setViewMode(mode);
     // A classId is meaningless as a teacherId/roomId and vice versa --
     // switching axis always starts the target selection over.
     setSelectedTargetId(null);
     setHighlightedTimeSlotId(null);
+  }
+
+  function handleToggleEditMode(): void {
+    setIsEditModeOn((previous) => !previous);
+    adjustment.reset();
   }
 
   function handleRunCheck(): void {
@@ -175,6 +160,54 @@ export default function TimetableView(): ReactElement {
     return (
       timetable.data !== null && resolveLocateTarget(violation, timetable.data.lookups) !== null
     );
+  }
+
+  const schedules = timetable.data?.schedules ?? [];
+  const selectedLesson =
+    schedules.find((schedule) => schedule.scheduleId === adjustment.selectedScheduleId) ?? null;
+
+  // Clicking the selected lesson (or any lesson when none is selected)
+  // toggles the selection; clicking another lesson while one is selected
+  // previews swapping them.
+  function handleLessonClick(lesson: EnrichedSchedule): void {
+    if (selectedLesson === null || selectedLesson.scheduleId === lesson.scheduleId) {
+      adjustment.toggleSelection(lesson.scheduleId);
+      return;
+    }
+    adjustment.requestPreview({ kind: "swap", lesson: selectedLesson, other: lesson });
+  }
+
+  function handleMoveHere(timeSlot: TimeSlot): void {
+    if (selectedLesson === null) {
+      return;
+    }
+    adjustment.requestPreview({
+      kind: "move",
+      lesson: selectedLesson,
+      targetTimeSlotId: timeSlot.id,
+    });
+  }
+
+  function handleAdjustmentSaved({ adjustment: saved, result }: SavedAdjustment): void {
+    timetable.reload();
+    // Keep an existing 檢查衝突 result in step with what was just saved --
+    // the response already carries the whole version's new check.
+    if (scheduleCheck.result !== null) {
+      scheduleCheck.setResult(result.check);
+    }
+    const movedChange = result.changes.find(
+      (change) => change.schedule_id === saved.lesson.scheduleId,
+    );
+    setHighlightedTimeSlotId(movedChange?.new_time_slot_id ?? null);
+    adjustmentFlash.showFlash(saved.kind === "move" ? "已移動並儲存" : "已對調並儲存");
+  }
+
+  function handleConfirmAdjustment(): void {
+    void adjustment.confirm().then((saved) => {
+      if (saved !== null) {
+        handleAdjustmentSaved(saved);
+      }
+    });
   }
 
   const isLoadingLookups =
@@ -220,6 +253,9 @@ export default function TimetableView(): ReactElement {
   );
   const versions = versionsResource.data ?? [];
   const selectedVersion = versions.find((version) => version.id === selectedVersionId);
+  const isDraftSelected = selectedVersion?.status === "DRAFT";
+  // Edit mode is only ever in effect for an ADMIN on a DRAFT.
+  const isEditing = isAdmin && isDraftSelected && isEditModeOn;
 
   const targetOptions =
     viewMode === "class"
@@ -234,33 +270,8 @@ export default function TimetableView(): ReactElement {
   // use (Task 34's approach) -- so early study hall, lunch, etc. always
   // show up even when nothing is ever scheduled into them.
   const periods = timetable.data?.periods ?? [];
-  const schedules = timetable.data?.schedules ?? [];
   const timeSlotByWeekdayAndPeriod =
-    timetable.data?.timeSlotByWeekdayAndPeriod ?? new Map();
-
-  // Task 35.5: teaching/non-teaching status and label are decided per
-  // CELL (this exact weekday+period's own TimeSlot), not per row -- the
-  // same period can be "早自習" on Monday and "導師時間" on Wednesday, and
-  // each cell must show its own name rather than one collapsed row title.
-  // A missing TimeSlot record for this exact weekday+period is treated as
-  // an ordinary teaching slot, matching TimeSlotBase's own
-  // is_teaching_period default of True.
-  function cellLabelOf(weekday: number, period: number): string | null {
-    const timeSlot = timeSlotByWeekdayAndPeriod.get(timeSlotKey(weekday, period));
-    if (timeSlot === undefined || timeSlot.is_teaching_period) {
-      return null;
-    }
-    return timeSlot.label ?? "非教學時段";
-  }
-
-  // Task 68: the cell 「在課表中查看」 points at -- matched by TimeSlot id,
-  // so it works for non-teaching cells (H11) too.
-  function isHighlightedCell(weekday: number, period: number): boolean {
-    return (
-      highlightedTimeSlotId !== null &&
-      timeSlotByWeekdayAndPeriod.get(timeSlotKey(weekday, period))?.id === highlightedTimeSlotId
-    );
-  }
+    timetable.data?.timeSlotByWeekdayAndPeriod ?? new Map<string, TimeSlot>();
 
   // The summary counts lines as the checklist shows them (merged), not raw
   // violation records.
@@ -271,6 +282,11 @@ export default function TimetableView(): ReactElement {
       : mergeViolationsBySentence(scheduleCheck.result.violations, (violation) =>
           getViolationSentence(violation, checkLookups),
         ).length;
+
+  const selectedLessonSlotLabel =
+    selectedLesson === null || checkLookups === null
+      ? ""
+      : resolveTimeSlotLabel(selectedLesson.timeSlotId, checkLookups);
 
   return (
     <div className={PAGE}>
@@ -300,13 +316,10 @@ export default function TimetableView(): ReactElement {
           <select
             id="timetable-version-select"
             value={selectedVersionId ?? ""}
-            onChange={(event) => {
-              setSelectedVersionId(
-                event.target.value === "" ? null : Number(event.target.value),
-              );
-              setSelectedTargetId(null);
-              setHighlightedTimeSlotId(null);
-            }}
+            onChange={(event) =>
+              handleSelectVersion(event.target.value === "" ? null : Number(event.target.value))
+            }
+            disabled={adjustment.phase !== "idle"}
             className={SELECT}
           >
             <option value="">請選擇…</option>
@@ -366,6 +379,60 @@ export default function TimetableView(): ReactElement {
 
       {selectedVersionId !== null && (
         <section ref={timetableSectionRef} className={`${SECTION} scroll-mt-4`}>
+          {/* Task 69: 編輯模式 switch -- ADMIN only; offered (disabled, with
+              the reason) for a locked version too, so it's clear why. */}
+          {isAdmin && selectedVersion !== undefined && (
+            <div className="mb-4 flex flex-col gap-2">
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleToggleEditMode}
+                  disabled={!isDraftSelected || adjustment.phase !== "idle"}
+                  aria-pressed={isEditing}
+                  className={isEditing ? BUTTON_PRIMARY : BUTTON_SECONDARY}
+                >
+                  {isEditing ? "結束編輯模式" : "編輯模式"}
+                </button>
+                {isEditing && (
+                  <span className={MUTED_TEXT}>
+                    點一堂課選取它，再點「移到這裡」移動，或點另一堂課與它對調；每次異動都會先預覽。
+                  </span>
+                )}
+              </div>
+              {!isDraftSelected && (
+                <p className={NOTICE}>已發布或已封存的版本不能編輯，請先複製成新草稿。</p>
+              )}
+              {adjustmentFlash.message !== null && (
+                <p className={SUCCESS_TEXT}>✓ {adjustmentFlash.message}</p>
+              )}
+              {adjustment.previewError !== null && (
+                <p role="alert" className={ERROR_TEXT}>
+                  無法預覽這次異動，已取消：{adjustment.previewError}
+                </p>
+              )}
+              {isEditing && adjustment.phase === "loadingPreview" && (
+                <p className={LOADING_TEXT} aria-live="polite">
+                  正在預覽異動結果…
+                </p>
+              )}
+              {isEditing && selectedLesson !== null && adjustment.phase === "idle" && (
+                <div className={SELECTION_BAR} aria-live="polite">
+                  <span>
+                    已選取：{selectedLesson.className} {selectedLesson.subjectName}（
+                    {selectedLessonSlotLabel}）。點選「移到這裡」移動，或點選另一堂課與它對調
+                  </span>
+                  <button
+                    type="button"
+                    onClick={adjustment.clearSelection}
+                    className={BUTTON_SECONDARY_SM}
+                  >
+                    取消
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           <nav className="mb-4 flex gap-2">
             {VIEW_MODES.map((mode) => (
               <button
@@ -410,80 +477,38 @@ export default function TimetableView(): ReactElement {
           )}
 
           {timetable.data !== null && selectedTargetId !== null && (
-            <div className={TABLE_WRAPPER}>
-              <table className={TABLE}>
-                <thead>
-                  <tr className={TABLE_HEAD_ROW}>
-                    <th className={TH}>節次</th>
-                    {WEEKDAYS.map((weekday) => (
-                      <th key={weekday} className={TH}>
-                        {formatWeekday(weekday)}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {periods.map((period) => (
-                    <tr key={period} className="hover:bg-gray-50">
-                      {/* Task 35.5: the row header is now a plain,
-                          weekday-independent period number -- no label is
-                          read here, since a single period can have
-                          different labels on different weekdays. */}
-                      <th scope="row" className={`${TH} bg-white font-medium text-gray-600`}>
-                        第 {period} 節
-                      </th>
-                      {WEEKDAYS.map((weekday) => {
-                        const nonTeachingLabel = cellLabelOf(weekday, period);
-                        const isHighlighted = isHighlightedCell(weekday, period);
-                        // Non-teaching cells show only their own label (or
-                        // the generic fallback) -- never any guessed-at
-                        // administrative content, and never a schedule
-                        // lookup at all.
-                        if (nonTeachingLabel !== null) {
-                          return (
-                            <td
-                              key={weekday}
-                              className={`${TD} text-gray-400 ${isHighlighted ? TD_HIGHLIGHT : "bg-gray-50"}`}
-                            >
-                              {nonTeachingLabel}
-                            </td>
-                          );
-                        }
-                        const matches = schedules.filter(
-                          (schedule) =>
-                            schedule.period === period &&
-                            schedule.weekday === weekday &&
-                            targetIdOf(schedule, viewMode) === selectedTargetId,
-                        );
-                        const schedule = matches[0];
-                        return (
-                          <td key={weekday} className={isHighlighted ? `${TD} ${TD_HIGHLIGHT}` : TD}>
-                            {schedule !== undefined && (
-                              <>
-                                {matches.length > 1 && (
-                                  <span title="這個時段出現多筆排課結果，顯示第一筆">
-                                    ⚠️{" "}
-                                  </span>
-                                )}
-                                <span className="font-medium text-gray-900">
-                                  {schedule.subjectName}
-                                </span>
-                                <br />
-                                <span className="text-gray-500">
-                                  {cellDetailOf(schedule, viewMode)}
-                                </span>
-                              </>
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <TimetableGrid
+              periods={periods}
+              schedules={schedules}
+              viewMode={viewMode}
+              targetId={selectedTargetId}
+              timeSlotByWeekdayAndPeriod={timeSlotByWeekdayAndPeriod}
+              highlightedTimeSlotId={highlightedTimeSlotId}
+              edit={
+                isEditing
+                  ? {
+                      selected: selectedLesson,
+                      disabled: adjustment.phase !== "idle" || timetable.isLoading,
+                      lessonById: timetable.data.lookups.lessonById ?? new Map(),
+                      onLessonClick: handleLessonClick,
+                      onMoveHere: handleMoveHere,
+                    }
+                  : null
+              }
+            />
           )}
         </section>
+      )}
+
+      {timetable.data !== null && (
+        <AdjustmentPreviewDialog
+          preview={adjustment.preview}
+          lookups={timetable.data.lookups}
+          isSaving={adjustment.phase === "saving"}
+          saveError={adjustment.saveError}
+          onConfirm={handleConfirmAdjustment}
+          onCancel={adjustment.closePreview}
+        />
       )}
     </div>
   );

@@ -23,6 +23,9 @@ interface ConfirmDialogProps {
   busyLabel?: string;
   // e.g. a required choice inside `children` hasn't been made yet.
   confirmDisabled?: boolean;
+  // false = an information-only dialog: just the cancel button (label it
+  // e.g. 「關閉」), nothing to confirm.
+  showConfirm?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -44,6 +47,7 @@ export default function ConfirmDialog({
   busy = false,
   busyLabel = "處理中…",
   confirmDisabled = false,
+  showConfirm = true,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps): ReactElement {
@@ -107,14 +111,16 @@ export default function ConfirmDialog({
             <button type="button" onClick={onCancel} disabled={busy} className={BUTTON_SECONDARY}>
               {cancelLabel}
             </button>
-            <button
-              type="button"
-              onClick={onConfirm}
-              disabled={busy || confirmDisabled}
-              className={danger ? BUTTON_DANGER : BUTTON_PRIMARY}
-            >
-              {busy ? busyLabel : confirmLabel}
-            </button>
+            {showConfirm && (
+              <button
+                type="button"
+                onClick={onConfirm}
+                disabled={busy || confirmDisabled}
+                className={danger ? BUTTON_DANGER : BUTTON_PRIMARY}
+              >
+                {busy ? busyLabel : confirmLabel}
+              </button>
+            )}
           </div>
         </div>
       )}
