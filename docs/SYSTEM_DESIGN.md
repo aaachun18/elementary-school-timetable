@@ -90,8 +90,8 @@ flowchart TB
 | 登入 | `/login` | JWT 認證,取得 token,存入 `sessionStorage` |
 | 基礎資料瀏覽 | `/data` | 學校/學年度/學期/年級/老師/班級/科目/教室/時段九類資料的分頁籤(單頁 + 分頁籤切換,不做成獨立路由);階段 A 為唯讀瀏覽,階段 B 起每個分頁皆可新增/編輯/刪除,老師列可展開管理任教資格與不可用時段 |
 | 排課需求總覽 | `/requirements` | 顯示目前學期設定的 `ClassSubjectRequirement`,id 轉名稱呈現;階段 B 起可新增/編輯/刪除 |
-| 排課控制台 | `/scheduler` | **核心亮點頁面**:選版本 → 展開課程清單 → 觸發自動排課 → 顯示結果;排課失敗時內嵌顯示失敗診斷(見 3.3) |
-| 課表檢視 | `/timetable` | **核心亮點頁面**:依班級/教師/教室三種視角查看排課結果,縱軸節次、橫軸星期一到五 |
+| 排課控制台 | `/scheduler` | **核心亮點頁面**:選版本 → 展開課程清單 → 觸發自動排課 → 顯示結果;排課失敗時內嵌顯示失敗診斷(見 3.3);版本管理(發布、取消發布、切換生效版本、複製成新草稿,見 3.7) |
+| 課表檢視 | `/timetable` | **核心亮點頁面**:依班級/教師/教室三種視角查看排課結果,縱軸節次、橫軸星期一到五;選到已封存版本時提示「僅供查看」 |
 | 失敗診斷 | 無獨立路由,內嵌於排課控制台 | **核心亮點頁面**:見 3.3 |
 
 （`/` 首頁目前是登入成功後的暫時性佔位頁,尚未實作 `docs/FRONTEND_REQUIREMENTS.md` 流程 A 設想的統計 Dashboard,不計入上述 6 個核心頁面。另有僅 `ADMIN` 可用的「帳號管理」頁(`/users`,Task 59):列出帳號、新增帳號(沿用 `POST /auth/register`)、重設密碼、刪除帳號,屬於系統管理功能,同樣不計入核心頁面。）
@@ -134,6 +134,22 @@ flowchart TB
 - **真正的權限邊界在後端**:所有寫入端點都由 `require_admin`(`backend/app/core/dependencies.py`)檢查;`TEACHER` 只能看到已發布版本也是後端查詢時過濾(第 7 節決策 11)。前端的按鈕隱藏與路由導回只是使用體驗,就算有人竄改 token 讓按鈕出現,呼叫時仍會被後端拒絕。
 
 ---
+
+### 3.7 版本管理介面(Task 67)
+
+排課控制台在「目前操作版本」卡片上依版本狀態提供不同動作,版本狀態一律以同一個函式(`utils/scheduleVersionFormat.ts` 的 `formatVersionStatus()`)顯示為草稿/已發布/已封存,未知狀態顯示原始字串:
+
+| 狀態 | 動作 |
+|---|---|
+| 草稿 | 發布、複製成新草稿 |
+| 已發布 | 取消發布(改為已封存)、複製成新草稿 |
+| 已封存 | 發布(切換為生效版本)、複製成新草稿 |
+
+- **確認對話框**:這三種動作都改用共用的 `components/ConfirmDialog.tsx`(原生 `<dialog>` + `showModal()`,不額外安裝套件),取代原本的 `window.confirm()`;動作進行中按鈕停用,失敗時錯誤顯示在對話框內、對話框保持開啟。發布前會說明同學期目前生效的版本將自動封存(若有),取消發布前會說明這個學期將沒有生效的課表。
+- **複製**:對話框讓使用者選「同一學期(建立新草稿)」或「同學年的其他學期」,成功後自動切換到新建立的草稿。
+- **重新載入**:發布會連帶改變同學期另一個版本的狀態,所以任何版本動作成功後都重新查詢整份版本清單,而不只更新目前這一筆。
+- **步驟二、三只適用於草稿**:已發布與已封存版本的「展開課程清單」停用並說明原因;已經有排課結果的草稿(例如複製出來的)會先以 `GET /schedules?schedule_version_id=…&limit=1` 檢查,停用「開始自動排課」並說明原因,而不是讓使用者按下去才看到後端的拒絕訊息。
+- **課表資料載入**:`hooks/useTimetableData.ts` 改用 Task 66 的篩選參數,只抓該版本的排課列與該學期的課程、需求;`hooks/useResource.ts` 新增 `reload()`,供之後的手動調整畫面在修改後重新載入。
 
 ## 4. Domain Model
 
@@ -207,7 +223,7 @@ erDiagram
     }
 ```
 
-> 圖中的 `CLASS_GROUP` 對應程式碼裡的 `Class`(班級)——`CLASS` 是 Mermaid erDiagram 語法的保留字,拿來當實體名稱會導致解析失敗,因此圖上改用 `CLASS_GROUP`。屬性型別/是否必填等細節以第 4.1 節文字與 `backend/app/models/` 原始碼為準;`role` 目前只接受 `ADMIN`/`TEACHER`,`status` 只接受 `DRAFT`/`PUBLISHED`,`required_teacher_id`/`required_room_type`/`consecutive_limit` 與 `SCHEDULE` 的 `teacher_id`/`time_slot_id`/`room_id` 均為選填欄位。
+> 圖中的 `CLASS_GROUP` 對應程式碼裡的 `Class`(班級)——`CLASS` 是 Mermaid erDiagram 語法的保留字,拿來當實體名稱會導致解析失敗,因此圖上改用 `CLASS_GROUP`。屬性型別/是否必填等細節以第 4.1 節文字與 `backend/app/models/` 原始碼為準;`role` 目前只接受 `ADMIN`/`TEACHER`,`status` 接受 `DRAFT`/`PUBLISHED`/`ARCHIVED`(新版本一律以 `DRAFT` 建立;允許的狀態轉換只有 `DRAFT`/`ARCHIVED` → `PUBLISHED`(同學期原本的 `PUBLISHED` 自動改為 `ARCHIVED`)與 `PUBLISHED` → `ARCHIVED`,見第 7 節決策 18),`required_teacher_id`/`required_room_type`/`consecutive_limit` 與 `SCHEDULE` 的 `teacher_id`/`time_slot_id`/`room_id` 均為選填欄位。
 
 > 圖中 `SCHOOL` 跟 `USER` 沒有任何關聯線,是如實反映現況。細節見第 10 節「已知限制」。
 
@@ -498,12 +514,13 @@ PUBLISHED 與 ARCHIVED 版本的其他欄位(`semester_id`、`version_number`)�
 - **已發布與已封存的版本都不能刪除**:兩者都被視為歷史紀錄完整保留(決策 18),版本只會越來越多;目前沒有清理舊封存版本的機制。
 - **手動調整沒有復原功能**:換人、移動、對調(決策 17、19)保存之後沒有「上一步」;要預覽結果請先用 `dry_run`,要保留原狀請先複製一份草稿(決策 16)。
 - **移動節次不會更新 `Lesson.fixed_time_slot_id`**:被固定時段的課移到別的節次之後,`Lesson` 上的固定時段仍是原本的值(刻意不自動改,避免手動調整默默改掉排課前的設定);檢查會回報 `FIXED_TIME_SLOT_MISMATCH`(Task 66),要讓新位置成為固定時段,需到排課控制台修改該課的固定時段。固定時段仍不是引擎裡的一條 Constraint,這個檢查只存在於 service 層的檢查。
-- **列表 API 的分頁上限**:所有 `GET` 列表端點的 `limit` 預設為 100,後端**沒有設定上限**(呼叫端可以傳任意值);前端課表檢視目前寫死 `limit=1000`,把 `schedules`、`lessons`、`class-subject-requirements` 整張表抓回來再自己篩選。若單一查詢的筆數超過前端傳的上限,資料會被靜默截斷、不會有任何錯誤。Task 66 讓這三個端點可以依版本(`schedule_version_id`)或學期(`semester_id`)篩選,結果依 id 穩定排序、可與 `skip`/`limit` 一起分頁;前端改用篩選後,截斷門檻就變成「單一版本的排課筆數超過 1000」。目前學校規模遠低於這個門檻,前端尚未改用篩選。
+- **列表 API 的分頁上限**:所有 `GET` 列表端點的 `limit` 預設為 100,後端**沒有設定上限**(呼叫端可以傳任意值);前端課表檢視目前寫死 `limit=1000`,把 `schedules`、`lessons`、`class-subject-requirements` 整張表抓回來再自己篩選。若單一查詢的筆數超過前端傳的上限,資料會被靜默截斷、不會有任何錯誤。Task 66 讓這三個端點可以依版本(`schedule_version_id`)或學期(`semester_id`)篩選,結果依 id 穩定排序、可與 `skip`/`limit` 一起分頁;Task 67 起課表檢視已改用篩選,截斷門檻變成「單一版本的排課筆數,或單一學期的課程數超過 1000」。目前學校規模遠低於這個門檻。
 - **移動節次不能把教室清空**:`move-lesson` 的 `target_room_id` 省略或為 null 代表「教室不變」;要清空教室目前只能用不做檢查的 `PATCH /schedules/{id}`。
 - **既有 migration `02850681b45e` 的 downgrade 無法執行**:它在 downgrade 時要刪除一個沒有名稱的外鍵,SQLAlchemy 無法產生對應的 `DROP CONSTRAINT`,所以無法一路 downgrade 到 base。不影響 upgrade 與 CI;最新的 migration `a64c0f1e2b7d`(ARCHIVED 狀態)的 `downgrade -1` 已在測試資料庫驗證可用。
 - **複製課表的寫入前檢查沒有加鎖**:跨學期複製時,「目標學期是否已有排課需求」的檢查與實際寫入之間有極小的競爭視窗;同時複製到同一個學期,或同時對同一學期產生新版本號,會由資料庫的唯一限制擋下並回 409(「資料重複或違反欄位限制」),整筆 rollback,不會留下重複資料。目前以單一管理員為主的使用情境下風險很低,未另外加鎖。
 - **刪除排課需求與發布草稿版本之間存在極小的競爭視窗**:`delete_class_subject_requirement()`(Task 56)先查詢需求底下的 `Lesson` 是否被已發布或已封存版本的 `Schedule` 引用,確認沒有之後才刪除這些 `Lesson` 在草稿版本裡的 `Schedule`、`Lesson` 與需求本身。若在檢查之後、commit 之前,另一位管理員剛好把引用這些 `Lesson` 的草稿版本發布,該版本(此時已是 PUBLISHED)的 `Schedule` 會被一併刪除。發生條件是兩人在同一瞬間操作,目前以單一管理員為主的使用情境下風險很低,暫不加鎖。
-- **前端沒有自動化測試**:`frontend/package.json` 沒有 `test` 腳本,也沒有建立前端測試框架,目前以啟動真實前後端、用真實資料手動驗證取代(見第 3.3 節末段)。
+- **前端沒有自動化測試**:`frontend/package.json` 沒有 `test` 腳本,也沒有建立前端測試框架,目前以啟動真實前後端、用真實資料手動驗證取代(見第 3.3 節末段)。Task 67 的版本管理介面(發布、取消發布、切換、複製)同樣只經過 `npm run lint`/`npm run build` 與手動驗證。
+- **刪除仍使用瀏覽器內建確認框**:版本管理已改用共用的 `ConfirmDialog`(Task 67),但基礎資料、排課需求、帳號的刪除仍使用 `window.confirm()`,外觀與版本管理的對話框不一致,錯誤也無法顯示在確認框內。
 - **行政區塊(午餐、課間活動、教師午會等)不呈現在課表檢視**:這些時段不對應任何 `ClassSubjectRequirement`,課表檢視只呈現排課引擎實際排定的課,空堂保持空白——是刻意的範圍決定,需要更大的資料模型調整才能支援,已記錄在 `docs/FRONTEND_REQUIREMENTS.md` 第 3、7 章。
 - **`TimeSlot.period` 編號的跨星期一致性,依賴人工維護紀律,資料庫層級沒有強制**:`TimeSlot` 沒有 `semester_id`/`school_id`,是全校共用的單一全域結構,課表檢視的節次(列)軸完全由 `period` 這個整數決定(第 8 節除錯歷程案例三的迭代正是從這裡的一個誤用衍生出來的)。但 schema 本身沒有任何約束保證「第 3 節」在週一到週五代表的是同一個實際時段——如果建資料的人把某天的 `period` 編號填錯位移一格,課表檢視會靜默地把錯的兩堂課對齊在同一列,不會有任何錯誤訊息,純粹依賴建立資料時的人工紀律。
 - **`TeacherClassAssignment` 未實作**:`AGENTS.md` 原始 domain 設計把「資格」(`TeacherSubject`)跟「這學期實際負責哪個班」(`TeacherClassAssignment`)分成兩張表,但目前系統排課時直接把「所有具備資格的老師」當候選池,沒有校方預先指派這一層篩選。
