@@ -2,6 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.models.class_subject_requirement import ClassSubjectRequirement
 from app.models.lesson import Lesson
 from app.services.exceptions import raise_for_integrity_error
 
@@ -10,8 +11,24 @@ def get_lesson(db: Session, lesson_id: int) -> Lesson | None:
     return db.get(Lesson, lesson_id)
 
 
-def get_lessons(db: Session, skip: int = 0, limit: int = 100) -> list[Lesson]:
-    stmt = select(Lesson).offset(skip).limit(limit)
+def get_lessons(
+    db: Session,
+    skip: int = 0,
+    limit: int = 100,
+    *,
+    semester_id: int | None = None,
+) -> list[Lesson]:
+    """Task 66: optional semester_id filter -- Lesson has no semester column
+    of its own, so it goes through its ClassSubjectRequirement. An unknown
+    semester simply matches no rows. Ordered by id so skip/limit pages are
+    stable."""
+    stmt = select(Lesson)
+    if semester_id is not None:
+        stmt = stmt.join(
+            ClassSubjectRequirement,
+            Lesson.class_subject_requirement_id == ClassSubjectRequirement.id,
+        ).where(ClassSubjectRequirement.semester_id == semester_id)
+    stmt = stmt.order_by(Lesson.id).offset(skip).limit(limit)
     return list(db.scalars(stmt).all())
 
 

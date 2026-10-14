@@ -31,14 +31,21 @@ def create_schedule(
 def list_schedules(
     skip: int = 0,
     limit: int = 100,
+    schedule_version_id: int | None = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[Schedule]:
     # Task 43: TEACHER only ever sees Schedule rows belonging to a
     # PUBLISHED ScheduleVersion -- see schedule_version.py's own comment
-    # on why this is a silent filter, not a 403.
+    # on why this is a silent filter, not a 403. Task 66: the same holds
+    # with schedule_version_id -- a hidden or missing version is an empty
+    # list, not a 404.
     return schedule_service.get_schedules(
-        db, skip=skip, limit=limit, role=current_user.role
+        db,
+        skip=skip,
+        limit=limit,
+        schedule_version_id=schedule_version_id,
+        role=current_user.role,
     )
 
 

@@ -61,14 +61,25 @@ def get_schedule(
 
 
 def get_schedules(
-    db: Session, skip: int = 0, limit: int = 100, *, role: str | None = None
+    db: Session,
+    skip: int = 0,
+    limit: int = 100,
+    *,
+    schedule_version_id: int | None = None,
+    role: str | None = None,
 ) -> list[Schedule]:
+    """Task 66: optional schedule_version_id filter. A version that doesn't
+    exist -- or, for TEACHER, isn't PUBLISHED -- simply matches no rows
+    (empty list, never a 404), so the filter can't reveal whether a hidden
+    version exists. Ordered by id so skip/limit pages are stable."""
     stmt = select(Schedule)
+    if schedule_version_id is not None:
+        stmt = stmt.where(Schedule.schedule_version_id == schedule_version_id)
     if role == "TEACHER":
         stmt = stmt.join(
             ScheduleVersion, Schedule.schedule_version_id == ScheduleVersion.id
         ).where(ScheduleVersion.status == PUBLISHED)
-    stmt = stmt.offset(skip).limit(limit)
+    stmt = stmt.order_by(Schedule.id).offset(skip).limit(limit)
     return list(db.scalars(stmt).all())
 
 

@@ -38,9 +38,18 @@ def get_class_subject_requirement(
 
 
 def get_class_subject_requirements(
-    db: Session, skip: int = 0, limit: int = 100
+    db: Session,
+    skip: int = 0,
+    limit: int = 100,
+    *,
+    semester_id: int | None = None,
 ) -> list[ClassSubjectRequirement]:
-    stmt = select(ClassSubjectRequirement).offset(skip).limit(limit)
+    """Task 66: optional semester_id filter; an unknown semester simply
+    matches no rows. Ordered by id so skip/limit pages are stable."""
+    stmt = select(ClassSubjectRequirement)
+    if semester_id is not None:
+        stmt = stmt.where(ClassSubjectRequirement.semester_id == semester_id)
+    stmt = stmt.order_by(ClassSubjectRequirement.id).offset(skip).limit(limit)
     return list(db.scalars(stmt).all())
 
 

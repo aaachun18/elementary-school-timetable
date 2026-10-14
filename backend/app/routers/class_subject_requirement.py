@@ -32,10 +32,13 @@ def create_class_subject_requirement(
 
 @router.get("/", response_model=list[ClassSubjectRequirementRead])
 def list_class_subject_requirements(
-    skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
+    skip: int = 0,
+    limit: int = 100,
+    semester_id: int | None = None,
+    db: Session = Depends(get_db),
 ) -> list[ClassSubjectRequirement]:
     return requirement_service.get_class_subject_requirements(
-        db, skip=skip, limit=limit
+        db, skip=skip, limit=limit, semester_id=semester_id
     )
 
 
