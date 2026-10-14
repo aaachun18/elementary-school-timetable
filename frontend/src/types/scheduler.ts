@@ -112,3 +112,27 @@ export interface ScheduleAdjustmentResult {
   changes: ScheduleChangeDetail[];
   check: ScheduleCheckResult;
 }
+
+// --- Task 70: reassigning one course to another teacher (Task 63 endpoint) ---
+
+// Body of POST /schedule-versions/{id}/reassign-teacher.
+export interface TeacherReassignmentRequest {
+  class_subject_requirement_id: number;
+  new_teacher_id: number;
+  dry_run?: boolean;
+}
+
+// 200 response. previous_teacher_id is the course's teacher in this version
+// before the change (the one teacher on all its Schedule rows, otherwise the
+// requirement's required teacher). updated_schedule_row_count counts only
+// rows whose teacher actually changes. `check` is the whole version's check
+// after the change (with dry_run: what saving would produce).
+export interface TeacherReassignmentResult {
+  schedule_version_id: number;
+  class_subject_requirement_id: number;
+  previous_teacher_id: number | null;
+  new_teacher_id: number;
+  updated_schedule_row_count: number;
+  dry_run: boolean;
+  check: ScheduleCheckResult;
+}

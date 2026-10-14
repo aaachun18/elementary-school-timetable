@@ -12,6 +12,8 @@ import type {
   ScheduleAdjustmentResult,
   ScheduleCheckResult,
   SwapLessonsRequest,
+  TeacherReassignmentRequest,
+  TeacherReassignmentResult,
 } from "../types/scheduler";
 
 // Mirrors backend/app/routers/schedule_version.py's 5 CRUD endpoints -- see
@@ -142,6 +144,33 @@ export async function swapLessons(
 ): Promise<ScheduleAdjustmentResult> {
   const response = await apiClient.post<ScheduleAdjustmentResult>(
     `/api/v1/schedule-versions/${versionId}/swap-lessons`,
+    body,
+  );
+  return response.data;
+}
+
+// --- Task 70: reassign one course (ClassSubjectRequirement) to a new
+// teacher in a DRAFT (ADMIN only). Only refused for a missing record, a
+// locked version, a requirement of another semester, or an inactive new
+// teacher; conflicts are reported in `check`, never blocked. ---
+
+export interface ReassignTeacherParams {
+  requirementId: number;
+  newTeacherId: number;
+  dryRun: boolean;
+}
+
+export async function reassignTeacher(
+  versionId: number,
+  { requirementId, newTeacherId, dryRun }: ReassignTeacherParams,
+): Promise<TeacherReassignmentResult> {
+  const body: TeacherReassignmentRequest = {
+    class_subject_requirement_id: requirementId,
+    new_teacher_id: newTeacherId,
+    dry_run: dryRun,
+  };
+  const response = await apiClient.post<TeacherReassignmentResult>(
+    `/api/v1/schedule-versions/${versionId}/reassign-teacher`,
     body,
   );
   return response.data;

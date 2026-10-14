@@ -59,6 +59,12 @@ export interface TimetableData {
   // the grid uses -- no extra requests. Requirements/Lessons are this
   // version's semester only, which is exactly what its violations refer to.
   lookups: NameLookups;
+  // Task 70: requirement id -> the distinct teachers on this version's
+  // Schedule rows for it (rows with no time slot included, unlike
+  // `schedules`). Empty/absent = no row has a teacher. The backend's
+  // reassign-teacher treats the one teacher on all rows as the course's
+  // current teacher; see utils/teacherReassignment.ts.
+  teacherIdsByRequirementId: Map<number, number[]>;
 }
 
 // Task 67: Schedule rows are fetched for this one version only
@@ -132,6 +138,19 @@ async function buildTimetableData(scheduleVersionId: number): Promise<TimetableD
     lessonById,
   };
 
+  const teacherIdsByRequirementId = new Map<number, number[]>();
+  for (const schedule of schedules) {
+    const lesson = lessonById.get(schedule.lesson_id);
+    if (lesson === undefined || schedule.teacher_id === null) {
+      continue;
+    }
+    const teacherIds = teacherIdsByRequirementId.get(lesson.class_subject_requirement_id) ?? [];
+    if (!teacherIds.includes(schedule.teacher_id)) {
+      teacherIds.push(schedule.teacher_id);
+    }
+    teacherIdsByRequirementId.set(lesson.class_subject_requirement_id, teacherIds);
+  }
+
   const enriched: EnrichedSchedule[] = [];
 
   for (const schedule of schedules) {
@@ -199,6 +218,7 @@ async function buildTimetableData(scheduleVersionId: number): Promise<TimetableD
     periods: buildPeriods(timeSlots),
     timeSlotByWeekdayAndPeriod,
     lookups,
+    teacherIdsByRequirementId,
   };
 }
 
@@ -226,6 +246,7 @@ export function useTimetableData(scheduleVersionId: number | null): {
               requirementById: new Map(),
               lessonById: new Map(),
             },
+            teacherIdsByRequirementId: new Map(),
           })
         : buildTimetableData(scheduleVersionId),
     [scheduleVersionId],

@@ -8,6 +8,7 @@ import { list as listTeachers } from "../api/teachers";
 import { list as listRooms } from "../api/rooms";
 import AdjustmentPreviewDialog from "../components/AdjustmentPreviewDialog";
 import ConflictChecklist from "../components/ConflictChecklist";
+import TeacherReassignPanel from "../components/TeacherReassignPanel";
 import TimetableGrid from "../components/TimetableGrid";
 import { useFlashMessage } from "../hooks/useFlashMessage";
 import { useLessonAdjustment, type SavedAdjustment } from "../hooks/useLessonAdjustment";
@@ -95,6 +96,9 @@ export default function TimetableView(): ReactElement {
   const adjustment = useLessonAdjustment(selectedVersionId);
   const adjustmentFlash = useFlashMessage(4000);
 
+  // --- Task 70: 換教師 panel (ADMIN, DRAFT only); independent of edit mode.
+  const [isReassignPanelOpen, setIsReassignPanelOpen] = useState(false);
+
   // Esc deselects (when no dialog is open -- the dialog handles its own
   // Esc). Listening on the document so it works wherever focus is.
   const hasSelection = adjustment.selectedScheduleId !== null;
@@ -120,6 +124,7 @@ export default function TimetableView(): ReactElement {
     // Task 69: a new version always starts out of edit mode.
     setIsEditModeOn(false);
     adjustment.reset();
+    setIsReassignPanelOpen(false);
   }
 
   function handleSelectViewMode(mode: TimetableViewMode): void {
@@ -200,6 +205,15 @@ export default function TimetableView(): ReactElement {
     );
     setHighlightedTimeSlotId(movedChange?.new_time_slot_id ?? null);
     adjustmentFlash.showFlash(saved.kind === "move" ? "已移動並儲存" : "已對調並儲存");
+  }
+
+  // Task 70: after a reassignment the grid shows the new teacher, and an
+  // existing 檢查衝突 result is re-run against the saved state.
+  function handleReassignmentSaved(): void {
+    timetable.reload();
+    if (scheduleCheck.result !== null) {
+      scheduleCheck.run();
+    }
   }
 
   function handleConfirmAdjustment(): void {
@@ -393,6 +407,16 @@ export default function TimetableView(): ReactElement {
                 >
                   {isEditing ? "結束編輯模式" : "編輯模式"}
                 </button>
+                {isDraftSelected && (
+                  <button
+                    type="button"
+                    onClick={() => setIsReassignPanelOpen((previous) => !previous)}
+                    aria-expanded={isReassignPanelOpen}
+                    className={isReassignPanelOpen ? BUTTON_PRIMARY : BUTTON_SECONDARY}
+                  >
+                    {isReassignPanelOpen ? "收合換教師" : "換教師"}
+                  </button>
+                )}
                 {isEditing && (
                   <span className={MUTED_TEXT}>
                     點一堂課選取它，再點「移到這裡」移動，或點另一堂課與它對調；每次異動都會先預覽。
@@ -431,6 +455,16 @@ export default function TimetableView(): ReactElement {
                 </div>
               )}
             </div>
+          )}
+
+          {isAdmin && isDraftSelected && isReassignPanelOpen && timetable.data !== null && (
+            <TeacherReassignPanel
+              key={selectedVersionId}
+              scheduleVersionId={selectedVersionId}
+              timetable={timetable.data}
+              disabled={timetable.isLoading}
+              onSaved={handleReassignmentSaved}
+            />
           )}
 
           <nav className="mb-4 flex gap-2">
