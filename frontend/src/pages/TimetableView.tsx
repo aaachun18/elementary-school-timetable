@@ -96,6 +96,12 @@ export default function TimetableView(): ReactElement {
   const adjustment = useLessonAdjustment(selectedVersionId);
   const adjustmentFlash = useFlashMessage(4000);
 
+  // Task 71 fix: the cell a just-saved move/swap landed in. Separate from
+  // highlightedTimeSlotId (「在課表中查看」), and only shown in edit mode;
+  // cleared on leaving edit mode, switching version or view type, and when
+  // the next adjustment starts.
+  const [adjustedTimeSlotId, setAdjustedTimeSlotId] = useState<number | null>(null);
+
   // --- Task 70: 換教師 panel (ADMIN, DRAFT only); independent of edit mode.
   const [isReassignPanelOpen, setIsReassignPanelOpen] = useState(false);
 
@@ -124,6 +130,7 @@ export default function TimetableView(): ReactElement {
     // Task 69: a new version always starts out of edit mode.
     setIsEditModeOn(false);
     adjustment.reset();
+    setAdjustedTimeSlotId(null);
     setIsReassignPanelOpen(false);
   }
 
@@ -133,11 +140,13 @@ export default function TimetableView(): ReactElement {
     // switching axis always starts the target selection over.
     setSelectedTargetId(null);
     setHighlightedTimeSlotId(null);
+    setAdjustedTimeSlotId(null);
   }
 
   function handleToggleEditMode(): void {
     setIsEditModeOn((previous) => !previous);
     adjustment.reset();
+    setAdjustedTimeSlotId(null);
   }
 
   function handleRunCheck(): void {
@@ -175,6 +184,7 @@ export default function TimetableView(): ReactElement {
   // toggles the selection; clicking another lesson while one is selected
   // previews swapping them.
   function handleLessonClick(lesson: EnrichedSchedule): void {
+    setAdjustedTimeSlotId(null);
     if (selectedLesson === null || selectedLesson.scheduleId === lesson.scheduleId) {
       adjustment.toggleSelection(lesson.scheduleId);
       return;
@@ -186,11 +196,27 @@ export default function TimetableView(): ReactElement {
     if (selectedLesson === null) {
       return;
     }
+    setAdjustedTimeSlotId(null);
     adjustment.requestPreview({
       kind: "move",
       lesson: selectedLesson,
       targetTimeSlotId: timeSlot.id,
     });
+  }
+
+  // Task 71: drag & drop picks the same move/swap the clicks above do, and
+  // goes through the same preview -- it never saves anything by itself.
+  function handleDragStartLesson(): void {
+    setAdjustedTimeSlotId(null);
+    adjustment.clearSelection();
+  }
+
+  function handleDropOnCell(lesson: EnrichedSchedule, timeSlot: TimeSlot): void {
+    adjustment.requestPreview({ kind: "move", lesson, targetTimeSlotId: timeSlot.id });
+  }
+
+  function handleDropOnLesson(lesson: EnrichedSchedule, other: EnrichedSchedule): void {
+    adjustment.requestPreview({ kind: "swap", lesson, other });
   }
 
   function handleAdjustmentSaved({ adjustment: saved, result }: SavedAdjustment): void {
@@ -203,7 +229,7 @@ export default function TimetableView(): ReactElement {
     const movedChange = result.changes.find(
       (change) => change.schedule_id === saved.lesson.scheduleId,
     );
-    setHighlightedTimeSlotId(movedChange?.new_time_slot_id ?? null);
+    setAdjustedTimeSlotId(movedChange?.new_time_slot_id ?? null);
     adjustmentFlash.showFlash(saved.kind === "move" ? "已移動並儲存" : "已對調並儲存");
   }
 
@@ -419,7 +445,7 @@ export default function TimetableView(): ReactElement {
                 )}
                 {isEditing && (
                   <span className={MUTED_TEXT}>
-                    點一堂課選取它，再點「移到這裡」移動，或點另一堂課與它對調；每次異動都會先預覽。
+                    點一堂課選取它，再點「移到這裡」移動，或點另一堂課與它對調；也可以直接把課拖到空格（移動）或另一堂課上（對調）。每次異動都會先預覽。
                   </span>
                 )}
               </div>
@@ -518,6 +544,7 @@ export default function TimetableView(): ReactElement {
               targetId={selectedTargetId}
               timeSlotByWeekdayAndPeriod={timeSlotByWeekdayAndPeriod}
               highlightedTimeSlotId={highlightedTimeSlotId}
+              adjustedTimeSlotId={isEditing ? adjustedTimeSlotId : null}
               edit={
                 isEditing
                   ? {
@@ -526,6 +553,10 @@ export default function TimetableView(): ReactElement {
                       lessonById: timetable.data.lookups.lessonById ?? new Map(),
                       onLessonClick: handleLessonClick,
                       onMoveHere: handleMoveHere,
+                      // Starting a drag drops any click selection first.
+                      onDragStartLesson: handleDragStartLesson,
+                      onDropOnCell: handleDropOnCell,
+                      onDropOnLesson: handleDropOnLesson,
                     }
                   : null
               }

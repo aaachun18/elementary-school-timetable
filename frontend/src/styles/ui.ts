@@ -98,15 +98,37 @@ export const DIALOG_TITLE = "text-lg font-semibold text-gray-900";
 // Task 68: the cell 「在課表中查看」 points at -- an amber inset ring plus a
 // light fill: clearly visible, but not the red used for errors.
 export const TD_HIGHLIGHT = "bg-amber-50 ring-2 ring-inset ring-amber-400";
+// Task 71 fix: the cell a just-saved move/swap landed in (edit mode only).
+// Deliberately not TD_HIGHLIGHT: that one belongs to 「在課表中查看」 and
+// has its own lifetime.
+export const TD_ADJUSTED = "bg-sky-50 ring-2 ring-inset ring-sky-500";
 
 // --- Timetable edit mode (Task 69) ---
 // A lesson in edit mode is a full-width button; the selected one gets a
-// thick blue border AND a 「已選取」 text marker (never color alone).
-export const LESSON_BUTTON =
-  "flex w-full flex-col items-start rounded-md border border-gray-300 bg-white px-2 py-1 text-left text-sm hover:border-blue-400 hover:bg-blue-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60";
-export const LESSON_BUTTON_SELECTED =
-  "flex w-full flex-col items-start rounded-md border-2 border-blue-600 bg-blue-50 px-2 py-1 text-left text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60";
-// 「移到這裡」 drop target inside a cell.
+// thick blue border AND a 「已選取」 text marker (never color alone). All
+// variants share one base so border/background never come from two
+// competing classes.
+const LESSON_BUTTON_BASE =
+  "flex w-full flex-col items-start rounded-md px-2 py-1 text-left text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60";
+export const LESSON_BUTTON = `${LESSON_BUTTON_BASE} border border-gray-300 bg-white hover:border-blue-400 hover:bg-blue-50`;
+export const LESSON_BUTTON_SELECTED = `${LESSON_BUTTON_BASE} border-2 border-blue-600 bg-blue-50`;
+// Task 71: drag & drop. The lesson being dragged is faded with a dashed
+// border; a lesson under the pointer that it can swap with gets a thick
+// green border. (A lesson it can't swap with is always in the dragged
+// lesson's own time slot, so the whole cell shows DROP_TARGET_BLOCKED.)
+export const LESSON_BUTTON_DRAGGING = `${LESSON_BUTTON_BASE} border border-dashed border-gray-400 bg-gray-100 opacity-50`;
+export const LESSON_BUTTON_DROP_OK = `${LESSON_BUTTON_BASE} border-2 border-green-600 bg-green-50`;
+// Task 71: a cell under the pointer while dragging -- solid green ring =
+// can move here; dashed red outline = can't (non-teaching period, or the
+// dragged lesson's own time slot). Ring vs. dashed outline, not color alone.
+export const DROP_TARGET_OK = "bg-green-50 ring-2 ring-inset ring-green-500";
+export const DROP_TARGET_BLOCKED = "bg-red-50 outline-2 -outline-offset-2 outline-dashed outline-red-400";
+// Task 71: shown at the bottom of every cell a dragged lesson can move to,
+// so "the empty part of a cell" is always there to drop on even when the
+// cell's lessons fill it.
+export const DROP_ZONE =
+  "rounded-md border border-dashed border-green-500 px-2 py-1 text-center text-xs text-green-700";
+// 「移到這裡」 button inside a cell (the click flow).
 export const MOVE_TARGET_BUTTON =
   "w-full rounded-md border border-dashed border-blue-400 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50";
 // The 「已選取：…」 status bar above the grid.

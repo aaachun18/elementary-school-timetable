@@ -15,15 +15,20 @@ interface ViolationDiffSummaryProps {
 
 // Task 69 (extracted in Task 70 so the move/swap and 換教師 previews share
 // it): what ONE change does to the version's problems -- the ones it adds
-// (red, via ConflictChecklist), the ones it resolves (green), and only a
-// count of the existing ones it leaves alone. The full "after" check also
-// lists every problem that existed before, which would hide what this
-// change itself caused.
+// (red, via ConflictChecklist), the ones it resolves (green), existing ones
+// it leaves unsolved but describes differently now (「仍未解決」), and only a
+// count of the rest. The full "after" check also lists every problem that
+// existed before, which would hide what this change itself caused.
 export default function ViolationDiffSummary({
   diff,
   lookups,
   changeNoun,
 }: ViolationDiffSummaryProps): ReactElement {
+  // Task 71 fix: an existing problem the change doesn't fix but that now
+  // reads differently (e.g. still off its fixed slot, in another slot) is
+  // listed with its new wording; the rest are only counted.
+  const stillUnresolved = diff.unchanged.filter((item) => item.descriptionChanged);
+  const untouchedCount = diff.unchanged.length - stillUnresolved.length;
   return (
     <>
       {diff.added.length > 0 && (
@@ -54,8 +59,18 @@ export default function ViolationDiffSummary({
       {diff.added.length === 0 && diff.resolved.length === 0 && (
         <p className="text-sm text-gray-700">這次{changeNoun}不會新增或解決任何問題。</p>
       )}
-      {diff.unchanged.length > 0 && (
-        <p className={MUTED_TEXT}>另有 {diff.unchanged.length} 項既有問題不受這次{changeNoun}影響。</p>
+      {stillUnresolved.length > 0 && (
+        <ul className="m-0 flex list-none flex-col gap-1 p-0" aria-label="仍未解決的問題">
+          {stillUnresolved.map((item) => (
+            <li key={item.sentence} className="text-sm text-gray-700">
+              仍未解決：{item.sentence}
+              {item.count > 1 && ` ×${item.count}`}
+            </li>
+          ))}
+        </ul>
+      )}
+      {untouchedCount > 0 && (
+        <p className={MUTED_TEXT}>另有 {untouchedCount} 項既有問題不受這次{changeNoun}影響。</p>
       )}
     </>
   );

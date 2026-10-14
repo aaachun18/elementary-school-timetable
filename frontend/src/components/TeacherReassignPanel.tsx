@@ -98,8 +98,10 @@ export default function TeacherReassignPanel({
           new Set(handedAwayFromSelected.map((entry) => entry.requirementId)),
         );
 
-  // 新教師: active teachers other than the 原教師.
-  const newTeacherOptions = Array.from(lookups.teacherById.values())
+  // 新教師 candidates: active teachers other than the 原教師. Each row then
+  // also leaves out that course's own current teacher(s) (Task 71) -- e.g.
+  // on a 「剛換給…」 row, the teacher it was just handed to.
+  const activeTeacherIds = Array.from(lookups.teacherById.values())
     .filter((teacher) => teacher.is_active && teacher.id !== originalTeacherId)
     .map((teacher) => teacher.id)
     .sort(byName);
@@ -217,10 +219,14 @@ export default function TeacherReassignPanel({
               <tbody>
                 {courses.map((requirement) => {
                   const courseName = resolveRequirementLabel(requirement.id, lookups);
-                  const currentNames = currentTeacherIdsOf(
+                  const currentTeacherIds = currentTeacherIdsOf(
                     requirement,
                     teacherIdsByRequirementId.get(requirement.id),
-                  ).map(teacherName);
+                  );
+                  const currentNames = currentTeacherIds.map(teacherName);
+                  const newTeacherOptions = activeTeacherIds.filter(
+                    (teacherId) => !currentTeacherIds.includes(teacherId),
+                  );
                   const handedTo = handedAwayFromSelected.find(
                     (entry) => entry.requirementId === requirement.id,
                   );
