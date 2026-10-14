@@ -93,3 +93,8 @@ export const NOTICE = "rounded-md border border-amber-200 bg-amber-50 px-3 py-2 
 export const DIALOG =
   "m-auto w-full max-w-lg rounded-lg border border-gray-200 bg-white p-0 shadow-xl backdrop:bg-black/40";
 export const DIALOG_TITLE = "text-lg font-semibold text-gray-900";
+
+// --- Timetable ---
+// Task 68: the cell 「在課表中查看」 points at -- an amber inset ring plus a
+// light fill: clearly visible, but not the red used for errors.
+export const TD_HIGHLIGHT = "bg-amber-50 ring-2 ring-inset ring-amber-400";

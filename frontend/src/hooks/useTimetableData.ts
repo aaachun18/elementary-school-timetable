@@ -9,6 +9,7 @@ import { list as listSubjects } from "../api/subjects";
 import { list as listRooms } from "../api/rooms";
 import { useResource } from "./useResource";
 import type { TimeSlot } from "../types/timeSlot";
+import type { NameLookups } from "../utils/failureDiagnostics";
 
 // One flattened, ready-to-render row: everything TimetableView.tsx's grid
 // needs, with every id already resolved to a display name. This is the
@@ -53,6 +54,11 @@ export interface TimetableData {
   // TimetableView.tsx can decide each individual cell's teaching/
   // non-teaching status and label without depending on any other weekday.
   timeSlotByWeekdayAndPeriod: Map<string, TimeSlot>;
+  // Task 68: id -> record maps for turning check violations into Chinese
+  // sentences (utils/failureDiagnostics.ts), built from the same responses
+  // the grid uses -- no extra requests. Requirements/Lessons are this
+  // version's semester only, which is exactly what its violations refer to.
+  lookups: NameLookups;
 }
 
 // Task 67: Schedule rows are fetched for this one version only
@@ -116,6 +122,15 @@ async function buildTimetableData(scheduleVersionId: number): Promise<TimetableD
   const classById = new Map(classes.map((classItem) => [classItem.id, classItem]));
   const subjectById = new Map(subjects.map((subject) => [subject.id, subject]));
   const roomById = new Map(rooms.map((room) => [room.id, room]));
+  const lookups: NameLookups = {
+    teacherById,
+    classById,
+    subjectById,
+    roomById,
+    timeSlotById,
+    requirementById,
+    lessonById,
+  };
 
   const enriched: EnrichedSchedule[] = [];
 
@@ -183,6 +198,7 @@ async function buildTimetableData(scheduleVersionId: number): Promise<TimetableD
     schedules: enriched,
     periods: buildPeriods(timeSlots),
     timeSlotByWeekdayAndPeriod,
+    lookups,
   };
 }
 
@@ -201,6 +217,15 @@ export function useTimetableData(scheduleVersionId: number | null): {
             schedules: [],
             periods: [],
             timeSlotByWeekdayAndPeriod: new Map(),
+            lookups: {
+              teacherById: new Map(),
+              classById: new Map(),
+              subjectById: new Map(),
+              roomById: new Map(),
+              timeSlotById: new Map(),
+              requirementById: new Map(),
+              lessonById: new Map(),
+            },
           })
         : buildTimetableData(scheduleVersionId),
     [scheduleVersionId],

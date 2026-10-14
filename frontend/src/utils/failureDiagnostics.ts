@@ -3,7 +3,11 @@
 // id->entity lookups FailureDiagnostics.tsx builds from the same list()
 // calls Task 30/31 already established (RequirementsOverview.tsx, DataBrowser.tsx).
 
-import { LESSON_FAILURE_REASON_TEMPLATES, VIOLATION_TYPE_TEMPLATES } from "../constants/errorMessages";
+import {
+  FIXED_TIME_SLOT_MISMATCH_UNKNOWN_SLOT_TEMPLATE,
+  LESSON_FAILURE_REASON_TEMPLATES,
+  VIOLATION_TYPE_TEMPLATES,
+} from "../constants/errorMessages";
 import { formatTimeSlotLabel } from "./timeSlotFormat";
 import type { ConstraintViolationDetail, LessonFailureDetail } from "../types/scheduler";
 import type { Teacher } from "../types/teacher";
@@ -12,6 +16,7 @@ import type { Subject } from "../types/subject";
 import type { Room } from "../types/room";
 import type { TimeSlot } from "../types/timeSlot";
 import type { ClassSubjectRequirement } from "../types/classSubjectRequirement";
+import type { Lesson } from "../types/lesson";
 
 export interface NameLookups {
   teacherById: Map<number, Teacher>;
@@ -20,6 +25,11 @@ export interface NameLookups {
   roomById: Map<number, Room>;
   timeSlotById: Map<number, TimeSlot>;
   requirementById: Map<number, ClassSubjectRequirement>;
+  // Task 68: only needed for FIXED_TIME_SLOT_MISMATCH's fixed slot (the
+  // violation itself only carries the slot the lesson is actually in).
+  // Optional, so FailureDiagnostics.tsx -- which never sees that type --
+  // keeps building its lookups exactly as before.
+  lessonById?: Map<number, Lesson>;
 }
 
 // Every resolver returns "" for a null id (never the literal text "null"),
@@ -157,6 +167,37 @@ function formatInactiveEntities(entities: InactiveEntity[]): string {
     .join("、");
 }
 
+// Task 68: FIXED_TIME_SLOT_MISMATCH's {fixedTimeSlotLabel} -- lesson_id ->
+// Lesson.fixed_time_slot_id -> label. "" whenever any step is missing;
+// getViolationSentence() then switches to a sentence that doesn't need it.
+export function resolveFixedTimeSlotLabel(
+  lessonId: number | null,
+  lookups: NameLookups,
+): string {
+  if (lessonId === null || lookups.lessonById === undefined) {
+    return "";
+  }
+  const fixedTimeSlotId = lookups.lessonById.get(lessonId)?.fixed_time_slot_id ?? null;
+  return resolveTimeSlotLabel(fixedTimeSlotId, lookups);
+}
+
+// Task 68: INCOMPLETE_SCHEDULE_ROW's {missingFields} -- which of the row's
+// teacher/time slot is empty ("時段"、"老師" or "時段與老師"). "" for every
+// other type, whose null ids mean something else entirely.
+function describeMissingFields(violation: ConstraintViolationDetail): string {
+  if (violation.type !== "INCOMPLETE_SCHEDULE_ROW") {
+    return "";
+  }
+  const missing: string[] = [];
+  if (violation.time_slot_id === null) {
+    missing.push("時段");
+  }
+  if (violation.teacher_id === null) {
+    missing.push("老師");
+  }
+  return missing.length > 0 ? missing.join("與") : "時段或老師";
+}
+
 function applyTemplate(template: string, values: Record<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (_match, key: string) => values[key] ?? "");
 }
@@ -179,6 +220,8 @@ function buildTemplateValues(
       lookups,
     ),
     inactiveEntities: formatInactiveEntities(resolveInactiveEntities(violation, lookups)),
+    fixedTimeSlotLabel: resolveFixedTimeSlotLabel(violation.lesson_id, lookups),
+    missingFields: describeMissingFields(violation),
   };
 }
 
@@ -193,7 +236,11 @@ export function getViolationSentence(
   if (template === undefined) {
     return violation.message;
   }
-  return applyTemplate(template, buildTemplateValues(violation, lookups));
+  const values = buildTemplateValues(violation, lookups);
+  if (violation.type === "FIXED_TIME_SLOT_MISMATCH" && values.fixedTimeSlotLabel === "") {
+    return applyTemplate(FIXED_TIME_SLOT_MISMATCH_UNKNOWN_SLOT_TEMPLATE, values);
+  }
+  return applyTemplate(template, values);
 }
 
 // --- Task 39: merging lesson_failures entries that fail for the same

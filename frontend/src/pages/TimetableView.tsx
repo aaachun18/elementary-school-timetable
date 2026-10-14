@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { useSearchParams } from "react-router-dom";
 import { list as listScheduleVersions } from "../api/scheduleVersions";
 import { list as listSemesters } from "../api/semesters";
@@ -6,11 +6,19 @@ import { list as listAcademicYears } from "../api/academicYears";
 import { list as listClasses } from "../api/classes";
 import { list as listTeachers } from "../api/teachers";
 import { list as listRooms } from "../api/rooms";
+import ConflictChecklist from "../components/ConflictChecklist";
 import { useResource } from "../hooks/useResource";
+import { useScheduleCheck } from "../hooks/useScheduleCheck";
 import { useTimetableData, timeSlotKey, type EnrichedSchedule } from "../hooks/useTimetableData";
+import { isCurrentUserAdmin } from "../utils/auth";
+import { getViolationSentence, type NameLookups } from "../utils/failureDiagnostics";
 import { formatVersionLabel } from "../utils/scheduleVersionFormat";
+import { mergeViolationsBySentence } from "../utils/violationMerge";
+import type { ConstraintViolationDetail } from "../types/scheduler";
 import { formatWeekday } from "../utils/timeSlotFormat";
 import {
+  BUTTON_PRIMARY,
+  CARD,
   ERROR_TEXT,
   LABEL,
   LOADING_TEXT,
@@ -26,6 +34,7 @@ import {
   TABLE_HEAD_ROW,
   TABLE_WRAPPER,
   TD,
+  TD_HIGHLIGHT,
   TH,
 } from "../styles/ui";
 
@@ -62,6 +71,36 @@ function cellDetailOf(row: EnrichedSchedule, viewMode: ViewMode): string {
   return row.className;
 }
 
+// Task 68: where 「在課表中查看」 takes the user -- which view, and whose
+// timetable. A class (or, for H7, which only names a requirement, that
+// requirement's class) wins over a teacher, which wins over a room. null =
+// nothing to show (the button is hidden).
+interface LocateTarget {
+  viewMode: ViewMode;
+  targetId: number;
+}
+
+function resolveLocateTarget(
+  violation: ConstraintViolationDetail,
+  lookups: NameLookups,
+): LocateTarget | null {
+  const classId =
+    violation.class_id ??
+    (violation.class_subject_requirement_id === null
+      ? null
+      : (lookups.requirementById.get(violation.class_subject_requirement_id)?.class_id ?? null));
+  if (classId !== null) {
+    return { viewMode: "class", targetId: classId };
+  }
+  if (violation.teacher_id !== null) {
+    return { viewMode: "teacher", targetId: violation.teacher_id };
+  }
+  if (violation.room_id !== null) {
+    return { viewMode: "room", targetId: violation.room_id };
+  }
+  return null;
+}
+
 export default function TimetableView(): ReactElement {
   const [searchParams] = useSearchParams();
 
@@ -86,11 +125,56 @@ export default function TimetableView(): ReactElement {
 
   const timetable = useTimetableData(selectedVersionId);
 
+  // --- Task 68: 檢查衝突 (ADMIN only; the backend would also let a TEACHER
+  // check a PUBLISHED version, this is a UI scoping choice). ---
+  const isAdmin = isCurrentUserAdmin();
+  const scheduleCheck = useScheduleCheck(selectedVersionId);
+  // The TimeSlot whose cell 「在課表中查看」 marked. Cleared by any other
+  // change of what the grid shows (view, target, version) and by re-checking.
+  const [highlightedTimeSlotId, setHighlightedTimeSlotId] = useState<number | null>(null);
+  // Bumped on every locate so the grid scrolls into view even when the
+  // same line is located twice in a row.
+  const [locateRequestCount, setLocateRequestCount] = useState(0);
+  const timetableSectionRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (locateRequestCount > 0) {
+      timetableSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [locateRequestCount]);
+
   function handleSelectViewMode(mode: ViewMode): void {
     setViewMode(mode);
     // A classId is meaningless as a teacherId/roomId and vice versa --
     // switching axis always starts the target selection over.
     setSelectedTargetId(null);
+    setHighlightedTimeSlotId(null);
+  }
+
+  function handleRunCheck(): void {
+    setHighlightedTimeSlotId(null);
+    scheduleCheck.run();
+  }
+
+  // A violation without a time slot (H7/H8, an incomplete row) only
+  // switches the view; nothing is highlighted.
+  function handleLocate(violation: ConstraintViolationDetail): void {
+    if (timetable.data === null) {
+      return;
+    }
+    const target = resolveLocateTarget(violation, timetable.data.lookups);
+    if (target === null) {
+      return;
+    }
+    setViewMode(target.viewMode);
+    setSelectedTargetId(target.targetId);
+    setHighlightedTimeSlotId(violation.time_slot_id);
+    setLocateRequestCount((previous) => previous + 1);
+  }
+
+  function canLocate(violation: ConstraintViolationDetail): boolean {
+    return (
+      timetable.data !== null && resolveLocateTarget(violation, timetable.data.lookups) !== null
+    );
   }
 
   const isLoadingLookups =
@@ -169,6 +253,25 @@ export default function TimetableView(): ReactElement {
     return timeSlot.label ?? "非教學時段";
   }
 
+  // Task 68: the cell 「在課表中查看」 points at -- matched by TimeSlot id,
+  // so it works for non-teaching cells (H11) too.
+  function isHighlightedCell(weekday: number, period: number): boolean {
+    return (
+      highlightedTimeSlotId !== null &&
+      timeSlotByWeekdayAndPeriod.get(timeSlotKey(weekday, period))?.id === highlightedTimeSlotId
+    );
+  }
+
+  // The summary counts lines as the checklist shows them (merged), not raw
+  // violation records.
+  const checkLookups = timetable.data?.lookups ?? null;
+  const checkProblemCount =
+    scheduleCheck.result === null || checkLookups === null
+      ? 0
+      : mergeViolationsBySentence(scheduleCheck.result.violations, (violation) =>
+          getViolationSentence(violation, checkLookups),
+        ).length;
+
   return (
     <div className={PAGE}>
       <h1 className={PAGE_TITLE}>課表檢視</h1>
@@ -202,6 +305,7 @@ export default function TimetableView(): ReactElement {
                 event.target.value === "" ? null : Number(event.target.value),
               );
               setSelectedTargetId(null);
+              setHighlightedTimeSlotId(null);
             }}
             className={SELECT}
           >
@@ -215,8 +319,53 @@ export default function TimetableView(): ReactElement {
         )}
       </section>
 
+      {/* Task 68: 檢查衝突 -- read-only, any version status. The result
+          belongs to the selected version only (useScheduleCheck drops it
+          on a version change). Waits for the timetable data, whose lookups
+          turn the violations into names. */}
+      {isAdmin && selectedVersionId !== null && (
+        <section className={SECTION} aria-label="檢查衝突">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={handleRunCheck}
+              disabled={scheduleCheck.isChecking || timetable.isLoading || timetable.data === null}
+              className={BUTTON_PRIMARY}
+            >
+              {scheduleCheck.isChecking
+                ? "檢查中…"
+                : scheduleCheck.result !== null
+                  ? "重新檢查"
+                  : "檢查衝突"}
+            </button>
+            <span className={MUTED_TEXT}>依目前儲存的課表檢查所有排課規則，不會修改任何資料。</span>
+          </div>
+          {scheduleCheck.errorMessage !== null && (
+            <p role="alert" className={ERROR_TEXT}>
+              檢查失敗：{scheduleCheck.errorMessage}
+            </p>
+          )}
+          {scheduleCheck.result !== null && checkLookups !== null && (
+            <div className={`${CARD} mt-3`} aria-live="polite">
+              {checkProblemCount > 0 && (
+                <p className="mb-2 text-sm font-semibold text-red-600">
+                  共 {checkProblemCount} 項問題
+                </p>
+              )}
+              <ConflictChecklist
+                violations={scheduleCheck.result.violations}
+                lookups={checkLookups}
+                emptyText="沒有發現衝突，這份課表符合所有檢查規則"
+                onLocate={handleLocate}
+                canLocate={canLocate}
+              />
+            </div>
+          )}
+        </section>
+      )}
+
       {selectedVersionId !== null && (
-        <section className={SECTION}>
+        <section ref={timetableSectionRef} className={`${SECTION} scroll-mt-4`}>
           <nav className="mb-4 flex gap-2">
             {VIEW_MODES.map((mode) => (
               <button
@@ -237,11 +386,12 @@ export default function TimetableView(): ReactElement {
           <select
             id="timetable-target-select"
             value={selectedTargetId ?? ""}
-            onChange={(event) =>
+            onChange={(event) => {
               setSelectedTargetId(
                 event.target.value === "" ? null : Number(event.target.value),
-              )
-            }
+              );
+              setHighlightedTimeSlotId(null);
+            }}
             className={`${SELECT} mb-4`}
           >
             <option value="">請選擇…</option>
@@ -284,13 +434,17 @@ export default function TimetableView(): ReactElement {
                       </th>
                       {WEEKDAYS.map((weekday) => {
                         const nonTeachingLabel = cellLabelOf(weekday, period);
+                        const isHighlighted = isHighlightedCell(weekday, period);
                         // Non-teaching cells show only their own label (or
                         // the generic fallback) -- never any guessed-at
                         // administrative content, and never a schedule
                         // lookup at all.
                         if (nonTeachingLabel !== null) {
                           return (
-                            <td key={weekday} className={`${TD} bg-gray-50 text-gray-400`}>
+                            <td
+                              key={weekday}
+                              className={`${TD} text-gray-400 ${isHighlighted ? TD_HIGHLIGHT : "bg-gray-50"}`}
+                            >
                               {nonTeachingLabel}
                             </td>
                           );
@@ -303,7 +457,7 @@ export default function TimetableView(): ReactElement {
                         );
                         const schedule = matches[0];
                         return (
-                          <td key={weekday} className={TD}>
+                          <td key={weekday} className={isHighlighted ? `${TD} ${TD_HIGHLIGHT}` : TD}>
                             {schedule !== undefined && (
                               <>
                                 {matches.length > 1 && (

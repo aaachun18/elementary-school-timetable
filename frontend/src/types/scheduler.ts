@@ -62,3 +62,15 @@ export interface RunSchedulerFailureResponse {
   post_hoc_violations: ConstraintViolationDetail[];
   backtrack_count: number;
 }
+
+// Task 68: GET /schedule-versions/{id}/check (Task 61) -- a read-only Hard
+// Constraint check of a version's CURRENT Schedule rows. Mirrors
+// backend/app/schemas/scheduler.py::ScheduleCheckResult. Besides the
+// engine's H1-H9/H11/H12 types, `violations` can contain the service-level
+// INCOMPLETE_SCHEDULE_ROW (Task 62) and FIXED_TIME_SLOT_MISMATCH (Task 66).
+export interface ScheduleCheckResult {
+  schedule_version_id: number;
+  is_valid: boolean;
+  violation_count: number;
+  violations: ConstraintViolationDetail[];
+}

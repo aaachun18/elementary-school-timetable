@@ -8,6 +8,7 @@ import type {
 import type {
   GenerateLessonsResponse,
   RunSchedulerSuccessResponse,
+  ScheduleCheckResult,
 } from "../types/scheduler";
 
 // Mirrors backend/app/routers/schedule_version.py's 5 CRUD endpoints -- see
@@ -103,6 +104,16 @@ export async function copy(
   const response = await apiClient.post<ScheduleVersion>(
     `/api/v1/schedule-versions/${versionId}/copy`,
     body,
+  );
+  return response.data;
+}
+
+// Task 68: read-only Hard Constraint check of the version's current
+// timetable (any status). Conflicts are reported in the 200 response, never
+// as an error -- a rejection here means the check itself couldn't run.
+export async function check(versionId: number): Promise<ScheduleCheckResult> {
+  const response = await apiClient.get<ScheduleCheckResult>(
+    `/api/v1/schedule-versions/${versionId}/check`,
   );
   return response.data;
 }

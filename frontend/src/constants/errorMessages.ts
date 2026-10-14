@@ -246,6 +246,11 @@ export function translateFailureType(failureType: string): string {
 // - scheduling_engine/static_feasibility.py's three checks:
 //   STATIC_TEACHER_WORKLOAD_EXCEEDED, STATIC_TEACHER_AVAILABILITY_INSUFFICIENT,
 //   STATIC_INACTIVE_ENTITY_CONFLICT
+// - backend/app/services/schedule_check.py's own two (Task 68; only ever in
+//   GET /schedule-versions/{id}/check, never in a run-scheduler failure):
+//   INCOMPLETE_SCHEDULE_ROW ({missingFields}), FIXED_TIME_SLOT_MISMATCH
+//   ({fixedTimeSlotLabel}, looked up through the Lesson -- the violation
+//   itself only carries the actual time slot)
 //
 // Any type not in this table (e.g. a future constraint) falls back to the
 // violation's own English `message` -- see getViolationSentence().
@@ -278,6 +283,60 @@ export const VIOLATION_TYPE_TEMPLATES: Record<string, string> = {
   STATIC_TEACHER_AVAILABILITY_INSUFFICIENT:
     "{teacherName}被指定的課程數超過其可用時段數量，無法排入課表！",
   STATIC_INACTIVE_ENTITY_CONFLICT: "{requirementLabel}涉及已停用的項目：{inactiveEntities}！",
+  INCOMPLETE_SCHEDULE_ROW: "{className}的{subjectName}有一筆排課資料缺少{missingFields}！",
+  FIXED_TIME_SLOT_MISMATCH:
+    "{className}的{subjectName}被固定在{fixedTimeSlotLabel}，但目前排在{timeSlotLabel}！",
+};
+
+// Task 68: FIXED_TIME_SLOT_MISMATCH when the fixed slot can't be resolved
+// (no Lesson lookup passed in, or the Lesson isn't in it) -- still a full
+// sentence, never one with a blank where the fixed slot should be.
+export const FIXED_TIME_SLOT_MISMATCH_UNKNOWN_SLOT_TEMPLATE =
+  "{className}的{subjectName}設有固定時段，但目前排在{timeSlotLabel}，不在固定時段內！";
+
+// Task 68: one heading per violation type for the conflict checklist
+// (components/ConflictChecklist.tsx), in the order the groups are shown.
+// Every type GET /schedule-versions/{id}/check can return is listed; an
+// unlisted (future) type is grouped under UNKNOWN_VIOLATION_TYPE_HEADING,
+// after these.
+export const VIOLATION_TYPE_HEADINGS: Record<string, string> = {
+  H1_TEACHER_CONFLICT: "老師衝堂",
+  H2_CLASS_CONFLICT: "班級衝堂",
+  H3_ROOM_CONFLICT: "教室衝堂",
+  H4_TEACHER_AVAILABILITY: "排在老師不可排課的時段",
+  H5_TEACHER_QUALIFICATION: "老師不具任教資格",
+  H6_REQUIRED_TEACHER: "與指定教師不符",
+  H7_WEEKLY_PERIODS: "每週節數不符",
+  H8_TEACHER_MAX_WORKLOAD: "超過每週授課節數上限",
+  H9_ROOM_TYPE: "教室類型不符",
+  H11_NON_TEACHING_PERIOD: "排入非教學時段",
+  H12_ACTIVE_STATUS: "涉及已停用的項目",
+  INCOMPLETE_SCHEDULE_ROW: "排課資料不完整",
+  FIXED_TIME_SLOT_MISMATCH: "不在固定時段",
+};
+
+export const UNKNOWN_VIOLATION_TYPE_HEADING = "其他問題";
+
+// Task 68: a short Chinese "what to do" line per type, shown in the conflict
+// checklist instead of the backend's English suggested_action (which has no
+// translation and often embeds raw ids). Deliberately generic per type -- a
+// type without an entry simply shows no suggestion, never English text.
+export const VIOLATION_TYPE_SUGGESTIONS: Record<string, string> = {
+  H1_TEACHER_CONFLICT: "把其中一堂課移到這位老師沒有課的節次，或改由其他老師授課。",
+  H2_CLASS_CONFLICT: "把其中一堂課移到這個班級沒有課的節次。",
+  H3_ROOM_CONFLICT: "把其中一堂課移到其他節次，或改用其他教室。",
+  H4_TEACHER_AVAILABILITY:
+    "把這堂課移到老師可排課的節次，或到基礎資料調整老師的不可排課時段。",
+  H5_TEACHER_QUALIFICATION:
+    "改由具備這個科目任教資格的老師授課，或到基礎資料為老師加上任教資格。",
+  H6_REQUIRED_TEACHER: "改回需求指定的教師，或到排課需求總覽修改指定教師。",
+  H7_WEEKLY_PERIODS: "補排或移除這門課的節次，讓排定堂數與需求的每週節數一致。",
+  H8_TEACHER_MAX_WORKLOAD: "把這位老師的部分課改由其他老師授課，或調整老師的每週授課節數上限。",
+  H9_ROOM_TYPE: "改用符合需求教室類型的教室。",
+  H11_NON_TEACHING_PERIOD: "把這堂課移到教學時段。",
+  H12_ACTIVE_STATUS: "改用啟用中的項目，或到基礎資料重新啟用相關項目。",
+  INCOMPLETE_SCHEDULE_ROW: "為這筆排課資料補上缺少的時段或老師。",
+  FIXED_TIME_SLOT_MISMATCH: "把這堂課移回固定時段，或到排課控制台修改這堂課的固定時段。",
 };
 
 // Task 39: the "reason" clause only -- no leading punctuation, no trailing
