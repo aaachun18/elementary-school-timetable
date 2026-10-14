@@ -128,6 +128,67 @@ def _incomplete_row_violations(
     return violations
 
 
+# Task 66: a Schedule row whose Lesson is pinned (Lesson.fixed_time_slot_id)
+# but which currently sits in a different time slot. The engine only honours
+# fixed_time_slot_id during run-scheduler's search (it becomes the
+# LessonAssignment's starting time slot), so after a manual move/swap nothing
+# in scheduling_engine/ knows the lesson was pinned. Same reasoning as
+# INCOMPLETE_SCHEDULE_ROW: detected here in the service layer, engine
+# untouched. A row with no time slot at all is left to INCOMPLETE_SCHEDULE_ROW.
+FIXED_TIME_SLOT_MISMATCH = "FIXED_TIME_SLOT_MISMATCH"
+
+
+def _load_fixed_time_slots(db: Session, schedule_version_id: int) -> dict[int, int]:
+    """lesson_id -> fixed_time_slot_id, for every pinned Lesson that has a
+    Schedule row in this version."""
+    rows = db.execute(
+        select(Lesson.id, Lesson.fixed_time_slot_id)
+        .join(Schedule, Schedule.lesson_id == Lesson.id)
+        .where(
+            Schedule.schedule_version_id == schedule_version_id,
+            Lesson.fixed_time_slot_id.is_not(None),
+        )
+    ).all()
+    return {lesson_id: fixed_time_slot_id for lesson_id, fixed_time_slot_id in rows}
+
+
+def _fixed_time_slot_violations(
+    assignments: list[LessonAssignment], fixed_time_slots: dict[int, int]
+) -> list[ConstraintViolation]:
+    violations: list[ConstraintViolation] = []
+    for assignment in assignments:
+        fixed_time_slot_id = fixed_time_slots.get(assignment.lesson_id)
+        if (
+            fixed_time_slot_id is None
+            or assignment.time_slot_id is None
+            or assignment.time_slot_id == fixed_time_slot_id
+        ):
+            continue
+        violations.append(
+            ConstraintViolation(
+                type=FIXED_TIME_SLOT_MISMATCH,
+                severity=Severity.ERROR,
+                lesson_id=assignment.lesson_id,
+                teacher_id=assignment.teacher_id,
+                class_id=assignment.class_id,
+                subject_id=assignment.subject_id,
+                time_slot_id=assignment.time_slot_id,
+                room_id=assignment.room_id,
+                class_subject_requirement_id=assignment.class_subject_requirement_id,
+                message=(
+                    f"Lesson {assignment.lesson_id} is fixed to time slot "
+                    f"{fixed_time_slot_id} but is scheduled in time slot "
+                    f"{assignment.time_slot_id}."
+                ),
+                suggested_action=(
+                    f"Move this lesson back to time slot {fixed_time_slot_id}, "
+                    "or change its fixed time slot in the scheduler console."
+                ),
+            )
+        )
+    return violations
+
+
 def _load_assignments(
     db: Session, schedule_version_id: int
 ) -> list[LessonAssignment]:
@@ -173,7 +234,8 @@ def check_schedule_version(
     Constraint violation in the version's current Schedule rows, sorted by
     type, lesson_id, time_slot_id. Besides the engine's Hard Constraints,
     a Schedule row missing its teacher or time slot is reported as
-    INCOMPLETE_SCHEDULE_ROW (Task 62). An empty list means the timetable is
+    INCOMPLETE_SCHEDULE_ROW (Task 62), and a pinned Lesson sitting outside
+    its fixed time slot as FIXED_TIME_SLOT_MISMATCH (Task 66). An empty list means the timetable is
     valid. A version with no Schedule rows at all is checked as-is (H7
     then reports every requirement as under-scheduled)."""
     schedule_version = schedule_version_service.get_schedule_version(
@@ -187,6 +249,11 @@ def check_schedule_version(
     assignments = _load_assignments(db, schedule_version_id)
 
     violations: list[ConstraintViolation] = _incomplete_row_violations(assignments)
+    violations.extend(
+        _fixed_time_slot_violations(
+            assignments, _load_fixed_time_slots(db, schedule_version_id)
+        )
+    )
     for constraint in _all_hard_constraints(resources):
         violations.extend(constraint.explain_violations(assignments))
     return sorted(violations, key=_violation_sort_key)

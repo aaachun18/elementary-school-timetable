@@ -255,10 +255,9 @@ def test_move_into_unavailable_slot_is_reported(
 def test_move_fixed_lesson_keeps_its_fixed_slot(
     client: TestClient, db_session: Session
 ) -> None:
-    # The engine has no "fixed time slot" constraint (Lesson.fixed_time_slot_id
-    # only pins a lesson during run-scheduler's search), so the check does
-    # not report this move -- see the Task 65 report. The move must still
-    # leave the Lesson itself untouched.
+    # Task 66: the move is still saved, but the check now reports it as
+    # FIXED_TIME_SLOT_MISMATCH (Task 65 reported it as valid). The move must
+    # leave the Lesson itself -- its fixed_time_slot_id -- untouched.
     tt = _build_timetable(db_session)
     lesson = db_session.get(Lesson, tt.c1_science.lesson_id)
     assert lesson is not None
@@ -267,7 +266,8 @@ def test_move_fixed_lesson_keeps_its_fixed_slot(
 
     data = _ok(_move(client, tt.version.id, tt.c1_science.id, tt.slot(5)))
 
-    assert data["check"]["is_valid"] is True
+    assert _violation_types(data) == {"FIXED_TIME_SLOT_MISMATCH"}
+    assert _get(db_session, tt.c1_science.id).time_slot_id == tt.slot(5)
     db_session.expire_all()
     assert db_session.get(Lesson, tt.c1_science.lesson_id).fixed_time_slot_id == tt.slot(2)
 
