@@ -11,6 +11,11 @@ export interface Schedule {
   updated_at: string;
 }
 
+// Task 67: optional query filters for GET /schedules (Task 66).
+export interface ScheduleListFilters {
+  schedule_version_id?: number;
+}
+
 export interface ScheduleCreate {
   schedule_version_id: number;
   lesson_id: number;

@@ -2,6 +2,7 @@ import { apiClient } from "./client";
 import type {
   ClassSubjectRequirement,
   ClassSubjectRequirementCreate,
+  ClassSubjectRequirementListFilters,
   ClassSubjectRequirementUpdate,
 } from "../types/classSubjectRequirement";
 
@@ -9,13 +10,16 @@ import type {
 // see teachers.ts for why create()/update()/remove() exist even though
 // Task 31 only calls list().
 
+// Task 67: `filters.semester_id` (Task 66) narrows to one semester's
+// requirements; omitted -> every requirement, as before.
 export async function list(
   skip = 0,
   limit = 100,
+  filters: ClassSubjectRequirementListFilters = {},
 ): Promise<ClassSubjectRequirement[]> {
   const response = await apiClient.get<ClassSubjectRequirement[]>(
     "/api/v1/class-subject-requirements/",
-    { params: { skip, limit } },
+    { params: { skip, limit, ...filters } },
   );
   return response.data;
 }

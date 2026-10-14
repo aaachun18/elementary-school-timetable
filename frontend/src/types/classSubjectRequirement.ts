@@ -32,3 +32,9 @@ export interface ClassSubjectRequirementUpdate {
   required_room_type?: string | null;
   consecutive_limit?: number | null;
 }
+
+// Task 67: optional query filters for GET /class-subject-requirements
+// (Task 66).
+export interface ClassSubjectRequirementListFilters {
+  semester_id?: number;
+}

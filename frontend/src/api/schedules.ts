@@ -1,22 +1,28 @@
 import { apiClient } from "./client";
-import type { Schedule, ScheduleCreate, ScheduleUpdate } from "../types/schedule";
+import type {
+  Schedule,
+  ScheduleCreate,
+  ScheduleListFilters,
+  ScheduleUpdate,
+} from "../types/schedule";
 
 // Mirrors backend/app/routers/schedule.py's 5 endpoints -- see teachers.ts
 // for why create()/update()/remove() exist even though Task 34 only calls
 // list().
 //
-// GET /api/v1/schedules/ does NOT support filtering by schedule_version_id
-// (only skip/limit) -- confirmed by reading routers/schedule.py, not
-// guessed. list() therefore always fetches everything and the caller
-// (useTimetableData.ts) filters by schedule_version_id itself. `limit`
-// defaults to 100 like every other list() here, but the schedules table
-// alone already holds 100+ rows in this project's dev database (each
-// run-scheduler call adds one row per Lesson), so useTimetableData.ts
-// passes an explicitly larger limit rather than relying on this default.
+// Task 67: `filters` maps to GET /api/v1/schedules/'s optional
+// schedule_version_id (Task 66; results ordered by id, so skip/limit pages
+// are stable). Omitted -> every row the current user may see, exactly as
+// before. axios drops undefined params, so an empty filters object sends
+// only skip/limit.
 
-export async function list(skip = 0, limit = 100): Promise<Schedule[]> {
+export async function list(
+  skip = 0,
+  limit = 100,
+  filters: ScheduleListFilters = {},
+): Promise<Schedule[]> {
   const response = await apiClient.get<Schedule[]>("/api/v1/schedules/", {
-    params: { skip, limit },
+    params: { skip, limit, ...filters },
   });
   return response.data;
 }

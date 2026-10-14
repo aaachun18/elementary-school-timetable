@@ -1,4 +1,4 @@
-import { useEffect, useState, type DependencyList } from "react";
+import { useCallback, useEffect, useState, type DependencyList } from "react";
 import axios from "axios";
 import { extractApiErrorMessage } from "../constants/errorMessages";
 
@@ -6,6 +6,10 @@ interface UseResourceResult<T> {
   data: T | null;
   isLoading: boolean;
   errorMessage: string | null;
+  // Task 67: re-runs `fetcher` with the same deps. The previous `data` stays
+  // in place while the reload is in flight (isLoading goes back to true),
+  // so a page doesn't flash empty between the two results.
+  reload: () => void;
 }
 
 // Shared loading/error/data bookkeeping for the read-only API calls
@@ -24,6 +28,12 @@ export function useResource<T>(
   const [data, setData] = useState<T | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Bumped by reload(); part of the effect's dependencies alongside the
+  // caller's own `deps`, so a reload is just "deps changed" once more.
+  const [reloadCount, setReloadCount] = useState(0);
+  const reload = useCallback(() => {
+    setReloadCount((previous) => previous + 1);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -59,7 +69,7 @@ export function useResource<T>(
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
+  }, [...deps, reloadCount]);
 
-  return { data, isLoading, errorMessage };
+  return { data, isLoading, errorMessage, reload };
 }

@@ -15,6 +15,7 @@ import {
   LABEL,
   LOADING_TEXT,
   MUTED_TEXT,
+  NOTICE,
   PAGE,
   PAGE_TITLE,
   SECTION,
@@ -134,6 +135,7 @@ export default function TimetableView(): ReactElement {
     (semesters.data ?? []).map((semester) => [semester.id, semester]),
   );
   const versions = versionsResource.data ?? [];
+  const selectedVersion = versions.find((version) => version.id === selectedVersionId);
 
   const targetOptions =
     viewMode === "class"
@@ -170,6 +172,12 @@ export default function TimetableView(): ReactElement {
   return (
     <div className={PAGE}>
       <h1 className={PAGE_TITLE}>課表檢視</h1>
+      {/* Task 67: only ADMIN can ever pick an ARCHIVED version here (a
+          TEACHER's version list is PUBLISHED-only, enforced by the
+          backend). */}
+      {selectedVersion?.status === "ARCHIVED" && (
+        <p className={`${NOTICE} mb-4`}>這是已封存的版本，僅供查看。</p>
+      )}
 
       <section className={SECTION}>
         <label htmlFor="timetable-version-select" className={`${LABEL} mb-1 block`}>

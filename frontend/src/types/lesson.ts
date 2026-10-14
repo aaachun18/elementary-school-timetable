@@ -14,6 +14,12 @@ export interface Lesson {
   updated_at: string;
 }
 
+// Task 67: optional query filters for GET /lessons (Task 66) -- by the
+// semester of each Lesson's requirement.
+export interface LessonListFilters {
+  semester_id?: number;
+}
+
 // Body for PATCH /lessons/{id}/fix-time-slot (Task 28).
 export interface LessonFixTimeSlot {
   time_slot_id: number | null;

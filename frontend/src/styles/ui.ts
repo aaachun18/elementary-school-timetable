@@ -78,3 +78,18 @@ export const TAB_BUTTON_ACTIVE = "rounded-md bg-blue-50 px-3 py-1.5 text-sm font
 // --- Badges / status pills ---
 export const BADGE_SUCCESS = "inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700";
 export const BADGE_NEUTRAL = "inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600";
+// Task 67: version status pills -- DRAFT uses the accent blue (BADGE_INFO),
+// PUBLISHED reuses BADGE_SUCCESS, ARCHIVED reuses BADGE_NEUTRAL.
+export const BADGE_INFO = "inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700";
+
+// --- Notices ---
+// Task 67: a short, non-error heads-up shown above content (e.g. "this is
+// an archived version, read only").
+export const NOTICE = "rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800";
+
+// --- Dialogs ---
+// Task 67: native <dialog> opened with showModal(). m-auto restores the
+// browser's own centering, which Tailwind's preflight margin reset removes.
+export const DIALOG =
+  "m-auto w-full max-w-lg rounded-lg border border-gray-200 bg-white p-0 shadow-xl backdrop:bg-black/40";
+export const DIALOG_TITLE = "text-lg font-semibold text-gray-900";

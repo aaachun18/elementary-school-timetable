@@ -1,6 +1,7 @@
 import { apiClient } from "./client";
 import type {
   ScheduleVersion,
+  ScheduleVersionCopy,
   ScheduleVersionCreate,
   ScheduleVersionUpdate,
 } from "../types/scheduleVersion";
@@ -74,6 +75,34 @@ export async function runScheduler(
 ): Promise<RunSchedulerSuccessResponse> {
   const response = await apiClient.post<RunSchedulerSuccessResponse>(
     `/api/v1/schedule-versions/${versionId}/run-scheduler`,
+  );
+  return response.data;
+}
+
+// --- Task 67: version management (Task 62/64 backend rules) ---
+
+// DRAFT or ARCHIVED -> PUBLISHED. The backend archives the semester's
+// previously PUBLISHED version in the same transaction, so callers should
+// reload the whole version list afterwards, not just this one version.
+export async function publish(versionId: number): Promise<ScheduleVersion> {
+  return update(versionId, { status: "PUBLISHED" });
+}
+
+// PUBLISHED -> ARCHIVED. Leaves the semester with no PUBLISHED version.
+export async function unpublish(versionId: number): Promise<ScheduleVersion> {
+  return update(versionId, { status: "ARCHIVED" });
+}
+
+// Omitted/null targetSemesterId = same-semester copy. Resolves with the new
+// DRAFT version (201).
+export async function copy(
+  versionId: number,
+  targetSemesterId: number | null = null,
+): Promise<ScheduleVersion> {
+  const body: ScheduleVersionCopy = { target_semester_id: targetSemesterId };
+  const response = await apiClient.post<ScheduleVersion>(
+    `/api/v1/schedule-versions/${versionId}/copy`,
+    body,
   );
   return response.data;
 }

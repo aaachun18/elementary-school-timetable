@@ -1,3 +1,4 @@
+import { get as getScheduleVersion } from "../api/scheduleVersions";
 import { list as listSchedules } from "../api/schedules";
 import { list as listLessons } from "../api/lessons";
 import { list as listRequirements } from "../api/classSubjectRequirements";
@@ -16,6 +17,9 @@ import type { TimeSlot } from "../types/timeSlot";
 // scattered through the page component.
 export interface EnrichedSchedule {
   scheduleId: number;
+  // Task 67: kept for later Tasks (move/swap/reassign act on these ids).
+  lessonId: number;
+  timeSlotId: number;
   weekday: number;
   period: number;
   classId: number;
@@ -51,13 +55,15 @@ export interface TimetableData {
   timeSlotByWeekdayAndPeriod: Map<string, TimeSlot>;
 }
 
-// GET /api/v1/schedules/ has no schedule_version_id filter (confirmed by
-// reading backend/app/routers/schedule.py, not guessed) -- every list()
-// call here fetches everything and this function filters/joins client-side.
-// A generously large limit is passed explicitly rather than relying on the
-// usual default of 100: the schedules table alone already holds 100+ rows
-// across every ScheduleVersion this project's dev database has ever had a
-// successful run-scheduler call for.
+// Task 67: Schedule rows are fetched for this one version only
+// (?schedule_version_id=), and Lessons/requirements for that version's
+// semester only (?semester_id=) -- previously all three tables were fetched
+// whole and filtered here, so copies (which multiply rows quickly) could
+// push this version's rows past the limit and silently drop lessons. The
+// master tables (time slots, teachers, classes, subjects, rooms) are still
+// fetched whole: they're small and not per-version. The limit stays
+// explicit and generous; the backend has no upper bound of its own (see
+// docs/SYSTEM_DESIGN.md's known limitations).
 const FETCH_LIMIT = 1000;
 
 // Task 35: TimeSlot has no semester_id/school_id column at all (see
@@ -71,22 +77,35 @@ function buildPeriods(timeSlots: TimeSlot[]): number[] {
   );
 }
 
-async function buildTimetableData(scheduleVersionId: number): Promise<TimetableData> {
-  const [schedules, lessons, requirements, timeSlots, teachers, classes, subjects, rooms] =
-    await Promise.all([
-      listSchedules(0, FETCH_LIMIT),
-      listLessons(0, FETCH_LIMIT),
-      listRequirements(0, FETCH_LIMIT),
-      listTimeSlots(0, FETCH_LIMIT),
-      listTeachers(0, FETCH_LIMIT),
-      listClasses(0, FETCH_LIMIT),
-      listSubjects(0, FETCH_LIMIT),
-      listRooms(0, FETCH_LIMIT),
-    ]);
+// Lessons and requirements are filtered by the version's semester, which
+// only the version itself knows -- so this one chain waits on GET
+// /schedule-versions/{id} first, while everything else runs in parallel.
+async function loadSemesterLessonsAndRequirements(scheduleVersionId: number) {
+  const version = await getScheduleVersion(scheduleVersionId);
+  return Promise.all([
+    listLessons(0, FETCH_LIMIT, { semester_id: version.semester_id }),
+    listRequirements(0, FETCH_LIMIT, { semester_id: version.semester_id }),
+  ]);
+}
 
-  const relevantSchedules = schedules.filter(
-    (schedule) => schedule.schedule_version_id === scheduleVersionId,
-  );
+async function buildTimetableData(scheduleVersionId: number): Promise<TimetableData> {
+  const [
+    [lessons, requirements],
+    schedules,
+    timeSlots,
+    teachers,
+    classes,
+    subjects,
+    rooms,
+  ] = await Promise.all([
+    loadSemesterLessonsAndRequirements(scheduleVersionId),
+    listSchedules(0, FETCH_LIMIT, { schedule_version_id: scheduleVersionId }),
+    listTimeSlots(0, FETCH_LIMIT),
+    listTeachers(0, FETCH_LIMIT),
+    listClasses(0, FETCH_LIMIT),
+    listSubjects(0, FETCH_LIMIT),
+    listRooms(0, FETCH_LIMIT),
+  ]);
 
   const lessonById = new Map(lessons.map((lesson) => [lesson.id, lesson]));
   const requirementById = new Map(
@@ -100,10 +119,13 @@ async function buildTimetableData(scheduleVersionId: number): Promise<TimetableD
 
   const enriched: EnrichedSchedule[] = [];
 
-  for (const schedule of relevantSchedules) {
+  for (const schedule of schedules) {
     // Schedule.lesson_id -> Lesson.class_subject_requirement_id ->
     // ClassSubjectRequirement.{class_id, subject_id}
     const lesson = lessonById.get(schedule.lesson_id);
+    // Only the version's own semester's Lessons are loaded (Task 67); a row
+    // pointing at another semester's Lesson -- inconsistent data the
+    // database doesn't prevent -- is skipped like any other unresolvable row.
     if (lesson === undefined) {
       continue;
     }
@@ -131,6 +153,8 @@ async function buildTimetableData(scheduleVersionId: number): Promise<TimetableD
 
     enriched.push({
       scheduleId: schedule.id,
+      lessonId: schedule.lesson_id,
+      timeSlotId: schedule.time_slot_id,
       weekday: timeSlot.weekday,
       period: timeSlot.period,
       classId: requirement.class_id,
@@ -166,6 +190,9 @@ export function useTimetableData(scheduleVersionId: number | null): {
   data: TimetableData | null;
   isLoading: boolean;
   errorMessage: string | null;
+  // Task 67: re-fetch after the version changes (e.g. a later Task's
+  // move/swap), keeping the current grid on screen meanwhile.
+  reload: () => void;
 } {
   return useResource(
     () =>

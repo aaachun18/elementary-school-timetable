@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { Lesson, LessonFixTimeSlot } from "../types/lesson";
+import type { Lesson, LessonFixTimeSlot, LessonListFilters } from "../types/lesson";
 
 // NOT a full 5-set, deliberately: backend/app/routers/lesson.py only has
 // GET list, GET one, and PATCH fix-time-slot -- there is no POST/standard-
@@ -10,9 +10,15 @@ import type { Lesson, LessonFixTimeSlot } from "../types/lesson";
 // see teachers.ts for that convention's normal shape, where the backend
 // genuinely does have all 5.
 
-export async function list(skip = 0, limit = 100): Promise<Lesson[]> {
+// Task 67: `filters.semester_id` (Task 66) narrows to one semester's
+// Lessons; omitted -> every Lesson, as before.
+export async function list(
+  skip = 0,
+  limit = 100,
+  filters: LessonListFilters = {},
+): Promise<Lesson[]> {
   const response = await apiClient.get<Lesson[]>("/api/v1/lessons/", {
-    params: { skip, limit },
+    params: { skip, limit, ...filters },
   });
   return response.data;
 }
