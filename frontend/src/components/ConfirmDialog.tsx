@@ -1,4 +1,12 @@
-import { useEffect, useId, useRef, type ReactElement, type ReactNode, type SyntheticEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  type KeyboardEvent,
+  type ReactElement,
+  type ReactNode,
+  type SyntheticEvent,
+} from "react";
 import {
   BUTTON_DANGER,
   BUTTON_PRIMARY,
@@ -52,9 +60,15 @@ export default function ConfirmDialog({
   onCancel,
 }: ConfirmDialogProps): ReactElement {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
   // Several dialogs can be mounted on one page at once.
   const titleId = useId();
 
+  // Task 70 fix: focus always starts on the safe 取消/返回 button, set
+  // explicitly rather than left to showModal()'s "first focusable element"
+  // (which is a radio button in the copy dialog, and would be any button a
+  // dialog's content happens to contain). Enter then only ever activates
+  // the button the user has focused; 確認 needs a click or Tab + Enter.
   useEffect(() => {
     const dialog = dialogRef.current;
     if (dialog === null) {
@@ -62,10 +76,35 @@ export default function ConfirmDialog({
     }
     if (open && !dialog.open) {
       dialog.showModal();
+      cancelButtonRef.current?.focus();
     } else if (!open && dialog.open) {
       dialog.close();
     }
   }, [open]);
+
+  // While busy both buttons are disabled, which drops focus to <body>. If
+  // the action then fails and the dialog stays open, put focus back on the
+  // safe button instead of leaving it outside the dialog's content.
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog === null || !open || busy || !dialog.open) {
+      return;
+    }
+    if (!dialog.contains(document.activeElement)) {
+      cancelButtonRef.current?.focus();
+    }
+  }, [open, busy]);
+
+  // Task 70 fix: an Enter held down from the button that OPENED this dialog
+  // (e.g. 「預覽」) keeps auto-repeating, and the first repeat would hit the
+  // freshly focused 取消/返回 -- the dialog flashed open and shut with
+  // nothing saved. A repeated Enter is never a deliberate choice inside the
+  // dialog, so it is ignored; a fresh Enter press works as usual.
+  function handleKeyDown(event: KeyboardEvent<HTMLDialogElement>): void {
+    if (event.key === "Enter" && event.repeat) {
+      event.preventDefault();
+    }
+  }
 
   // Esc fires "cancel" before the browser closes the dialog. Prevent that
   // close so `open` stays the only thing that decides visibility, then hand
@@ -96,6 +135,7 @@ export default function ConfirmDialog({
       ref={dialogRef}
       onCancel={handleCancelEvent}
       onClose={handleCloseEvent}
+      onKeyDown={handleKeyDown}
       aria-labelledby={titleId}
       className={DIALOG}
     >
@@ -108,7 +148,13 @@ export default function ConfirmDialog({
           </h2>
           <div className="flex flex-col gap-2 text-sm text-gray-700">{children}</div>
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={onCancel} disabled={busy} className={BUTTON_SECONDARY}>
+            <button
+              ref={cancelButtonRef}
+              type="button"
+              onClick={onCancel}
+              disabled={busy}
+              className={BUTTON_SECONDARY}
+            >
               {cancelLabel}
             </button>
             {showConfirm && (
