@@ -109,7 +109,7 @@ flowchart TB
 
 畫面上每則違規固定兩行:違規說明(中文樣板組字,結尾用驚嘆號)、以及「請至 XX 頁面修正」(依違規類型對應到最適合的既有頁面,可點擊連結導向;少數在目前 API 流程中實際不可能觸發、也沒有對應可修正頁面的類型,顯示固定說明文字而非勉強塞一個不準確的連結)。同一個需求底下因完全相同原因失敗的多堂課,會合併成一則訊息(「XX 班的 XX 科目(共 N 堂課):……,這些課無法排定!」)呈現,不逐堂課重複顯示編號無意義的 `lesson_id`。
 
-目前前端沒有建立自動化測試框架(`frontend/package.json` 沒有 `test` 腳本),每個階段 A 頁面的驗證方式是啟動真實的前後端服務、用真實資料手動觸發情境確認;失敗診斷這類邏輯較複雜的模組另外搭配對已編譯原始碼的直接呼叫重放真實 API 回應驗證。這項限制列入第 10 節。
+前端頁面與元件的互動沒有自動化測試:每個階段 A 頁面的驗證方式是啟動真實的前後端服務、用真實資料手動觸發情境確認;失敗診斷這類邏輯較複雜的模組另外搭配對已編譯原始碼的直接呼叫重放真實 API 回應驗證。Task 74 起,邏輯較複雜的**純函式**有 Vitest 單元測試(`npm test`,測試檔與原始碼相鄰,`*.test.ts`),涵蓋:衝突句子合併、分組與前後比對(`utils/violationMerge.ts`,含各違規類型的「問題身分」鍵)、「在課表中查看」的定位規則(`utils/violationLocate.ts`)、拖放規則(`utils/lessonDrop.ts`)、換教師的目前教師判定與列表(`utils/teacherReassignment.ts`)、版本狀態標籤(`utils/scheduleVersionFormat.ts`)、API 錯誤訊息翻譯(`constants/errorMessages.ts` 的 `extractApiErrorMessage()`)、密碼規則(`utils/passwordRule.ts`)。這項限制列入第 10 節。
 
 ### 3.4 階段 B:兩個共用狀態機
 
@@ -498,9 +498,9 @@ PUBLISHED 與 ARCHIVED 版本的其他欄位(`semester_id`、`version_number`)�
 
 兩層分開測試,是因為它們回答的問題完全不同:引擎層測試不應該因為資料庫連線設定錯誤而失敗,API 層測試也不需要重新驗證約束邏輯本身對不對(那是引擎層的責任)。前端(第 3 節)目前沒有對應的自動化測試層,以真實資料手動驗證取代,見 3.3 節末段。
 
-**持續整合(Task 58)**:每次 push 到 `main` 與每個 pull request,都會由 GitHub Actions(`.github/workflows/ci.yml`)在乾淨的 Linux 環境自動執行兩個獨立的 job:後端 job 啟動一個真實的 PostgreSQL 16 服務,執行完整的 `python -m pytest tests/`,再於另一個全新的空資料庫上執行 `alembic upgrade head`,確認 migration 能從零跑完;前端 job 執行 `npm ci`、`npm run lint` 與 `npm run build`。CI 使用的資料庫帳密與 `SECRET_KEY` 都是只存在於該次執行的假值,不依賴 `.env`。
+**持續整合(Task 58)**:每次 push 到 `main` 與每個 pull request,都會由 GitHub Actions(`.github/workflows/ci.yml`)在乾淨的 Linux 環境自動執行兩個獨立的 job:後端 job 啟動一個真實的 PostgreSQL 16 服務,執行完整的 `python -m pytest tests/`,再於另一個全新的空資料庫上執行 `alembic upgrade head`,確認 migration 能從零跑完;前端 job 執行 `npm ci`、`npm run lint`、`npm test`(Task 74,純函式單元測試)與 `npm run build`。CI 使用的資料庫帳密與 `SECRET_KEY` 都是只存在於該次執行的假值,不依賴 `.env`。
 
-**目前總計 503 個測試,全數通過**(2026-10-14 以 `python -m pytest tests/` 實際執行,`503 passed`;各類數字取自 `pytest --collect-only` 依檔案統計),分佈:
+**目前總計 589 個測試,全數通過**:後端 503 個(2026-10-14 以 `python -m pytest tests/` 實際執行,`503 passed`;各類數字取自 `pytest --collect-only` 依檔案統計),前端 86 個(`npm test`,`86 passed`)。分佈:
 
 | 類別 | 測試數 |
 |---|---|
@@ -533,6 +533,14 @@ PUBLISHED 與 ARCHIVED 版本的其他欄位(`semester_id`、`version_number`)�
 | ├─ Grade / School | 各 9 |
 | ├─ TeacherAvailability / TeacherSubject | 各 8 |
 | └─ Lesson(含 fixed_time_slot,Task 28) | 7 |
+| 前端純函式單元測試(Vitest,Task 74) | 86 |
+| ├─ violationMerge(合併 ×N、分組、問題身分鍵、前後比對) | 25 |
+| ├─ violationLocate(各類型的檢視、H12 依停用項目、欄位退路) | 23 |
+| ├─ errorMessages(字串 detail、422 陣列、無回應、無法辨識的回應) | 8 |
+| ├─ scheduleVersionFormat(狀態標籤、未知狀態、版本標籤) | 8 |
+| ├─ teacherReassignment(目前教師判定、教師名下的課) | 9 |
+| ├─ lessonDrop(可移動的格子、可對調的課) | 7 |
+| └─ passwordRule(8 字元到 72 位元組、全形字元、emoji) | 6 |
 
 ---
 
@@ -549,7 +557,7 @@ PUBLISHED 與 ARCHIVED 版本的其他欄位(`semester_id`、`version_number`)�
 - **錯誤翻譯依賴後端英文原文字串比對**:前端 `constants/errorMessages.ts` 的 `KNOWN_ERROR_MESSAGES` 以後端 `detail` 的完整英文字串當 key 對照中文。後端只要改一個字、一個標點,對照就會靜默失效,畫面改顯示英文原文(有 fallback,不會變空白,但使用者會看到英文)。較穩固的做法是後端回傳穩定的錯誤代碼(例如 `error_code`)讓前端依代碼翻譯,或由後端直接送出使用者看得懂的訊息;目前部分全域例外處理器已採後者(第 8 節案例六),但各 router 自己的 404 訊息仍是英文原文比對。FastAPI 的 422 驗證錯誤(`detail` 是陣列)現在由 `extractApiErrorMessage()` 統一處理(Task 60):後端自訂驗證器的中文訊息(例如密碼規則)直接顯示,其餘依錯誤類型改用簡短中文(如「缺少必填欄位」「欄位格式不正確」)或通用訊息,不再被誤顯示成「無法連線到伺服器」。「無法連線到伺服器」只在完全沒有收到回應時顯示;有回應但格式無法辨識(例如純文字的 500)則顯示「伺服器回應異常,請稍後再試或聯絡管理員」。
 - **修改資料可能讓既有排課結果失效,系統不會察覺**:排課結果寫入 `Schedule` 之後,若再修改老師的任教資格、不可用時段、工作量上限、停用狀態,或修改排課需求,既有的 `Schedule` 不會被重新驗證,也不會被標記為「可能已不合法」——例如把某位老師標記為週一第 2 節不可用,他原本就排在那一節的課仍留在課表上,沒有任何提示。已發布版本同樣適用:發布後鎖定的是版本本身,不是它所依賴的基礎資料。現在可以用 `GET /schedule-versions/{id}/check`(Task 61)事後重新檢查,但系統不會主動觸發或提示。
 - **在已有已發布版本的學期新增排課需求,已發布課表會出現 H7**:編輯與刪除被已發布或已封存課表使用的需求都會被擋下(決策 20),但 `POST /class-subject-requirements` 不檢查。新需求展開出的 `Lesson` 在已發布版本裡沒有對應的排課列,對已發布版本執行檢查會出現 H7 每週節數違規;已發布課表本身的內容不變。正確的流程是複製成新草稿後再排入新課程,再發布。
-- **換人會改到整個學期共用的需求**:換人 API(Task 63,決策 17)會把需求的 `required_teacher_id` 改成新老師,而需求是同學期所有版本共用的。在同學期的某個 DRAFT 換人之後,同學期其他版本(包含已發布的版本)的 `Schedule` 列仍是舊老師,對它們執行 `GET .../check` 會出現 H6 指定教師違規。直接以 `PATCH /class-subject-requirements/{id}` 改指定教師,在需求已被已發布或已封存課表使用時會被擋下(決策 20),要換老師請一律使用換人 API。同樣的情況也發生在切換回舊版本時(決策 18):在同學期換人後,若把 ARCHIVED 的舊版本重新發布,舊版本課表上顯示的是 `Schedule` 裡的舊老師,但共用需求指定的已是新老師,對它執行檢查可能出現 H6 違規。
+- **換人會改到整個學期共用的需求**:換人 API(Task 63,決策 17)會把需求的 `required_teacher_id` 改成新老師,而需求是同學期所有版本共用的。在同學期的某個 DRAFT 換人之後,同學期其他版本(包含已發布的版本)的 `Schedule` 列仍是舊老師,對它們執行 `GET .../check` 會出現 H6 指定教師違規。直接以 `PATCH /class-subject-requirements/{id}` 改指定教師,在需求已被已發布或已封存課表使用時會被擋下(決策 20),要換老師請一律使用換人 API。同樣的情況也發生在切換回舊版本時(決策 18):在同學期換人後,若把 ARCHIVED 的舊版本重新發布,舊版本課表上顯示的是 `Schedule` 裡的舊老師,但共用需求指定的已是新老師,對它執行檢查可能出現 H6 違規。根治方向(尚未實作,屬於資料模型的變更):讓指定教師隨版本保存(例如換人只改該版本的資料,需求只保留建立課表時的預設),而不是整個學期共用一份。開發資料庫中的示範資料目前以 `scripts/reset_demo_requirements.ps1`(Task 76)在每輪示範後把指定教師改回封存版本 v4 的教師,只是示範用的權宜做法,不是通用工具。
 - **已發布與已封存的版本都不能刪除**:兩者都被視為歷史紀錄完整保留(決策 18),版本只會越來越多;目前沒有清理舊封存版本的機制。
 - **手動調整沒有復原功能**:換人、移動、對調(決策 17、19)保存之後沒有「上一步」;要預覽結果請先用 `dry_run`(課表編輯模式與換教師面板在確認前一律先預覽),要保留原狀請先複製一份草稿(決策 16)。
 - **換教師面板不支援一次整批換人**:換教師面板(Task 70)一次只處理一門課;要把離職教師的所有課交給同一位新教師,也需要逐門預覽、確認。後端的 reassign-teacher 本身也是一次一筆需求。
@@ -560,7 +568,7 @@ PUBLISHED 與 ARCHIVED 版本的其他欄位(`semester_id`、`version_number`)�
 - **既有 migration `02850681b45e` 的 downgrade 無法執行**:它在 downgrade 時要刪除一個沒有名稱的外鍵,SQLAlchemy 無法產生對應的 `DROP CONSTRAINT`,所以無法一路 downgrade 到 base。不影響 upgrade 與 CI;最新的 migration `a64c0f1e2b7d`(ARCHIVED 狀態)的 `downgrade -1` 已在測試資料庫驗證可用。
 - **複製課表的寫入前檢查沒有加鎖**:跨學期複製時,「目標學期是否已有排課需求」的檢查與實際寫入之間有極小的競爭視窗;同時複製到同一個學期,或同時對同一學期產生新版本號,會由資料庫的唯一限制擋下並回 409(「資料重複或違反欄位限制」),整筆 rollback,不會留下重複資料。目前以單一管理員為主的使用情境下風險很低,未另外加鎖。
 - **刪除排課需求與發布草稿版本之間存在極小的競爭視窗**:`delete_class_subject_requirement()`(Task 56)先查詢需求底下的 `Lesson` 是否被已發布或已封存版本的 `Schedule` 引用,確認沒有之後才刪除這些 `Lesson` 在草稿版本裡的 `Schedule`、`Lesson` 與需求本身。若在檢查之後、commit 之前,另一位管理員剛好把引用這些 `Lesson` 的草稿版本發布,該版本(此時已是 PUBLISHED)的 `Schedule` 會被一併刪除。發生條件是兩人在同一瞬間操作,目前以單一管理員為主的使用情境下風險很低,暫不加鎖。
-- **前端沒有自動化測試**:`frontend/package.json` 沒有 `test` 腳本,也沒有建立前端測試框架,目前以啟動真實前後端、用真實資料手動驗證取代(見第 3.3 節末段)。Task 67 的版本管理介面(發布、取消發布、切換、複製)與 Task 68 的檢查衝突、刪除草稿同樣只經過 `npm run lint`/`npm run build` 與手動驗證;衝突句子的合併規則(`utils/violationMerge.ts`)已寫成純函式,但目前沒有自動化測試涵蓋;Task 69–71 的純函式——定位規則 `utils/violationLocate.ts`、前後比對 `diffViolations()`、換教師列表 `utils/teacherReassignment.ts`、拖放規則 `utils/lessonDrop.ts`——同樣沒有自動化測試,僅在開發時以暫存腳本與手動驗證確認。
+- **前端只對純函式有單元測試,元件與頁面互動沒有**:Task 74 加入 Vitest(只測純函式,不使用 jsdom 或 Testing Library),涵蓋衝突句子合併、分組與前後比對(`utils/violationMerge.ts`,含各違規類型的「問題身分」鍵)、「在課表中查看」的定位規則(`utils/violationLocate.ts`)、拖放規則(`utils/lessonDrop.ts`)、換教師的目前教師判定與列表(`utils/teacherReassignment.ts`)、版本狀態標籤(`utils/scheduleVersionFormat.ts`)、API 錯誤訊息翻譯(`constants/errorMessages.ts` 的 `extractApiErrorMessage()`)、密碼規則(`utils/passwordRule.ts`)。頁面與元件的互動——版本管理對話框、檢查衝突、編輯模式的點選與拖拉、換教師面板、鎖定需求的停用、逐列錯誤訊息的清除時機——仍以啟動真實前後端手動驗證為主(開發時另以 headless 瀏覽器重放部分情境),沒有納入自動化測試(見第 3.3 節末段)。
 - **刪除仍使用瀏覽器內建確認框**:版本管理已改用共用的 `ConfirmDialog`(Task 67),但基礎資料、排課需求、帳號的刪除仍使用 `window.confirm()`,外觀與版本管理的對話框不一致,錯誤也無法顯示在確認框內。
 - **行政區塊(午餐、課間活動、教師午會等)不呈現在課表檢視**:這些時段不對應任何 `ClassSubjectRequirement`,課表檢視只呈現排課引擎實際排定的課,空堂保持空白——是刻意的範圍決定,需要更大的資料模型調整才能支援,已記錄在 `docs/FRONTEND_REQUIREMENTS.md` 第 3、7 章。
 - **`TimeSlot.period` 編號的跨星期一致性,依賴人工維護紀律,資料庫層級沒有強制**:`TimeSlot` 沒有 `semester_id`/`school_id`,是全校共用的單一全域結構,課表檢視的節次(列)軸完全由 `period` 這個整數決定(第 8 節除錯歷程案例三的迭代正是從這裡的一個誤用衍生出來的)。但 schema 本身沒有任何約束保證「第 3 節」在週一到週五代表的是同一個實際時段——如果建資料的人把某天的 `period` 編號填錯位移一格,課表檢視會靜默地把錯的兩堂課對齊在同一列,不會有任何錯誤訊息,純粹依賴建立資料時的人工紀律。
@@ -574,6 +582,6 @@ PUBLISHED 與 ARCHIVED 版本的其他欄位(`semester_id`、`version_number`)�
 
 ## 11. 電梯簡報草稿(30 秒版本)
 
-> 這是一個國小排課系統。核心是把老師的任教資格、可用時段、工作量上限,還有班級的每週需求、教室類型,建成一套完全獨立於 API 框架跟資料庫的 Constraint Engine,自己實作了 Greedy 跟 Backtracking 兩種排課演算法。系統的重點之一是「可解釋」——每次排不出課表,都能講出具體是哪個老師、哪個限制造成的,不會只回一句排不出來,前端的排課控制台跟失敗診斷畫面把這件事直接視覺化,不用查資料庫就能看懂。目前有 503 個自動化測試,排課引擎那部分完全不需要資料庫,秒級就能跑完。
+> 這是一個國小排課系統。核心是把老師的任教資格、可用時段、工作量上限,還有班級的每週需求、教室類型,建成一套完全獨立於 API 框架跟資料庫的 Constraint Engine,自己實作了 Greedy 跟 Backtracking 兩種排課演算法。系統的重點之一是「可解釋」——每次排不出課表,都能講出具體是哪個老師、哪個限制造成的,不會只回一句排不出來,前端的排課控制台跟失敗診斷畫面把這件事直接視覺化,不用查資料庫就能看懂。目前有 589 個自動化測試(後端 503、前端純函式 86),排課引擎那部分完全不需要資料庫,秒級就能跑完。
 
 （可依實際口語習慣調整用詞與停頓,上面這版大約落在 30 秒中等語速。）

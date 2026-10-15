@@ -6,6 +6,20 @@
 
 這是一個**約束滿足問題(Constraint Satisfaction Problem, CSP)的建模與求解專案**,不是一套 CRUD 練習。核心是 `scheduling_engine/`——一個完全獨立於 Web 框架與資料庫的排課引擎:輸入教師的任教資格、可用時段、工作量上限,班級的每週授課節數需求與教室類型限制,輸出一份滿足所有 Hard Constraint 的課表;當排不出來的時候,輸出的是一份講得出具體原因的失敗報告,而不是一句「排不出來」。FastAPI、PostgreSQL、React 前端,是把這個求解引擎包裝成可操作系統所需要的基礎設施。
 
+📄 文件:[系統設計文件 `docs/SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md)(架構決策、演算法、已知限制)・[面試示範腳本 `docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md)(5–8 分鐘現場操作流程)
+
+## 快速開始
+
+最快的方式是用 Docker 一次啟動資料庫、後端、前端(需要先依下方「1. 設定環境變數」建立 `.env`):
+
+```bash
+docker compose --profile full up --build -d
+```
+
+啟動後打開 `http://localhost:5173`。第一次使用需要先建立管理員帳號(見「8. 建立第一個管理員帳號」)。停止時執行 `docker compose --profile full down`(⚠️ 不要加 `-v`,會刪除資料庫資料)。
+
+不用 Docker、在本機開發的完整步驟見下方「安裝與啟動」;執行測試見「測試」。
+
 ## 功能特色
 
 - **排課引擎**:自行實作 MRV(Minimum Remaining Values)候選排序、Greedy Scheduler、Backtracking Scheduler 三層演算法,涵蓋 11 條 Hard Constraint(H1–H9、H11、H12;H10 教室容量延後,見下方狀態表)。
@@ -15,15 +29,29 @@
 - **前端完整 CRUD 與課表檢視**:9 張基礎資料表(學校/學年度/學期/年級/老師/班級/科目/教室/時段)與排課需求均可在畫面上新增、編輯、刪除;排課控制台提供「選版本 → 展開課程清單 → 自動排課 → 發布」的完整流程;課表檢視支援依班級/依教師/依教室三種視角切換。
 - **前端版本管理**:排課控制台可發布草稿、取消發布(改為封存,該學期暫時沒有生效課表)、把已封存版本重新發布以切換生效版本,以及把任何版本複製成新草稿(同一學期,或同學年的其他學期);每個動作都有確認對話框說明影響,例如發布時哪個版本會被自動封存;草稿版本也可以刪除。
 - **檢查衝突**:管理員在課表檢視可一鍵檢查目前課表是否違反任何排課規則(衝堂、不可排課時段、固定時段等),結果以中文句子分類列出、相同問題合併計次,並可點「在課表中查看」直接切換到對應的班級/老師課表並標示該格。
-- **課表編輯(移動、對調,含衝突預覽)**:管理員可在草稿版本的課表檢視開啟編輯模式,以點選或拖拉把課程移到其他節次、或與另一堂課對調;儲存前一律先預覽這次異動會新增與解決哪些問題。
+- **課表編輯(移動、對調,含衝突預覽)**:管理員可在草稿版本的課表檢視開啟編輯模式,以點選或拖拉把課程移到其他節次、或與另一堂課對調;儲存前一律先預覽這次異動會新增與解決哪些問題(以「問題身分」比對,同一個問題只是換了位置不會被誤判為解決)。
 - **換教師**:管理員可在草稿版本的課表檢視以「一門課」為單位把課換給其他教師(例如處理教師離職的連鎖換人),每次都先預覽受影響的課堂數與新增、解決的衝突。
+
+## 功能展示
+
+<!--
+待補截圖(檔名已規劃,圖片放入 docs/images/ 後把下面整段改成表格即可;檔案還不存在,所以先不放圖片連結以免破圖):
+(依 docs/DEMO_SCRIPT.md 的步驟拍攝)
+- docs/images/conflict-check.png   步驟 b:複製 v4 後檢查,「共 2 項問題」分組清單與「在課表中查看」的琥珀色定位框
+- docs/images/timetable-edit.png   步驟 c:拖拉後的預覽對話框(綠色「會解決」;或紅色「會新增」與「仍要移動」)
+- docs/images/reassign-teacher.png 步驟 e:換教師面板與預覽對話框(受影響課堂數、「不會新增或解決任何問題」、影響範圍說明)
+- docs/images/publish-switch.png   步驟 f:發布確認對話框,目前生效的 v11 會自動封存
+- docs/images/requirements-locked.png 步驟 h:排課需求總覽中已鎖定的需求列
+-->
+
+完整的操作流程與每一步的預期畫面,見 [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md)。示範中的「換教師」會改到學期共用的排課需求,每輪示範後用 `scripts/reset_demo_requirements.ps1` 重置(見下方「重置示範資料」)。
 
 ## 畫面截圖
 
 | 截圖 | 說明 |
 |---|---|
 | ![基礎資料瀏覽](docs/images/data-browser.png) | 基礎資料瀏覽(老師分頁展開):CRUD 操作按鈕,以及任教資格、不可用時段的即時管理。 |
-| ![排課控制台](docs/images/scheduler-success.png) | 排課控制台:三步驟流程(選版本/展開課程清單/自動排課)+ 發布為最終確定版。 |
+| ![排課控制台](docs/images/scheduler-success.png) | 排課控制台:選版本 → 展開課程清單 → 自動排課的三步驟流程(此截圖拍攝於版本管理功能加入之前)。 |
 | ![失敗診斷](docs/images/failure-diagnostics.png) | 排課失敗診斷:具體列出每堂課失敗原因與建議修正頁面連結,而非單純回報失敗。 |
 | ![課表檢視](docs/images/timetable-view.png) | 課表檢視:依班級/教師/教室切換視角,含非教學時段(早自習、午餐/午休)顯示。 |
 
@@ -197,7 +225,7 @@ erDiagram
 ### 前置需求
 
 - Python 3.13
-- Node.js(建議 20+;開發時用的是 24.x)
+- Node.js 22.12 以上或 24.x(Vite 8 與 Vitest 5 的需求;開發與 CI 用的是 24)
 - Docker Desktop(跑 PostgreSQL)
 - Git
 
@@ -386,11 +414,24 @@ python scripts/seed_test_data.py
 
 **不要在容器內執行**:腳本會把這次灌入的資料記錄在 `scripts/.seed_manifest.json`,之後用 `--confirm` 重複執行時要靠它清掉上一次的結果;在容器內產生的這個檔案不會被保留(容器重建後就消失,本機也看不到),下一次執行時腳本找到上次灌入的資料、卻找不到紀錄檔,會因為不知道哪些資料可以安全刪除而直接拒絕執行。後端 image 本身也沒有包含 `scripts/` 目錄。
 
+### 重置示範資料
+
+[`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) 的「換教師」步驟會改到學期共用的排課需求(指定教師),之後同學期其他版本檢查時會出現「與指定教師不符」(已知取捨,見 `docs/SYSTEM_DESIGN.md` 第 10 節)。每輪示範後,在專案根目錄的 PowerShell 執行(需要 `postgres` 容器正在執行):
+
+```powershell
+# 試跑:結尾 ROLLBACK,不會儲存;摘要會顯示會修復幾筆
+powershell -ExecutionPolicy Bypass -File scripts\reset_demo_requirements.ps1
+# 確認後真正儲存
+powershell -ExecutionPolicy Bypass -File scripts\reset_demo_requirements.ps1 -Commit
+```
+
+它透過 `docker compose exec -T postgres psql` 執行 `scripts/reset_demo_requirements.sql`(帳號與資料庫名稱取自容器自己的環境變數),只把指定教師改回封存版本 v4 排課列上的教師。學期與版本的 id 寫死在 SQL 裡,**只適用於開發資料庫中的這份示範資料,不是通用工具**。
+
 ## 測試
 
 ### 執行方式
 
-已實測確認兩種執行位置皆可正常運作(專案沒有 `pytest.ini`/`pyproject.toml` 固定其中一種):
+**後端**(pytest,需要 PostgreSQL 與 `.env` 的 `TEST_DATABASE_URL`)——已實測確認兩種執行位置皆可正常運作(專案沒有 `pytest.ini`/`pyproject.toml` 固定其中一種):
 
 ```bash
 # 方式一:在專案根目錄
@@ -411,14 +452,28 @@ python -m pytest tests/
 python -m pytest ../tests/
 ```
 
+**前端**(Vitest,只測純函式,不需要啟動後端或瀏覽器):
+
+```bash
+cd frontend
+npm test          # 單元測試(vitest run)
+npm run lint      # oxlint
+npm run build     # tsc -b 型別檢查(含測試檔)+ vite build
+```
+
+CI(`.github/workflows/ci.yml`)在每次 push 與 pull request 時執行同樣的後端測試、遷移驗證,以及前端的 lint、test、build。
+
 ### 測試數量
 
-**目前總計 503 個測試,全數通過**(2026-10-14 實際執行確認):
+**目前總計 589 個測試,全數通過**(2026-10-14 實際執行確認):後端 503 個、前端 86 個。
 
 | 類別 | 測試數 | 執行方式 |
 |---|---|---|
 | Scheduling Engine(純 Python 邏輯,不碰資料庫) | 73 | `pytest tests/scheduling_engine/` |
 | API / 整合測試(真實 FastAPI + PostgreSQL) | 430 | 其餘 `tests/test_*.py` |
+| 前端純函式單元測試(Vitest) | 86 | `cd frontend && npm test` |
+
+前端測試只涵蓋純函式(衝突句子合併與前後比對、定位規則、拖放規則、換教師列表、版本狀態標籤、錯誤訊息翻譯、密碼規則),元件與頁面互動沒有自動化測試。
 
 Scheduling Engine 那組測試不需要啟動 FastAPI 或連資料庫,秒級內跑完;API 測試會對 `TEST_DATABASE_URL` 指到的資料庫逐一 `create_all`/`drop_all`,耗時較長。測試策略的完整理由見 `docs/SYSTEM_DESIGN.md` 第 9 節。
 
@@ -443,13 +498,15 @@ scheduling_engine/    排課引擎(框架獨立)
   models/             純 Python domain dataclass
 frontend/
   src/
-    pages/            6 個核心頁面
-    components/       共用元件(Layout、失敗診斷等)
+    pages/            頁面(登入、首頁、基礎資料、排課需求總覽、排課控制台、課表檢視、帳號管理)
+    components/       共用元件(Layout、失敗診斷、確認對話框、衝突清單、課表格、換教師面板、預覽對話框等)
     api/              axios 呼叫層
-    hooks/            共用 CRUD / 資料擷取邏輯
+    hooks/            共用 CRUD、資料擷取、檢查衝突、移動/對調與換教師的流程
+    utils/            純函式(衝突合併與比對、定位、拖放規則等;*.test.ts 為對應的單元測試)
+    constants/        錯誤訊息與違規句子的中文樣板
     styles/           Tailwind 共用樣式 token
 tests/                後端測試(API 層 + scheduling_engine 子目錄)
-scripts/              工具腳本(測試資料灌入)
+scripts/              工具腳本(測試資料灌入、示範資料重置)
 docs/                 系統設計文件、截圖
 ```
 
@@ -458,7 +515,10 @@ docs/                 系統設計文件、截圖
 - **H10 教室容量**未實作 Constraint(欄位已預留)。
 - **Soft Constraints(S1–S7)** 完全未開始(教師每日負擔平衡等)。
 - **版本複製有使用範圍限制**:可以把任何版本(含已發布的)複製成新草稿(`POST /api/v1/schedule-versions/{id}/copy`),但跨學期只能在同一學年內、目標學期必須還沒有排課需求,複製出的版本只能手動調整,不能重新排課(排課控制台的複製對話框會說明這些限制)。
-- **手動調整課表沒有重新驗證 Hard Constraint**:`PATCH /schedules/{id}` 目前只檢查型別、外鍵、已發布/已封存鎖定。
+- **手動調整不阻擋衝突、也沒有復原**:課表編輯模式與換教師在儲存前一律預覽衝突,但衝突不會被擋下;儲存後沒有「上一步」。低階的 `PATCH /schedules/{id}` 只檢查型別、外鍵、已發布/已封存鎖定。
+- **編輯模式不能改教室,拖拉時沒有候選格標示**:預先標出會造成衝突的格子需要新的後端端點。
+- **前端只有純函式的單元測試**:元件與頁面互動沒有自動化測試,以手動驗證為主。
+- **換教師會改到整個學期共用的排課需求**:在草稿換人會同時改需求的指定教師,同學期其他版本(包含已發布的)檢查時會出現「與指定教師不符」;根治需要讓指定教師隨版本保存。
 - **`User` 帳號與 `Teacher` 網域實體沒有關聯**:`TEACHER` 角色帳號無法對應到特定一位老師,還做不到「老師只看自己的課表」。
 - **`School` 沒有實際接進資料模型**:目前是隱含單一學校假設。
 - **`TimeSlot.period` 跨星期一致性依賴人工維護紀律**,資料庫層級沒有強制。
@@ -476,4 +536,5 @@ docs/                 系統設計文件、截圖
 ## 相關文件
 
 - [`docs/SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md) — 系統設計文件:架構決策紀錄、除錯歷程、演算法細節、ER 圖完整版。
+- [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) — 面試示範腳本:起始條件、逐步操作與預期畫面、常見問題的簡短回答。
 - [`docs/FRONTEND_REQUIREMENTS.md`](docs/FRONTEND_REQUIREMENTS.md) — 前端需求文件:頁面範圍取捨原則、技術選型理由。
