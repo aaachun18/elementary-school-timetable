@@ -427,6 +427,8 @@ powershell -ExecutionPolicy Bypass -File scripts\reset_demo_requirements.ps1 -Co
 
 它透過 `docker compose exec -T postgres psql` 執行 `scripts/reset_demo_requirements.sql`(帳號與資料庫名稱取自容器自己的環境變數),只把指定教師改回封存版本 v4 排課列上的教師。學期與版本的 id 寫死在 SQL 裡,**只適用於開發資料庫中的這份示範資料,不是通用工具**。
 
+自動排課不會替沒有指定教室類型的需求排教室,所以示範版本原本沒有教室、「依教室」檢視是空的。`scripts/add_demo_rooms.ps1`(格式相同,預設試跑,加 `-Commit` 才寫入)會替學期 13 的每個 `[SEED]` 班級建立一間導師教室,並把各版本中沒有教室的課都排進該班的導師教室;只需執行一次,可重複執行。
+
 ## 測試
 
 ### 執行方式
@@ -506,7 +508,7 @@ frontend/
     constants/        錯誤訊息與違規句子的中文樣板
     styles/           Tailwind 共用樣式 token
 tests/                後端測試(API 層 + scheduling_engine 子目錄)
-scripts/              工具腳本(測試資料灌入、示範資料重置)
+scripts/              工具腳本(測試資料灌入、示範資料重置、示範導師教室)
 docs/                 系統設計文件、截圖
 ```
 
