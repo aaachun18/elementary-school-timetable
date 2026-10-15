@@ -154,3 +154,42 @@ class ScheduleAdjustmentResult(BaseModel):
     dry_run: bool
     changes: list[ScheduleChangeDetail]
     check: ScheduleCheckResult
+
+
+# --- Task 83: GET /schedule-versions/{id}/move-candidates/{schedule_id} ---
+
+
+class MoveCandidateSwap(BaseModel):
+    """Swapping the lesson with this row (one in the candidate time slot
+    that shares its class, teacher or room): the version's check after the
+    swap -- what swap-lessons with dry_run would report."""
+
+    swap_with_schedule_id: int
+    check: ScheduleCheckResult
+
+
+class MoveCandidateSlot(BaseModel):
+    """One time slot. available=False (with unavailable_reason
+    NON_TEACHING_SLOT or CURRENT_SLOT) means it is not a move target, and
+    `move` is null. `move` is the version's check after moving the lesson
+    here (room unchanged) -- what move-lesson with dry_run would report.
+    `swaps` lists every possible swap in this slot (possibly empty)."""
+
+    time_slot_id: int
+    available: bool
+    unavailable_reason: str | None
+    move: ScheduleCheckResult | None
+    swaps: list[MoveCandidateSwap]
+
+
+class MoveCandidatesResult(BaseModel):
+    """baseline is the version's check as it stands (same as GET /check);
+    candidates has one entry per time slot, in weekday/period order. The
+    checks are complete lists, not differences -- the caller compares them
+    with baseline itself (the frontend's diffViolations())."""
+
+    schedule_version_id: int
+    schedule_id: int
+    current_time_slot_id: int | None
+    baseline: ScheduleCheckResult
+    candidates: list[MoveCandidateSlot]

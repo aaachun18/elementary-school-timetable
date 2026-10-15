@@ -468,12 +468,12 @@ CI(`.github/workflows/ci.yml`)在每次 push 與 pull request 時執行同樣的
 
 ### 測試數量
 
-**目前總計 670 個測試,全數通過**(2026-10-15 實際執行確認):後端 549 個、前端 121 個。
+**目前總計 681 個測試,全數通過**(2026-10-15 實際執行確認):後端 560 個、前端 121 個。
 
 | 類別 | 測試數 | 執行方式 |
 |---|---|---|
 | Scheduling Engine(純 Python 邏輯,不碰資料庫) | 107 | `pytest tests/scheduling_engine/` |
-| API / 整合測試(真實 FastAPI + PostgreSQL) | 442 | 其餘 `tests/test_*.py` |
+| API / 整合測試(真實 FastAPI + PostgreSQL) | 453 | 其餘 `tests/test_*.py` |
 | 前端純函式單元測試(Vitest) | 121 | `cd frontend && npm test` |
 
 前端測試只涵蓋純函式(衝突句子合併與前後比對、定位規則、拖放規則、換教師列表、版本狀態標籤、錯誤訊息翻譯、密碼規則、節次顯示、版本刪除規則、失敗診斷句子),元件與頁面互動沒有自動化測試。

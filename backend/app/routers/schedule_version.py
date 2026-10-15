@@ -17,6 +17,9 @@ from app.schemas.schedule_version import (
 from app.schemas.scheduler import (
     ConstraintViolationDetail,
     LessonFailureDetail,
+    MoveCandidateSlot,
+    MoveCandidatesResult,
+    MoveCandidateSwap,
     MoveLessonRequest,
     ScheduleAdjustmentResult,
     ScheduleChangeDetail,
@@ -29,6 +32,7 @@ from app.schemas.scheduler import (
 )
 from app.services import schedule_adjustment as schedule_adjustment_service
 from app.services import schedule_check as schedule_check_service
+from app.services import move_candidates as move_candidates_service
 from app.services import schedule_copy as schedule_copy_service
 from app.services import schedule_version as schedule_version_service
 from app.services import scheduler as scheduler_service
@@ -409,3 +413,56 @@ def swap_lessons(
         dry_run=swap.dry_run,
     )
     return _build_adjustment_result(schedule_version_id, swap.dry_run, outcome)
+
+
+# --- move-candidates (Task 83): read-only "what if" for every time slot ---
+# PublishedVersionImmutableError / ArchivedVersionImmutableError (409) and
+# AdjustmentTargetNotFoundError (404) are converted by main.py's handlers.
+
+
+@router.get(
+    "/{schedule_version_id}/move-candidates/{schedule_id}",
+    response_model=MoveCandidatesResult,
+    dependencies=[Depends(require_admin)],
+)
+def list_move_candidates(
+    schedule_version_id: int,
+    schedule_id: int,
+    db: Session = Depends(get_db),
+) -> MoveCandidatesResult:
+    # ADMIN only, like /check (a TEACHER gets 403 before anything is looked
+    # up, so it learns nothing about which ids exist). Writes nothing.
+    outcome = move_candidates_service.list_move_candidates(
+        db, schedule_version_id, schedule_id
+    )
+    if outcome is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ScheduleVersion not found",
+        )
+    return MoveCandidatesResult(
+        schedule_version_id=schedule_version_id,
+        schedule_id=outcome.schedule_id,
+        current_time_slot_id=outcome.current_time_slot_id,
+        baseline=_build_check_result(schedule_version_id, outcome.baseline),
+        candidates=[
+            MoveCandidateSlot(
+                time_slot_id=candidate.time_slot_id,
+                available=candidate.available,
+                unavailable_reason=candidate.unavailable_reason,
+                move=(
+                    None
+                    if candidate.move is None
+                    else _build_check_result(schedule_version_id, candidate.move)
+                ),
+                swaps=[
+                    MoveCandidateSwap(
+                        swap_with_schedule_id=swap.swap_with_schedule_id,
+                        check=_build_check_result(schedule_version_id, swap.violations),
+                    )
+                    for swap in candidate.swaps
+                ],
+            )
+            for candidate in outcome.candidates
+        ],
+    )

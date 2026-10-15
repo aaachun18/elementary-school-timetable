@@ -9,6 +9,8 @@ validation step later features (copy to next semester, reassigning a
 teacher, manual edits) can call after the fact.
 """
 
+from dataclasses import dataclass
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -189,12 +191,14 @@ def _fixed_time_slot_violations(
     return violations
 
 
-def _load_assignments(
+def load_assignment_rows(
     db: Session, schedule_version_id: int
-) -> list[LessonAssignment]:
-    """One LessonAssignment per Schedule row of this version, exactly as
-    stored (teacher/time slot/room may be None). class_id/subject_id come
-    from each Lesson's own requirement."""
+) -> list[tuple[int, LessonAssignment]]:
+    """(Schedule.id, LessonAssignment) per Schedule row of this version,
+    ordered by Schedule.id, exactly as stored (teacher/time slot/room may be
+    None). class_id/subject_id come from each Lesson's own requirement.
+    Task 83: the Schedule id is kept so a caller can say which row it
+    changes in memory (services/move_candidates.py)."""
     rows = db.execute(
         select(
             Schedule,
@@ -212,17 +216,64 @@ def _load_assignments(
     ).all()
 
     return [
-        LessonAssignment(
-            lesson_id=schedule.lesson_id,
-            class_subject_requirement_id=requirement_id,
-            class_id=class_id,
-            subject_id=subject_id,
-            teacher_id=schedule.teacher_id,
-            time_slot_id=schedule.time_slot_id,
-            room_id=schedule.room_id,
+        (
+            schedule.id,
+            LessonAssignment(
+                lesson_id=schedule.lesson_id,
+                class_subject_requirement_id=requirement_id,
+                class_id=class_id,
+                subject_id=subject_id,
+                teacher_id=schedule.teacher_id,
+                time_slot_id=schedule.time_slot_id,
+                room_id=schedule.room_id,
+            ),
         )
         for schedule, requirement_id, class_id, subject_id in rows
     ]
+
+
+def _load_assignments(
+    db: Session, schedule_version_id: int
+) -> list[LessonAssignment]:
+    """One LessonAssignment per Schedule row of this version, ordered by
+    Schedule.id -- see load_assignment_rows()."""
+    return [assignment for _, assignment in load_assignment_rows(db, schedule_version_id)]
+
+
+@dataclass(frozen=True)
+class CheckContext:
+    """Task 83: everything check_assignments() needs besides the rows
+    themselves -- the semester's requirements as engine resources, and the
+    fixed time slots of this version's Lessons. Loaded once, so the same
+    check can be run in memory on many hypothetical arrangements of the
+    version's rows (none of which changes requirements or fixed slots)."""
+
+    resources: SchedulingResources
+    fixed_time_slots: dict[int, int]
+
+
+def load_check_context(
+    db: Session, semester_id: int, schedule_version_id: int
+) -> CheckContext:
+    requirements = load_semester_requirements(db, semester_id)
+    return CheckContext(
+        resources=build_scheduling_resources(db, requirements),
+        fixed_time_slots=_load_fixed_time_slots(db, schedule_version_id),
+    )
+
+
+def check_assignments(
+    context: CheckContext, assignments: list[LessonAssignment]
+) -> list[ConstraintViolation]:
+    """The check itself, pure and in memory: every violation in
+    `assignments` (rows of one version), sorted by type, lesson_id,
+    time_slot_id. check_schedule_version() is exactly this over the rows
+    as stored."""
+    violations: list[ConstraintViolation] = _incomplete_row_violations(assignments)
+    violations.extend(_fixed_time_slot_violations(assignments, context.fixed_time_slots))
+    for constraint in _all_hard_constraints(context.resources):
+        violations.extend(constraint.explain_violations(assignments))
+    return sorted(violations, key=_violation_sort_key)
 
 
 def check_schedule_version(
@@ -244,16 +295,5 @@ def check_schedule_version(
     if schedule_version is None:
         return None
 
-    requirements = load_semester_requirements(db, schedule_version.semester_id)
-    resources = build_scheduling_resources(db, requirements)
-    assignments = _load_assignments(db, schedule_version_id)
-
-    violations: list[ConstraintViolation] = _incomplete_row_violations(assignments)
-    violations.extend(
-        _fixed_time_slot_violations(
-            assignments, _load_fixed_time_slots(db, schedule_version_id)
-        )
-    )
-    for constraint in _all_hard_constraints(resources):
-        violations.extend(constraint.explain_violations(assignments))
-    return sorted(violations, key=_violation_sort_key)
+    context = load_check_context(db, schedule_version.semester_id, schedule_version_id)
+    return check_assignments(context, _load_assignments(db, schedule_version_id))
