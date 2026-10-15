@@ -17,6 +17,7 @@ import { useScheduleCheck } from "../hooks/useScheduleCheck";
 import { useTimetableData, type EnrichedSchedule } from "../hooks/useTimetableData";
 import { isCurrentUserAdmin } from "../utils/auth";
 import { getViolationSentence, resolveTimeSlotLabel } from "../utils/failureDiagnostics";
+import type { PeriodDisplayMap } from "../utils/periodDisplay";
 import { formatVersionLabel } from "../utils/scheduleVersionFormat";
 import { mergeViolationsBySentence } from "../utils/violationMerge";
 import { resolveLocateTarget, type TimetableViewMode } from "../utils/violationLocate";
@@ -41,6 +42,9 @@ import {
   TAB_BUTTON,
   TAB_BUTTON_ACTIVE,
 } from "../styles/ui";
+
+// Before the timetable has loaded: no rows, so nothing to name.
+const EMPTY_PERIOD_DISPLAY: PeriodDisplayMap = new Map();
 
 const VIEW_MODES: { key: TimetableViewMode; label: string }[] = [
   { key: "class", label: "依班級" },
@@ -310,6 +314,7 @@ export default function TimetableView(): ReactElement {
   // use (Task 34's approach) -- so early study hall, lunch, etc. always
   // show up even when nothing is ever scheduled into them.
   const periods = timetable.data?.periods ?? [];
+  const periodDisplay = timetable.data?.periodDisplay ?? EMPTY_PERIOD_DISPLAY;
   const timeSlotByWeekdayAndPeriod =
     timetable.data?.timeSlotByWeekdayAndPeriod ?? new Map<string, TimeSlot>();
 
@@ -539,6 +544,7 @@ export default function TimetableView(): ReactElement {
           {timetable.data !== null && selectedTargetId !== null && (
             <TimetableGrid
               periods={periods}
+              periodDisplay={periodDisplay}
               schedules={schedules}
               viewMode={viewMode}
               targetId={selectedTargetId}

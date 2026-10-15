@@ -26,24 +26,45 @@ function violation(fields: Partial<ConstraintViolationDetail>): ConstraintViolat
   };
 }
 
-function timeSlot(id: number, weekday: number, period: number, teaching = true): TimeSlot {
+// Task 78: the demo data's period layout -- raw period 0 早自習, 1-4
+// teaching, 5 午餐/午休, 6-8 teaching, 9 放學 (Monday only) -- so labels
+// use the teaching-period numbering (raw period 8 is "第 7 節").
+const NON_TEACHING_LABELS: Record<number, string> = { 0: "早自習", 5: "午餐/午休", 9: "放學" };
+
+function slotId(weekday: number, period: number): number {
+  return 500 + (weekday - 1) * 15 + period;
+}
+
+function timeSlot(weekday: number, period: number): TimeSlot {
+  const label = NON_TEACHING_LABELS[period] ?? null;
   return {
-    id,
+    id: slotId(weekday, period),
     weekday,
     period,
-    is_teaching_period: teaching,
-    label: teaching ? null : "午休",
+    is_teaching_period: label === null,
+    label,
     created_at: "",
     updated_at: "",
   } as TimeSlot;
 }
 
+function demoTimeSlots(): TimeSlot[] {
+  const slots: TimeSlot[] = [];
+  for (let weekday = 1; weekday <= 5; weekday += 1) {
+    for (let period = 0; period <= 8; period += 1) {
+      slots.push(timeSlot(weekday, period));
+    }
+  }
+  slots.push(timeSlot(1, 9));
+  return slots;
+}
+
 // Names as in the demo data: 王老師 / 林老師, 901班A / 901班B, 國語 / 英語.
-const MONDAY_1 = 501;
-const WEDNESDAY_1 = 531;
-const FRIDAY_8 = 558;
-const MONDAY_LUNCH = 504;
-const WEDNESDAY_LUNCH = 534;
+const MONDAY_1 = slotId(1, 1);
+const WEDNESDAY_1 = slotId(3, 1);
+const FRIDAY_8 = slotId(5, 8);
+const MONDAY_LUNCH = slotId(1, 5);
+const WEDNESDAY_LUNCH = slotId(3, 5);
 
 const lookups: NameLookups = {
   teacherById: new Map([
@@ -59,15 +80,9 @@ const lookups: NameLookups = {
     [21, { id: 21, name: "英語", is_active: true }],
   ] as never),
   roomById: new Map(),
-  timeSlotById: new Map([
-    [MONDAY_1, timeSlot(MONDAY_1, 1, 1)],
-    [WEDNESDAY_1, timeSlot(WEDNESDAY_1, 3, 1)],
-    [FRIDAY_8, timeSlot(FRIDAY_8, 5, 8)],
-    [MONDAY_LUNCH, timeSlot(MONDAY_LUNCH, 1, 4, false)],
-    [WEDNESDAY_LUNCH, timeSlot(WEDNESDAY_LUNCH, 3, 4, false)],
-  ]),
+  timeSlotById: new Map(demoTimeSlots().map((slot) => [slot.id, slot])),
   requirementById: new Map(),
-  // 901班A 國語 (lesson 50) is pinned to Friday period 8.
+  // 901班A 國語 (lesson 50) is pinned to Friday raw period 8 (第 7 節).
   lessonById: new Map([[50, { id: 50, fixed_time_slot_id: FRIDAY_8 }]] as never),
 };
 
@@ -214,7 +229,7 @@ describe("diffViolations", () => {
     expect(diff.added).toEqual([]);
     expect(diff.resolved).toEqual([]);
     expect(diff.unchanged.map((item) => [item.sentence, item.descriptionChanged])).toEqual([
-      ["901班A的國語被固定在星期五第 8 節，但目前排在星期三第 1 節！", true],
+      ["901班A的國語被固定在星期五第 7 節，但目前排在星期三第 1 節！", true],
       ["林老師在星期一第 1 節已標記為不可排課，但仍被排入該時段！", false],
     ]);
   });
@@ -224,7 +239,7 @@ describe("diffViolations", () => {
 
     expect(diff.added).toEqual([]);
     expect(sentences(diff.resolved)).toEqual([
-      "901班A的國語被固定在星期五第 8 節，但目前排在星期一第 1 節！",
+      "901班A的國語被固定在星期五第 7 節，但目前排在星期一第 1 節！",
     ]);
     expect(diff.unchanged.map((item) => item.descriptionChanged)).toEqual([false]);
   });
@@ -233,7 +248,7 @@ describe("diffViolations", () => {
     const diff = diffViolations([linUnavailable], [fixedMismatchAt(MONDAY_1), linUnavailable], sentenceOf);
 
     expect(sentences(diff.added)).toEqual([
-      "901班A的國語被固定在星期五第 8 節，但目前排在星期一第 1 節！",
+      "901班A的國語被固定在星期五第 7 節，但目前排在星期一第 1 節！",
     ]);
     expect(diff.resolved).toEqual([]);
   });
@@ -270,7 +285,7 @@ describe("diffViolations", () => {
     expect(diff.added).toEqual([]);
     expect(diff.resolved).toEqual([]);
     expect(diff.unchanged.map((item) => [item.sentence, item.descriptionChanged])).toEqual([
-      ["901班A的國語被排入非教學時段（星期三第 4 節）！", true],
+      ["901班A的國語被排入非教學時段（星期三午餐/午休）！", true],
     ]);
   });
 

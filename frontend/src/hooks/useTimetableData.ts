@@ -10,6 +10,7 @@ import { list as listRooms } from "../api/rooms";
 import { useResource } from "./useResource";
 import type { TimeSlot } from "../types/timeSlot";
 import type { NameLookups } from "../utils/failureDiagnostics";
+import { buildPeriodDisplay, type PeriodDisplayMap } from "../utils/periodDisplay";
 
 // One flattened, ready-to-render row: everything TimetableView.tsx's grid
 // needs, with every id already resolved to a display name. This is the
@@ -50,6 +51,9 @@ export interface TimetableData {
   // use, sorted -- purely a row count/order, carrying no label or
   // is_teaching_period of its own, since those are per-cell now.
   periods: number[];
+  // Task 78: each period's on-screen name -- teaching number or the
+  // non-teaching row's label (utils/periodDisplay.ts).
+  periodDisplay: PeriodDisplayMap;
   // Every TimeSlot keyed by (weekday, period) via timeSlotKey(), so
   // TimetableView.tsx can decide each individual cell's teaching/
   // non-teaching status and label without depending on any other weekday.
@@ -216,6 +220,7 @@ async function buildTimetableData(scheduleVersionId: number): Promise<TimetableD
   return {
     schedules: enriched,
     periods: buildPeriods(timeSlots),
+    periodDisplay: buildPeriodDisplay(timeSlots),
     timeSlotByWeekdayAndPeriod,
     lookups,
     teacherIdsByRequirementId,
@@ -236,6 +241,7 @@ export function useTimetableData(scheduleVersionId: number | null): {
         ? Promise.resolve<TimetableData>({
             schedules: [],
             periods: [],
+            periodDisplay: new Map(),
             timeSlotByWeekdayAndPeriod: new Map(),
             lookups: {
               teacherById: new Map(),

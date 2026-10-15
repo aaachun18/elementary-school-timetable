@@ -53,7 +53,7 @@ docker compose --profile full up --build -d
 | ![基礎資料瀏覽](docs/images/data-browser.png) | 基礎資料瀏覽(老師分頁展開):CRUD 操作按鈕,以及任教資格、不可用時段的即時管理。 |
 | ![排課控制台](docs/images/scheduler-success.png) | 排課控制台:選版本 → 展開課程清單 → 自動排課的三步驟流程(此截圖拍攝於版本管理功能加入之前)。 |
 | ![失敗診斷](docs/images/failure-diagnostics.png) | 排課失敗診斷:具體列出每堂課失敗原因與建議修正頁面連結,而非單純回報失敗。 |
-| ![課表檢視](docs/images/timetable-view.png) | 課表檢視:依班級/教師/教室切換視角,含非教學時段(早自習、午餐/午休)顯示。 |
+| ![課表檢視](docs/images/timetable-view.png) | 課表檢視:依班級/教師/教室切換視角,含非教學時段(早自習、午餐/午休)顯示(此截圖拍攝於節次重新編號之前:現在非教學列只寫名稱並以深灰色顯示,午休後的課依序為第 5–7 節)。 |
 
 ## 架構
 
@@ -465,15 +465,15 @@ CI(`.github/workflows/ci.yml`)在每次 push 與 pull request 時執行同樣的
 
 ### 測試數量
 
-**目前總計 589 個測試,全數通過**(2026-10-14 實際執行確認):後端 503 個、前端 86 個。
+**目前總計 605 個測試,全數通過**(後端 2026-10-14、前端 2026-10-15 實際執行確認):後端 503 個、前端 102 個。
 
 | 類別 | 測試數 | 執行方式 |
 |---|---|---|
 | Scheduling Engine(純 Python 邏輯,不碰資料庫) | 73 | `pytest tests/scheduling_engine/` |
 | API / 整合測試(真實 FastAPI + PostgreSQL) | 430 | 其餘 `tests/test_*.py` |
-| 前端純函式單元測試(Vitest) | 86 | `cd frontend && npm test` |
+| 前端純函式單元測試(Vitest) | 102 | `cd frontend && npm test` |
 
-前端測試只涵蓋純函式(衝突句子合併與前後比對、定位規則、拖放規則、換教師列表、版本狀態標籤、錯誤訊息翻譯、密碼規則),元件與頁面互動沒有自動化測試。
+前端測試只涵蓋純函式(衝突句子合併與前後比對、定位規則、拖放規則、換教師列表、版本狀態標籤、錯誤訊息翻譯、密碼規則、節次顯示),元件與頁面互動沒有自動化測試。
 
 Scheduling Engine 那組測試不需要啟動 FastAPI 或連資料庫,秒級內跑完;API 測試會對 `TEST_DATABASE_URL` 指到的資料庫逐一 `create_all`/`drop_all`,耗時較長。測試策略的完整理由見 `docs/SYSTEM_DESIGN.md` 第 9 節。
 

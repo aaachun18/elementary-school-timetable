@@ -67,6 +67,7 @@ import {
 import { useResource } from "../hooks/useResource";
 import { useCrudList } from "../hooks/useCrudList";
 import { useMembershipList } from "../hooks/useMembershipList";
+import { buildPeriodDisplay } from "../utils/periodDisplay";
 import { formatTimeSlotLabel, formatWeekday } from "../utils/timeSlotFormat";
 import { isCurrentUserAdmin } from "../utils/auth";
 import type { School, SchoolCreate, SchoolUpdate } from "../types/school";
@@ -246,6 +247,9 @@ function TeacherDetail({
   const availableTimeSlotOptions = (allTimeSlotsResource.data ?? []).filter(
     (timeSlot) => timeSlot.is_teaching_period && !unavailableSlotIds.has(timeSlot.id),
   );
+  // Task 78: teaching-period numbering from every time slot (already
+  // fetched for the add dropdown). Until it loads, labels show the raw period.
+  const periodDisplay = buildPeriodDisplay(allTimeSlotsResource.data ?? []);
 
   return (
     <div className="flex flex-col gap-4">
@@ -348,11 +352,13 @@ function TeacherDetail({
           <ul className="flex flex-col gap-1 pl-0 list-none">
             {slotsCrud.items.map((slot) => (
               <li key={slot.id} className="flex flex-wrap items-center gap-1 text-sm text-gray-700">
-                {formatTimeSlotLabel(slot)}
+                {formatTimeSlotLabel(slot, periodDisplay)}
                 {isAdmin && (
                   <button
                     type="button"
-                    onClick={() => handleRemoveTimeSlot(slot.id, formatTimeSlotLabel(slot))}
+                    onClick={() =>
+                      handleRemoveTimeSlot(slot.id, formatTimeSlotLabel(slot, periodDisplay))
+                    }
                     disabled={slotsCrud.pendingKey === slot.id}
                     className={`${BUTTON_DANGER_SM} ml-2`}
                   >
@@ -394,7 +400,7 @@ function TeacherDetail({
                     <option value="">請選擇…</option>
                     {availableTimeSlotOptions.map((timeSlot) => (
                       <option key={timeSlot.id} value={timeSlot.id}>
-                        {formatTimeSlotLabel(timeSlot)}
+                        {formatTimeSlotLabel(timeSlot, periodDisplay)}
                       </option>
                     ))}
                   </>
@@ -2927,6 +2933,9 @@ function TimeSlotsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
     update: updateTimeSlot,
     remove: removeTimeSlot,
   });
+  // Task 78: only for the delete confirmation's wording -- the table itself
+  // shows and edits the raw period.
+  const periodDisplay = buildPeriodDisplay(crud.items);
 
   function handleDelete(id: number, label: string): void {
     if (window.confirm(`確定要刪除「${label}」嗎？此操作無法復原。`)) {
@@ -2946,6 +2955,9 @@ function TimeSlotsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
           <p className={HELP_TEXT}>
             請確保每個節次編號在星期一到五的意義一致（例如都代表「第 3
             節」），系統不會自動檢查這一點。
+          </p>
+          <p className={HELP_TEXT}>
+            此處為原始節次號碼，課表上的節次會依教學時段重新編號。
           </p>
           {isAdmin && (
             <p className="mb-3">
@@ -2995,7 +3007,7 @@ function TimeSlotsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
                   onDelete={() =>
                     handleDelete(
                       timeSlot.id,
-                      `${formatWeekday(timeSlot.weekday)}第 ${timeSlot.period} 節`,
+                      `${formatTimeSlotLabel(timeSlot, periodDisplay)}（原始節次 ${timeSlot.period}）`,
                     )
                   }
                 />

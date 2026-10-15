@@ -5,6 +5,7 @@ import { list as listSubjects } from "../api/subjects";
 import { list as listTimeSlots } from "../api/timeSlots";
 import { useResource } from "./useResource";
 import type { TimeSlot } from "../types/timeSlot";
+import { buildPeriodDisplay, type PeriodDisplayMap } from "../utils/periodDisplay";
 
 // Same "fetch everything, join client-side" approach as
 // useTimetableData.ts -- none of these list endpoints support a
@@ -43,6 +44,9 @@ export interface FixedTimeSlotData {
   // fixed onto a non-teaching slot like 早自習/午休 would never be
   // schedulable), sorted for a stable, predictable dropdown order.
   teachingTimeSlots: TimeSlot[];
+  // Task 78: built from ALL time slots (not only the teaching ones above),
+  // so the dropdown says "星期五第 7 節" for raw period 8 after 午休.
+  periodDisplay: PeriodDisplayMap;
 }
 
 async function buildFixedTimeSlotData(semesterId: number): Promise<FixedTimeSlotData> {
@@ -104,7 +108,7 @@ async function buildFixedTimeSlotData(semesterId: number): Promise<FixedTimeSlot
     .filter((timeSlot) => timeSlot.is_teaching_period)
     .sort((a, b) => a.weekday - b.weekday || a.period - b.period);
 
-  return { groups, teachingTimeSlots };
+  return { groups, teachingTimeSlots, periodDisplay: buildPeriodDisplay(timeSlots) };
 }
 
 // `refreshKey` deliberately has no meaning of its own -- it exists so a
@@ -119,7 +123,11 @@ export function useFixedTimeSlotData(
   return useResource(
     () =>
       semesterId === null
-        ? Promise.resolve<FixedTimeSlotData>({ groups: [], teachingTimeSlots: [] })
+        ? Promise.resolve<FixedTimeSlotData>({
+            groups: [],
+            teachingTimeSlots: [],
+            periodDisplay: new Map(),
+          })
         : buildFixedTimeSlotData(semesterId),
     [semesterId, refreshKey],
   );

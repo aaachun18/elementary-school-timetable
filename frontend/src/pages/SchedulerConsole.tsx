@@ -36,6 +36,7 @@ import {
   formatVersionStatus,
   versionStatusBadgeClass,
 } from "../utils/scheduleVersionFormat";
+import type { PeriodDisplayMap } from "../utils/periodDisplay";
 import { formatTimeSlotLabel } from "../utils/timeSlotFormat";
 import {
   BADGE_SUCCESS,
@@ -66,6 +67,9 @@ type VersionAction = "publish" | "unpublish" | "copy" | "delete";
 // Copy dialog: same semester (new DRAFT, Schedule rows only) or another
 // semester of the same academic year (requirements + Lessons + rows).
 type CopyTargetMode = "same" | "other";
+
+// Before the fixed-slot data has loaded (or no version is selected).
+const EMPTY_PERIOD_DISPLAY: PeriodDisplayMap = new Map();
 
 export default function SchedulerConsole(): ReactElement {
   const versionsResource = useResource(() => listScheduleVersions(), []);
@@ -205,6 +209,8 @@ export default function SchedulerConsole(): ReactElement {
     selectedVersion?.semester_id ?? null,
     generateResult,
   );
+  // Task 78: dropdown labels use the teaching-period numbering.
+  const fixedSlotPeriodDisplay = fixedSlotsResource.data?.periodDisplay ?? EMPTY_PERIOD_DISPLAY;
   // Local, mutable copy of the resource's groups -- same pattern as
   // `versions` above: seeded from the fetch, then updated optimistically
   // on each fix-time-slot PATCH so the "已固定" badge and dropdown value
@@ -871,7 +877,7 @@ export default function SchedulerConsole(): ReactElement {
                                       {(fixedSlotsResource.data?.teachingTimeSlots ?? []).map(
                                         (timeSlot) => (
                                           <option key={timeSlot.id} value={timeSlot.id}>
-                                            {formatTimeSlotLabel(timeSlot)}
+                                            {formatTimeSlotLabel(timeSlot, fixedSlotPeriodDisplay)}
                                           </option>
                                         ),
                                       )}

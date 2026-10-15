@@ -110,6 +110,19 @@ export const TD_HIGHLIGHT = "bg-amber-50 ring-2 ring-inset ring-amber-400";
 // Deliberately not TD_HIGHLIGHT: that one belongs to 「在課表中查看」 and
 // has its own lifetime.
 export const TD_ADJUSTED = "bg-sky-50 ring-2 ring-inset ring-sky-500";
+// Task 78: the row header (節次) column. Full constants rather than TH plus
+// extra classes, so two background/text colors never compete.
+export const TIMETABLE_ROW_HEADER =
+  "border-b border-gray-200 bg-white px-3 py-2 text-left font-medium text-gray-600 whitespace-nowrap";
+// Non-teaching rows (早自習/午休/放學): a clearly darker gray than the
+// row hover (gray-50) and the table head (gray-50), so they read as "not a
+// lesson slot" at a glance. The cell's own background covers the row hover.
+export const TIMETABLE_ROW_HEADER_NON_TEACHING =
+  "border-b border-gray-300 bg-gray-200 px-3 py-2 text-left font-medium text-gray-600 whitespace-nowrap";
+// A non-teaching cell without background, for combining with one marker
+// (TD_HIGHLIGHT / TD_ADJUSTED / DROP_TARGET_BLOCKED), which brings its own.
+export const TD_NON_TEACHING_BASE = "border-b border-gray-300 px-3 py-2 text-gray-600";
+export const TD_NON_TEACHING = `${TD_NON_TEACHING_BASE} bg-gray-200`;
 
 // --- Timetable edit mode (Task 69) ---
 // A lesson in edit mode is a full-width button; the selected one gets a

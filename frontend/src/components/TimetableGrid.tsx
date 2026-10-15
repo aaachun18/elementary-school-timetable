@@ -1,6 +1,7 @@
 import { useState, type DragEvent, type ReactElement } from "react";
 import { timeSlotKey, type EnrichedSchedule } from "../hooks/useTimetableData";
 import { canMoveLessonTo, canSwapLessons } from "../utils/lessonDrop";
+import { formatPeriodHeader, type PeriodDisplay, type PeriodDisplayMap } from "../utils/periodDisplay";
 import { formatTimeSlotLabel, formatWeekday } from "../utils/timeSlotFormat";
 import type { TimetableViewMode } from "../utils/violationLocate";
 import type { Lesson } from "../types/lesson";
@@ -21,7 +22,12 @@ import {
   TD,
   TD_ADJUSTED,
   TD_HIGHLIGHT,
+  TD_NON_TEACHING,
+  TD_NON_TEACHING_BASE,
   TH,
+  TIMETABLE_ROW_HEADER,
+  TIMETABLE_ROW_HEADER_NON_TEACHING,
+  TR_HOVER,
 } from "../styles/ui";
 
 const WEEKDAYS = [1, 2, 3, 4, 5];
@@ -49,6 +55,9 @@ export interface TimetableGridEditProps {
 
 interface TimetableGridProps {
   periods: number[];
+  // Task 78: how each period is named on screen (teaching number or the
+  // non-teaching row's name), built from all time slots.
+  periodDisplay: PeriodDisplayMap;
   schedules: EnrichedSchedule[];
   viewMode: TimetableViewMode;
   targetId: number;
@@ -178,6 +187,7 @@ function LessonButton({
 // across. Extracted from TimetableView.tsx in Task 69 to add edit mode.
 export default function TimetableGrid({
   periods,
+  periodDisplay,
   schedules,
   viewMode,
   targetId,
@@ -305,13 +315,17 @@ export default function TimetableGrid({
   }
 
   // Task 35.5: teaching/non-teaching status and label are decided per
-  // CELL (this exact weekday+period's own TimeSlot), not per row -- the
-  // same period can be "早自習" on Monday and "導師時間" on Wednesday, and
-  // each cell must show its own name rather than one collapsed row title.
-  // A missing TimeSlot record for this exact weekday+period is treated as
-  // an ordinary teaching slot, matching TimeSlotBase's own
-  // is_teaching_period default of True.
-  function cellLabelOf(timeSlot: TimeSlot | undefined): string | null {
+  // CELL (this exact weekday+period's own TimeSlot) -- the same period can
+  // be "早自習" on Monday and "導師時間" on Wednesday, and each cell shows
+  // its own name. Task 78: in a NON-teaching row (no weekday teaches at
+  // this period, utils/periodDisplay.ts) every cell is non-teaching, even a
+  // weekday with no TimeSlot record at all (e.g. 放學 exists only on
+  // Monday); it falls back to the row's name. In a teaching row a missing
+  // record is still an ordinary (empty) teaching cell.
+  function cellLabelOf(timeSlot: TimeSlot | undefined, rowDisplay: PeriodDisplay | undefined): string | null {
+    if (rowDisplay?.kind === "nonTeaching") {
+      return timeSlot?.label ?? rowDisplay.label;
+    }
     if (timeSlot === undefined || timeSlot.is_teaching_period) {
       return null;
     }
@@ -338,18 +352,24 @@ export default function TimetableGrid({
           </tr>
         </thead>
         <tbody>
-          {periods.map((period) => (
-            <tr key={period} className="hover:bg-gray-50">
-              {/* Task 35.5: the row header is a plain, weekday-independent
-                  period number -- a single period can have different
-                  labels on different weekdays. */}
-              <th scope="row" className={`${TH} bg-white font-medium text-gray-600`}>
-                第 {period} 節
+          {periods.map((period) => {
+            const rowDisplay = periodDisplay.get(period);
+            const isNonTeachingRow = rowDisplay?.kind === "nonTeaching";
+            return (
+            <tr key={period} className={TR_HOVER}>
+              {/* Task 78: the row header is the teaching period number
+                  ("第 5 節" for raw period 6 after 午休), or the name of a
+                  non-teaching row ("早自習") -- never the raw period. */}
+              <th
+                scope="row"
+                className={isNonTeachingRow ? TIMETABLE_ROW_HEADER_NON_TEACHING : TIMETABLE_ROW_HEADER}
+              >
+                {formatPeriodHeader(period, periodDisplay)}
               </th>
               {WEEKDAYS.map((weekday) => {
                 const key = timeSlotKey(weekday, period);
                 const timeSlot = timeSlotByWeekdayAndPeriod.get(key);
-                const nonTeachingLabel = cellLabelOf(timeSlot);
+                const nonTeachingLabel = cellLabelOf(timeSlot, rowDisplay);
                 // Task 68: matched by TimeSlot id, so non-teaching cells
                 // (H11) can be highlighted too.
                 const isHighlighted =
@@ -379,7 +399,7 @@ export default function TimetableGrid({
                     <td
                       key={weekday}
                       {...dropHandlers}
-                      className={`${TD} text-gray-400 ${markerClass ?? "bg-gray-50"}`}
+                      className={markerClass !== null ? `${TD_NON_TEACHING_BASE} ${markerClass}` : TD_NON_TEACHING}
                     >
                       {nonTeachingLabel}
                     </td>
@@ -431,7 +451,7 @@ export default function TimetableGrid({
                             type="button"
                             onClick={() => edit.onMoveHere(timeSlot)}
                             disabled={edit.disabled}
-                            aria-label={`移到 ${formatTimeSlotLabel(timeSlot)}`}
+                            aria-label={`移到 ${formatTimeSlotLabel(timeSlot, periodDisplay)}`}
                             className={MOVE_TARGET_BUTTON}
                           >
                             移到這裡
@@ -459,7 +479,8 @@ export default function TimetableGrid({
                 );
               })}
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>

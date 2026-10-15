@@ -8,6 +8,7 @@ import {
   LESSON_FAILURE_REASON_TEMPLATES,
   VIOLATION_TYPE_TEMPLATES,
 } from "../constants/errorMessages";
+import { buildPeriodDisplay, type PeriodDisplayMap } from "./periodDisplay";
 import { formatTimeSlotLabel } from "./timeSlotFormat";
 import type { ConstraintViolationDetail, LessonFailureDetail } from "../types/scheduler";
 import type { Teacher } from "../types/teacher";
@@ -64,12 +65,30 @@ export function resolveRoomName(id: number | null, lookups: NameLookups): string
   return lookups.roomById.get(id)?.name ?? `教室 ID ${id}`;
 }
 
+// Task 78: the teaching-period numbering (utils/periodDisplay.ts) comes from
+// every time slot in the lookups -- no extra request. Cached per
+// timeSlotById map, since one checklist resolves many labels against the
+// same lookups.
+const periodDisplayCache = new WeakMap<Map<number, TimeSlot>, PeriodDisplayMap>();
+
+export function periodDisplayOf(lookups: NameLookups): PeriodDisplayMap {
+  const cached = periodDisplayCache.get(lookups.timeSlotById);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const built = buildPeriodDisplay(lookups.timeSlotById.values());
+  periodDisplayCache.set(lookups.timeSlotById, built);
+  return built;
+}
+
 export function resolveTimeSlotLabel(id: number | null, lookups: NameLookups): string {
   if (id === null) {
     return "";
   }
   const timeSlot = lookups.timeSlotById.get(id);
-  return timeSlot === undefined ? `時段 ID ${id}` : formatTimeSlotLabel(timeSlot);
+  return timeSlot === undefined
+    ? `時段 ID ${id}`
+    : formatTimeSlotLabel(timeSlot, periodDisplayOf(lookups));
 }
 
 // class_subject_requirement_id is deliberately NOT rendered as a form
