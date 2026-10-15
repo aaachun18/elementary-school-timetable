@@ -105,5 +105,11 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # Pure-function unit tests (vitest, no DOM). Before Build: they run in
+      # under a second and fail faster with a clearer message than a
+      # type error surfacing inside tsc -b.
+      - name: Test
+        run: npm test
+
       - name: Build
         run: npm run build
