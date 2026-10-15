@@ -2732,7 +2732,7 @@ function TimeSlotNewRow({
             disabled={isPending}
           className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
           />
-          教學節次
+          可排課
         </label>
       </td>
       <td className={TD}>
@@ -2853,7 +2853,7 @@ function TimeSlotRow({
               disabled={isPending}
             className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
-            教學節次
+            可排課
           </label>
         </td>
         <td className={TD}>
@@ -2977,7 +2977,7 @@ function TimeSlotsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
               <tr className={TABLE_HEAD_ROW}>
                 <th className={TH}>星期</th>
                 <th className={TH}>節次</th>
-                <th className={TH}>教學節次</th>
+                <th className={TH}>可排課</th>
                 <th className={TH}>標籤</th>
                 <th className={TH}>開始時間</th>
                 <th className={TH}>結束時間</th>
