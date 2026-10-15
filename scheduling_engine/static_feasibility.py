@@ -1,7 +1,8 @@
 """Static feasibility checks run BEFORE any search begins (Task 23; the 4th
-check below added by the Task 38 bug fix).
+check below added by the Task 38 bug fix, the 5th -- fixed time slots -- by
+Task 81).
 
-All four checks share a property that sets them apart from every
+All five checks share a property that sets them apart from every
 per-candidate Constraint in constraints/: each is a fact checkable up front,
 without trying a single (teacher, time_slot, room) combination --
 "does this teacher have enough weekly capacity/available time slots for
@@ -38,6 +39,7 @@ from dataclasses import dataclass
 
 from scheduling_engine.algorithms.resources import (
     LessonFailure,
+    LookupTables,
     SchedulingResources,
     build_lookup_tables,
     candidate_teacher_ids,
@@ -49,17 +51,18 @@ from scheduling_engine.models.domain import LessonAssignment
 
 @dataclass
 class StaticFeasibilityResult:
-    """feasible=True: none of the four checks found anything, safe to
+    """feasible=True: none of the five checks found anything, safe to
     proceed to a real search. feasible=False: violations/lesson_failures
-    together list EVERY problem found across all four checks (not just the
+    together list EVERY problem found across all five checks (not just the
     first), same "report everything, don't stop at the first failure"
     stance the rest of the engine's diagnostics already take (see
     GreedyResult's lesson_failures).
 
     Split into two lists, not one, for the same reason BacktrackingResult
     and GreedyResult already split lesson_failures from post_hoc_violations:
-    violations are whole-batch facts with no single Lesson to blame
-    (teacher workload/availability, inactive entities), while
+    violations are facts about the batch's settings (teacher workload/
+    availability, inactive entities, and -- Task 81 -- fixed time slots,
+    which do name their Lesson, class, subject and slot), while
     lesson_failures are about one SPECIFIC Lesson that can never be placed
     (zero candidate teachers) -- collapsing the two into one undifferentiated
     list would lose that distinction for every caller downstream (e.g.
@@ -339,11 +342,216 @@ def _check_zero_candidate_teacher_lessons(
     ]
 
 
+# --- Task 81: fixed time slots ---
+#
+# A Lesson fixed to a time slot (Lesson.fixed_time_slot_id) reaches the
+# engine as a pending LessonAssignment whose time_slot_id is already set;
+# candidate_time_slot_ids() makes that slot its ONLY time candidate (Task
+# 28), so the search can never place it anywhere else. What the search
+# could not do is say clearly, up front, that a fixed slot can never work:
+# such a run used to end as an anonymous DEFINITELY_INFEASIBLE after a full
+# Backtracking search. Every check below is decidable from the fixed slots
+# alone, without trying a single combination -- the same property as the
+# other checks in this module.
+
+FIXED_SLOT_UNKNOWN = "STATIC_FIXED_SLOT_UNKNOWN"
+FIXED_SLOT_NON_TEACHING = "STATIC_FIXED_SLOT_NON_TEACHING"
+FIXED_SLOT_TEACHER_UNAVAILABLE = "STATIC_FIXED_SLOT_TEACHER_UNAVAILABLE"
+FIXED_SLOT_CLASS_CLASH = "STATIC_FIXED_SLOT_CLASS_CLASH"
+FIXED_SLOT_TEACHER_CLASH = "STATIC_FIXED_SLOT_TEACHER_CLASH"
+FIXED_SLOT_ROOM_SHORTAGE = "STATIC_FIXED_SLOT_ROOM_SHORTAGE"
+
+
+def _fixed_slot_violation(
+    violation_type: str,
+    lesson: LessonAssignment,
+    message: str,
+    suggested_action: str,
+    *,
+    teacher_id: int | None = None,
+) -> ConstraintViolation:
+    """Every fixed-slot problem names the Lesson it is about -- its class,
+    subject and the fixed time slot -- so the console can say which course
+    and which slot."""
+    return ConstraintViolation(
+        type=violation_type,
+        severity=Severity.ERROR,
+        lesson_id=lesson.lesson_id,
+        teacher_id=teacher_id,
+        class_id=lesson.class_id,
+        subject_id=lesson.subject_id,
+        time_slot_id=lesson.time_slot_id,
+        class_subject_requirement_id=lesson.class_subject_requirement_id,
+        message=message,
+        suggested_action=suggested_action,
+    )
+
+
+def _check_fixed_time_slots(
+    lessons: list[LessonAssignment], resources: SchedulingResources
+) -> list[ConstraintViolation]:
+    """Fixed time slots that can never be honored:
+
+    - the slot is not one of the school's time slots at all (UNKNOWN);
+    - the slot is a non-teaching period, so H11 rejects it (NON_TEACHING);
+    - every teacher who could teach the lesson -- the required teacher, or
+      every qualified teacher when none is required -- is marked
+      unavailable at that slot, so H4 rejects every candidate
+      (TEACHER_UNAVAILABLE);
+    - two or more Lessons of the same class are fixed to the same slot, an
+      unavoidable H2 (CLASS_CLASH);
+    - two or more Lessons fixed to the same slot can only be taught by the
+      same one teacher (a required teacher, or the subject's only qualified
+      teacher), an unavoidable H1 (TEACHER_CLASH);
+    - more Lessons needing a room type are fixed to one slot than there
+      are rooms of that type, an unavoidable H3/H9 (ROOM_SHORTAGE).
+
+    The clash checks report every Lesson involved, not just the second
+    one. Lessons without a fixed slot are skipped entirely, so a run with
+    no fixed slots does nothing here beyond one pass over the list. A
+    Lesson with no candidate teacher at all is left to
+    _check_zero_candidate_teacher_lessons().
+    """
+    fixed = [lesson for lesson in lessons if lesson.time_slot_id is not None]
+    if not fixed:
+        return []
+
+    tables = build_lookup_tables(resources)
+    known_slots = set(resources.time_slot_ids)
+    teaching_by_slot = {
+        slot.time_slot_id: slot.is_teaching_period for slot in resources.time_slots
+    }
+    unavailable = {
+        (item.teacher_id, item.time_slot_id) for item in resources.teacher_unavailability
+    }
+
+    violations: list[ConstraintViolation] = []
+    placeable: list[LessonAssignment] = []
+    for lesson in fixed:
+        slot_id = lesson.time_slot_id
+        assert slot_id is not None
+        if slot_id not in known_slots:
+            violations.append(
+                _fixed_slot_violation(
+                    FIXED_SLOT_UNKNOWN,
+                    lesson,
+                    f"Lesson {lesson.lesson_id} is fixed to time slot {slot_id}, "
+                    "which is not one of the school's time slots.",
+                    "Fix this lesson to an existing teaching time slot, or clear "
+                    "its fixed time slot.",
+                )
+            )
+            continue
+        # Same "unknown -> not a violation" stance as H11 itself: a slot
+        # with no TimeSlotInfo is treated as a teaching period.
+        if teaching_by_slot.get(slot_id) is False:
+            violations.append(
+                _fixed_slot_violation(
+                    FIXED_SLOT_NON_TEACHING,
+                    lesson,
+                    f"Lesson {lesson.lesson_id} is fixed to time slot {slot_id}, "
+                    "which is a non-teaching period.",
+                    "Fix this lesson to a teaching time slot, or clear its fixed "
+                    "time slot.",
+                )
+            )
+            continue
+        placeable.append(lesson)
+
+        candidates = candidate_teacher_ids(lesson, tables)
+        if candidates and all((teacher, slot_id) in unavailable for teacher in candidates):
+            only_teacher = candidates[0] if len(candidates) == 1 else None
+            violations.append(
+                _fixed_slot_violation(
+                    FIXED_SLOT_TEACHER_UNAVAILABLE,
+                    lesson,
+                    f"Lesson {lesson.lesson_id} is fixed to time slot {slot_id}, "
+                    f"but every teacher who can teach it ({candidates}) is marked "
+                    "unavailable then.",
+                    "Fix this lesson to another time slot, or remove the "
+                    "teacher's unavailable time slot.",
+                    teacher_id=only_teacher,
+                )
+            )
+
+    violations.extend(_fixed_slot_clashes(placeable, tables))
+    return violations
+
+
+def _fixed_slot_clashes(
+    fixed: list[LessonAssignment], tables: LookupTables
+) -> list[ConstraintViolation]:
+    by_class_slot: dict[tuple[int, int | None], list[LessonAssignment]] = {}
+    by_teacher_slot: dict[tuple[int, int | None], list[LessonAssignment]] = {}
+    by_room_type_slot: dict[tuple[str, int | None], list[LessonAssignment]] = {}
+    for lesson in fixed:
+        by_class_slot.setdefault((lesson.class_id, lesson.time_slot_id), []).append(lesson)
+        candidates = candidate_teacher_ids(lesson, tables)
+        if len(candidates) == 1:
+            by_teacher_slot.setdefault((candidates[0], lesson.time_slot_id), []).append(lesson)
+        room_type = tables.required_room_type_by_requirement.get(
+            lesson.class_subject_requirement_id
+        )
+        if room_type is not None:
+            by_room_type_slot.setdefault((room_type, lesson.time_slot_id), []).append(lesson)
+
+    violations: list[ConstraintViolation] = []
+    for (class_id, slot_id), group in by_class_slot.items():
+        if len(group) < 2:
+            continue
+        lesson_ids = [lesson.lesson_id for lesson in group]
+        for lesson in group:
+            violations.append(
+                _fixed_slot_violation(
+                    FIXED_SLOT_CLASS_CLASH,
+                    lesson,
+                    f"Lessons {lesson_ids} of class {class_id} are all fixed to "
+                    f"time slot {slot_id}.",
+                    "Fix only one of these lessons to this time slot.",
+                )
+            )
+    for (teacher_id, slot_id), group in by_teacher_slot.items():
+        if len(group) < 2:
+            continue
+        lesson_ids = [lesson.lesson_id for lesson in group]
+        for lesson in group:
+            violations.append(
+                _fixed_slot_violation(
+                    FIXED_SLOT_TEACHER_CLASH,
+                    lesson,
+                    f"Lessons {lesson_ids} are all fixed to time slot {slot_id} "
+                    f"and can only be taught by teacher {teacher_id}.",
+                    "Fix only one of these lessons to this time slot, or let "
+                    "another teacher teach one of them.",
+                    teacher_id=teacher_id,
+                )
+            )
+    for (room_type, slot_id), group in by_room_type_slot.items():
+        room_count = len(tables.room_ids_by_type.get(room_type, []))
+        if len(group) <= room_count:
+            continue
+        lesson_ids = [lesson.lesson_id for lesson in group]
+        for lesson in group:
+            violations.append(
+                _fixed_slot_violation(
+                    FIXED_SLOT_ROOM_SHORTAGE,
+                    lesson,
+                    f"Lessons {lesson_ids} are all fixed to time slot {slot_id} "
+                    f"and need a room of type '{room_type}', but only "
+                    f"{room_count} such room(s) exist.",
+                    "Fix fewer of these lessons to this time slot, or add rooms "
+                    "of this type.",
+                )
+            )
+    return violations
+
+
 def check_static_feasibility(
     lessons: list[LessonAssignment], resources: SchedulingResources
 ) -> StaticFeasibilityResult:
-    """Entry point: run all four checks and combine their results -- see
-    this module's docstring for why all four must run together rather than
+    """Entry point: run all five checks (the fixed-time-slot check added
+    in Task 81) and combine their results -- see
+    this module's docstring for why all of them must run together rather than
     stopping at the first one that finds something (the Task 38 bug this
     fixed was exactly that: a real run with both a workload problem and a
     zero-candidate-teacher problem only ever reported the workload one).
@@ -358,6 +566,7 @@ def check_static_feasibility(
         _check_teacher_workload_exceeded(lessons, resources)
         + _check_teacher_availability_insufficient(lessons, resources)
         + _check_inactive_entity_conflict(lessons, resources)
+        + _check_fixed_time_slots(lessons, resources)
     )
     lesson_failures = _check_zero_candidate_teacher_lessons(lessons, resources)
     return StaticFeasibilityResult(

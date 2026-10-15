@@ -654,6 +654,72 @@ def test_run_scheduler_respects_fixed_time_slot(client: TestClient) -> None:
     assert fixed_schedule["time_slot_id"] == time_slot_id
 
 
+# --- Task 81: impossible fixed time slots are reported before the search ---
+
+
+def _fix(client: TestClient, lesson_id: int, time_slot_id: int) -> None:
+    response = client.patch(
+        f"/api/v1/lessons/{lesson_id}/fix-time-slot", json={"time_slot_id": time_slot_id}
+    )
+    assert response.status_code == 200, response.json()
+
+
+def test_run_scheduler_fixed_to_non_teaching_slot_returns_static_422(
+    client: TestClient,
+) -> None:
+    semester_id, version_id = _build_schedulable_semester(client, year=3020, weekly_periods=2)
+    lunch = client.post(
+        "/api/v1/time-slots/",
+        json={"weekday": 1, "period": 5, "is_teaching_period": False, "label": "午休"},
+    ).json()["id"]
+    lessons = client.get("/api/v1/lessons/", params={"semester_id": semester_id}).json()
+    fixed_lesson = lessons[0]
+    _fix(client, fixed_lesson["id"], lunch)
+
+    response = client.post(f"/api/v1/schedule-versions/{version_id}/run-scheduler")
+
+    # Same shape as every other static failure: STATIC_CHECK_FAILED, the
+    # reasons in post_hoc_violations, nothing written.
+    assert response.status_code == 422
+    data = response.json()
+    assert data["failure_type"] == "STATIC_CHECK_FAILED"
+    assert data["backtrack_count"] == 0
+    assert data["lesson_failures"] == []
+    assert len(data["post_hoc_violations"]) == 1
+    violation = data["post_hoc_violations"][0]
+    assert violation["type"] == "STATIC_FIXED_SLOT_NON_TEACHING"
+    assert violation["lesson_id"] == fixed_lesson["id"]
+    assert violation["class_subject_requirement_id"] == fixed_lesson["class_subject_requirement_id"]
+    assert violation["time_slot_id"] == lunch
+    assert violation["class_id"] is not None and violation["subject_id"] is not None
+    assert client.get("/api/v1/schedules/").json() == []
+
+
+def test_run_scheduler_two_fixed_lessons_of_one_class_in_one_slot_returns_static_422(
+    client: TestClient,
+) -> None:
+    semester_id, version_id = _build_schedulable_semester(client, year=3021, weekly_periods=2)
+    slot = next(t["id"] for t in client.get("/api/v1/time-slots/").json() if t["period"] == 1)
+    lessons = client.get("/api/v1/lessons/", params={"semester_id": semester_id}).json()
+    for lesson in lessons:
+        _fix(client, lesson["id"], slot)
+
+    response = client.post(f"/api/v1/schedule-versions/{version_id}/run-scheduler")
+
+    assert response.status_code == 422
+    data = response.json()
+    assert data["failure_type"] == "STATIC_CHECK_FAILED"
+    types = sorted(v["type"] for v in data["post_hoc_violations"])
+    assert "STATIC_FIXED_SLOT_CLASS_CLASH" in types
+    clash_lessons = {
+        v["lesson_id"]
+        for v in data["post_hoc_violations"]
+        if v["type"] == "STATIC_FIXED_SLOT_CLASS_CLASH"
+    }
+    assert clash_lessons == {lesson["id"] for lesson in lessons}
+    assert client.get("/api/v1/schedules/").json() == []
+
+
 # --- Task 32.8 regression: generate-lessons called twice must never make
 # the numbers a caller displays together look contradictory. ---
 

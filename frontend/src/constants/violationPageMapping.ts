@@ -76,6 +76,14 @@ const DATA_BROWSER_TAB_LABEL: Record<InactiveEntityTab, string> = {
   rooms: "基礎資料瀏覽（教室分頁）",
 };
 
+// Task 81: a lesson's fixed time slot is set in the scheduler console
+// (「設定固定時段」), so every fixed-slot pre-check problem points there.
+const SCHEDULER_FIXED_SLOT_PAGE: ViolationPageLink = {
+  kind: "link",
+  label: "排課控制台（設定固定時段）",
+  path: "/scheduler",
+};
+
 const STATIC_TARGET_BY_TYPE: Record<string, ViolationPageTarget> = {
   // 需求本身的設定問題.
   STATIC_TEACHER_WORKLOAD_EXCEEDED: REQUIREMENTS_PAGE,
@@ -90,6 +98,14 @@ const STATIC_TARGET_BY_TYPE: Record<string, ViolationPageTarget> = {
   H4_TEACHER_AVAILABILITY: TEACHERS_TAB_PAGE,
   STATIC_TEACHER_AVAILABILITY_INSUFFICIENT: TEACHERS_TAB_PAGE,
   H8_TEACHER_MAX_WORKLOAD: TEACHERS_TAB_PAGE,
+
+  // 固定時段的設定問題(Task 81).
+  STATIC_FIXED_SLOT_UNKNOWN: SCHEDULER_FIXED_SLOT_PAGE,
+  STATIC_FIXED_SLOT_NON_TEACHING: SCHEDULER_FIXED_SLOT_PAGE,
+  STATIC_FIXED_SLOT_TEACHER_UNAVAILABLE: SCHEDULER_FIXED_SLOT_PAGE,
+  STATIC_FIXED_SLOT_CLASS_CLASH: SCHEDULER_FIXED_SLOT_PAGE,
+  STATIC_FIXED_SLOT_TEACHER_CLASH: SCHEDULER_FIXED_SLOT_PAGE,
+  STATIC_FIXED_SLOT_ROOM_SHORTAGE: SCHEDULER_FIXED_SLOT_PAGE,
 
   // 排課引擎內部判斷,無對應可修正頁面.
   H1_TEACHER_CONFLICT: ENGINE_INTERNAL_TEXT,

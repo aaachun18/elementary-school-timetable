@@ -120,8 +120,10 @@ function GroupedLessonFailureItem({
 //
 // lesson_failures and post_hoc_violations are shown as two separate
 // sections rather than merged into one flat list: post_hoc_violations is a
-// flat list of whole-batch problems (H7, or the three STATIC_* checks) that
-// aren't about any single lesson, while lesson_failures is about specific
+// flat list of whole-batch problems (H7, or the STATIC_* checks -- Task 81's
+// fixed-time-slot ones do name a lesson, but are settings problems found
+// before any search) that aren't search results for one lesson, while
+// lesson_failures is about specific
 // Lessons -- and (Task 39) grouped by identical failure reason via
 // groupLessonFailures(), since multiple Lessons failing for the exact same
 // reason (e.g. every lesson generated for one over-subscribed requirement)

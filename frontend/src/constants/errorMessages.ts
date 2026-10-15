@@ -243,9 +243,12 @@ export function translateFailureType(failureType: string): string {
 //   (no H10 constraint exists in this codebase)
 // - scheduling_engine/algorithms/resources.py's no_candidate_teacher_violation():
 //   NO_CANDIDATE_TEACHER, H6_REQUIRED_TEACHER_NOT_QUALIFIED
-// - scheduling_engine/static_feasibility.py's three checks:
+// - scheduling_engine/static_feasibility.py's checks:
 //   STATIC_TEACHER_WORKLOAD_EXCEEDED, STATIC_TEACHER_AVAILABILITY_INSUFFICIENT,
-//   STATIC_INACTIVE_ENTITY_CONFLICT
+//   STATIC_INACTIVE_ENTITY_CONFLICT, and (Task 81) the fixed-time-slot ones,
+//   STATIC_FIXED_SLOT_UNKNOWN / _NON_TEACHING / _TEACHER_UNAVAILABLE /
+//   _CLASS_CLASH / _TEACHER_CLASH / _ROOM_SHORTAGE (each names its lesson's
+//   class, subject and fixed slot)
 // - backend/app/services/schedule_check.py's own two (Task 68; only ever in
 //   GET /schedule-versions/{id}/check, never in a run-scheduler failure):
 //   INCOMPLETE_SCHEDULE_ROW ({missingFields}), FIXED_TIME_SLOT_MISMATCH
@@ -283,6 +286,17 @@ export const VIOLATION_TYPE_TEMPLATES: Record<string, string> = {
   STATIC_TEACHER_AVAILABILITY_INSUFFICIENT:
     "{teacherName}被指定的課程數超過其可用時段數量，無法排入課表！",
   STATIC_INACTIVE_ENTITY_CONFLICT: "{requirementLabel}涉及已停用的項目：{inactiveEntities}！",
+  STATIC_FIXED_SLOT_UNKNOWN: "{className}的{subjectName}被固定的時段不存在（{timeSlotLabel}）！",
+  STATIC_FIXED_SLOT_NON_TEACHING:
+    "{className}的{subjectName}被固定在{timeSlotLabel}，但這不是教學時段！",
+  STATIC_FIXED_SLOT_TEACHER_UNAVAILABLE:
+    "{className}的{subjectName}被固定在{timeSlotLabel}，但{teacherName}在這個時段不可排課！",
+  STATIC_FIXED_SLOT_CLASS_CLASH:
+    "{className}的{subjectName}被固定在{timeSlotLabel}，但{className}在同一時段還有其他固定的課！",
+  STATIC_FIXED_SLOT_TEACHER_CLASH:
+    "{className}的{subjectName}被固定在{timeSlotLabel}，但只能由{teacherName}授課，而{teacherName}在同一時段還有其他固定的課！",
+  STATIC_FIXED_SLOT_ROOM_SHORTAGE:
+    "{className}的{subjectName}被固定在{timeSlotLabel}，但同一時段需要相同類型教室的固定課程多於教室數量！",
   INCOMPLETE_SCHEDULE_ROW: "{className}的{subjectName}有一筆排課資料缺少{missingFields}！",
   FIXED_TIME_SLOT_MISMATCH:
     "{className}的{subjectName}被固定在{fixedTimeSlotLabel}，但目前排在{timeSlotLabel}！",
@@ -293,6 +307,11 @@ export const VIOLATION_TYPE_TEMPLATES: Record<string, string> = {
 // sentence, never one with a blank where the fixed slot should be.
 export const FIXED_TIME_SLOT_MISMATCH_UNKNOWN_SLOT_TEMPLATE =
   "{className}的{subjectName}設有固定時段，但目前排在{timeSlotLabel}，不在固定時段內！";
+
+// Task 81: STATIC_FIXED_SLOT_TEACHER_UNAVAILABLE without a teacher_id --
+// no required teacher, and EVERY qualified teacher is unavailable then.
+export const FIXED_SLOT_ALL_TEACHERS_UNAVAILABLE_TEMPLATE =
+  "{className}的{subjectName}被固定在{timeSlotLabel}，但所有可教授{subjectName}的教師在這個時段都不可排課！";
 
 // Task 68: one heading per violation type for the conflict checklist
 // (components/ConflictChecklist.tsx), in the order the groups are shown.

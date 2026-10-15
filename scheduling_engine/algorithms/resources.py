@@ -170,6 +170,28 @@ def candidate_time_slot_ids(
     return list(resources.time_slot_ids)
 
 
+def lessons_moved_off_fixed_slot(
+    pending: list[LessonAssignment], placed: list[LessonAssignment]
+) -> list[int]:
+    """Task 81: the lesson_ids of fixed Lessons (pending time_slot_id set)
+    whose placed assignment is in a different time slot. Always empty by
+    construction -- candidate_time_slot_ids() never offers any other slot --
+    and checked once after a successful search so that a future change to
+    candidate generation cannot quietly break the guarantee "a fixed Lesson
+    is only ever placed in its fixed slot"."""
+    fixed_slot_by_lesson = {
+        lesson.lesson_id: lesson.time_slot_id
+        for lesson in pending
+        if lesson.time_slot_id is not None
+    }
+    return [
+        assignment.lesson_id
+        for assignment in placed
+        if assignment.lesson_id in fixed_slot_by_lesson
+        and assignment.time_slot_id != fixed_slot_by_lesson[assignment.lesson_id]
+    ]
+
+
 def candidate_room_ids(
     lesson: LessonAssignment, tables: LookupTables
 ) -> list[int | None]:

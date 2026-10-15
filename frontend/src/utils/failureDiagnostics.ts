@@ -4,6 +4,7 @@
 // calls Task 30/31 already established (RequirementsOverview.tsx, DataBrowser.tsx).
 
 import {
+  FIXED_SLOT_ALL_TEACHERS_UNAVAILABLE_TEMPLATE,
   FIXED_TIME_SLOT_MISMATCH_UNKNOWN_SLOT_TEMPLATE,
   LESSON_FAILURE_REASON_TEMPLATES,
   VIOLATION_TYPE_TEMPLATES,
@@ -258,6 +259,9 @@ export function getViolationSentence(
   const values = buildTemplateValues(violation, lookups);
   if (violation.type === "FIXED_TIME_SLOT_MISMATCH" && values.fixedTimeSlotLabel === "") {
     return applyTemplate(FIXED_TIME_SLOT_MISMATCH_UNKNOWN_SLOT_TEMPLATE, values);
+  }
+  if (violation.type === "STATIC_FIXED_SLOT_TEACHER_UNAVAILABLE" && violation.teacher_id === null) {
+    return applyTemplate(FIXED_SLOT_ALL_TEACHERS_UNAVAILABLE_TEMPLATE, values);
   }
   return applyTemplate(template, values);
 }

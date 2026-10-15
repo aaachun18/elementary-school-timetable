@@ -39,6 +39,7 @@ from scheduling_engine.algorithms.backtracking import (  # noqa: E402
 from scheduling_engine.algorithms.resources import (  # noqa: E402
     LessonFailure,
     SchedulingResources,
+    lessons_moved_off_fixed_slot,
 )
 from scheduling_engine.constraints.base import ConstraintViolation  # noqa: E402
 from scheduling_engine.models.domain import (  # noqa: E402
@@ -291,11 +292,14 @@ def run_scheduler(
     Schedule rows (see that exception's docstring for why re-running isn't
     just allowed to silently overwrite them).
 
-    Otherwise runs the Task 23 static feasibility checks first -- four facts
-    (teacher workload, teacher availability, inactive entities, and a Lesson
-    with zero candidate teachers at all) that settle infeasibility without a
-    single search step -- and only calls schedule_backtracking() if all four
-    pass. In both cases:
+    Otherwise runs the Task 23 static feasibility checks first -- five facts
+    (teacher workload, teacher availability, inactive entities, a Lesson
+    with zero candidate teachers at all, and -- Task 81 -- fixed time slots
+    that can never be honored) that settle infeasibility without a single
+    search step -- and only calls schedule_backtracking() if all of them
+    pass. A fixed Lesson can only ever be placed in its fixed slot (the
+    search never tries another); that is re-checked before writing. In
+    both cases:
     - on success, writes state.assignments to the `schedules` table in one
       commit (caller reads result.search_result.state.assignments /
       backtrack_count for the 200 response).
@@ -338,6 +342,15 @@ def run_scheduler(
     result = schedule_backtracking(lessons, resources)
 
     if result.success and result.state is not None:
+        # Task 81: never write a schedule that moved a fixed Lesson. Cannot
+        # happen with the current candidate generation; an engine bug, not
+        # a user-facing infeasibility, so it is raised (nothing written).
+        moved = lessons_moved_off_fixed_slot(lessons, result.state.assignments)
+        if moved:
+            raise RuntimeError(
+                f"Scheduler placed fixed lesson(s) {moved} outside their "
+                "fixed time slot; nothing was written."
+            )
         schedule_rows = [
             Schedule(
                 schedule_version_id=schedule_version_id,
