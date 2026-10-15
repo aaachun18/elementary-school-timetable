@@ -67,12 +67,21 @@ class PublishedVersionImmutableError(Exception):
 
 class ArchivedVersionImmutableError(Exception):
     """Task 64: the ARCHIVED counterpart of PublishedVersionImmutableError --
-    same lock (no field change, no Schedule change, no deletion, no
-    generate-lessons/run-scheduler/reassign), separate exception only so
+    same lock (no field change, no Schedule change, no
+    generate-lessons/run-scheduler/reassign; deleting the whole version is
+    allowed since Task 80), separate exception only so
     the user is told the version is archived, not "published". Republishing
     it (status -> PUBLISHED) is the one change still allowed, and goes
     through the status-transition rules, not this exception.
     """
+
+
+class PublishedVersionDeleteError(Exception):
+    """Task 80: raised by delete_schedule_version() for the semester's
+    PUBLISHED version -- the live timetable cannot simply disappear. The
+    user has to unpublish it first (PUBLISHED -> ARCHIVED), after which it
+    can be deleted like any ARCHIVED version. A separate exception from
+    PublishedVersionImmutableError so the message can say exactly that."""
 
 
 class InvalidStatusTransitionError(Exception):

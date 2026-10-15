@@ -1,8 +1,9 @@
 // Mirrors backend/app/schemas/schedule_version.py in full.
 
 // Task 67: ARCHIVED (Task 64) -- a previously PUBLISHED version, kept as a
-// locked historical record. A semester has at most one PUBLISHED version;
-// publishing another one archives it automatically.
+// locked historical record (deletable since Task 80). A semester has at
+// most one PUBLISHED version; publishing another one archives it
+// automatically.
 export type ScheduleVersionStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
 
 export interface ScheduleVersion {

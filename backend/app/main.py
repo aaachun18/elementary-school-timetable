@@ -31,6 +31,7 @@ from app.services.exceptions import (
     InvalidReferenceError,
     InvalidStatusTransitionError,
     LessonOverProvisionedError,
+    PublishedVersionDeleteError,
     PublishedVersionImmutableError,
     RequirementEditBlockedByPublishedScheduleError,
     RequirementSemesterMismatchError,
@@ -186,6 +187,16 @@ def handle_published_version_immutable(
     return JSONResponse(
         status_code=409,
         content={"detail": "已發布版本不可修改，請建立新草稿版本"},
+    )
+
+
+@app.exception_handler(PublishedVersionDeleteError)
+def handle_published_version_delete(
+    request: Request, exc: PublishedVersionDeleteError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "已發布的版本無法刪除，請先取消發布"},
     )
 
 

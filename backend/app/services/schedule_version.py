@@ -18,6 +18,7 @@ from app.services.exceptions import (
     DependentRecordsExistError,
     InvalidStatusTransitionError,
     LessonOverProvisionedError,
+    PublishedVersionDeleteError,
     PublishedVersionImmutableError,
     raise_for_integrity_error,
 )
@@ -34,8 +35,10 @@ ALLOWED_STATUS_TRANSITIONS = frozenset(
 
 def raise_if_version_locked(schedule_version: ScheduleVersion) -> None:
     """Task 25/64: a PUBLISHED or ARCHIVED version is fully locked -- its
-    fields, its Schedule rows, generate-lessons, run-scheduler, reassigning
-    a teacher, and deleting it. Shared by every service that modifies a
+    fields, its Schedule rows, generate-lessons, run-scheduler and
+    reassigning a teacher. (Deleting the version itself has its own rule
+    since Task 80 -- see delete_schedule_version().) Shared by every
+    service that modifies a
     version or anything under it, so the two statuses can never drift
     apart. The two exceptions differ only in the message the user sees."""
     if schedule_version.status == PUBLISHED:
@@ -223,12 +226,24 @@ def delete_schedule_version(db: Session, schedule_version_id: int) -> bool:
     if schedule_version is None:
         return False
 
-    # Task 25's existing lock: a PUBLISHED version is fully immutable,
-    # including deletion -- same stance update_schedule_version() already
-    # takes, raised before touching anything (no point staging Schedule
-    # deletes for a version that can never actually be deleted). Task 64:
-    # an ARCHIVED one too -- it is kept as history.
-    raise_if_version_locked(schedule_version)
+    # Task 80: DRAFT and ARCHIVED versions can be deleted; only the
+    # semester's PUBLISHED (live) version cannot -- unpublishing it first
+    # (PUBLISHED -> ARCHIVED) makes it deletable. Before Task 80 an ARCHIVED
+    # version was kept forever as history (Task 64), so versions only ever
+    # piled up. Raised before touching anything.
+    #
+    # Nothing else needs maintaining afterwards: a requirement's lock
+    # (is_used_by_locked_schedule()/locked_requirement_ids()) is computed
+    # from the Schedule rows of PUBLISHED/ARCHIVED versions at request
+    # time, so once this version's rows are gone it simply stops counting.
+    # schedules.schedule_version_id is the only foreign key pointing at
+    # schedule_versions (there is no "copied from" column -- a copy keeps
+    # no link to its source), so the rows below are all that must go.
+    if schedule_version.status == PUBLISHED:
+        raise PublishedVersionDeleteError(
+            f"ScheduleVersion {schedule_version_id} is PUBLISHED and cannot "
+            "be deleted; unpublish it first."
+        )
 
     # Task 50: Schedule is a semantic sub-resource of ScheduleVersion (a
     # row only means anything within the version it was placed under --
@@ -257,6 +272,11 @@ def delete_schedule_version(db: Session, schedule_version_id: int) -> bool:
             f"ScheduleVersion {schedule_version_id} cannot be deleted: "
             "other records still reference it."
         ) from exc
+    except Exception:
+        # Not swallowed: one transaction -- any other failure undoes the
+        # staged Schedule deletes too before re-raising.
+        db.rollback()
+        raise
 
     return True
 

@@ -66,11 +66,21 @@ export default function TimetableView(): ReactElement {
   // ?scheduleVersionId=<id> in the URL -- a query string rather than
   // react-router's <Link state> because it survives a page reload and can
   // be bookmarked/shared, not just an in-memory navigation.
-  const [selectedVersionId, setSelectedVersionId] = useState<number | null>(() => {
+  const [requestedVersionId, setRequestedVersionId] = useState<number | null>(() => {
     const raw = searchParams.get("scheduleVersionId");
     const parsed = raw !== null ? Number(raw) : NaN;
     return Number.isInteger(parsed) ? parsed : null;
   });
+  // Task 80: versions can be deleted (ARCHIVED too), so a bookmarked or
+  // back-button URL may name a version that no longer exists. Once the
+  // list has loaded, such an id counts as "nothing selected" -- the page
+  // shows a notice and the picker instead of a failed timetable load.
+  // Derived during render, not reset in an effect.
+  const isRequestedVersionMissing =
+    requestedVersionId !== null &&
+    versionsResource.data !== null &&
+    !versionsResource.data.some((version) => version.id === requestedVersionId);
+  const selectedVersionId = isRequestedVersionMissing ? null : requestedVersionId;
   const [viewMode, setViewMode] = useState<TimetableViewMode>("class");
   const [selectedTargetId, setSelectedTargetId] = useState<number | null>(null);
 
@@ -128,7 +138,7 @@ export default function TimetableView(): ReactElement {
   }, [canClearSelection, clearSelection]);
 
   function handleSelectVersion(versionId: number | null): void {
-    setSelectedVersionId(versionId);
+    setRequestedVersionId(versionId);
     setSelectedTargetId(null);
     setHighlightedTimeSlotId(null);
     // Task 69: a new version always starts out of edit mode.
@@ -341,6 +351,9 @@ export default function TimetableView(): ReactElement {
           backend). */}
       {selectedVersion?.status === "ARCHIVED" && (
         <p className={`${NOTICE} mb-4`}>這是已封存的版本，僅供查看。</p>
+      )}
+      {isRequestedVersionMissing && (
+        <p className={`${NOTICE} mb-4`}>指定的排課版本已不存在（可能已被刪除），請重新選擇。</p>
       )}
 
       <section className={SECTION}>

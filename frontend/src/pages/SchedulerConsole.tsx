@@ -39,6 +39,12 @@ import {
 import type { PeriodDisplayMap } from "../utils/periodDisplay";
 import { formatTimeSlotLabel } from "../utils/timeSlotFormat";
 import {
+  PUBLISHED_DELETE_HINT,
+  canDeleteVersion,
+  deleteWarningOf,
+  pickVersionAfterDelete,
+} from "../utils/versionDelete";
+import {
   BADGE_SUCCESS,
   BUTTON_DANGER,
   BUTTON_LINK,
@@ -495,12 +501,14 @@ export default function SchedulerConsole(): ReactElement {
     );
   }
 
-  // Task 68: DELETE /schedule-versions/{id} -- DRAFT only (the backend 409s
-  // a locked version; the button is only offered for a DRAFT anyway). Its
-  // Schedule rows go with it; Lessons and requirements are untouched. On
-  // success the page returns to the version picker, since the version no
-  // longer exists, and the list is re-fetched.
-  async function deleteDraft(version: ScheduleVersion): Promise<void> {
+  // Task 68 / Task 80: DELETE /schedule-versions/{id} -- DRAFT or ARCHIVED
+  // (the backend 409s the PUBLISHED one; the button isn't offered for it).
+  // Its Schedule rows go with it; Lessons and requirements are untouched,
+  // and their lock is recomputed by the backend on the next request. The
+  // deleted version was the one being operated on, so the page switches to
+  // another version of the same semester (utils/versionDelete.ts) -- or,
+  // if none is left, back to the version picker.
+  async function deleteVersion(version: ScheduleVersion): Promise<void> {
     setIsActionBusy(true);
     setActionError(null);
     try {
@@ -512,21 +520,36 @@ export default function SchedulerConsole(): ReactElement {
     }
     setIsActionBusy(false);
     const label = formatVersionLabel(version, semesterById, academicYearById);
-    handleResetVersionSelection();
-    versionActionFlash.showFlash(`已刪除「${label}」`);
+
+    let latest: ScheduleVersion[];
+    let refreshError: string | null = null;
     try {
-      setVersions(await listScheduleVersions());
+      latest = await listScheduleVersions();
     } catch (error) {
-      setVersions((previous) => previous.filter((candidate) => candidate.id !== version.id));
-      setVersionsRefreshError(versionsRefreshFailedMessage(error));
+      latest = versions.filter((candidate) => candidate.id !== version.id);
+      refreshError = versionsRefreshFailedMessage(error);
     }
+    setVersions(latest);
+    const replacement = pickVersionAfterDelete(latest, version);
+    if (replacement === null) {
+      handleResetVersionSelection();
+      versionActionFlash.showFlash(`已刪除「${label}」`);
+    } else {
+      setSelectedVersion(replacement);
+      resetDownstreamResults();
+      versionActionFlash.showFlash(
+        `已刪除「${label}」，已切換到「${formatVersionLabel(replacement, semesterById, academicYearById)}」`,
+      );
+    }
+    // After the resets above, which clear any earlier refresh error.
+    setVersionsRefreshError(refreshError);
   }
 
   function handleConfirmDelete(): void {
     if (selectedVersion === null) {
       return;
     }
-    void deleteDraft(selectedVersion);
+    void deleteVersion(selectedVersion);
   }
 
   const isLoadingLookups =
@@ -759,23 +782,26 @@ export default function SchedulerConsole(): ReactElement {
                 >
                   複製成新草稿
                 </button>
-                {selectedVersion.status === "DRAFT" && (
+                {canDeleteVersion(selectedVersion.status) && (
                   <button
                     type="button"
                     onClick={() => openVersionAction("delete")}
                     className={BUTTON_DANGER}
                   >
-                    刪除草稿
+                    刪除
                   </button>
                 )}
               </div>
+              {selectedVersion.status === "PUBLISHED" && (
+                <p className={`${MUTED_TEXT} mt-2`}>{PUBLISHED_DELETE_HINT}</p>
+              )}
               <p className={`${HELP_TEXT} mt-2`}>
                 {selectedVersion.status === "DRAFT" &&
                   "發布後老師就能在課表檢視看到這份課表；同學期原本生效的版本會自動改為已封存。已發布與已封存的課表內容都會鎖定，要修改請複製成新草稿。"}
                 {selectedVersion.status === "PUBLISHED" &&
                   "這是本學期目前生效的課表，老師可以在課表檢視看到它。內容已鎖定；要修改請複製成新草稿，調整後再發布（發布時會自動取代這個版本）。也可以取消發布，之後隨時能再發布回來。"}
                 {selectedVersion.status === "ARCHIVED" &&
-                  "這是已封存的版本，內容已鎖定，老師看不到。可以重新發布，讓它切換為本學期的生效版本（目前生效的版本會自動封存），或複製成新草稿再修改。"}
+                  "這是已封存的版本，內容已鎖定，老師看不到。可以重新發布，讓它切換為本學期的生效版本（目前生效的版本會自動封存），或複製成新草稿再修改；不再需要時也可以刪除。"}
               </p>
             </div>
           </div>
@@ -1015,8 +1041,8 @@ export default function SchedulerConsole(): ReactElement {
 
           <ConfirmDialog
             open={openAction === "delete"}
-            title="刪除這個草稿？"
-            confirmLabel="刪除草稿"
+            title="刪除這個版本？"
+            confirmLabel="刪除"
             cancelLabel="返回"
             danger
             busy={isActionBusy}
@@ -1026,9 +1052,14 @@ export default function SchedulerConsole(): ReactElement {
           >
             <p>
               將刪除「{formatVersionLabel(selectedVersion, semesterById, academicYearById)}
-              」及其排課結果，無法復原。
+              」及其排課結果。{deleteWarningOf(selectedVersion.status)}
             </p>
             <p>課程與排課需求不會被刪除。</p>
+            {selectedVersion.status === "ARCHIVED" && (
+              <p>
+                如果沒有其他已發布或已封存的版本使用這些排課需求，它們會解除鎖定，可以再修改。
+              </p>
+            )}
             {actionError !== null && (
               <p role="alert" className={ERROR_TEXT}>
                 {actionError}

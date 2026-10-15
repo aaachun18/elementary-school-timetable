@@ -274,11 +274,10 @@ def test_unpublished_version_stays_locked(client: TestClient, db_session: Sessio
     before = _version_snapshot(db_session)
 
     edit = _patch(client, v1.id, {"version_number": 9})
-    delete = client.delete(f"/api/v1/schedule-versions/{v1.id}")
     back_to_draft = _patch(client, v1.id, {"status": "DRAFT"})
 
+    # Task 80: deleting it is allowed now (tests/test_schedule_version_delete.py).
     _assert_archived_lock(edit)
-    _assert_archived_lock(delete)
     assert back_to_draft.status_code == 409
     assert back_to_draft.json()["detail"] == INVALID_TRANSITION_MESSAGE
     assert _version_snapshot(db_session) == before
@@ -395,19 +394,18 @@ def test_archived_schedule_rows_are_locked(client: TestClient, db_session: Sessi
     assert _full_snapshot(db_session) == before
 
 
-def test_archived_version_cannot_be_deleted_or_edited(
-    client: TestClient, db_session: Session
-) -> None:
+def test_archived_version_cannot_be_edited(client: TestClient, db_session: Session) -> None:
+    # Task 80: deleting an ARCHIVED version is allowed now -- see
+    # tests/test_schedule_version_delete.py. Editing it stays locked.
     world, _ = _archived_world(client, db_session)
     before = _full_snapshot(db_session)
 
-    delete = client.delete(f"/api/v1/schedule-versions/{world.version.id}")
     edit = _patch(client, world.version.id, {"version_number": 9})
     edit_and_publish = _patch(
         client, world.version.id, {"version_number": 9, "status": "PUBLISHED"}
     )
 
-    for response in (delete, edit, edit_and_publish):
+    for response in (edit, edit_and_publish):
         _assert_archived_lock(response)
     assert _full_snapshot(db_session) == before
 
