@@ -25,6 +25,12 @@ class InvalidLessonPatternError(Exception):
     text from app/services/lesson_pattern.py."""
 
 
+class InvalidTeacherPeriodsError(Exception):
+    """Task 88: a teacher update would leave min_weekly_periods above
+    max_weekly_periods (-> 422). The message is the Chinese text from
+    app/services/teacher_periods.py."""
+
+
 class DuplicateValueError(Exception):
     """Raised by a create/update service function when a value violates a
     UNIQUE constraint (e.g. duplicate Subject.name) or a CHECK constraint

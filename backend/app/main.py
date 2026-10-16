@@ -29,6 +29,7 @@ from app.services.exceptions import (
     DuplicateValueError,
     InactiveTeacherAssignmentError,
     InvalidLessonPatternError,
+    InvalidTeacherPeriodsError,
     InvalidReferenceError,
     InvalidStatusTransitionError,
     LessonOverProvisionedError,
@@ -98,6 +99,13 @@ def handle_dependent_records_exist(
 @app.exception_handler(InvalidLessonPatternError)
 def handle_invalid_lesson_pattern(
     request: Request, exc: InvalidLessonPatternError
+) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+
+@app.exception_handler(InvalidTeacherPeriodsError)
+def handle_invalid_teacher_periods(
+    request: Request, exc: InvalidTeacherPeriodsError
 ) -> JSONResponse:
     return JSONResponse(status_code=422, content={"detail": str(exc)})
 

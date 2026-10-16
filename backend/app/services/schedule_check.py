@@ -4,12 +4,15 @@ runs every existing Hard Constraint's explain_violations() over them.
 
 Unlike run_scheduler(), this never searches and never writes: it only
 reports what is wrong with the timetable as it currently stands (DRAFT or
-PUBLISHED). Nothing here commits, adds, or modifies any row -- it is the
+PUBLISHED). Task 88: it also checks lesson blocks (連堂, the engine's own
+LessonBlockConstraint) and reports a teacher below their minimum weekly
+periods as a WARNING (TEACHER_MIN_WORKLOAD) -- the only non-ERROR type.
+Nothing here commits, adds, or modifies any row -- it is the
 validation step later features (copy to next semester, reassigning a
 teacher, manual edits) can call after the fact.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -19,10 +22,12 @@ from sqlalchemy.orm import Session
 # the repo-root scheduling_engine package importable when the app runs
 # with backend/ as the working directory (see that module's comment).
 from app.services.scheduler import (
+    build_lesson_blocks,
     build_scheduling_resources,
     load_semester_requirements,
 )
 
+from scheduling_engine.algorithms.blocks import block_constraints  # noqa: E402
 from scheduling_engine.algorithms.resources import (  # noqa: E402
     SchedulingResources,
     build_real_time_constraints,
@@ -32,14 +37,21 @@ from scheduling_engine.constraints.base import (  # noqa: E402
     ConstraintViolation,
     Severity,
 )
+from scheduling_engine.constraints.teacher_min_workload import (  # noqa: E402
+    TeacherMinWorkloadConstraint,
+)
 from scheduling_engine.constraints.weekly_periods import (  # noqa: E402
     WeeklyPeriodsConstraint,
 )
-from scheduling_engine.models.domain import LessonAssignment  # noqa: E402
+from scheduling_engine.models.domain import (  # noqa: E402
+    LessonAssignment,
+    TeacherMinimumWorkload,
+)
 
 from app.models.class_subject_requirement import ClassSubjectRequirement
 from app.models.lesson import Lesson
 from app.models.schedule import Schedule
+from app.models.teacher import Teacher
 from app.services import schedule_version as schedule_version_service
 
 # Sort key for a value that may be None: None sorts before any id, so the
@@ -73,12 +85,15 @@ def _all_hard_constraints(resources: SchedulingResources) -> list[BaseConstraint
     H9, H11, H12 (build_real_time_constraints with H8 included -- the same
     set Backtracking filters on) plus H7, which the algorithms only ever
     run post-hoc. H10 (room capacity) does not exist in the engine yet.
-    The static feasibility check is deliberately NOT included -- it
-    predicts whether a schedule CAN be found, which is meaningless for one
-    that already exists."""
+    Task 88: plus the lesson block rule -- block_constraints(), the very
+    list the algorithms search with (empty when no requirement has a
+    lesson_pattern). The static feasibility check is deliberately NOT
+    included -- it predicts whether a schedule CAN be found, which is
+    meaningless for one that already exists."""
     return [
         *build_real_time_constraints(resources, include_teacher_workload=True),
         WeeklyPeriodsConstraint(resources.requirement_periods),
+        *block_constraints(resources),
     ]
 
 
@@ -250,16 +265,67 @@ class CheckContext:
 
     resources: SchedulingResources
     fixed_time_slots: dict[int, int]
+    # Task 88: lesson_id -> Schedule.id of this version (one row per lesson,
+    # uq_schedule_version_lesson). Moves and swaps keep every lesson in its
+    # own row, so this holds for every arrangement checked in memory.
+    schedule_ids: dict[int, int]
+    # Task 88: the minimum weekly periods of every active teacher.
+    teacher_minimums: list[TeacherMinimumWorkload]
+
+
+def _load_schedule_ids(db: Session, schedule_version_id: int) -> dict[int, int]:
+    rows = db.execute(
+        select(Schedule.lesson_id, Schedule.id).where(
+            Schedule.schedule_version_id == schedule_version_id
+        )
+    ).all()
+    return {lesson_id: schedule_id for lesson_id, schedule_id in rows}
+
+
+def _load_teacher_minimums(db: Session) -> list[TeacherMinimumWorkload]:
+    """Active teachers only: an inactive one can't be scheduled at all
+    (H12), so "teaching too little" says nothing about them. Ordered by id
+    so the warnings come out in a stable order."""
+    teachers = db.scalars(
+        select(Teacher).where(Teacher.is_active.is_(True)).order_by(Teacher.id)
+    ).all()
+    return [
+        TeacherMinimumWorkload(
+            teacher_id=teacher.id, min_weekly_periods=teacher.min_weekly_periods
+        )
+        for teacher in teachers
+    ]
 
 
 def load_check_context(
     db: Session, semester_id: int, schedule_version_id: int
 ) -> CheckContext:
     requirements = load_semester_requirements(db, semester_id)
+    resources = build_scheduling_resources(db, requirements)
+    requirement_ids = [requirement.id for requirement in requirements]
+    if requirement_ids:
+        # Task 88: the same blocks run-scheduler would search with
+        # (build_lesson_blocks), so the check judges exactly its rule.
+        lessons = list(
+            db.scalars(
+                select(Lesson).where(Lesson.class_subject_requirement_id.in_(requirement_ids))
+            ).all()
+        )
+        resources = replace(resources, lesson_blocks=build_lesson_blocks(lessons))
     return CheckContext(
-        resources=build_scheduling_resources(db, requirements),
+        resources=resources,
         fixed_time_slots=_load_fixed_time_slots(db, schedule_version_id),
+        schedule_ids=_load_schedule_ids(db, schedule_version_id),
+        teacher_minimums=_load_teacher_minimums(db),
     )
+
+
+def _with_schedule_id(
+    violation: ConstraintViolation, schedule_ids: dict[int, int]
+) -> ConstraintViolation:
+    if violation.lesson_id is None or violation.lesson_id not in schedule_ids:
+        return violation
+    return replace(violation, schedule_id=schedule_ids[violation.lesson_id])
 
 
 def check_assignments(
@@ -273,7 +339,20 @@ def check_assignments(
     violations.extend(_fixed_time_slot_violations(assignments, context.fixed_time_slots))
     for constraint in _all_hard_constraints(context.resources):
         violations.extend(constraint.explain_violations(assignments))
-    return sorted(violations, key=_violation_sort_key)
+    # Task 88: a WARNING only -- see TeacherMinWorkloadConstraint.
+    violations.extend(
+        TeacherMinWorkloadConstraint(context.teacher_minimums).explain_violations(assignments)
+    )
+    return sorted(
+        (_with_schedule_id(violation, context.schedule_ids) for violation in violations),
+        key=_violation_sort_key,
+    )
+
+
+def has_errors(violations: list[ConstraintViolation]) -> bool:
+    """Task 88: whether the timetable is invalid -- any ERROR. A WARNING
+    (TEACHER_MIN_WORKLOAD) alone leaves it valid."""
+    return any(violation.severity == Severity.ERROR for violation in violations)
 
 
 def check_schedule_version(
@@ -286,8 +365,10 @@ def check_schedule_version(
     type, lesson_id, time_slot_id. Besides the engine's Hard Constraints,
     a Schedule row missing its teacher or time slot is reported as
     INCOMPLETE_SCHEDULE_ROW (Task 62), and a pinned Lesson sitting outside
-    its fixed time slot as FIXED_TIME_SLOT_MISMATCH (Task 66). An empty list means the timetable is
-    valid. A version with no Schedule rows at all is checked as-is (H7
+    its fixed time slot as FIXED_TIME_SLOT_MISMATCH (Task 66). Task 88: lesson
+    block violations (BLOCK_NOT_CONSECUTIVE / BLOCK_SAME_DAY) and the
+    TEACHER_MIN_WORKLOAD warning are included too. An empty list -- or one
+    with only WARNINGs -- means the timetable is valid. A version with no Schedule rows at all is checked as-is (H7
     then reports every requirement as under-scheduled)."""
     schedule_version = schedule_version_service.get_schedule_version(
         db, schedule_version_id, role=role

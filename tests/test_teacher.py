@@ -130,7 +130,10 @@ def test_create_teacher_weekly_periods_check_violation(client: TestClient) -> No
         },
     )
 
-    assert response.status_code == 409
+    # Task 88: was 409 (the database CHECK, reached through
+    # DuplicateValueError); the request is now refused by validation first,
+    # with 422 and a Chinese message (see test_teacher_periods.py).
+    assert response.status_code == 422
 
 
 # --- Task 48: deleting a Teacher must also clear its own TeacherSubject/

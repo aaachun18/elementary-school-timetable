@@ -297,10 +297,12 @@ def check_schedule_version(
 def _build_check_result(
     schedule_version_id: int, violations: list
 ) -> ScheduleCheckResult:
-    """Shared by /check and /reassign-teacher (Task 63)."""
+    """Shared by /check and /reassign-teacher (Task 63). Task 88: a WARNING
+    (TEACHER_MIN_WORKLOAD) is listed and counted, but doesn't make the
+    timetable invalid -- is_valid means "no ERROR"."""
     return ScheduleCheckResult(
         schedule_version_id=schedule_version_id,
-        is_valid=not violations,
+        is_valid=not schedule_check_service.has_errors(violations),
         violation_count=len(violations),
         violations=[
             ConstraintViolationDetail.model_validate(violation)

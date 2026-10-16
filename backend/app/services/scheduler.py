@@ -90,6 +90,27 @@ def load_semester_requirements(
     )
 
 
+def build_lesson_blocks(lessons: list[Lesson]) -> list[LessonBlock]:
+    """Task 87: the engine's LessonBlocks from the Lessons' block_no /
+    block_seq, members in block_seq order. Lessons without block fields
+    belong to no block. Task 88: shared with the schedule check
+    (services/schedule_check.py), so both see the same blocks."""
+    members: dict[tuple[int, int], list[tuple[int, int]]] = {}
+    for lesson in lessons:
+        if lesson.block_no is not None and lesson.block_seq is not None:
+            members.setdefault((lesson.class_subject_requirement_id, lesson.block_no), []).append(
+                (lesson.block_seq, lesson.id)
+            )
+    return [
+        LessonBlock(
+            class_subject_requirement_id=requirement_id,
+            block_no=block_no,
+            lesson_ids=tuple(lesson_id for _, lesson_id in sorted(seq_and_ids)),
+        )
+        for (requirement_id, block_no), seq_and_ids in sorted(members.items())
+    ]
+
+
 def _build_lessons_and_resources(
     db: Session, schedule_version: ScheduleVersion
 ) -> tuple[list[LessonAssignment], SchedulingResources]:
@@ -142,20 +163,7 @@ def _build_lessons_and_resources(
     # fields -- every lesson of a requirement with no pattern -- stay
     # independent, and with no blocks at all the engine runs exactly as
     # before.
-    members: dict[tuple[int, int], list[tuple[int, int]]] = {}
-    for lesson in lessons_orm:
-        if lesson.block_no is not None and lesson.block_seq is not None:
-            members.setdefault((lesson.class_subject_requirement_id, lesson.block_no), []).append(
-                (lesson.block_seq, lesson.id)
-            )
-    lesson_blocks = [
-        LessonBlock(
-            class_subject_requirement_id=requirement_id,
-            block_no=block_no,
-            lesson_ids=tuple(lesson_id for _, lesson_id in sorted(seq_and_ids)),
-        )
-        for (requirement_id, block_no), seq_and_ids in sorted(members.items())
-    ]
+    lesson_blocks = build_lesson_blocks(lessons_orm)
 
     resources = build_scheduling_resources(db, requirements)
     if lesson_blocks:

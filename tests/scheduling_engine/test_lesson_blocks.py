@@ -315,6 +315,29 @@ def test_block_constraint_flags_split_blocks_and_blocks_on_the_same_day() -> Non
     }
 
 
+def test_block_constraint_judges_a_partly_placed_block_by_its_whole_span() -> None:
+    """Task 88 (stored timetables): a block with a lesson missing is wrong
+    only if it can't be completed where it is; a lesson without a teacher
+    is not a second teacher."""
+    items, blocks = two_plus_one()
+    res = resources(items, blocks, days=2)
+    rule = LessonBlockConstraint(blocks, res.time_slot_positions, res.time_slots)
+    place = lambda item, s, t=1: replace(item, teacher_id=t, time_slot_id=s)  # noqa: E731
+
+    completable = [place(items[0], slot(1, 1)), place(items[2], slot(2, 1))]
+    before_lunch = [place(items[0], slot(1, 4)), place(items[2], slot(2, 1))]
+    no_period_before = [place(items[1], slot(1, 1)), place(items[2], slot(2, 1))]
+    no_teacher = [place(items[0], slot(1, 1)), place(items[1], slot(1, 2), None), place(items[2], slot(2, 1))]
+
+    assert rule.explain_violations(completable) == []
+    assert rule.explain_violations(no_teacher) == []
+    for broken in (before_lunch, no_period_before):
+        violations = rule.explain_violations(broken)
+        assert [(v.type, v.block_no, v.identity_key) for v in violations] == [
+            ("BLOCK_NOT_CONSECUTIVE", 1, "BLOCK_NOT_CONSECUTIVE:1:1")
+        ]
+
+
 # --- Pre-checks ---
 
 

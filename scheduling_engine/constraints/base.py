@@ -30,6 +30,18 @@ class ConstraintViolation:
     suggested_action: str | None = None
     room_id: int | None = None
     class_subject_requirement_id: int | None = None
+    # Task 88: lesson blocks (連堂) -- which block of the requirement.
+    block_no: int | None = None
+    # Task 88: a stable "which problem is this" key, the same before and
+    # after a move as long as the problem itself is the same one (it never
+    # contains a time slot). Set by the newer violation types only; None
+    # means the caller decides identity from the ids (the frontend's
+    # violationIdentityKey()).
+    identity_key: str | None = None
+    # Task 88: the stored Schedule row the violation's lesson sits in. The
+    # engine knows nothing about Schedule rows and never sets this; the
+    # schedule check (backend services/schedule_check.py) fills it in.
+    schedule_id: int | None = None
 
 
 class BaseConstraint(ABC):

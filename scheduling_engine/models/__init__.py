@@ -7,6 +7,7 @@ from scheduling_engine.models.domain import (
     RoomInfo,
     RoomTypeRequirement,
     TeacherQualification,
+    TeacherMinimumWorkload,
     TeacherUnavailability,
     TeacherWorkloadLimit,
     TimeSlotInfo,
@@ -26,4 +27,5 @@ __all__ = [
     "ActiveStatusInfo",
     "RequirementPeriods",
     "TeacherWorkloadLimit",
+    "TeacherMinimumWorkload",
 ]

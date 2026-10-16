@@ -8,8 +8,10 @@ from app.models.time_slot import TimeSlot
 from app.schemas.teacher import TeacherCreate, TeacherUpdate
 from app.services.exceptions import (
     DependentRecordsExistError,
+    InvalidTeacherPeriodsError,
     raise_for_integrity_error,
 )
+from app.services.teacher_periods import check_periods_range
 
 # --- Standard CRUD (same pattern as School / batch 1) ---
 
@@ -47,7 +49,18 @@ def update_teacher(
     if teacher is None:
         return None
 
-    for field, value in teacher_data.model_dump(exclude_unset=True).items():
+    changes = teacher_data.model_dump(exclude_unset=True)
+    # Task 88: min <= max on the values this update leaves behind -- a
+    # 422 with a Chinese message before the database CHECK would 409.
+    try:
+        check_periods_range(
+            changes.get("min_weekly_periods", teacher.min_weekly_periods),
+            changes.get("max_weekly_periods", teacher.max_weekly_periods),
+        )
+    except ValueError as exc:
+        raise InvalidTeacherPeriodsError(str(exc)) from exc
+
+    for field, value in changes.items():
         setattr(teacher, field, value)
 
     try:

@@ -176,3 +176,13 @@ class TeacherWorkloadLimit:
 
     teacher_id: int
     max_weekly_periods: int
+
+
+@dataclass(frozen=True)
+class TeacherMinimumWorkload:
+    """Task 88: the minimum weekly periods one teacher should teach. Mirrors
+    Teacher.min_weekly_periods; None means no minimum. Only the schedule
+    check reads it (as a WARNING) -- it never limits the search."""
+
+    teacher_id: int
+    min_weekly_periods: int | None

@@ -15,6 +15,9 @@ from scheduling_engine.constraints.teacher_availability import (
     TeacherAvailabilityConstraint,
 )
 from scheduling_engine.constraints.teacher_conflict import TeacherConflictConstraint
+from scheduling_engine.constraints.teacher_min_workload import (
+    TeacherMinWorkloadConstraint,
+)
 from scheduling_engine.constraints.teacher_qualification import (
     TeacherQualificationConstraint,
 )
@@ -36,4 +39,5 @@ __all__ = [
     "ActiveStatusConstraint",
     "WeeklyPeriodsConstraint",
     "TeacherWorkloadConstraint",
+    "TeacherMinWorkloadConstraint",
 ]

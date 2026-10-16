@@ -26,6 +26,12 @@ class ConstraintViolationDetail(BaseModel):
     suggested_action: str | None = None
     room_id: int | None = None
     class_subject_requirement_id: int | None = None
+    # Task 88: see ConstraintViolation -- block_no for lesson-block
+    # violations, identity_key (stable across a move; set by the newer
+    # types only) and schedule_id (filled in by the schedule check).
+    block_no: int | None = None
+    identity_key: str | None = None
+    schedule_id: int | None = None
 
 
 class LessonFailureDetail(BaseModel):
@@ -82,9 +88,10 @@ class SchedulerFailureDetail(BaseModel):
 class ScheduleCheckResult(BaseModel):
     """Task 61: 200 response of GET /schedule-versions/{id}/check -- every
     Hard Constraint violation in the version's current Schedule rows.
-    is_valid/violation_count are derived from `violations` (is_valid is
-    simply violation_count == 0), included so a caller doesn't have to
-    compute them."""
+    is_valid/violation_count are derived from `violations`, included so a
+    caller doesn't have to compute them. violation_count counts every
+    entry; is_valid is "no ERROR" -- Task 88's WARNING
+    (TEACHER_MIN_WORKLOAD) is listed but leaves the timetable valid."""
 
     schedule_version_id: int
     is_valid: bool
