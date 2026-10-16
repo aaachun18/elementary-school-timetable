@@ -19,6 +19,8 @@ interface TeacherReassignPreviewDialogProps {
   saveError: string | null;
   onConfirm: () => void;
   onCancel: () => void;
+  // Task 86: see ConfirmDialog's prop of the same name.
+  restoreFocusFallback?: () => void;
 }
 
 // Task 70: the 換教師 preview -- who the course goes from/to, how many
@@ -31,6 +33,7 @@ export default function TeacherReassignPreviewDialog({
   saveError,
   onConfirm,
   onCancel,
+  restoreFocusFallback,
 }: TeacherReassignPreviewDialogProps): ReactElement {
   const diff =
     preview === null
@@ -51,6 +54,7 @@ export default function TeacherReassignPreviewDialog({
       busyLabel="儲存中…"
       onConfirm={onConfirm}
       onCancel={onCancel}
+      restoreFocusFallback={restoreFocusFallback}
     >
       {preview !== null && diff !== null && (
         <>

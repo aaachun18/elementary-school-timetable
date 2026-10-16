@@ -19,6 +19,8 @@ interface AdjustmentPreviewDialogProps {
   saveError: string | null;
   onConfirm: () => void;
   onCancel: () => void;
+  // Task 85: see ConfirmDialog's prop of the same name.
+  restoreFocusFallback?: () => void;
 }
 
 function lessonName(lesson: EnrichedSchedule): string {
@@ -50,6 +52,7 @@ export default function AdjustmentPreviewDialog({
   saveError,
   onConfirm,
   onCancel,
+  restoreFocusFallback,
 }: AdjustmentPreviewDialogProps): ReactElement {
   const isMove = preview?.adjustment.kind === "move";
   const verb = isMove ? "移動" : "對調";
@@ -74,6 +77,7 @@ export default function AdjustmentPreviewDialog({
       showConfirm={hasChanges}
       onConfirm={onConfirm}
       onCancel={onCancel}
+      restoreFocusFallback={restoreFocusFallback}
     >
       {preview !== null && diff !== null && (
         <>

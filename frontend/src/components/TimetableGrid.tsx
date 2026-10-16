@@ -1,6 +1,14 @@
 import { useState, type DragEvent, type ReactElement } from "react";
 import { timeSlotKey, type EnrichedSchedule } from "../hooks/useTimetableData";
-import { canMoveLessonTo, canSwapLessons } from "../utils/lessonDrop";
+import { canMoveLessonTo, canSwapLessons, lessonTargetId } from "../utils/lessonDrop";
+import {
+  NO_MARK,
+  candidateDescription,
+  candidateLabel,
+  swapMarkKey,
+  type CandidateMark,
+  type CandidateMarks,
+} from "../utils/moveCandidates";
 import { formatPeriodHeader, type PeriodDisplay, type PeriodDisplayMap } from "../utils/periodDisplay";
 import { formatTimeSlotLabel, formatWeekday } from "../utils/timeSlotFormat";
 import type { TimetableViewMode } from "../utils/violationLocate";
@@ -8,19 +16,25 @@ import type { Lesson } from "../types/lesson";
 import type { TimeSlot } from "../types/timeSlot";
 import {
   BADGE_NEUTRAL,
+  CANDIDATE_ICON_CONFLICT,
+  CANDIDATE_ICON_SAFE,
+  CELL_MOVE_TARGET,
   DROP_TARGET_BLOCKED,
   DROP_TARGET_OK,
+  DROP_STRIP,
   DROP_ZONE,
   LESSON_BUTTON,
   LESSON_BUTTON_DRAGGING,
   LESSON_BUTTON_DROP_OK,
   LESSON_BUTTON_SELECTED,
-  MOVE_TARGET_BUTTON,
+  MOVE_TARGET_STRIP,
   TABLE,
   TABLE_HEAD_ROW,
   TABLE_WRAPPER,
   TD,
   TD_ADJUSTED,
+  TD_CANDIDATE_CONFLICT,
+  TD_CANDIDATE_SAFE,
   TD_HIGHLIGHT,
   TD_NON_TEACHING,
   TD_NON_TEACHING_BASE,
@@ -48,7 +62,13 @@ export interface TimetableGridEditProps {
   onMoveHere: (timeSlot: TimeSlot) => void;
   // Task 71: drag & drop is just another way to pick the same move/swap --
   // these hand it to the same preview flow as the click handlers above.
-  onDragStartLesson: () => void;
+  // Task 84: the page is told which lesson is dragged (called a tick after
+  // dragstart, never inside it) and when the drag ends, to show its
+  // candidate marks meanwhile.
+  onDragStartLesson: (lesson: EnrichedSchedule) => void;
+  onDragEndLesson: () => void;
+  // Task 84: marks for the selected / dragged lesson, or null for none.
+  candidateMarks: CandidateMarks | null;
   onDropOnCell: (lesson: EnrichedSchedule, timeSlot: TimeSlot) => void;
   onDropOnLesson: (lesson: EnrichedSchedule, other: EnrichedSchedule) => void;
 }
@@ -83,14 +103,27 @@ function sameHover(a: DragHover | null, b: DragHover | null): boolean {
   return a.kind === "lesson" && b.kind === "lesson" && a.scheduleId === b.scheduleId;
 }
 
-function targetIdOf(row: EnrichedSchedule, viewMode: TimetableViewMode): number | null {
-  if (viewMode === "class") {
-    return row.classId;
+// Task 84 / Task 85: the small icon in a cell's top-right corner for its
+// move mark (null for none/unavailable). ✓ / ✕ differ in shape, not just
+// colour; the label and the full description (with up to 3 reasons) are
+// the title and the accessible name.
+function CandidateIcon({ mark }: { mark: CandidateMark }): ReactElement | null {
+  const label = candidateLabel(mark, "move");
+  const description = candidateDescription(mark, "move");
+  if (label === null || description === null) {
+    return null;
   }
-  if (viewMode === "teacher") {
-    return row.teacherId;
-  }
-  return row.roomId;
+  const isSafe = mark.status === "safe";
+  return (
+    <span
+      className={isSafe ? CANDIDATE_ICON_SAFE : CANDIDATE_ICON_CONFLICT}
+      title={`${label}：${description}`}
+      aria-label={`${label}：${description}`}
+      role="img"
+    >
+      {isSafe ? "✓" : "✕"}
+    </span>
+  );
 }
 
 // What a cell shows besides the subject name -- "the other party" for
@@ -131,6 +164,7 @@ function LessonButton({
   viewMode,
   edit,
   dragState,
+  candidateMark,
   onDragStart,
   onDragEnd,
   onDragOver,
@@ -140,6 +174,9 @@ function LessonButton({
   viewMode: TimetableViewMode;
   edit: TimetableGridEditProps;
   dragState: LessonDragState;
+  // Task 84: what swapping the selected / dragged lesson with this one
+  // would do.
+  candidateMark: CandidateMark;
   onDragStart: (event: DragEvent<HTMLButtonElement>) => void;
   onDragEnd: () => void;
   onDragOver: (event: DragEvent<HTMLButtonElement>) => void;
@@ -153,6 +190,8 @@ function LessonButton({
       : isSelected
         ? LESSON_BUTTON_SELECTED
         : LESSON_BUTTON;
+  const candidateText = candidateDescription(candidateMark, "swap");
+  const ariaLabel = lessonAriaLabel(lesson, edit.selected);
   return (
     <button
       type="button"
@@ -166,8 +205,10 @@ function LessonButton({
       onDragOver={onDragOver}
       onDrop={onDrop}
       aria-pressed={isSelected}
-      aria-label={lessonAriaLabel(lesson, edit.selected)}
+      aria-label={candidateText === null ? ariaLabel : `${ariaLabel}（${candidateText}）`}
+      title={candidateText ?? undefined}
       className={className}
+      data-schedule-id={lesson.scheduleId}
     >
       <span className="font-medium text-gray-900">
         {lesson.subjectName}
@@ -205,6 +246,7 @@ export default function TimetableGrid({
   function endDrag(): void {
     setDragging(null);
     setDragHover(null);
+    edit?.onDragEndLesson();
   }
 
   // dragover fires many times a second -- only re-render on a change.
@@ -229,7 +271,7 @@ export default function TimetableGrid({
     // some browsers cancel the drag.
     window.setTimeout(() => {
       setDragging(lesson);
-      edit.onDragStartLesson();
+      edit.onDragStartLesson(lesson);
     }, 0);
   }
 
@@ -338,6 +380,14 @@ export default function TimetableGrid({
     return edit !== null && edit.selected !== null && canMoveLessonTo(edit.selected, timeSlot);
   }
 
+  // Task 85: the click-flow target's accessible name -- the slot, plus what
+  // moving there would do when a candidate mark is known.
+  function moveTargetLabel(timeSlot: TimeSlot, mark: CandidateMark): string {
+    const target = `移到 ${formatTimeSlotLabel(timeSlot, periodDisplay)}`;
+    const description = candidateDescription(mark, "move");
+    return description === null ? target : `${target}（${description}）`;
+  }
+
   return (
     <div className={TABLE_WRAPPER}>
       <table className={TABLE} onDragLeave={edit !== null ? handleTableDragLeave : undefined}>
@@ -409,16 +459,40 @@ export default function TimetableGrid({
                   (schedule) =>
                     schedule.period === period &&
                     schedule.weekday === weekday &&
-                    targetIdOf(schedule, viewMode) === targetId,
+                    lessonTargetId(schedule, viewMode) === targetId,
                 );
                 const cellClass = markerClass !== null ? `${TD} ${markerClass}` : TD;
+                // Task 84: the move mark for this cell (teaching cells only --
+                // non-teaching ones returned above).
+                const cellMark =
+                  edit !== null && edit.candidateMarks !== null && timeSlot !== undefined
+                    ? (edit.candidateMarks.cells.get(timeSlot.id) ?? NO_MARK)
+                    : NO_MARK;
+                const canDropHere = dragging !== null && canMoveLessonTo(dragging, timeSlot);
+                const isDragOverCell =
+                  dragging !== null && dragHover?.kind === "cell" && dragHover.key === key;
+                // Task 85: a cell showing another marker (drag hover,
+                // 剛調整, 在課表中查看) shows that instead of the fill; its
+                // corner icon stays.
+                const candidateCellClass =
+                  markerClass !== null
+                    ? ""
+                    : cellMark.status === "safe"
+                      ? ` ${TD_CANDIDATE_SAFE}`
+                      : cellMark.status === "conflict"
+                        ? ` ${TD_CANDIDATE_CONFLICT}`
+                        : "";
 
                 if (edit !== null) {
                   // Edit mode lists EVERY lesson in the cell, so a double
                   // booking can be untangled one lesson at a time. Dropping
                   // on a lesson swaps with it; on the rest of the cell, moves.
                   return (
-                    <td key={weekday} {...dropHandlers} className={`${cellClass} align-top`}>
+                    <td
+                      key={weekday}
+                      {...dropHandlers}
+                      className={`${cellClass}${candidateCellClass} relative align-top`}
+                    >
                       <div className="flex min-h-12 min-w-28 flex-col gap-1">
                         {isAdjusted && (
                           <span className="text-xs font-semibold text-sky-700">剛調整</span>
@@ -430,33 +504,56 @@ export default function TimetableGrid({
                             viewMode={viewMode}
                             edit={edit}
                             dragState={lessonDragState(lesson)}
+                            candidateMark={
+                              edit.candidateMarks !== null && timeSlot !== undefined
+                                ? (edit.candidateMarks.swaps.get(
+                                    swapMarkKey(timeSlot.id, lesson.scheduleId),
+                                  ) ?? NO_MARK)
+                                : NO_MARK
+                            }
                             onDragStart={(event) => handleLessonDragStart(lesson, event)}
                             onDragEnd={endDrag}
                             onDragOver={(event) => handleLessonDragOver(lesson, event)}
                             onDrop={(event) => handleLessonDrop(lesson, event)}
                           />
                         ))}
-                        {/* Task 71: always-present "empty part" of a cell the
-                            dragged lesson can move to -- dropping here moves,
-                            dropping on a lesson above swaps. Mouse-only, so
-                            hidden from assistive tech (keyboard users have
-                            「移到這裡」). */}
-                        {dragging !== null && canMoveLessonTo(dragging, timeSlot) && (
-                          <div aria-hidden="true" data-drop-zone="" className={DROP_ZONE}>
-                            放到這裡（移動）
-                          </div>
-                        )}
+                        {/* Task 71 / Task 85: while dragging, the whole cell is
+                            the move target (dropping on a lesson swaps
+                            instead). Under a cell's lessons only a thin dashed
+                            strip marks the drop area; it expands to 「移到這裡」
+                            while the drag is over this cell, and an empty cell
+                            shows it only then. Mouse-only, so hidden from
+                            assistive tech (keyboard users have the click
+                            flow's buttons below). */}
+                        {canDropHere &&
+                          (isDragOverCell ? (
+                            <div aria-hidden="true" data-drop-zone="" className={DROP_ZONE}>
+                              移到這裡
+                            </div>
+                          ) : (
+                            matches.length > 0 && (
+                              <div aria-hidden="true" data-drop-zone="" className={DROP_STRIP} />
+                            )
+                          ))}
+                        {/* Task 85: the click flow's move target -- the whole
+                            empty cell, or a thin strip under the lessons that
+                            expands on hover / focus. Both are real buttons
+                            (Tab, Enter, Space). */}
                         {canMoveHere(timeSlot) && (
                           <button
                             type="button"
                             onClick={() => edit.onMoveHere(timeSlot)}
                             disabled={edit.disabled}
-                            aria-label={`移到 ${formatTimeSlotLabel(timeSlot, periodDisplay)}`}
-                            className={MOVE_TARGET_BUTTON}
+                            aria-label={moveTargetLabel(timeSlot, cellMark)}
+                            title={candidateDescription(cellMark, "move") ?? undefined}
+                            className={matches.length === 0 ? CELL_MOVE_TARGET : MOVE_TARGET_STRIP}
                           >
                             移到這裡
                           </button>
                         )}
+                        {/* Task 84: added last, so nothing above it ever shifts
+                            position (no lesson button is remounted mid-drag). */}
+                        <CandidateIcon mark={cellMark} />
                       </div>
                     </td>
                   );

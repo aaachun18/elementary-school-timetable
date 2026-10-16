@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactElement } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
 import { Link } from "react-router-dom";
 import axios from "axios";
 import {
@@ -164,6 +164,9 @@ export default function SchedulerConsole(): ReactElement {
   // ConfirmDialog at a time; its error stays inside the dialog, which stays
   // open so the user can retry or change the input.
   const [openAction, setOpenAction] = useState<VersionAction | null>(null);
+  // Task 86: after deleting, the version card (and the 「刪除」 button that
+  // opened the dialog) is gone -- focus returns to step one instead.
+  const versionSectionRef = useRef<HTMLElement>(null);
   const [isActionBusy, setIsActionBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [copyTargetMode, setCopyTargetMode] = useState<CopyTargetMode>("same");
@@ -609,7 +612,12 @@ export default function SchedulerConsole(): ReactElement {
 
       {/* 步驟一:選擇/建立 ScheduleVersion -- 二選一,任何時刻都只有其中
           一種輸入方式在畫面上,或是已確認狀態的說明文字,三者互斥。 */}
-      <section className={SECTION}>
+      <section
+        ref={versionSectionRef}
+        tabIndex={-1}
+        aria-label="步驟一：選擇排課版本"
+        className={`${SECTION} focus:outline-none`}
+      >
         <h2 className={SECTION_TITLE}>步驟一：選擇排課版本</h2>
         {/* Version-action feedback sits outside the card so it stays
             visible after a delete sends the page back to the picker. */}
@@ -1049,6 +1057,7 @@ export default function SchedulerConsole(): ReactElement {
             busyLabel="刪除中…"
             onConfirm={handleConfirmDelete}
             onCancel={closeVersionAction}
+            restoreFocusFallback={() => versionSectionRef.current?.focus()}
           >
             <p>
               將刪除「{formatVersionLabel(selectedVersion, semesterById, academicYearById)}

@@ -136,3 +136,32 @@ export interface TeacherReassignmentResult {
   dry_run: boolean;
   check: ScheduleCheckResult;
 }
+
+// --- Task 84: GET /schedule-versions/{id}/move-candidates/{schedule_id}
+// (Task 83; ADMIN + DRAFT only). Mirrors backend/app/schemas/scheduler.py's
+// MoveCandidatesResult. Every check is a complete list, same as /check --
+// the frontend compares it with `baseline` itself (diffViolations()). ---
+
+// Swapping the lesson with this row: the version's check after the swap.
+export interface MoveCandidateSwap {
+  swap_with_schedule_id: number;
+  check: ScheduleCheckResult;
+}
+
+// One time slot. available=false ("NON_TEACHING_SLOT" / "CURRENT_SLOT")
+// means it is not a move target, and `move` is null.
+export interface MoveCandidateSlot {
+  time_slot_id: number;
+  available: boolean;
+  unavailable_reason: string | null;
+  move: ScheduleCheckResult | null;
+  swaps: MoveCandidateSwap[];
+}
+
+export interface MoveCandidatesResult {
+  schedule_version_id: number;
+  schedule_id: number;
+  current_time_slot_id: number | null;
+  baseline: ScheduleCheckResult;
+  candidates: MoveCandidateSlot[];
+}

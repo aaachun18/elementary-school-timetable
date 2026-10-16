@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canMoveLessonTo, canSwapLessons } from "./lessonDrop";
+import { canMoveLessonTo, canSwapLessons, lessonTargetId } from "./lessonDrop";
 import type { EnrichedSchedule } from "../hooks/useTimetableData";
 import type { TimeSlot } from "../types/timeSlot";
 
@@ -64,5 +64,16 @@ describe("canSwapLessons", () => {
 
   it("refuses the lesson itself", () => {
     expect(canSwapLessons(lesson(1, 101), lesson(1, 101))).toBe(false);
+  });
+});
+
+describe("lessonTargetId (Task 84)", () => {
+  it("is the class, teacher or room the lesson is listed under in each view", () => {
+    const row = { ...lesson(1, 100), classId: 10, teacherId: 1, roomId: 7 };
+
+    expect(lessonTargetId(row, "class")).toBe(10);
+    expect(lessonTargetId(row, "teacher")).toBe(1);
+    expect(lessonTargetId(row, "room")).toBe(7);
+    expect(lessonTargetId(lesson(2, 100), "room")).toBeNull();
   });
 });

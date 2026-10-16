@@ -5,6 +5,20 @@
 
 import type { EnrichedSchedule } from "../hooks/useTimetableData";
 import type { TimeSlot } from "../types/timeSlot";
+import type { TimetableViewMode } from "./violationLocate";
+
+// The id a lesson is listed under in each view: its class, teacher or room
+// (Task 84: moved here from TimetableGrid so the page can tell whether a
+// lesson is on the grid being shown).
+export function lessonTargetId(lesson: EnrichedSchedule, viewMode: TimetableViewMode): number | null {
+  if (viewMode === "class") {
+    return lesson.classId;
+  }
+  if (viewMode === "teacher") {
+    return lesson.teacherId;
+  }
+  return lesson.roomId;
+}
 
 // A real teaching TimeSlot other than the lesson's current one. A cell with
 // no TimeSlot record has no id to move to; a non-teaching period (lunch,

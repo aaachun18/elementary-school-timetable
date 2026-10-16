@@ -110,6 +110,29 @@ export const TD_HIGHLIGHT = "bg-amber-50 ring-2 ring-inset ring-amber-400";
 // Deliberately not TD_HIGHLIGHT: that one belongs to 「在課表中查看」 and
 // has its own lifetime.
 export const TD_ADJUSTED = "bg-sky-50 ring-2 ring-inset ring-sky-500";
+// Task 84 / Task 85: candidate marks while a lesson is selected or dragged
+// in edit mode -- at most one soft fill per cell plus one small icon in its
+// top-right corner. Low-saturation fills, so they read apart from the
+// amber locate ring (TD_HIGHLIGHT), the sky 「剛調整」 ring (TD_ADJUSTED),
+// the drag-hover outline (DROP_TARGET_OK / DROP_TARGET_BLOCKED) and the
+// dark gray non-teaching fill; a cell carrying one of those markers shows
+// the marker instead of the fill (its icon stays). Never colour alone: a
+// conflict also gets fine diagonal stripes, and the icons differ (✓ / ✕);
+// the full description is the icon's title / aria-label.
+export const TD_CANDIDATE_SAFE = "bg-emerald-50";
+export const TD_CANDIDATE_CONFLICT =
+  "bg-rose-50 bg-[repeating-linear-gradient(135deg,rgb(225_29_72/0.12)_0_2px,transparent_2px_8px)]";
+const CANDIDATE_ICON_BASE =
+  "pointer-events-auto absolute right-1 top-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] leading-none font-bold text-white";
+export const CANDIDATE_ICON_SAFE = `${CANDIDATE_ICON_BASE} bg-emerald-600`;
+export const CANDIDATE_ICON_CONFLICT = `${CANDIDATE_ICON_BASE} bg-rose-600`;
+// The legend above the grid: three small swatches with one word each.
+export const CANDIDATE_LEGEND = "mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600";
+const CANDIDATE_SWATCH_BASE = "inline-block h-3 w-3 rounded-sm border";
+export const CANDIDATE_LEGEND_SAFE_SWATCH = `${CANDIDATE_SWATCH_BASE} border-emerald-300 ${TD_CANDIDATE_SAFE}`;
+export const CANDIDATE_LEGEND_CONFLICT_SWATCH = `${CANDIDATE_SWATCH_BASE} border-rose-300 ${TD_CANDIDATE_CONFLICT}`;
+export const CANDIDATE_LEGEND_UNAVAILABLE_SWATCH = `${CANDIDATE_SWATCH_BASE} border-gray-300 bg-gray-200`;
+
 // Task 78: the row header (節次) column. Full constants rather than TH plus
 // extra classes, so two background/text colors never compete.
 export const TIMETABLE_ROW_HEADER =
@@ -144,14 +167,25 @@ export const LESSON_BUTTON_DROP_OK = `${LESSON_BUTTON_BASE} border-2 border-gree
 // dragged lesson's own time slot). Ring vs. dashed outline, not color alone.
 export const DROP_TARGET_OK = "bg-green-50 ring-2 ring-inset ring-green-500";
 export const DROP_TARGET_BLOCKED = "bg-red-50 outline-2 -outline-offset-2 outline-dashed outline-red-400";
-// Task 71: shown at the bottom of every cell a dragged lesson can move to,
-// so "the empty part of a cell" is always there to drop on even when the
-// cell's lessons fill it.
+// Task 71: the bottom of a cell a dragged lesson can move to, so "the empty
+// part of a cell" is always there to drop on even when the cell's lessons
+// fill it. Task 85: shown only while the drag is over that cell, and
+// pointer-events-none (so is DROP_STRIP): appearing under the pointer must
+// not change which element the drop lands on -- the cell itself handles it.
 export const DROP_ZONE =
-  "rounded-md border border-dashed border-green-500 px-2 py-1 text-center text-xs text-green-700";
-// 「移到這裡」 button inside a cell (the click flow).
-export const MOVE_TARGET_BUTTON =
-  "w-full rounded-md border border-dashed border-blue-400 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50";
+  "pointer-events-none rounded-md border border-dashed border-green-500 px-2 py-1 text-center text-xs text-green-700";
+// Task 85: in a cell that has lessons, the drop area under them is a thin
+// dashed strip while dragging; it expands to DROP_ZONE (with 「移到這裡」)
+// only while the drag is over that cell.
+export const DROP_STRIP = "pointer-events-none h-1.5 rounded-sm border border-dashed border-blue-300";
+// Task 85: the click flow's move target. In an EMPTY cell the whole cell
+// is one button (text only on hover / keyboard focus) ...
+export const CELL_MOVE_TARGET =
+  "flex min-h-12 w-full items-center justify-center rounded-md text-xs font-medium text-transparent hover:bg-blue-50 hover:text-blue-700 focus:outline-none focus-visible:bg-blue-50 focus-visible:text-blue-700 focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed";
+// ... and under a cell's lessons it is a thin dashed strip that expands to
+// show 「移到這裡」 on hover / focus.
+export const MOVE_TARGET_STRIP =
+  "h-1.5 w-full overflow-hidden rounded-sm border border-dashed border-blue-300 text-[0px] text-blue-700 hover:h-auto hover:bg-blue-50 hover:py-1 hover:text-xs focus:outline-none focus-visible:h-auto focus-visible:bg-blue-50 focus-visible:py-1 focus-visible:text-xs focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed";
 // The 「已選取：…」 status bar above the grid.
 export const SELECTION_BAR =
   "flex flex-wrap items-center gap-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900";

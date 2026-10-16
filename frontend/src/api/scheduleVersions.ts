@@ -7,6 +7,7 @@ import type {
 } from "../types/scheduleVersion";
 import type {
   GenerateLessonsResponse,
+  MoveCandidatesResult,
   MoveLessonRequest,
   RunSchedulerSuccessResponse,
   ScheduleAdjustmentResult,
@@ -172,6 +173,21 @@ export async function reassignTeacher(
   const response = await apiClient.post<TeacherReassignmentResult>(
     `/api/v1/schedule-versions/${versionId}/reassign-teacher`,
     body,
+  );
+  return response.data;
+}
+
+// Task 84: read-only "what if" of moving / swapping one lesson into every
+// time slot (Task 83). `signal` lets the caller abandon a request whose
+// lesson is no longer selected or dragged.
+export async function moveCandidates(
+  versionId: number,
+  scheduleId: number,
+  signal?: AbortSignal,
+): Promise<MoveCandidatesResult> {
+  const response = await apiClient.get<MoveCandidatesResult>(
+    `/api/v1/schedule-versions/${versionId}/move-candidates/${scheduleId}`,
+    { signal },
   );
   return response.data;
 }

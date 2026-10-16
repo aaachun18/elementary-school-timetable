@@ -1,12 +1,5 @@
-import {
-  useEffect,
-  useId,
-  useRef,
-  type KeyboardEvent,
-  type ReactElement,
-  type ReactNode,
-  type SyntheticEvent,
-} from "react";
+import { useEffect, useId, useRef, type ReactElement, type ReactNode, type SyntheticEvent } from "react";
+import { dialogKeyAction, enterKeyUpShouldActivate, isEnterKey } from "../utils/dialogKeyboard";
 import {
   BUTTON_DANGER,
   BUTTON_PRIMARY,
@@ -36,6 +29,33 @@ interface ConfirmDialogProps {
   showConfirm?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  // Task 85: where focus goes after closing when the element focused before
+  // opening is gone or can't take focus (e.g. a button that was disabled
+  // while the dialog's request ran). Without it focus stays where the
+  // browser leaves it.
+  restoreFocusFallback?: () => void;
+}
+
+// Task 85: everything inside the dialog that Tab can reach, in order.
+const FOCUSABLE_SELECTOR = [
+  "button:not([disabled])",
+  "a[href]",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
+// Back to the element focused before the dialog opened, if it still exists
+// and can take focus; otherwise the caller's fallback.
+function restoreFocus(previous: HTMLElement | null, fallback: (() => void) | undefined): void {
+  if (previous !== null && previous !== document.body && previous.isConnected) {
+    previous.focus();
+    if (document.activeElement === previous) {
+      return;
+    }
+  }
+  fallback?.();
 }
 
 // Task 67: the shared confirmation dialog, replacing window.confirm() for
@@ -58,9 +78,17 @@ export default function ConfirmDialog({
   showConfirm = true,
   onConfirm,
   onCancel,
+  restoreFocusFallback,
 }: ConfirmDialogProps): ReactElement {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  // Task 85: the element focused just before opening, to return to.
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  // Read when the dialog closes, which may be renders after it opened.
+  const restoreFocusFallbackRef = useRef(restoreFocusFallback);
+  useEffect(() => {
+    restoreFocusFallbackRef.current = restoreFocusFallback;
+  }, [restoreFocusFallback]);
   // Several dialogs can be mounted on one page at once.
   const titleId = useId();
 
@@ -69,18 +97,142 @@ export default function ConfirmDialog({
   // (which is a radio button in the copy dialog, and would be any button a
   // dialog's content happens to contain). Enter then only ever activates
   // the button the user has focused; 確認 needs a click or Tab + Enter.
+  //
+  // Task 85: the element focused before opening is remembered and focused
+  // again on close (or the caller's fallback). One tick after opening,
+  // focus is checked again and pulled back to 取消/返回 if anything moved it
+  // out of the dialog meanwhile (e.g. a browser settling focus after a drag
+  // and drop) -- the dialog never opens with focus outside it.
   useEffect(() => {
     const dialog = dialogRef.current;
     if (dialog === null) {
       return;
     }
     if (open && !dialog.open) {
+      previousFocusRef.current =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null;
       dialog.showModal();
       cancelButtonRef.current?.focus();
-    } else if (!open && dialog.open) {
-      dialog.close();
+      const timer = window.setTimeout(() => {
+        if (dialog.open && !dialog.contains(document.activeElement)) {
+          cancelButtonRef.current?.focus();
+        }
+      }, 0);
+      return () => window.clearTimeout(timer);
     }
+    if (!open && dialog.open) {
+      dialog.close();
+      restoreFocus(previousFocusRef.current, restoreFocusFallbackRef.current);
+      previousFocusRef.current = null;
+    }
+    return undefined;
   }, [open]);
+
+  // Task 86: a parent may unmount the dialog while it is still open instead
+  // of closing it first (e.g. deleting a version removes the version card
+  // that holds its dialogs). Focus is returned the same way then.
+  useEffect(() => {
+    const previousFocus = previousFocusRef;
+    const fallback = restoreFocusFallbackRef;
+    return () => {
+      if (previousFocus.current !== null) {
+        restoreFocus(previousFocus.current, fallback.current);
+        previousFocus.current = null;
+      }
+    };
+  }, []);
+
+  // Task 85: every key while open is decided by dialogKeyAction(), whatever
+  // has focus -- Esc is 取消/返回 (and never reaches the page's own Esc
+  // handling, e.g. the timetable's "deselect"), Enter only ever activates
+  // the focused button (a held, auto-repeating Enter is ignored), and Tab /
+  // Shift+Tab cycle inside the dialog instead of leaving it. Listening on
+  // window in the capture phase so nothing on the page sees these keys
+  // first.
+  //
+  // Task 86: an Enter on a focused button is never prevented -- the
+  // browser's own activation runs. Since an IME-processed Enter produces no
+  // keypress (so no activation), the press is watched: if no click reached
+  // that button by keyup, it is pressed then, once. The Enter that OPENED
+  // the dialog went down before these listeners existed, so it is never
+  // watched and its keyup does nothing.
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+    let watched: { button: HTMLButtonElement; clicked: boolean } | null = null;
+
+    function handleKeyDown(event: KeyboardEvent): void {
+      const dialog = dialogRef.current;
+      if (dialog === null || !dialog.open) {
+        return;
+      }
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+      const active = document.activeElement;
+      const action = dialogKeyAction({
+        key: event.key,
+        code: event.code,
+        shiftKey: event.shiftKey,
+        repeat: event.repeat,
+        isComposing: event.isComposing,
+        focusIndex: focusable.findIndex((element) => element === active),
+        focusableCount: focusable.length,
+        cancelIndex: Math.max(
+          0,
+          focusable.findIndex((element) => element === cancelButtonRef.current),
+        ),
+        focusIsButton: active instanceof HTMLButtonElement,
+        busy,
+      });
+      if (action.preventDefault) {
+        event.preventDefault();
+      }
+      if (action.stopPropagation) {
+        event.stopPropagation();
+      }
+      if (action.watchActivation && active instanceof HTMLButtonElement) {
+        watched = { button: active, clicked: false };
+      }
+      if (action.effect.type === "cancel") {
+        onCancel();
+      } else if (action.effect.type === "focus") {
+        focusable[action.effect.index]?.focus();
+      }
+    }
+
+    function handleClick(event: MouseEvent): void {
+      if (watched !== null && event.target instanceof Node && watched.button.contains(event.target)) {
+        watched.clicked = true;
+      }
+    }
+
+    function handleKeyUp(event: KeyboardEvent): void {
+      if (watched === null || !isEnterKey(event.key, event.code)) {
+        return;
+      }
+      const { button, clicked } = watched;
+      watched = null;
+      const dialog = dialogRef.current;
+      if (
+        enterKeyUpShouldActivate({
+          clicked,
+          stillInDialog: dialog !== null && dialog.open && dialog.contains(button),
+          disabled: button.disabled,
+        })
+      ) {
+        button.click();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("click", handleClick, true);
+    window.addEventListener("keyup", handleKeyUp, true);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("click", handleClick, true);
+      window.removeEventListener("keyup", handleKeyUp, true);
+    };
+  }, [open, busy, onCancel]);
 
   // While busy both buttons are disabled, which drops focus to <body>. If
   // the action then fails and the dialog stays open, put focus back on the
@@ -95,18 +247,14 @@ export default function ConfirmDialog({
     }
   }, [open, busy]);
 
-  // Task 70 fix: an Enter held down from the button that OPENED this dialog
-  // (e.g. 「預覽」) keeps auto-repeating, and the first repeat would hit the
-  // freshly focused 取消/返回 -- the dialog flashed open and shut with
-  // nothing saved. A repeated Enter is never a deliberate choice inside the
-  // dialog, so it is ignored; a fresh Enter press works as usual.
-  function handleKeyDown(event: KeyboardEvent<HTMLDialogElement>): void {
-    if (event.key === "Enter" && event.repeat) {
-      event.preventDefault();
-    }
-  }
+  // (Task 70 fix, now part of dialogKeyAction(): an Enter held down from the
+  // button that OPENED this dialog keeps auto-repeating, and the first
+  // repeat would hit the freshly focused 取消/返回 -- so a repeated Enter is
+  // ignored; a fresh Enter press works as usual.)
 
-  // Esc fires "cancel" before the browser closes the dialog. Prevent that
+  // Esc normally never gets here any more (the keydown handler above takes
+  // it first), but the browser can still raise "cancel" on its own (e.g. a
+  // close request from the OS). Prevent that
   // close so `open` stays the only thing that decides visibility, then hand
   // the decision to the parent.
   function handleCancelEvent(event: SyntheticEvent<HTMLDialogElement>): void {
@@ -135,7 +283,6 @@ export default function ConfirmDialog({
       ref={dialogRef}
       onCancel={handleCancelEvent}
       onClose={handleCloseEvent}
-      onKeyDown={handleKeyDown}
       aria-labelledby={titleId}
       className={DIALOG}
     >

@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react";
+import { useRef, useState, type ReactElement } from "react";
 import TeacherReassignPreviewDialog from "./TeacherReassignPreviewDialog";
 import { useFlashMessage } from "../hooks/useFlashMessage";
 import { useTeacherReassignment } from "../hooks/useTeacherReassignment";
@@ -155,8 +155,17 @@ export default function TeacherReassignPanel({
     });
   }
 
+  // Task 86: the 「預覽」 button that opened the preview is disabled while
+  // it loads, so focus can't return to it -- it returns to this panel.
+  const panelRef = useRef<HTMLElement>(null);
+
   return (
-    <section className={`${CARD} mb-4`} aria-label="換教師">
+    <section
+      ref={panelRef}
+      tabIndex={-1}
+      className={`${CARD} mb-4 focus:outline-none`}
+      aria-label="換教師"
+    >
       <h2 className={SUBSECTION_TITLE}>換教師</h2>
       <p className={HELP_TEXT}>
         以「一門課」（某班級的某科目）為單位換人，例如處理教師離職：先選原教師，再為每門課指定新教師並預覽。可以連續操作，例如把
@@ -288,6 +297,7 @@ export default function TeacherReassignPanel({
         saveError={reassignment.saveError}
         onConfirm={handleConfirm}
         onCancel={reassignment.closePreview}
+        restoreFocusFallback={() => panelRef.current?.focus()}
       />
     </section>
   );

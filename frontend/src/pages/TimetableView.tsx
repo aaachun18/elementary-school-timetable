@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { useSearchParams } from "react-router-dom";
 import { list as listScheduleVersions } from "../api/scheduleVersions";
 import { list as listSemesters } from "../api/semesters";
@@ -12,11 +12,14 @@ import TeacherReassignPanel from "../components/TeacherReassignPanel";
 import TimetableGrid from "../components/TimetableGrid";
 import { useFlashMessage } from "../hooks/useFlashMessage";
 import { useLessonAdjustment, type SavedAdjustment } from "../hooks/useLessonAdjustment";
+import { useMoveCandidates } from "../hooks/useMoveCandidates";
 import { useResource } from "../hooks/useResource";
 import { useScheduleCheck } from "../hooks/useScheduleCheck";
 import { useTimetableData, type EnrichedSchedule } from "../hooks/useTimetableData";
 import { isCurrentUserAdmin } from "../utils/auth";
 import { getViolationSentence, resolveTimeSlotLabel } from "../utils/failureDiagnostics";
+import { lessonTargetId } from "../utils/lessonDrop";
+import { buildCandidateMarks } from "../utils/moveCandidates";
 import type { PeriodDisplayMap } from "../utils/periodDisplay";
 import { formatVersionLabel } from "../utils/scheduleVersionFormat";
 import { mergeViolationsBySentence } from "../utils/violationMerge";
@@ -27,6 +30,10 @@ import {
   BUTTON_PRIMARY,
   BUTTON_SECONDARY,
   BUTTON_SECONDARY_SM,
+  CANDIDATE_LEGEND,
+  CANDIDATE_LEGEND_CONFLICT_SWATCH,
+  CANDIDATE_LEGEND_SAFE_SWATCH,
+  CANDIDATE_LEGEND_UNAVAILABLE_SWATCH,
   CARD,
   ERROR_TEXT,
   LABEL,
@@ -116,6 +123,44 @@ export default function TimetableView(): ReactElement {
   // the next adjustment starts.
   const [adjustedTimeSlotId, setAdjustedTimeSlotId] = useState<number | null>(null);
 
+  // Task 84: the lesson being dragged (the grid reports it a tick after
+  // dragstart and clears it when the drag ends), and a revision that goes
+  // up after every saved change so cached candidate marks are refetched.
+  const [dragSourceId, setDragSourceId] = useState<number | null>(null);
+  const [candidateRevision, setCandidateRevision] = useState(0);
+
+  // Task 85: the lesson whose move/swap was last previewed. The button that
+  // opened the preview is usually disabled while it loads, so ConfirmDialog
+  // can't return focus to it; focus goes back to this lesson instead, or to
+  // the timetable section when it can't take focus (e.g. still reloading).
+  const previewedLessonIdRef = useRef<number | null>(null);
+  function focusLessonOrSection(id: number | null): void {
+    const lessonButton =
+      id === null ? null : document.querySelector<HTMLElement>(`[data-schedule-id="${id}"]`);
+    lessonButton?.focus();
+    if (lessonButton === null || document.activeElement !== lessonButton) {
+      timetableSectionRef.current?.focus();
+    }
+  }
+  function restoreFocusAfterPreview(): void {
+    focusLessonOrSection(previewedLessonIdRef.current);
+  }
+  // Task 86 fix: after a SAVED move/swap the timetable reloads, which
+  // disables (or re-renders) the lesson buttons right after focus returned
+  // to one, dropping focus to <body>. Once the reload is done, focus goes
+  // back to that lesson -- only if nothing else has taken focus meanwhile.
+  const focusAfterReloadRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (timetable.isLoading || focusAfterReloadRef.current === null) {
+      return;
+    }
+    const id = focusAfterReloadRef.current;
+    focusAfterReloadRef.current = null;
+    if (document.activeElement === null || document.activeElement === document.body) {
+      focusLessonOrSection(id);
+    }
+  }, [timetable.isLoading, timetable.data]);
+
   // --- Task 70: 換教師 panel (ADMIN, DRAFT only); independent of edit mode.
   const [isReassignPanelOpen, setIsReassignPanelOpen] = useState(false);
 
@@ -146,6 +191,7 @@ export default function TimetableView(): ReactElement {
     adjustment.reset();
     setAdjustedTimeSlotId(null);
     setIsReassignPanelOpen(false);
+    setDragSourceId(null);
   }
 
   function handleSelectViewMode(mode: TimetableViewMode): void {
@@ -161,6 +207,7 @@ export default function TimetableView(): ReactElement {
     setIsEditModeOn((previous) => !previous);
     adjustment.reset();
     setAdjustedTimeSlotId(null);
+    setDragSourceId(null);
   }
 
   function handleRunCheck(): void {
@@ -194,6 +241,45 @@ export default function TimetableView(): ReactElement {
   const selectedLesson =
     schedules.find((schedule) => schedule.scheduleId === adjustment.selectedScheduleId) ?? null;
 
+  // --- Task 84: candidate marks for the selected or dragged lesson. A drag
+  // wins over the click selection. Nothing is shown outside edit mode
+  // (ADMIN + DRAFT), while a preview or save is in progress, or when the
+  // lesson isn't on the grid being shown (e.g. another class was picked).
+  // The marks are a hint only: every drop still goes through the preview.
+  const isDraftVersion =
+    (versionsResource.data ?? []).find((version) => version.id === selectedVersionId)
+      ?.status === "DRAFT";
+  const canShowCandidates =
+    isAdmin && isEditModeOn && isDraftVersion && adjustment.phase === "idle";
+  const candidateSourceId = canShowCandidates
+    ? (dragSourceId ?? adjustment.selectedScheduleId)
+    : null;
+  const candidateSource =
+    schedules.find((schedule) => schedule.scheduleId === candidateSourceId) ?? null;
+  const shownCandidateSourceId =
+    candidateSource !== null &&
+    selectedTargetId !== null &&
+    lessonTargetId(candidateSource, viewMode) === selectedTargetId
+      ? candidateSource.scheduleId
+      : null;
+  const candidateState = useMoveCandidates(
+    selectedVersionId,
+    shownCandidateSourceId,
+    candidateRevision,
+  );
+  const candidateData = candidateState.status === "ready" ? candidateState.data : null;
+  const timetableLookups = timetable.data?.lookups ?? null;
+  // Computed once per response: the grid re-renders on every dragover.
+  const candidateMarks = useMemo(
+    () =>
+      candidateData === null || timetableLookups === null
+        ? null
+        : buildCandidateMarks(candidateData, (violation) =>
+            getViolationSentence(violation, timetableLookups),
+          ),
+    [candidateData, timetableLookups],
+  );
+
   // Clicking the selected lesson (or any lesson when none is selected)
   // toggles the selection; clicking another lesson while one is selected
   // previews swapping them.
@@ -203,6 +289,7 @@ export default function TimetableView(): ReactElement {
       adjustment.toggleSelection(lesson.scheduleId);
       return;
     }
+    previewedLessonIdRef.current = selectedLesson.scheduleId;
     adjustment.requestPreview({ kind: "swap", lesson: selectedLesson, other: lesson });
   }
 
@@ -211,6 +298,7 @@ export default function TimetableView(): ReactElement {
       return;
     }
     setAdjustedTimeSlotId(null);
+    previewedLessonIdRef.current = selectedLesson.scheduleId;
     adjustment.requestPreview({
       kind: "move",
       lesson: selectedLesson,
@@ -220,20 +308,28 @@ export default function TimetableView(): ReactElement {
 
   // Task 71: drag & drop picks the same move/swap the clicks above do, and
   // goes through the same preview -- it never saves anything by itself.
-  function handleDragStartLesson(): void {
+  function handleDragStartLesson(lesson: EnrichedSchedule): void {
     setAdjustedTimeSlotId(null);
     adjustment.clearSelection();
+    setDragSourceId(lesson.scheduleId);
+  }
+
+  function handleDragEndLesson(): void {
+    setDragSourceId(null);
   }
 
   function handleDropOnCell(lesson: EnrichedSchedule, timeSlot: TimeSlot): void {
+    previewedLessonIdRef.current = lesson.scheduleId;
     adjustment.requestPreview({ kind: "move", lesson, targetTimeSlotId: timeSlot.id });
   }
 
   function handleDropOnLesson(lesson: EnrichedSchedule, other: EnrichedSchedule): void {
+    previewedLessonIdRef.current = lesson.scheduleId;
     adjustment.requestPreview({ kind: "swap", lesson, other });
   }
 
   function handleAdjustmentSaved({ adjustment: saved, result }: SavedAdjustment): void {
+    focusAfterReloadRef.current = saved.lesson.scheduleId;
     timetable.reload();
     // Keep an existing 檢查衝突 result in step with what was just saved --
     // the response already carries the whole version's new check.
@@ -245,12 +341,14 @@ export default function TimetableView(): ReactElement {
     );
     setAdjustedTimeSlotId(movedChange?.new_time_slot_id ?? null);
     adjustmentFlash.showFlash(saved.kind === "move" ? "已移動並儲存" : "已對調並儲存");
+    setCandidateRevision((previous) => previous + 1);
   }
 
   // Task 70: after a reassignment the grid shows the new teacher, and an
   // existing 檢查衝突 result is re-run against the saved state.
   function handleReassignmentSaved(): void {
     timetable.reload();
+    setCandidateRevision((previous) => previous + 1);
     if (scheduleCheck.result !== null) {
       scheduleCheck.run();
     }
@@ -436,7 +534,14 @@ export default function TimetableView(): ReactElement {
       )}
 
       {selectedVersionId !== null && (
-        <section ref={timetableSectionRef} className={`${SECTION} scroll-mt-4`}>
+        <section
+          ref={timetableSectionRef}
+          // Task 85: focusable by script only -- where focus returns after a
+          // preview when the lesson itself can't take it.
+          tabIndex={-1}
+          aria-label="課表"
+          className={`${SECTION} scroll-mt-4 focus:outline-none`}
+        >
           {/* Task 69: 編輯模式 switch -- ADMIN only; offered (disabled, with
               the reason) for a locked version too, so it's clear why. */}
           {isAdmin && selectedVersion !== undefined && (
@@ -554,6 +659,28 @@ export default function TimetableView(): ReactElement {
             </p>
           )}
 
+          {/* Task 84: only while marks are shown. */}
+          {isEditing && candidateMarks !== null && (
+            <div
+              className={CANDIDATE_LEGEND}
+              aria-label="候選位置圖例"
+              title="淡綠：移到這裡不會新增問題。淡紅斜紋：會新增問題，滑鼠停在格子右上角的 ✕ 可看原因，仍可放下並預覽。灰色：非教學時段，不能放。與某堂課對調的結果寫在那堂課的滑鼠提示中。"
+            >
+              <span className="inline-flex items-center gap-1">
+                <span className={CANDIDATE_LEGEND_SAFE_SWATCH} aria-hidden="true" />
+                可放
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className={CANDIDATE_LEGEND_CONFLICT_SWATCH} aria-hidden="true" />
+                衝突
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className={CANDIDATE_LEGEND_UNAVAILABLE_SWATCH} aria-hidden="true" />
+                非教學
+              </span>
+            </div>
+          )}
+
           {timetable.data !== null && selectedTargetId !== null && (
             <TimetableGrid
               periods={periods}
@@ -574,12 +701,17 @@ export default function TimetableView(): ReactElement {
                       onMoveHere: handleMoveHere,
                       // Starting a drag drops any click selection first.
                       onDragStartLesson: handleDragStartLesson,
+                      onDragEndLesson: handleDragEndLesson,
                       onDropOnCell: handleDropOnCell,
                       onDropOnLesson: handleDropOnLesson,
+                      candidateMarks,
                     }
                   : null
               }
             />
+          )}
+          {isEditing && shownCandidateSourceId !== null && candidateState.status === "failed" && (
+            <p className={`${MUTED_TEXT} mt-2`}>目前無法顯示候選位置，仍可直接放下並預覽</p>
           )}
         </section>
       )}
@@ -592,6 +724,7 @@ export default function TimetableView(): ReactElement {
           saveError={adjustment.saveError}
           onConfirm={handleConfirmAdjustment}
           onCancel={adjustment.closePreview}
+          restoreFocusFallback={restoreFocusAfterPreview}
         />
       )}
     </div>
