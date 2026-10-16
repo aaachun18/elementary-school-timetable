@@ -7,12 +7,14 @@ import {
 import { getViolationSentence, type NameLookups } from "../utils/failureDiagnostics";
 import {
   groupMergedViolationsByType,
+  isWarningItem,
   mergeViolationsBySentence,
   type MergedViolation,
 } from "../utils/violationMerge";
 import type { ConstraintViolationDetail } from "../types/scheduler";
 import {
   BADGE_NEUTRAL,
+  BADGE_WARNING,
   BUTTON_SECONDARY_SM,
   MUTED_TEXT,
   SUBSECTION_TITLE,
@@ -53,9 +55,19 @@ function ConflictItem({
   const representative = item.violations[0];
   const suggestion = VIOLATION_TYPE_SUGGESTIONS[item.type];
   const isLocatable = canLocate === undefined || canLocate(representative);
+  // Task 90: a WARNING is a lighter line with a 「警告」 badge -- a reminder,
+  // not a problem with the timetable.
+  const isWarning = isWarningItem(item);
   return (
-    <li className="rounded-md border border-gray-200 bg-white p-3">
-      <p className="text-sm text-gray-800">
+    <li
+      className={
+        isWarning
+          ? "rounded-md border border-amber-200 bg-amber-50/40 p-3"
+          : "rounded-md border border-gray-200 bg-white p-3"
+      }
+    >
+      <p className={isWarning ? "text-sm text-gray-600" : "text-sm text-gray-800"}>
+        {isWarning && <span className={`${BADGE_WARNING} mr-2`}>警告</span>}
         {item.sentence}
         {item.count > 1 && (
           <span

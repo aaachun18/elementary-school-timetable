@@ -2,7 +2,7 @@
 // (components/ConflictChecklist.tsx). Pure functions -- no React, no API --
 // so the rules can be unit-tested on their own.
 
-import type { ConstraintViolationDetail } from "../types/scheduler";
+import { SEVERITY_WARNING, type ConstraintViolationDetail } from "../types/scheduler";
 
 // One line of the checklist: every violation whose final Chinese sentence
 // is identical, shown once with how many times it was reported.
@@ -76,6 +76,31 @@ export function groupMergedViolationsByType(
     .map(([type, groupItems]) => ({ type, items: groupItems }));
 }
 
+// --- Task 90: severity. Only a WARNING (backend Task 88:
+// TEACHER_MIN_WORKLOAD) is "not a problem with the timetable": listed apart,
+// never a reason to block, never what makes a candidate cell red or a
+// preview "adds problems". Anything else -- ERROR, or a value this frontend
+// doesn't know -- counts as an error. ---
+
+export function isWarning(violation: ConstraintViolationDetail): boolean {
+  return violation.severity === SEVERITY_WARNING;
+}
+
+// A merged line is a warning when every report in it is one (identical
+// sentences come from one type, so in practice they always agree).
+export function isWarningItem(item: MergedViolation): boolean {
+  return item.violations.every(isWarning);
+}
+
+export function splitBySeverity<T extends MergedViolation>(
+  items: readonly T[],
+): { errors: T[]; warnings: T[] } {
+  return {
+    errors: items.filter((item) => !isWarningItem(item)),
+    warnings: items.filter(isWarningItem),
+  };
+}
+
 // --- Task 69: before/after comparison for a move/swap/reassign preview ---
 
 // Task 71 fix: which fields make one violation "the same problem" before and
@@ -94,6 +119,11 @@ export function groupMergedViolationsByType(
 //   H12 teacher+class+subject+room (which of them is inactive).
 // A type not listed (a future one) uses every id, slot included -- i.e. it
 // behaves as before this fix.
+// Task 90: a violation that carries the backend's identity_key (backend
+// Task 88: BLOCK_NOT_CONSECUTIVE / BLOCK_SAME_DAY / TEACHER_MIN_WORKLOAD)
+// is identified by that key alone -- the backend builds it without any
+// time slot, so the same broken block keeps its key when it moves. Types
+// without one keep the table below.
 const IDENTITY_FIELDS_BY_TYPE: Record<string, readonly (keyof ConstraintViolationDetail)[]> = {
   H1_TEACHER_CONFLICT: ["teacher_id", "time_slot_id"],
   H2_CLASS_CONFLICT: ["class_id", "time_slot_id"],
@@ -121,6 +151,10 @@ const ALL_ID_FIELDS: readonly (keyof ConstraintViolationDetail)[] = [
 ];
 
 export function violationIdentityKey(violation: ConstraintViolationDetail): string {
+  const identityKey = violation.identity_key ?? null;
+  if (identityKey !== null) {
+    return JSON.stringify(["identity_key", identityKey]);
+  }
   const fields = IDENTITY_FIELDS_BY_TYPE[violation.type] ?? ALL_ID_FIELDS;
   return JSON.stringify([violation.type, ...fields.map((field) => violation[field])]);
 }

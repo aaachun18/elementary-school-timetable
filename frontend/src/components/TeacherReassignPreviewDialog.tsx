@@ -8,7 +8,7 @@ import {
   resolveTeacherName,
   type NameLookups,
 } from "../utils/failureDiagnostics";
-import { diffViolations } from "../utils/violationMerge";
+import { diffViolations, splitBySeverity } from "../utils/violationMerge";
 import { ERROR_TEXT, MUTED_TEXT } from "../styles/ui";
 
 interface TeacherReassignPreviewDialogProps {
@@ -41,7 +41,8 @@ export default function TeacherReassignPreviewDialog({
       : diffViolations(preview.before.violations, preview.after.check.violations, (violation) =>
           getViolationSentence(violation, lookups),
         );
-  const addsProblems = diff !== null && diff.added.length > 0;
+  // Task 90: only new ERRORs count; a new WARNING is listed but harmless.
+  const addsProblems = diff !== null && splitBySeverity(diff.added).errors.length > 0;
 
   return (
     <ConfirmDialog

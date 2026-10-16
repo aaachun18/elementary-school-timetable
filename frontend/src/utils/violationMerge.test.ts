@@ -3,7 +3,10 @@ import { getViolationSentence, type NameLookups } from "./failureDiagnostics";
 import {
   diffViolations,
   groupMergedViolationsByType,
+  isWarning,
+  isWarningItem,
   mergeViolationsBySentence,
+  splitBySeverity,
   violationIdentityKey,
 } from "./violationMerge";
 import type { ConstraintViolationDetail } from "../types/scheduler";
@@ -297,5 +300,83 @@ describe("diffViolations", () => {
       "林老師在星期一第 1 節已標記為不可排課，但仍被排入該時段！",
     ]);
     expect(diff.unchanged.map((item) => item.descriptionChanged)).toEqual([false]);
+  });
+});
+
+// --- Task 90: identity_key and severity ---
+
+// 901班A 國語's block 1 (lessons 61/62) split: reported once per lesson,
+// with the backend's identity_key -- which has no time slot in it.
+const brokenBlockAt = (first: number, second: number): ConstraintViolationDetail[] => [
+  violation({
+    type: "BLOCK_NOT_CONSECUTIVE",
+    class_id: 10,
+    subject_id: 20,
+    lesson_id: 61,
+    time_slot_id: first,
+    class_subject_requirement_id: 7,
+    block_no: 1,
+    identity_key: "BLOCK_NOT_CONSECUTIVE:7:1",
+  }),
+  violation({
+    type: "BLOCK_NOT_CONSECUTIVE",
+    class_id: 10,
+    subject_id: 20,
+    lesson_id: 62,
+    time_slot_id: second,
+    class_subject_requirement_id: 7,
+    block_no: 1,
+    identity_key: "BLOCK_NOT_CONSECUTIVE:7:1",
+  }),
+];
+
+const minWorkload = violation({
+  type: "TEACHER_MIN_WORKLOAD",
+  severity: "WARNING",
+  teacher_id: 2,
+  identity_key: "TEACHER_MIN_WORKLOAD:2",
+});
+
+describe("Task 90: identity_key", () => {
+  it("identifies a violation by its identity_key alone", () => {
+    const [atMonday] = brokenBlockAt(MONDAY_1, slotId(1, 3));
+    const [atWednesday] = brokenBlockAt(WEDNESDAY_1, slotId(3, 4));
+    expect(violationIdentityKey(atMonday)).toBe(violationIdentityKey(atWednesday));
+  });
+
+  it("keeps a moved but still broken block as one unchanged problem", () => {
+    const diff = diffViolations(
+      brokenBlockAt(MONDAY_1, slotId(1, 3)),
+      brokenBlockAt(WEDNESDAY_1, slotId(3, 4)),
+      sentenceOf,
+    );
+
+    expect(diff.added).toEqual([]);
+    expect(diff.resolved).toEqual([]);
+    expect(diff.unchanged).toHaveLength(1);
+    expect(diff.unchanged[0].sentence).toBe("901班A的國語第 1 組連堂沒有排在同一天相鄰的節次！");
+    expect(diff.unchanged[0].count).toBe(2);
+  });
+
+  it("still keys a type without identity_key by its fields", () => {
+    expect(violationIdentityKey(linUnavailable)).toBe(
+      JSON.stringify(["H4_TEACHER_AVAILABILITY", 2, linUnavailable.time_slot_id]),
+    );
+  });
+});
+
+describe("Task 90: severity", () => {
+  it("tells warnings from errors, unknown severities counting as errors", () => {
+    expect(isWarning(minWorkload)).toBe(true);
+    expect(isWarning(linUnavailable)).toBe(false);
+    expect(isWarning(violation({ severity: "SOMETHING_NEW" }))).toBe(false);
+  });
+
+  it("splits merged lines by severity", () => {
+    const merged = mergeViolationsBySentence([linUnavailable, minWorkload], sentenceOf);
+    const { errors, warnings } = splitBySeverity(merged);
+    expect(errors.map((item) => item.type)).toEqual(["H4_TEACHER_AVAILABILITY"]);
+    expect(warnings.map((item) => item.sentence)).toEqual(["林老師的排課總節數低於每週最低授課節數！"]);
+    expect(isWarningItem(warnings[0])).toBe(true);
   });
 });

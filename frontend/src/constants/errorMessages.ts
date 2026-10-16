@@ -300,7 +300,31 @@ export const VIOLATION_TYPE_TEMPLATES: Record<string, string> = {
   INCOMPLETE_SCHEDULE_ROW: "{className}的{subjectName}有一筆排課資料缺少{missingFields}！",
   FIXED_TIME_SLOT_MISMATCH:
     "{className}的{subjectName}被固定在{fixedTimeSlotLabel}，但目前排在{timeSlotLabel}！",
+  // Task 90: lesson blocks (連堂, backend Task 87/88) -- {blockLabel} is
+  // 「第 N 組」 from the violation's block_no ("" without it), {weekdayLabel}
+  // the weekday of its time slot. The STATIC_BLOCK_* pre-checks carry no
+  // block_no, so they speak of the requirement's pattern as a whole.
+  BLOCK_NOT_CONSECUTIVE: "{className}的{subjectName}{blockLabel}連堂沒有排在同一天相鄰的節次！",
+  BLOCK_SAME_DAY: "{className}的{subjectName}有不同組的連堂排在同一天（{weekdayLabel}）！",
+  TEACHER_MIN_WORKLOAD: "{teacherName}的排課總節數低於每週最低授課節數！",
+  BLOCK_NO_WINDOW: "{className}的{subjectName}的連堂找不到同一天足夠的連續教學節次！",
+  STATIC_BLOCK_TOO_LONG:
+    "{className}的{subjectName}的連堂樣式中，有一組的節數超過任何一天可連續上課的節數！",
+  STATIC_BLOCK_TOO_MANY_DAYS: "{className}的{subjectName}的連堂組數多於一週的上課天數！",
+  STATIC_BLOCK_NOT_ENOUGH_DAYS:
+    "{className}的{subjectName}的各組連堂要排在不同天，但有足夠連續節次的天數不夠！",
+  STATIC_BLOCK_FIXED_CONFLICT:
+    "{className}的{subjectName}同一組連堂的固定時段，無法排成同一天依序相鄰的節次！",
+  STATIC_BLOCK_FIXED_SAME_DAY: "{className}的{subjectName}有不同組的連堂被固定在同一天！",
+  STATIC_BLOCK_TEACHER_UNAVAILABLE:
+    "{className}的{subjectName}的連堂排不進去：{teacherName}在每一段可用的連續節次中都有不可排課的時段！",
 };
+
+// Task 90: STATIC_BLOCK_TEACHER_UNAVAILABLE without a teacher_id -- every
+// teacher who could teach the block is unavailable somewhere in every
+// window.
+export const BLOCK_ALL_TEACHERS_UNAVAILABLE_TEMPLATE =
+  "{className}的{subjectName}的連堂排不進去：所有可教授{subjectName}的教師在每一段可用的連續節次中都有不可排課的時段！";
 
 // Task 68: FIXED_TIME_SLOT_MISMATCH when the fixed slot can't be resolved
 // (no Lesson lookup passed in, or the Lesson isn't in it) -- still a full
@@ -332,6 +356,10 @@ export const VIOLATION_TYPE_HEADINGS: Record<string, string> = {
   H12_ACTIVE_STATUS: "涉及已停用的項目",
   INCOMPLETE_SCHEDULE_ROW: "排課資料不完整",
   FIXED_TIME_SLOT_MISMATCH: "不在固定時段",
+  BLOCK_NOT_CONSECUTIVE: "連堂被拆開或不相鄰",
+  BLOCK_SAME_DAY: "同一門課的不同組排在同一天",
+  // Task 90: the only WARNING type -- listed last.
+  TEACHER_MIN_WORKLOAD: "教師授課節數低於最低要求（警告）",
 };
 
 export const UNKNOWN_VIOLATION_TYPE_HEADING = "其他問題";
@@ -356,7 +384,34 @@ export const VIOLATION_TYPE_SUGGESTIONS: Record<string, string> = {
   H12_ACTIVE_STATUS: "改用啟用中的項目，或到基礎資料重新啟用相關項目。",
   INCOMPLETE_SCHEDULE_ROW: "為這筆排課資料補上缺少的時段或老師。",
   FIXED_TIME_SLOT_MISMATCH: "把這堂課移回固定時段，或到排課控制台修改這堂課的固定時段。",
+  BLOCK_NOT_CONSECUTIVE: "把這組連堂整組移到同一天相鄰的教學節次（拖曳其中一節即可整組移動）。",
+  BLOCK_SAME_DAY: "把其中一組移到另一天。",
+  TEACHER_MIN_WORKLOAD: "可為這位老師多安排課程，或到基礎資料調整最低每週節數；這是提醒，不影響課表是否合法。",
 };
+
+// Task 90 (backend Task 89): why a lesson block can't go where it was
+// dropped -- move-candidates' unavailable_reason / unsupported_swaps[].reason
+// and the 409 `reason` of move-lesson / swap-lessons. Short, for a cell's
+// tooltip and the message shown instead of sending the request.
+export const BLOCK_REFUSAL_MESSAGES: Record<string, string> = {
+  BLOCK_OUT_OF_RANGE: "整組放不下：會超出當天節次或跨過午休",
+  BLOCK_TARGET_OCCUPIED: "整組會壓到本班其他課，請改拖到要對調的那堂課上",
+  BLOCK_SWAP_UNSUPPORTED: "連堂只能與節數相同、已全部排課的另一組對調",
+};
+
+// The BLOCK_* reason of a 409 from move-lesson / swap-lessons, or null for
+// any other error.
+export function getBlockRefusalReason(error: unknown): string | null {
+  if (!axios.isAxiosError(error) || error.response?.status !== 409) {
+    return null;
+  }
+  const data: unknown = error.response.data;
+  if (typeof data !== "object" || data === null || !("reason" in data)) {
+    return null;
+  }
+  const reason = (data as { reason: unknown }).reason;
+  return typeof reason === "string" && reason in BLOCK_REFUSAL_MESSAGES ? reason : null;
+}
 
 // Task 39: the "reason" clause only -- no leading punctuation, no trailing
 // "！", and (unlike VIOLATION_TYPE_TEMPLATES above) no restatement of
@@ -390,4 +445,5 @@ export const LESSON_FAILURE_REASON_TEMPLATES: Record<string, string> = {
   H12_ACTIVE_STATUS: "涉及已停用的項目：{inactiveEntities}",
   NO_CANDIDATE_TEACHER: "找不到可教授{subjectName}的教師",
   H6_REQUIRED_TEACHER_NOT_QUALIFIED: "指定教師{teacherName}不具備教授{subjectName}的資格",
+  BLOCK_NO_WINDOW: "連堂找不到同一天足夠的連續教學節次",
 };

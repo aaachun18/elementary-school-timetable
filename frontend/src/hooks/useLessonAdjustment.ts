@@ -4,7 +4,11 @@ import {
   moveLesson,
   swapLessons,
 } from "../api/scheduleVersions";
-import { extractApiErrorMessage } from "../constants/errorMessages";
+import {
+  BLOCK_REFUSAL_MESSAGES,
+  extractApiErrorMessage,
+  getBlockRefusalReason,
+} from "../constants/errorMessages";
 import type { EnrichedSchedule } from "./useTimetableData";
 import type { ScheduleAdjustmentResult, ScheduleCheckResult } from "../types/scheduler";
 
@@ -144,7 +148,12 @@ export function useLessonAdjustment(scheduleVersionId: number | null): UseLesson
       .catch((caught: unknown) => {
         // Nothing half-done is left behind: no dialog, no selection.
         if (isCurrent()) {
-          setPreviewError(extractApiErrorMessage(caught));
+          // Task 90: a lesson block the backend refuses to move there (409
+          // with a BLOCK_* reason) reads the same as the grid's hint.
+          const blockReason = getBlockRefusalReason(caught);
+          setPreviewError(
+            blockReason !== null ? BLOCK_REFUSAL_MESSAGES[blockReason] : extractApiErrorMessage(caught),
+          );
           setSelectedScheduleId(null);
           setPhase("idle");
         }

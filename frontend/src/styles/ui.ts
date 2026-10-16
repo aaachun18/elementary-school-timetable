@@ -89,6 +89,9 @@ export const BADGE_NEUTRAL = "inline-flex items-center rounded-full bg-gray-100 
 // Task 67: version status pills -- DRAFT uses the accent blue (BADGE_INFO),
 // PUBLISHED reuses BADGE_SUCCESS, ARCHIVED reuses BADGE_NEUTRAL.
 export const BADGE_INFO = "inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700";
+// Task 90: a WARNING (e.g. a teacher below the minimum weekly periods) --
+// amber like NOTICE, never the red of an error.
+export const BADGE_WARNING = "inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800";
 
 // --- Notices ---
 // Task 67: a short, non-error heads-up shown above content (e.g. "this is
@@ -126,12 +129,37 @@ const CANDIDATE_ICON_BASE =
   "pointer-events-auto absolute right-1 top-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] leading-none font-bold text-white";
 export const CANDIDATE_ICON_SAFE = `${CANDIDATE_ICON_BASE} bg-emerald-600`;
 export const CANDIDATE_ICON_CONFLICT = `${CANDIDATE_ICON_BASE} bg-rose-600`;
-// The legend above the grid: three small swatches with one word each.
+// Task 90: a target the lesson block (連堂) rules refuse -- gray with a
+// "no entry" icon; nothing is sent when dropping there.
+export const TD_CANDIDATE_BLOCKED =
+  "bg-gray-100 bg-[repeating-linear-gradient(45deg,rgb(107_114_128/0.12)_0_2px,transparent_2px_8px)]";
+export const CANDIDATE_ICON_BLOCKED = `${CANDIDATE_ICON_BASE} bg-gray-500`;
+// The legend above the grid: small swatches with one word each (Task 90
+// added the fourth, 「不可放」).
 export const CANDIDATE_LEGEND = "mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600";
 const CANDIDATE_SWATCH_BASE = "inline-block h-3 w-3 rounded-sm border";
 export const CANDIDATE_LEGEND_SAFE_SWATCH = `${CANDIDATE_SWATCH_BASE} border-emerald-300 ${TD_CANDIDATE_SAFE}`;
 export const CANDIDATE_LEGEND_CONFLICT_SWATCH = `${CANDIDATE_SWATCH_BASE} border-rose-300 ${TD_CANDIDATE_CONFLICT}`;
 export const CANDIDATE_LEGEND_UNAVAILABLE_SWATCH = `${CANDIDATE_SWATCH_BASE} border-gray-300 bg-gray-200`;
+export const CANDIDATE_LEGEND_BLOCKED_SWATCH = `${CANDIDATE_SWATCH_BASE} border-gray-400 ${TD_CANDIDATE_BLOCKED}`;
+
+// --- Task 90: lesson blocks (連堂) on the timetable ---
+// A thin bar along the left edge of each cell of a block; two adjacent
+// lessons of one block share it across the cell border (no text label).
+// Low-key indigo, read-only and edit mode alike. The ends of a block are
+// rounded and inset, so two different blocks one above the other don't
+// look joined.
+export const BLOCK_BAR_BASE = "pointer-events-none absolute left-0 w-1 bg-indigo-300";
+export const BLOCK_BAR_TOP_JOINED = "top-0";
+export const BLOCK_BAR_TOP_END = "top-1.5 rounded-t-full";
+export const BLOCK_BAR_BOTTOM_JOINED = "-bottom-px";
+export const BLOCK_BAR_BOTTOM_END = "bottom-1.5 rounded-b-full";
+// A cell where the dragged block would land (every lesson of it, not only
+// the one under the pointer): the same green as DROP_TARGET_OK, dashed.
+export const DROP_TARGET_RANGE = "bg-green-50 outline-2 -outline-offset-2 outline-dashed outline-green-500";
+// The cell under the pointer when the target is refused by the block rules.
+export const DROP_ZONE_BLOCKED =
+  "pointer-events-none rounded-md border border-dashed border-gray-400 bg-white/80 px-2 py-1 text-center text-xs text-gray-600";
 
 // Task 78: the row header (節次) column. Full constants rather than TH plus
 // extra classes, so two background/text colors never compete.

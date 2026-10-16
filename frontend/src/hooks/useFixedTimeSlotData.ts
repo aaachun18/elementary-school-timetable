@@ -5,6 +5,7 @@ import { list as listSubjects } from "../api/subjects";
 import { list as listTimeSlots } from "../api/timeSlots";
 import { useResource } from "./useResource";
 import type { TimeSlot } from "../types/timeSlot";
+import { formatBlockPosition } from "../utils/lessonPattern";
 import { buildPeriodDisplay, type PeriodDisplayMap } from "../utils/periodDisplay";
 
 // Same "fetch everything, join client-side" approach as
@@ -24,6 +25,9 @@ export interface FixableLessonRow {
   lessonId: number;
   sequenceNumber: number;
   fixedTimeSlotId: number | null;
+  // Task 90: 「第 1 組第 2 節」 for a lesson in a lesson block (連堂), ""
+  // otherwise (utils/lessonPattern.ts formatBlockPosition()).
+  blockPosition: string;
 }
 
 // One ClassSubjectRequirement's Lessons, grouped together -- e.g. "二年甲
@@ -81,6 +85,15 @@ async function buildFixedTimeSlotData(semesterId: number): Promise<FixedTimeSlot
     });
   }
 
+  // Task 90: lessons per block, for the block position label.
+  const blockSizes = new Map<string, number>();
+  for (const lesson of lessons) {
+    if (lesson.block_no !== null && lesson.block_no !== undefined) {
+      const key = `${lesson.class_subject_requirement_id}:${lesson.block_no}`;
+      blockSizes.set(key, (blockSizes.get(key) ?? 0) + 1);
+    }
+  }
+
   for (const lesson of lessons) {
     const group = groupsByRequirementId.get(lesson.class_subject_requirement_id);
     if (group === undefined) {
@@ -93,6 +106,11 @@ async function buildFixedTimeSlotData(semesterId: number): Promise<FixedTimeSlot
       lessonId: lesson.id,
       sequenceNumber: lesson.sequence_number,
       fixedTimeSlotId: lesson.fixed_time_slot_id,
+      blockPosition: formatBlockPosition(
+        lesson.block_no,
+        lesson.block_seq,
+        blockSizes.get(`${lesson.class_subject_requirement_id}:${lesson.block_no}`) ?? 0,
+      ),
     });
   }
 

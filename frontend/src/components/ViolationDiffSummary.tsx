@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import ConflictChecklist from "./ConflictChecklist";
 import type { NameLookups } from "../utils/failureDiagnostics";
-import type { ViolationDiff } from "../utils/violationMerge";
+import { splitBySeverity, type ViolationDiff } from "../utils/violationMerge";
 import { MUTED_TEXT, SUBSECTION_TITLE } from "../styles/ui";
 
 interface ViolationDiffSummaryProps {
@@ -29,18 +29,27 @@ export default function ViolationDiffSummary({
   // listed with its new wording; the rest are only counted.
   const stillUnresolved = diff.unchanged.filter((item) => item.descriptionChanged);
   const untouchedCount = diff.unchanged.length - stillUnresolved.length;
+  // Task 90: only ERRORs are "new problems"; a new WARNING is one light
+  // line of its own.
+  const added = splitBySeverity(diff.added);
   return (
     <>
-      {diff.added.length > 0 && (
+      {added.errors.length > 0 && (
         <section aria-label={`這次${changeNoun}會新增的問題`}>
           <h3 className={`${SUBSECTION_TITLE} text-red-700`}>
-            這次{changeNoun}會新增的問題（{diff.added.length} 項）
+            這次{changeNoun}會新增的問題（{added.errors.length} 項）
           </h3>
           <ConflictChecklist
-            violations={diff.added.flatMap((item) => item.violations)}
+            violations={added.errors.flatMap((item) => item.violations)}
             lookups={lookups}
           />
         </section>
+      )}
+      {added.warnings.length > 0 && (
+        <p className="text-sm text-amber-800" aria-label={`這次${changeNoun}會新增的警告`}>
+          另會新增 {added.warnings.length} 項警告（不影響課表是否合法）：
+          {added.warnings.map((item) => item.sentence).join("；")}
+        </p>
       )}
       {diff.resolved.length > 0 && (
         <section aria-label={`這次${changeNoun}會解決的問題`}>

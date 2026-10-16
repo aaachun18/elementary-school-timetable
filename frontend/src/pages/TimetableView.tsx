@@ -18,11 +18,12 @@ import { useScheduleCheck } from "../hooks/useScheduleCheck";
 import { useTimetableData, type EnrichedSchedule } from "../hooks/useTimetableData";
 import { isCurrentUserAdmin } from "../utils/auth";
 import { getViolationSentence, resolveTimeSlotLabel } from "../utils/failureDiagnostics";
+import { blockGroupMemberIds } from "../utils/lessonBlocks";
 import { lessonTargetId } from "../utils/lessonDrop";
-import { buildCandidateMarks } from "../utils/moveCandidates";
+import { buildCandidateMarks, swapMarkKey, type CandidateMark } from "../utils/moveCandidates";
 import type { PeriodDisplayMap } from "../utils/periodDisplay";
 import { formatVersionLabel } from "../utils/scheduleVersionFormat";
-import { mergeViolationsBySentence } from "../utils/violationMerge";
+import { mergeViolationsBySentence, splitBySeverity } from "../utils/violationMerge";
 import { resolveLocateTarget, type TimetableViewMode } from "../utils/violationLocate";
 import type { ConstraintViolationDetail } from "../types/scheduler";
 import type { TimeSlot } from "../types/timeSlot";
@@ -31,6 +32,7 @@ import {
   BUTTON_SECONDARY,
   BUTTON_SECONDARY_SM,
   CANDIDATE_LEGEND,
+  CANDIDATE_LEGEND_BLOCKED_SWATCH,
   CANDIDATE_LEGEND_CONFLICT_SWATCH,
   CANDIDATE_LEGEND_SAFE_SWATCH,
   CANDIDATE_LEGEND_UNAVAILABLE_SWATCH,
@@ -116,6 +118,9 @@ export default function TimetableView(): ReactElement {
   const [isEditModeOn, setIsEditModeOn] = useState(false);
   const adjustment = useLessonAdjustment(selectedVersionId);
   const adjustmentFlash = useFlashMessage(4000);
+  // Task 90: why a lesson block can't go where it was dropped -- shown
+  // instead of sending a request the backend would refuse (409).
+  const blockedFlash = useFlashMessage(5000);
 
   // Task 71 fix: the cell a just-saved move/swap landed in. Separate from
   // highlightedTimeSlotId (「在課表中查看」), and only shown in edit mode;
@@ -269,16 +274,50 @@ export default function TimetableView(): ReactElement {
   );
   const candidateData = candidateState.status === "ready" ? candidateState.data : null;
   const timetableLookups = timetable.data?.lookups ?? null;
+  const timetableSchedules = timetable.data?.schedules ?? null;
   // Computed once per response: the grid re-renders on every dragover.
-  const candidateMarks = useMemo(
-    () =>
-      candidateData === null || timetableLookups === null
-        ? null
-        : buildCandidateMarks(candidateData, (violation) =>
-            getViolationSentence(violation, timetableLookups),
-          ),
-    [candidateData, timetableLookups],
-  );
+  // Task 90: with the lesson's block, so the marks know where the whole
+  // block lands.
+  const candidateMarks = useMemo(() => {
+    if (candidateData === null || timetableLookups === null || timetableSchedules === null) {
+      return null;
+    }
+    const source = timetableSchedules.find(
+      (schedule) => schedule.scheduleId === candidateData.schedule_id,
+    );
+    return buildCandidateMarks(
+      candidateData,
+      (violation) => getViolationSentence(violation, timetableLookups),
+      source === undefined ? undefined : blockGroupMemberIds(timetableSchedules, source),
+    );
+  }, [candidateData, timetableLookups, timetableSchedules]);
+
+  // Task 90: the blocked mark for this lesson's move / swap, when the shown
+  // marks are this lesson's; null otherwise (then the request is sent and
+  // the backend decides, as before).
+  function blockedMarkOf(lesson: EnrichedSchedule, mark: CandidateMark | undefined): string | null {
+    if (candidateData === null || candidateData.schedule_id !== lesson.scheduleId) {
+      return null;
+    }
+    return mark?.status === "blocked" ? mark.reason : null;
+  }
+  function refuseIfBlockedMove(lesson: EnrichedSchedule, timeSlot: TimeSlot): boolean {
+    const reason = blockedMarkOf(lesson, candidateMarks?.cells.get(timeSlot.id));
+    if (reason !== null) {
+      blockedFlash.showFlash(reason);
+    }
+    return reason !== null;
+  }
+  function refuseIfBlockedSwap(lesson: EnrichedSchedule, other: EnrichedSchedule): boolean {
+    const reason = blockedMarkOf(
+      lesson,
+      candidateMarks?.swaps.get(swapMarkKey(other.timeSlotId, other.scheduleId)),
+    );
+    if (reason !== null) {
+      blockedFlash.showFlash(reason);
+    }
+    return reason !== null;
+  }
 
   // Clicking the selected lesson (or any lesson when none is selected)
   // toggles the selection; clicking another lesson while one is selected
@@ -287,6 +326,15 @@ export default function TimetableView(): ReactElement {
     setAdjustedTimeSlotId(null);
     if (selectedLesson === null || selectedLesson.scheduleId === lesson.scheduleId) {
       adjustment.toggleSelection(lesson.scheduleId);
+      return;
+    }
+    // Task 90: another lesson of the selected block deselects it, like
+    // clicking the selected lesson itself (a block can't swap with itself).
+    if (blockGroupMemberIds(schedules, selectedLesson).has(lesson.scheduleId)) {
+      adjustment.clearSelection();
+      return;
+    }
+    if (refuseIfBlockedSwap(selectedLesson, lesson)) {
       return;
     }
     previewedLessonIdRef.current = selectedLesson.scheduleId;
@@ -298,6 +346,9 @@ export default function TimetableView(): ReactElement {
       return;
     }
     setAdjustedTimeSlotId(null);
+    if (refuseIfBlockedMove(selectedLesson, timeSlot)) {
+      return;
+    }
     previewedLessonIdRef.current = selectedLesson.scheduleId;
     adjustment.requestPreview({
       kind: "move",
@@ -319,11 +370,17 @@ export default function TimetableView(): ReactElement {
   }
 
   function handleDropOnCell(lesson: EnrichedSchedule, timeSlot: TimeSlot): void {
+    if (refuseIfBlockedMove(lesson, timeSlot)) {
+      return;
+    }
     previewedLessonIdRef.current = lesson.scheduleId;
     adjustment.requestPreview({ kind: "move", lesson, targetTimeSlotId: timeSlot.id });
   }
 
   function handleDropOnLesson(lesson: EnrichedSchedule, other: EnrichedSchedule): void {
+    if (refuseIfBlockedSwap(lesson, other)) {
+      return;
+    }
     previewedLessonIdRef.current = lesson.scheduleId;
     adjustment.requestPreview({ kind: "swap", lesson, other });
   }
@@ -429,12 +486,18 @@ export default function TimetableView(): ReactElement {
   // The summary counts lines as the checklist shows them (merged), not raw
   // violation records.
   const checkLookups = timetable.data?.lookups ?? null;
-  const checkProblemCount =
+  // Task 90: problems (ERROR) and warnings are counted apart; whether the
+  // timetable is valid is the backend's is_valid.
+  const checkCounts =
     scheduleCheck.result === null || checkLookups === null
-      ? 0
-      : mergeViolationsBySentence(scheduleCheck.result.violations, (violation) =>
-          getViolationSentence(violation, checkLookups),
-        ).length;
+      ? { errors: [], warnings: [] }
+      : splitBySeverity(
+          mergeViolationsBySentence(scheduleCheck.result.violations, (violation) =>
+            getViolationSentence(violation, checkLookups),
+          ),
+        );
+  const checkProblemCount = checkCounts.errors.length;
+  const checkWarningCount = checkCounts.warnings.length;
 
   const selectedLessonSlotLabel =
     selectedLesson === null || checkLookups === null
@@ -519,6 +582,14 @@ export default function TimetableView(): ReactElement {
               {checkProblemCount > 0 && (
                 <p className="mb-2 text-sm font-semibold text-red-600">
                   共 {checkProblemCount} 項問題
+                  {checkWarningCount > 0 && (
+                    <span className="ml-2 font-normal text-amber-800">另有 {checkWarningCount} 項警告</span>
+                  )}
+                </p>
+              )}
+              {scheduleCheck.result.is_valid && checkWarningCount > 0 && (
+                <p className={`${SUCCESS_TEXT} mb-2`}>
+                  ✓ 沒有違反排課規則的問題，另有 {checkWarningCount} 項警告（不影響課表是否合法）
                 </p>
               )}
               <ConflictChecklist
@@ -577,6 +648,11 @@ export default function TimetableView(): ReactElement {
               )}
               {adjustmentFlash.message !== null && (
                 <p className={SUCCESS_TEXT}>✓ {adjustmentFlash.message}</p>
+              )}
+              {blockedFlash.message !== null && (
+                <p role="alert" className={NOTICE}>
+                  無法放在這裡：{blockedFlash.message}
+                </p>
               )}
               {adjustment.previewError !== null && (
                 <p role="alert" className={ERROR_TEXT}>
@@ -664,7 +740,7 @@ export default function TimetableView(): ReactElement {
             <div
               className={CANDIDATE_LEGEND}
               aria-label="候選位置圖例"
-              title="淡綠：移到這裡不會新增問題。淡紅斜紋：會新增問題，滑鼠停在格子右上角的 ✕ 可看原因，仍可放下並預覽。灰色：非教學時段，不能放。與某堂課對調的結果寫在那堂課的滑鼠提示中。"
+              title="淡綠：移到這裡不會新增問題（新增的警告不算）。淡紅斜紋：會新增問題，滑鼠停在格子右上角的 ✕ 可看原因，仍可放下並預覽。灰色斜紋：連堂整組放不進去，滑鼠停在 ⊘ 可看原因。灰色：非教學時段，不能放。拖曳連堂時，整組會落在的格子以綠色虛線框出。與某堂課對調的結果寫在那堂課的滑鼠提示中。"
             >
               <span className="inline-flex items-center gap-1">
                 <span className={CANDIDATE_LEGEND_SAFE_SWATCH} aria-hidden="true" />
@@ -677,6 +753,10 @@ export default function TimetableView(): ReactElement {
               <span className="inline-flex items-center gap-1">
                 <span className={CANDIDATE_LEGEND_UNAVAILABLE_SWATCH} aria-hidden="true" />
                 非教學
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className={CANDIDATE_LEGEND_BLOCKED_SWATCH} aria-hidden="true" />
+                不可放
               </span>
             </div>
           )}
@@ -725,6 +805,7 @@ export default function TimetableView(): ReactElement {
           onConfirm={handleConfirmAdjustment}
           onCancel={adjustment.closePreview}
           restoreFocusFallback={restoreFocusAfterPreview}
+          schedules={schedules}
         />
       )}
     </div>

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useState, type ReactElement } from "react";
 import {
   list as listRequirements,
   create as createRequirement,
@@ -10,9 +10,18 @@ import { list as listAcademicYears } from "../api/academicYears";
 import { list as listClasses } from "../api/classes";
 import { list as listSubjects } from "../api/subjects";
 import { list as listTeachers } from "../api/teachers";
+import { list as listTimeSlots } from "../api/timeSlots";
 import { useResource } from "../hooks/useResource";
 import { useCrudList } from "../hooks/useCrudList";
 import { formatSemesterLabel } from "../utils/scheduleVersionFormat";
+import {
+  NO_PATTERN,
+  countTeachingDays,
+  formatLessonPattern,
+  isLessonPatternOffered,
+  lessonPatternOptions,
+  type LessonPatternOption,
+} from "../utils/lessonPattern";
 import type {
   ClassSubjectRequirement,
   ClassSubjectRequirementCreate,
@@ -32,6 +41,7 @@ import {
   HELP_TEXT,
   LOADING_TEXT,
   LOCK_BADGE,
+  NOTICE,
   PAGE,
   PAGE_TITLE,
   SELECT,
@@ -80,6 +90,99 @@ function getTakenSubjectIds(
   );
 }
 
+// Task 90: the lesson pattern (連堂樣式) choice. Its options follow the
+// weekly periods typed in the same row (utils/lessonPattern.ts); a pattern
+// the new number can't take is reset to 「不指定連堂」 right away, with a
+// notice. Shared by the new and the edit row.
+const PATTERN_RESET_NOTICE = "每週節數改變，連堂樣式已重設為「不指定連堂」";
+
+function usePatternDraft(
+  initialPattern: string,
+  teachingDays: number | null,
+): {
+  pattern: string;
+  setPattern: (pattern: string) => void;
+  notice: string | null;
+  // Call with the new weekly periods whenever they change.
+  onWeeklyPeriodsChange: (weeklyPeriods: number | null) => void;
+  reset: (pattern: string) => void;
+} {
+  const [pattern, setPattern] = useState(initialPattern);
+  const [notice, setNotice] = useState<string | null>(null);
+  // Stable, so the edit row's re-seeding effect can list it as a dependency.
+  const reset = useCallback((next: string) => {
+    setPattern(next);
+    setNotice(null);
+  }, []);
+  return {
+    pattern,
+    setPattern: (next) => {
+      setPattern(next);
+      setNotice(null);
+    },
+    notice,
+    onWeeklyPeriodsChange: (weeklyPeriods) => {
+      const options = lessonPatternOptions(weeklyPeriods, teachingDays);
+      if (!isLessonPatternOffered(pattern, options)) {
+        setPattern(NO_PATTERN);
+        setNotice(PATTERN_RESET_NOTICE);
+      }
+    },
+    reset,
+  };
+}
+
+function LessonPatternSelect({
+  weeklyPeriods,
+  teachingDays,
+  value,
+  notice,
+  disabled,
+  onChange,
+}: {
+  weeklyPeriods: number | null;
+  teachingDays: number | null;
+  value: string;
+  notice: string | null;
+  disabled: boolean;
+  onChange: (pattern: string) => void;
+}): ReactElement {
+  const offered = lessonPatternOptions(weeklyPeriods, teachingDays);
+  // A stored pattern the options leave out (e.g. more blocks than the
+  // current teaching days) stays selectable, so opening the editor never
+  // changes it silently.
+  const options: LessonPatternOption[] =
+    offered.length > 0 && !isLessonPatternOffered(value, offered)
+      ? [...offered, { value, label: `${value}（目前設定）` }]
+      : offered;
+  return (
+    <>
+      {options.length > 0 ? (
+        <select
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          disabled={disabled}
+          aria-label="連堂樣式"
+          className={ROW_SELECT}
+        >
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <span className="text-xs text-gray-400">每週 2 節以上才能設定</span>
+      )}
+      {notice !== null && <p className={`${NOTICE} mt-1 text-xs`}>{notice}</p>}
+    </>
+  );
+}
+
+function patternToSend(pattern: string): string | null {
+  return pattern === NO_PATTERN ? null : pattern;
+}
+
 function RequirementNewRow({
   requirements,
   semesters,
@@ -87,6 +190,7 @@ function RequirementNewRow({
   classes,
   subjects,
   teachers,
+  teachingDays,
   isPending,
   errorMessage,
   onConfirm,
@@ -98,6 +202,7 @@ function RequirementNewRow({
   classes: Class[];
   subjects: Subject[];
   teachers: Teacher[];
+  teachingDays: number | null;
   isPending: boolean;
   errorMessage: string | null;
   onConfirm: (data: ClassSubjectRequirementCreate) => void;
@@ -109,11 +214,9 @@ function RequirementNewRow({
   const [weeklyPeriodsText, setWeeklyPeriodsText] = useState("");
   const [requiredTeacherId, setRequiredTeacherId] = useState<number | "">("");
   const [requiredRoomType, setRequiredRoomType] = useState("");
-  const [consecutiveLimitText, setConsecutiveLimitText] = useState("");
+  const lessonPattern = usePatternDraft(NO_PATTERN, teachingDays);
 
   const weeklyPeriods = weeklyPeriodsText === "" ? null : Number(weeklyPeriodsText);
-  const consecutiveLimit =
-    consecutiveLimitText === "" ? null : Number(consecutiveLimitText);
 
   const hasSemesterOptions = semesters.length > 0;
   const hasClassOptions = classes.length > 0;
@@ -132,7 +235,7 @@ function RequirementNewRow({
       weekly_periods: weeklyPeriods,
       required_teacher_id: requiredTeacherId === "" ? null : requiredTeacherId,
       required_room_type: requiredRoomType.trim() === "" ? null : requiredRoomType,
-      consecutive_limit: consecutiveLimit,
+      lesson_pattern: patternToSend(lessonPattern.pattern),
     });
   }
 
@@ -216,7 +319,12 @@ function RequirementNewRow({
         <input
           type="number"
           value={weeklyPeriodsText}
-          onChange={(event) => setWeeklyPeriodsText(event.target.value)}
+          onChange={(event) => {
+            setWeeklyPeriodsText(event.target.value);
+            lessonPattern.onWeeklyPeriodsChange(
+              event.target.value === "" ? null : Number(event.target.value),
+            );
+          }}
           disabled={isPending}
           aria-label="每週節數"
           className={`${SELECT} w-20`}
@@ -253,14 +361,13 @@ function RequirementNewRow({
         />
       </td>
       <td className={TD}>
-        <input
-          type="number"
-          value={consecutiveLimitText}
-          onChange={(event) => setConsecutiveLimitText(event.target.value)}
+        <LessonPatternSelect
+          weeklyPeriods={weeklyPeriods}
+          teachingDays={teachingDays}
+          value={lessonPattern.pattern}
+          notice={lessonPattern.notice}
           disabled={isPending}
-          aria-label="連續節數限制"
-          placeholder="未設定"
-          className={`${SELECT} w-20`}
+          onChange={lessonPattern.setPattern}
         />
       </td>
       <td className={TD}>
@@ -305,6 +412,7 @@ function RequirementRow({
   subjectNameById,
   teachers,
   teacherNameById,
+  teachingDays,
   isAdmin,
   isEditing,
   isPending,
@@ -325,6 +433,7 @@ function RequirementRow({
   subjectNameById: Map<number, string>;
   teachers: Teacher[];
   teacherNameById: Map<number, string>;
+  teachingDays: number | null;
   isAdmin: boolean;
   isEditing: boolean;
   isPending: boolean;
@@ -346,9 +455,8 @@ function RequirementRow({
   const [draftRequiredRoomType, setDraftRequiredRoomType] = useState(
     requirement.required_room_type ?? "",
   );
-  const [draftConsecutiveLimitText, setDraftConsecutiveLimitText] = useState(
-    requirement.consecutive_limit === null ? "" : String(requirement.consecutive_limit),
-  );
+  const draftPattern = usePatternDraft(requirement.lesson_pattern ?? NO_PATTERN, teachingDays);
+  const resetDraftPattern = draftPattern.reset;
 
   // Re-seeds every draft field from the row's current values every time
   // inline editing starts -- same pattern every other CRUD row in this
@@ -363,18 +471,12 @@ function RequirementRow({
       setDraftWeeklyPeriodsText(String(requirement.weekly_periods));
       setDraftRequiredTeacherId(requirement.required_teacher_id ?? "");
       setDraftRequiredRoomType(requirement.required_room_type ?? "");
-      setDraftConsecutiveLimitText(
-        requirement.consecutive_limit === null
-          ? ""
-          : String(requirement.consecutive_limit),
-      );
+      resetDraftPattern(requirement.lesson_pattern ?? NO_PATTERN);
     }
-  }, [isEditing, requirement]);
+  }, [isEditing, requirement, resetDraftPattern]);
 
   const draftWeeklyPeriods =
     draftWeeklyPeriodsText === "" ? null : Number(draftWeeklyPeriodsText);
-  const draftConsecutiveLimit =
-    draftConsecutiveLimitText === "" ? null : Number(draftConsecutiveLimitText);
 
   const takenSubjectIds = getTakenSubjectIds(
     requirements,
@@ -398,7 +500,7 @@ function RequirementRow({
       required_teacher_id: draftRequiredTeacherId === "" ? null : draftRequiredTeacherId,
       required_room_type:
         draftRequiredRoomType.trim() === "" ? null : draftRequiredRoomType,
-      consecutive_limit: draftConsecutiveLimit,
+      lesson_pattern: patternToSend(draftPattern.pattern),
     });
   }
 
@@ -468,7 +570,12 @@ function RequirementRow({
           <input
             type="number"
             value={draftWeeklyPeriodsText}
-            onChange={(event) => setDraftWeeklyPeriodsText(event.target.value)}
+            onChange={(event) => {
+              setDraftWeeklyPeriodsText(event.target.value);
+              draftPattern.onWeeklyPeriodsChange(
+                event.target.value === "" ? null : Number(event.target.value),
+              );
+            }}
             disabled={isPending}
             aria-label="每週節數"
             className={`${SELECT} w-20`}
@@ -505,14 +612,13 @@ function RequirementRow({
           />
         </td>
         <td className={TD}>
-          <input
-            type="number"
-            value={draftConsecutiveLimitText}
-            onChange={(event) => setDraftConsecutiveLimitText(event.target.value)}
+          <LessonPatternSelect
+            weeklyPeriods={draftWeeklyPeriods}
+            teachingDays={teachingDays}
+            value={draftPattern.pattern}
+            notice={draftPattern.notice}
             disabled={isPending}
-            aria-label="連續節數限制"
-            placeholder="未設定"
-            className={`${SELECT} w-20`}
+            onChange={draftPattern.setPattern}
           />
         </td>
         <td className={TD}>
@@ -570,7 +676,7 @@ function RequirementRow({
             `教師 ID ${requirement.required_teacher_id}`)}
       </td>
       <td className={cellClass}>{requirement.required_room_type ?? "原班教室"}</td>
-      <td className={cellClass}>{requirement.consecutive_limit ?? "未設定"}</td>
+      <td className={cellClass}>{formatLessonPattern(requirement.lesson_pattern)}</td>
       <td className={TD}>
         {isLocked && (
           <div className="mb-1 flex flex-col items-start gap-1">
@@ -621,6 +727,9 @@ export default function RequirementsOverview(): ReactElement {
   const classesResource = useResource(() => listClasses(), []);
   const subjectsResource = useResource(() => listSubjects(), []);
   const teachersResource = useResource(() => listTeachers(), []);
+  // Task 90: only for how many days a week have teaching periods (the
+  // pattern choices). Not required: if it fails, no choice is filtered.
+  const timeSlotsResource = useResource(() => listTimeSlots(0, 1000), []);
 
   const crud = useCrudList<
     ClassSubjectRequirement,
@@ -693,6 +802,7 @@ export default function RequirementsOverview(): ReactElement {
   const classes = classesResource.data ?? [];
   const subjects = subjectsResource.data ?? [];
   const teachers = teachersResource.data ?? [];
+  const teachingDays = countTeachingDays(timeSlotsResource.data);
 
   // id -> name lookups, built once the supporting lists are in -- this is
   // the "join" the backend deliberately doesn't do for us (Task 31's
@@ -737,7 +847,7 @@ export default function RequirementsOverview(): ReactElement {
               <th className={TH}>每週節數</th>
               <th className={TH}>指定教師</th>
               <th className={TH}>指定教室類型</th>
-              <th className={TH}>連續節數限制</th>
+              <th className={TH}>連堂樣式</th>
               {isAdmin && <th className={TH}>操作</th>}
             </tr>
           </thead>
@@ -750,6 +860,7 @@ export default function RequirementsOverview(): ReactElement {
                 classes={classes}
                 subjects={subjects}
                 teachers={teachers}
+                teachingDays={teachingDays}
                 isPending={crud.pendingKey === "new"}
                 errorMessage={crud.rowErrors.get("new") ?? null}
                 onConfirm={(data) => void crud.submitCreate(data)}
@@ -770,6 +881,7 @@ export default function RequirementsOverview(): ReactElement {
                 subjectNameById={subjectNameById}
                 teachers={teachers}
                 teacherNameById={teacherNameById}
+                teachingDays={teachingDays}
                 isAdmin={isAdmin}
                 isEditing={crud.editingId === requirement.id}
                 isPending={crud.pendingKey === requirement.id}

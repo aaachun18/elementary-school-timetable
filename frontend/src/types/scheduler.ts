@@ -41,7 +41,21 @@ export interface ConstraintViolationDetail {
   suggested_action: string | null;
   room_id: number | null;
   class_subject_requirement_id: number | null;
+  // Task 90 (backend Task 88): optional -- older responses don't carry them.
+  // block_no: which lesson block (連堂) of the requirement a BLOCK_*
+  // violation is about. identity_key: "which problem is this", the same
+  // before and after a move (set by the newer types only; see
+  // utils/violationMerge.ts). schedule_id: the Schedule row of lesson_id
+  // (filled in by GET /check and everything built on it).
+  block_no?: number | null;
+  identity_key?: string | null;
+  schedule_id?: number | null;
 }
+
+// Task 90: ConstraintViolationDetail.severity. A WARNING (backend Task 88:
+// TEACHER_MIN_WORKLOAD only, so far) is listed but never makes a timetable
+// invalid -- ScheduleCheckResult.is_valid is "no ERROR".
+export const SEVERITY_WARNING = "WARNING";
 
 export interface LessonFailureDetail {
   lesson_id: number;
@@ -142,20 +156,51 @@ export interface TeacherReassignmentResult {
 // MoveCandidatesResult. Every check is a complete list, same as /check --
 // the frontend compares it with `baseline` itself (diffViolations()). ---
 
+// Task 90 (backend Task 89): one Schedule row that moves with a change of
+// a lesson block (連堂), and where it goes.
+export interface BlockMember {
+  schedule_id: number;
+  to_time_slot_id: number | null;
+}
+
+// Task 90: a lesson in the slot the selected one can't be swapped with
+// under the block rules (reason: "BLOCK_SWAP_UNSUPPORTED").
+export interface UnsupportedSwap {
+  swap_with_schedule_id: number;
+  reason: string;
+}
+
 // Swapping the lesson with this row: the version's check after the swap.
+// Task 90: block_members -- every row the swap moves (both whole groups)
+// when a block is involved; null/absent for two single lessons.
 export interface MoveCandidateSwap {
   swap_with_schedule_id: number;
   check: ScheduleCheckResult;
+  block_members?: BlockMember[] | null;
 }
 
-// One time slot. available=false ("NON_TEACHING_SLOT" / "CURRENT_SLOT")
-// means it is not a move target, and `move` is null.
+// One time slot. available=false ("NON_TEACHING_SLOT" / "CURRENT_SLOT", or
+// -- Task 90, a lesson in a block -- "BLOCK_OUT_OF_RANGE" /
+// "BLOCK_TARGET_OCCUPIED") means it is not a move target, and `move` is
+// null. block_members: where every lesson of the selected lesson's block
+// goes for this move (null/absent for a single lesson); unsupported_swaps:
+// lessons here that can't be swapped with (null/absent when none).
 export interface MoveCandidateSlot {
   time_slot_id: number;
   available: boolean;
   unavailable_reason: string | null;
   move: ScheduleCheckResult | null;
   swaps: MoveCandidateSwap[];
+  block_members?: BlockMember[] | null;
+  unsupported_swaps?: UnsupportedSwap[] | null;
+}
+
+// Task 90 (backend Task 89): the 409 body of move-lesson / swap-lessons
+// when the lesson block rules refuse a change -- `detail` is Chinese,
+// `reason` one of the BLOCK_* codes move-candidates also reports.
+export interface BlockAdjustmentRefusal {
+  detail: string;
+  reason: string;
 }
 
 export interface MoveCandidatesResult {

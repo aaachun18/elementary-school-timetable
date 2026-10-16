@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { resolveViolationPageTarget } from "../constants/violationPageMapping";
 import type { ConstraintViolationDetail } from "../types/scheduler";
 import type { TimeSlot } from "../types/timeSlot";
-import { getViolationSentence, type NameLookups } from "./failureDiagnostics";
+import {
+  getGroupedLessonFailureSentence,
+  getViolationSentence,
+  type NameLookups,
+} from "./failureDiagnostics";
 
 // Task 81: the scheduler's pre-check reasons for fixed time slots that can
 // never be honored (STATIC_FIXED_SLOT_*), as the console's failure
@@ -140,5 +144,85 @@ describe("fixed time slot pre-check sentences", () => {
     expect(getViolationSentence(fixedSlotViolation("STATIC_SOMETHING_NEW"), lookups)).toBe(
       "english message",
     );
+  });
+});
+
+// --- Task 90: lesson blocks (連堂) and the minimum workload warning ---
+
+describe("Task 90: lesson block sentences", () => {
+  it.each([
+    [
+      "BLOCK_NOT_CONSECUTIVE",
+      { block_no: 1, time_slot_id: FRIDAY_8 },
+      "901班A的國語第 1 組連堂沒有排在同一天相鄰的節次！",
+    ],
+    ["BLOCK_NOT_CONSECUTIVE", { time_slot_id: FRIDAY_8 }, "901班A的國語連堂沒有排在同一天相鄰的節次！"],
+    ["BLOCK_SAME_DAY", { block_no: 2, time_slot_id: FRIDAY_8 }, "901班A的國語有不同組的連堂排在同一天（星期五）！"],
+    [
+      "TEACHER_MIN_WORKLOAD",
+      { teacher_id: 1, class_id: null, subject_id: null, lesson_id: null, time_slot_id: null },
+      "王老師的排課總節數低於每週最低授課節數！",
+    ],
+    ["BLOCK_NO_WINDOW", { time_slot_id: null }, "901班A的國語的連堂找不到同一天足夠的連續教學節次！"],
+    [
+      "STATIC_BLOCK_TOO_LONG",
+      { time_slot_id: null },
+      "901班A的國語的連堂樣式中，有一組的節數超過任何一天可連續上課的節數！",
+    ],
+    ["STATIC_BLOCK_TOO_MANY_DAYS", { time_slot_id: null }, "901班A的國語的連堂組數多於一週的上課天數！"],
+    [
+      "STATIC_BLOCK_NOT_ENOUGH_DAYS",
+      { time_slot_id: null },
+      "901班A的國語的各組連堂要排在不同天，但有足夠連續節次的天數不夠！",
+    ],
+    [
+      "STATIC_BLOCK_FIXED_CONFLICT",
+      { time_slot_id: null },
+      "901班A的國語同一組連堂的固定時段，無法排成同一天依序相鄰的節次！",
+    ],
+    ["STATIC_BLOCK_FIXED_SAME_DAY", { time_slot_id: null }, "901班A的國語有不同組的連堂被固定在同一天！"],
+    [
+      "STATIC_BLOCK_TEACHER_UNAVAILABLE",
+      { teacher_id: 1, time_slot_id: null },
+      "901班A的國語的連堂排不進去：王老師在每一段可用的連續節次中都有不可排課的時段！",
+    ],
+    [
+      "STATIC_BLOCK_TEACHER_UNAVAILABLE",
+      { time_slot_id: null },
+      "901班A的國語的連堂排不進去：所有可教授國語的教師在每一段可用的連續節次中都有不可排課的時段！",
+    ],
+  ])("%s %j", (type, fields, expected) => {
+    const sentence = getViolationSentence(fixedSlotViolation(type, fields), lookups);
+
+    expect(sentence).toBe(expected);
+    expect(sentence).not.toContain("english message");
+  });
+
+  it("points every block pre-check at the page that fixes it", () => {
+    const pathOf = (type: string): string | null => {
+      const target = resolveViolationPageTarget(fixedSlotViolation(type), lookups);
+      return target.kind === "link" ? target.path : null;
+    };
+    expect(pathOf("STATIC_BLOCK_TOO_LONG")).toBe("/requirements");
+    expect(pathOf("STATIC_BLOCK_TOO_MANY_DAYS")).toBe("/requirements");
+    expect(pathOf("STATIC_BLOCK_NOT_ENOUGH_DAYS")).toBe("/requirements");
+    expect(pathOf("BLOCK_NO_WINDOW")).toBe("/requirements");
+    expect(pathOf("STATIC_BLOCK_FIXED_CONFLICT")).toBe("/scheduler");
+    expect(pathOf("STATIC_BLOCK_FIXED_SAME_DAY")).toBe("/scheduler");
+    expect(pathOf("STATIC_BLOCK_TEACHER_UNAVAILABLE")).toBe("/data?tab=teachers");
+    expect(pathOf("TEACHER_MIN_WORKLOAD")).toBe("/data?tab=teachers");
+  });
+
+  it("explains a block lesson failure in the grouped sentence", () => {
+    const sentence = getGroupedLessonFailureSentence(
+      {
+        key: "k",
+        classSubjectRequirementId: 5,
+        lessonIds: [50, 51],
+        representative: fixedSlotViolation("BLOCK_NO_WINDOW", { time_slot_id: null }),
+      },
+      { ...lookups, requirementById: new Map([[5, { id: 5, class_id: 10, subject_id: 20 }]] as never) },
+    );
+    expect(sentence).toBe("901班A的國語（共 2 堂課）：連堂找不到同一天足夠的連續教學節次，這些課無法排定！");
   });
 });

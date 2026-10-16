@@ -18,6 +18,11 @@ function lesson(scheduleId: number, timeSlotId: number): EnrichedSchedule {
     teacherName: "王老師",
     roomId: null,
     roomName: null,
+    // Task 90: no lesson block.
+    requirementId: 40,
+    blockNo: null,
+    blockSeq: null,
+    blockSize: 0,
   };
 }
 

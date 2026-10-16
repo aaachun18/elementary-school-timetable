@@ -282,3 +282,130 @@ describe("candidateStateFor (stale responses)", () => {
     expect(candidateStateFor(results, "1:5:1")).toEqual({ status: "loading" });
   });
 });
+
+// --- Task 90: warnings, lesson blocks ---
+
+const minWorkload = violation({
+  type: "TEACHER_MIN_WORKLOAD",
+  severity: "WARNING",
+  teacher_id: 2,
+  identity_key: "TEACHER_MIN_WORKLOAD:2",
+});
+
+describe("Task 90: only errors make a candidate red", () => {
+  it("keeps a move that only adds a warning safe", () => {
+    expect(assessCandidate(check(), check(minWorkload), sentenceOf)).toEqual({ status: "safe" });
+  });
+
+  it("lists only the added errors as reasons", () => {
+    const mark = assessCandidate(check(), check(minWorkload, linUnavailable), sentenceOf);
+    expect(mark).toEqual({
+      status: "conflict",
+      reasons: ["林老師在星期一第 1 節已標記為不可排課，但仍被排入該時段！"],
+    });
+  });
+});
+
+// The selected lesson (row 70) is the first of a block of two (rows 70,
+// 71) on Monday 1-2; 72 is a single lesson on Monday 3, 73 another block
+// of two's first lesson on Tuesday 1.
+const TUE_1 = slotId(2, 1);
+const TUE_2 = slotId(2, 2);
+const MON_2 = slotId(1, 2);
+const MON_3 = slotId(1, 3);
+const blockResponse: MoveCandidatesResult = {
+  schedule_version_id: 1,
+  schedule_id: 70,
+  current_time_slot_id: MON_1,
+  baseline: check(),
+  candidates: [
+    {
+      time_slot_id: TUE_1,
+      available: false,
+      unavailable_reason: "BLOCK_TARGET_OCCUPIED",
+      move: null,
+      swaps: [
+        {
+          swap_with_schedule_id: 73,
+          check: check(),
+          block_members: [
+            { schedule_id: 70, to_time_slot_id: TUE_1 },
+            { schedule_id: 71, to_time_slot_id: TUE_2 },
+            { schedule_id: 73, to_time_slot_id: MON_1 },
+            { schedule_id: 74, to_time_slot_id: MON_2 },
+          ],
+        },
+      ],
+      block_members: null,
+      unsupported_swaps: null,
+    },
+    {
+      time_slot_id: MON_3,
+      available: false,
+      unavailable_reason: "BLOCK_OUT_OF_RANGE",
+      move: null,
+      swaps: [],
+      unsupported_swaps: [{ swap_with_schedule_id: 72, reason: "BLOCK_SWAP_UNSUPPORTED" }],
+    },
+    {
+      time_slot_id: slotId(3, 6),
+      available: true,
+      unavailable_reason: null,
+      move: check(),
+      swaps: [],
+      block_members: [
+        { schedule_id: 70, to_time_slot_id: slotId(3, 6) },
+        { schedule_id: 71, to_time_slot_id: slotId(3, 7) },
+      ],
+    },
+    { time_slot_id: LUNCH, available: false, unavailable_reason: "NON_TEACHING_SLOT", move: null, swaps: [] },
+  ],
+};
+const blockGroup = new Set([70, 71]);
+
+describe("Task 90: lesson block targets", () => {
+  it("marks a target the block rules refuse as blocked, with the reason", () => {
+    expect(markForCell(blockResponse, MON_3, sentenceOf)).toEqual({
+      status: "blocked",
+      reason: "整組放不下：會超出當天節次或跨過午休",
+    });
+    expect(markForCell(blockResponse, TUE_1, sentenceOf)).toEqual({
+      status: "blocked",
+      reason: "整組會壓到本班其他課，請改拖到要對調的那堂課上",
+    });
+    // Existing reasons keep their meaning.
+    expect(markForCell(blockResponse, LUNCH, sentenceOf)).toEqual({ status: "unavailable" });
+  });
+
+  it("marks an unsupported swap as blocked and a supported one by its check", () => {
+    expect(markForSwap(blockResponse, MON_3, 72, sentenceOf)).toEqual({
+      status: "blocked",
+      reason: "連堂只能與節數相同、已全部排課的另一組對調",
+    });
+    expect(markForSwap(blockResponse, TUE_1, 73, sentenceOf)).toEqual({ status: "safe" });
+  });
+
+  it("labels and describes a blocked mark", () => {
+    const blocked: CandidateMark = { status: "blocked", reason: "整組放不下" };
+    expect(candidateLabel(blocked, "move")).toBe("不可放");
+    expect(candidateLabel(blocked, "swap")).toBe("不可對調");
+    expect(candidateDescription(blocked, "move")).toBe("整組放不下");
+  });
+
+  it("collects where the dragged block lands for each move and swap", () => {
+    const marks = buildCandidateMarks(blockResponse, sentenceOf, blockGroup);
+
+    expect(marks.cellRanges.get(slotId(3, 6))).toEqual([slotId(3, 6), slotId(3, 7)]);
+    // The swap's range is the dragged block's landing slots only.
+    expect(marks.swapRanges.get(swapMarkKey(TUE_1, 73))).toEqual([TUE_1, TUE_2]);
+    expect(marks.swaps.get(swapMarkKey(MON_3, 72))?.status).toBe("blocked");
+    expect(marks.cells.get(MON_3)?.status).toBe("blocked");
+    expect(marks.cellRanges.has(MON_3)).toBe(false);
+  });
+
+  it("has no ranges for a lesson without a block", () => {
+    const marks = buildCandidateMarks(response, sentenceOf);
+    expect(marks.cellRanges.size).toBe(0);
+    expect(marks.swapRanges.size).toBe(0);
+  });
+});

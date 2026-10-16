@@ -32,6 +32,14 @@ export interface EnrichedSchedule {
   teacherName: string | null;
   roomId: number | null;
   roomName: string | null;
+  // Task 90: the lesson's requirement and lesson block (連堂) -- blockNo /
+  // blockSeq from the Lesson (null = no block), blockSize = how many
+  // lessons that block has in this semester (0 for no block). See
+  // utils/lessonBlocks.ts.
+  requirementId: number;
+  blockNo: number | null;
+  blockSeq: number | null;
+  blockSize: number;
 }
 
 // Task 35.5: a (weekday, period) TimeSlot lookup key. Task 35 originally
@@ -155,6 +163,16 @@ async function buildTimetableData(scheduleVersionId: number): Promise<TimetableD
     teacherIdsByRequirementId.set(lesson.class_subject_requirement_id, teacherIds);
   }
 
+  // Task 90: lessons per block, from every Lesson of the semester (a block
+  // lesson without a Schedule row still counts).
+  const blockSizes = new Map<string, number>();
+  for (const lesson of lessons) {
+    if (lesson.block_no !== null && lesson.block_no !== undefined) {
+      const key = `${lesson.class_subject_requirement_id}:${lesson.block_no}`;
+      blockSizes.set(key, (blockSizes.get(key) ?? 0) + 1);
+    }
+  }
+
   const enriched: EnrichedSchedule[] = [];
 
   for (const schedule of schedules) {
@@ -207,6 +225,13 @@ async function buildTimetableData(scheduleVersionId: number): Promise<TimetableD
       roomId: schedule.room_id,
       roomName:
         schedule.room_id === null ? null : (room?.name ?? `教室 ID ${schedule.room_id}`),
+      requirementId: lesson.class_subject_requirement_id,
+      blockNo: lesson.block_no ?? null,
+      blockSeq: lesson.block_seq ?? null,
+      blockSize:
+        lesson.block_no === null || lesson.block_no === undefined
+          ? 0
+          : (blockSizes.get(`${lesson.class_subject_requirement_id}:${lesson.block_no}`) ?? 0),
     });
   }
 

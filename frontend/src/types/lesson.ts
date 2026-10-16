@@ -10,6 +10,10 @@ export interface Lesson {
   class_subject_requirement_id: number;
   sequence_number: number;
   fixed_time_slot_id: number | null;
+  // Task 90 (backend Task 87): the lesson block (連堂) it belongs to and
+  // its place in it, both from 1; null (or absent) = no block.
+  block_no?: number | null;
+  block_seq?: number | null;
   created_at: string;
   updated_at: string;
 }

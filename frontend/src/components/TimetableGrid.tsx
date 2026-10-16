@@ -1,6 +1,12 @@
-import { useState, type DragEvent, type ReactElement } from "react";
+import { useMemo, useState, type DragEvent, type ReactElement } from "react";
 import { timeSlotKey, type EnrichedSchedule } from "../hooks/useTimetableData";
 import { canMoveLessonTo, canSwapLessons, lessonTargetId } from "../utils/lessonDrop";
+import {
+  blockGroupKey,
+  blockGroupMemberIds,
+  buildBlockLinks,
+  type BlockLink,
+} from "../utils/lessonBlocks";
 import {
   NO_MARK,
   candidateDescription,
@@ -16,13 +22,21 @@ import type { Lesson } from "../types/lesson";
 import type { TimeSlot } from "../types/timeSlot";
 import {
   BADGE_NEUTRAL,
+  BLOCK_BAR_BASE,
+  BLOCK_BAR_BOTTOM_END,
+  BLOCK_BAR_BOTTOM_JOINED,
+  BLOCK_BAR_TOP_END,
+  BLOCK_BAR_TOP_JOINED,
+  CANDIDATE_ICON_BLOCKED,
   CANDIDATE_ICON_CONFLICT,
   CANDIDATE_ICON_SAFE,
   CELL_MOVE_TARGET,
   DROP_TARGET_BLOCKED,
   DROP_TARGET_OK,
+  DROP_TARGET_RANGE,
   DROP_STRIP,
   DROP_ZONE,
+  DROP_ZONE_BLOCKED,
   LESSON_BUTTON,
   LESSON_BUTTON_DRAGGING,
   LESSON_BUTTON_DROP_OK,
@@ -33,6 +47,7 @@ import {
   TABLE_WRAPPER,
   TD,
   TD_ADJUSTED,
+  TD_CANDIDATE_BLOCKED,
   TD_CANDIDATE_CONFLICT,
   TD_CANDIDATE_SAFE,
   TD_HIGHLIGHT,
@@ -114,15 +129,30 @@ function CandidateIcon({ mark }: { mark: CandidateMark }): ReactElement | null {
     return null;
   }
   const isSafe = mark.status === "safe";
+  const isBlocked = mark.status === "blocked";
   return (
     <span
-      className={isSafe ? CANDIDATE_ICON_SAFE : CANDIDATE_ICON_CONFLICT}
+      className={isSafe ? CANDIDATE_ICON_SAFE : isBlocked ? CANDIDATE_ICON_BLOCKED : CANDIDATE_ICON_CONFLICT}
       title={`${label}：${description}`}
       aria-label={`${label}：${description}`}
       role="img"
     >
-      {isSafe ? "✓" : "✕"}
+      {isSafe ? "✓" : isBlocked ? "⊘" : "✕"}
     </span>
+  );
+}
+
+// Task 90: the bar along the left edge of a lesson block's cell; it joins
+// the cell above / below when the block's neighbouring lesson is there.
+function BlockBar({ link }: { link: BlockLink }): ReactElement {
+  return (
+    <span
+      aria-hidden="true"
+      data-block-bar=""
+      className={`${BLOCK_BAR_BASE} ${link.above ? BLOCK_BAR_TOP_JOINED : BLOCK_BAR_TOP_END} ${
+        link.below ? BLOCK_BAR_BOTTOM_JOINED : BLOCK_BAR_BOTTOM_END
+      }`}
+    />
   );
 }
 
@@ -140,7 +170,8 @@ function cellDetailOf(row: EnrichedSchedule, viewMode: TimetableViewMode): strin
 }
 
 function lessonAriaLabel(lesson: EnrichedSchedule, selected: EnrichedSchedule | null): string {
-  const name = `${lesson.className} ${lesson.subjectName}`;
+  // Task 90: a lesson block's lessons say so (the bar is visual only).
+  const name = `${lesson.className} ${lesson.subjectName}${blockGroupKey(lesson) !== null ? "（連堂）" : ""}`;
   if (selected === null) {
     return `選取 ${name}`;
   }
@@ -164,6 +195,7 @@ function LessonButton({
   viewMode,
   edit,
   dragState,
+  isInSelectedGroup,
   candidateMark,
   onDragStart,
   onDragEnd,
@@ -174,6 +206,9 @@ function LessonButton({
   viewMode: TimetableViewMode;
   edit: TimetableGridEditProps;
   dragState: LessonDragState;
+  // Task 90: another lesson of the selected lesson's block -- shown
+  // selected too, so the whole block reads as one.
+  isInSelectedGroup: boolean;
   // Task 84: what swapping the selected / dragged lesson with this one
   // would do.
   candidateMark: CandidateMark;
@@ -187,7 +222,7 @@ function LessonButton({
   const className =
     dragState !== null
       ? LESSON_CLASS_BY_DRAG_STATE[dragState]
-      : isSelected
+      : isSelected || isInSelectedGroup
         ? LESSON_BUTTON_SELECTED
         : LESSON_BUTTON;
   const candidateText = candidateDescription(candidateMark, "swap");
@@ -242,6 +277,45 @@ export default function TimetableGrid({
   // decided from `dragging` (dataTransfer can't be read until drop). ---
   const [dragging, setDragging] = useState<EnrichedSchedule | null>(null);
   const [dragHover, setDragHover] = useState<DragHover | null>(null);
+
+  // --- Task 90: lesson blocks (連堂). The bar joining a block's cells, in
+  // every mode; in edit mode the dragged / selected lesson's whole block is
+  // styled as dragged / selected, and while dragging, the cells where the
+  // whole block would land (move-candidates' block_members) are outlined.
+  const blockLinks = useMemo(() => buildBlockLinks(schedules), [schedules]);
+  const draggingGroup = useMemo(
+    () => (dragging === null ? null : blockGroupMemberIds(schedules, dragging)),
+    [schedules, dragging],
+  );
+  const selectedLesson = edit?.selected ?? null;
+  const selectedGroup = useMemo(
+    () => (selectedLesson === null ? null : blockGroupMemberIds(schedules, selectedLesson)),
+    [schedules, selectedLesson],
+  );
+  const marks = edit?.candidateMarks ?? null;
+
+  // The cells the dragged block would land in for the target under the
+  // pointer (empty for a single lesson, or a target it can't go to).
+  function landingRange(): ReadonlySet<number> {
+    if (dragging === null || dragHover === null || marks === null) {
+      return new Set();
+    }
+    if (dragHover.kind === "cell") {
+      const slot = timeSlotByWeekdayAndPeriod.get(dragHover.key);
+      return new Set(slot === undefined ? [] : (marks.cellRanges.get(slot.id) ?? []));
+    }
+    const target = schedules.find((schedule) => schedule.scheduleId === dragHover.scheduleId);
+    return new Set(
+      target === undefined
+        ? []
+        : (marks.swapRanges.get(swapMarkKey(target.timeSlotId, target.scheduleId)) ?? []),
+    );
+  }
+  const landing = landingRange();
+
+  function swapMarkOf(lesson: EnrichedSchedule): CandidateMark {
+    return marks === null ? NO_MARK : (marks.swaps.get(swapMarkKey(lesson.timeSlotId, lesson.scheduleId)) ?? NO_MARK);
+  }
 
   function endDrag(): void {
     setDragging(null);
@@ -337,20 +411,30 @@ export default function TimetableGrid({
 
   // The drop hint for a cell under the pointer, if any; null otherwise.
   function cellDropClass(key: string, timeSlot: TimeSlot | undefined): string | null {
-    if (dragging === null || dragHover?.kind !== "cell" || dragHover.key !== key) {
+    if (dragging === null) {
       return null;
     }
-    return canMoveLessonTo(dragging, timeSlot) ? DROP_TARGET_OK : DROP_TARGET_BLOCKED;
+    if (dragHover?.kind !== "cell" || dragHover.key !== key) {
+      // Task 90: another cell the dragged block would land in.
+      return timeSlot !== undefined && landing.has(timeSlot.id) ? DROP_TARGET_RANGE : null;
+    }
+    const isBlocked =
+      timeSlot !== undefined && marks?.cells.get(timeSlot.id)?.status === "blocked";
+    return canMoveLessonTo(dragging, timeSlot) && !isBlocked ? DROP_TARGET_OK : DROP_TARGET_BLOCKED;
   }
 
   function lessonDragState(lesson: EnrichedSchedule): LessonDragState {
     if (dragging === null) {
       return null;
     }
-    if (dragging.scheduleId === lesson.scheduleId) {
+    if (dragging.scheduleId === lesson.scheduleId || draggingGroup?.has(lesson.scheduleId) === true) {
       return "dragging";
     }
-    if (dragHover?.kind === "lesson" && dragHover.scheduleId === lesson.scheduleId) {
+    if (
+      dragHover?.kind === "lesson" &&
+      dragHover.scheduleId === lesson.scheduleId &&
+      swapMarkOf(lesson).status !== "blocked"
+    ) {
       return "dropOk";
     }
     return null;
@@ -462,6 +546,11 @@ export default function TimetableGrid({
                     lessonTargetId(schedule, viewMode) === targetId,
                 );
                 const cellClass = markerClass !== null ? `${TD} ${markerClass}` : TD;
+                // Task 90: the first lesson here that belongs to a block.
+                const blockLink =
+                  matches
+                    .map((lesson) => blockLinks.get(lesson.scheduleId))
+                    .find((link) => link !== undefined) ?? null;
                 // Task 84: the move mark for this cell (teaching cells only --
                 // non-teaching ones returned above).
                 const cellMark =
@@ -481,7 +570,9 @@ export default function TimetableGrid({
                       ? ` ${TD_CANDIDATE_SAFE}`
                       : cellMark.status === "conflict"
                         ? ` ${TD_CANDIDATE_CONFLICT}`
-                        : "";
+                        : cellMark.status === "blocked"
+                          ? ` ${TD_CANDIDATE_BLOCKED}`
+                          : "";
 
                 if (edit !== null) {
                   // Edit mode lists EVERY lesson in the cell, so a double
@@ -493,6 +584,7 @@ export default function TimetableGrid({
                       {...dropHandlers}
                       className={`${cellClass}${candidateCellClass} relative align-top`}
                     >
+                      {blockLink !== null && <BlockBar link={blockLink} />}
                       <div className="flex min-h-12 min-w-28 flex-col gap-1">
                         {isAdjusted && (
                           <span className="text-xs font-semibold text-sky-700">剛調整</span>
@@ -504,13 +596,8 @@ export default function TimetableGrid({
                             viewMode={viewMode}
                             edit={edit}
                             dragState={lessonDragState(lesson)}
-                            candidateMark={
-                              edit.candidateMarks !== null && timeSlot !== undefined
-                                ? (edit.candidateMarks.swaps.get(
-                                    swapMarkKey(timeSlot.id, lesson.scheduleId),
-                                  ) ?? NO_MARK)
-                                : NO_MARK
-                            }
+                            isInSelectedGroup={selectedGroup?.has(lesson.scheduleId) === true}
+                            candidateMark={swapMarkOf(lesson)}
                             onDragStart={(event) => handleLessonDragStart(lesson, event)}
                             onDragEnd={endDrag}
                             onDragOver={(event) => handleLessonDragOver(lesson, event)}
@@ -527,9 +614,15 @@ export default function TimetableGrid({
                             flow's buttons below). */}
                         {canDropHere &&
                           (isDragOverCell ? (
-                            <div aria-hidden="true" data-drop-zone="" className={DROP_ZONE}>
-                              移到這裡
-                            </div>
+                            cellMark.status === "blocked" ? (
+                              <div aria-hidden="true" data-drop-zone="" className={DROP_ZONE_BLOCKED}>
+                                {cellMark.reason}
+                              </div>
+                            ) : (
+                              <div aria-hidden="true" data-drop-zone="" className={DROP_ZONE}>
+                                移到這裡
+                              </div>
+                            )
                           ) : (
                             matches.length > 0 && (
                               <div aria-hidden="true" data-drop-zone="" className={DROP_STRIP} />
@@ -561,7 +654,8 @@ export default function TimetableGrid({
 
                 const schedule = matches[0];
                 return (
-                  <td key={weekday} className={cellClass}>
+                  <td key={weekday} className={blockLink !== null ? `${cellClass} relative` : cellClass}>
+                    {blockLink !== null && <BlockBar link={blockLink} />}
                     {schedule !== undefined && (
                       <>
                         {matches.length > 1 && (

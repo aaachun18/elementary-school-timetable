@@ -27,6 +27,10 @@ const VIEW_BY_TYPE: Record<string, TimetableViewMode> = {
   H11_NON_TEACHING_PERIOD: "class",
   H3_ROOM_CONFLICT: "room",
   H9_ROOM_TYPE: "room",
+  // Task 90: a lesson block is the class's; a minimum workload the teacher's.
+  BLOCK_NOT_CONSECUTIVE: "class",
+  BLOCK_SAME_DAY: "class",
+  TEACHER_MIN_WORKLOAD: "teacher",
 };
 
 // H12 names a lesson involving SOMETHING inactive -- the view follows

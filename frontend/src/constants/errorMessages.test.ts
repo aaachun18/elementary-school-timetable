@@ -1,6 +1,10 @@
 import { AxiosError, AxiosHeaders, type AxiosResponse } from "axios";
 import { describe, expect, it } from "vitest";
-import { extractApiErrorMessage } from "./errorMessages";
+import {
+  BLOCK_REFUSAL_MESSAGES,
+  extractApiErrorMessage,
+  getBlockRefusalReason,
+} from "./errorMessages";
 
 // Real AxiosError objects, built by hand -- no request is ever sent.
 function responseError(status: number, data: unknown): AxiosError {
@@ -75,5 +79,20 @@ describe("extractApiErrorMessage", () => {
     expect(extractApiErrorMessage(responseError(500, { message: "no detail" }))).toBe(
       "伺服器回應異常，請稍後再試或聯絡管理員",
     );
+  });
+});
+
+describe("Task 90: getBlockRefusalReason", () => {
+  it("reads the BLOCK_* reason of a 409", () => {
+    const error = responseError(409, { detail: "連堂整組放不進這個位置", reason: "BLOCK_OUT_OF_RANGE" });
+    expect(getBlockRefusalReason(error)).toBe("BLOCK_OUT_OF_RANGE");
+    expect(BLOCK_REFUSAL_MESSAGES.BLOCK_OUT_OF_RANGE).toBe("整組放不下：會超出當天節次或跨過午休");
+  });
+
+  it("is null for any other error", () => {
+    expect(getBlockRefusalReason(responseError(409, { detail: "不能與自己對調" }))).toBeNull();
+    expect(getBlockRefusalReason(responseError(409, { detail: "x", reason: "SOMETHING" }))).toBeNull();
+    expect(getBlockRefusalReason(responseError(422, { detail: "x", reason: "BLOCK_OUT_OF_RANGE" }))).toBeNull();
+    expect(getBlockRefusalReason(new Error("not axios"))).toBeNull();
   });
 });

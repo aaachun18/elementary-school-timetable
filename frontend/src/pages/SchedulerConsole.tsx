@@ -893,6 +893,11 @@ export default function SchedulerConsole(): ReactElement {
                                   <div key={lessonRow.lessonId} className="flex flex-wrap items-center gap-2">
                                     <label htmlFor={selectId} className={LABEL}>
                                       第 {lessonRow.sequenceNumber} 堂
+                                      {lessonRow.blockPosition !== "" && (
+                                        <span className="ml-1 text-xs font-normal text-gray-500">
+                                          （{lessonRow.blockPosition}）
+                                        </span>
+                                      )}
                                     </label>
                                     <select
                                       id={selectId}

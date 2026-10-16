@@ -4,13 +4,14 @@
 // calls Task 30/31 already established (RequirementsOverview.tsx, DataBrowser.tsx).
 
 import {
+  BLOCK_ALL_TEACHERS_UNAVAILABLE_TEMPLATE,
   FIXED_SLOT_ALL_TEACHERS_UNAVAILABLE_TEMPLATE,
   FIXED_TIME_SLOT_MISMATCH_UNKNOWN_SLOT_TEMPLATE,
   LESSON_FAILURE_REASON_TEMPLATES,
   VIOLATION_TYPE_TEMPLATES,
 } from "../constants/errorMessages";
 import { buildPeriodDisplay, type PeriodDisplayMap } from "./periodDisplay";
-import { formatTimeSlotLabel } from "./timeSlotFormat";
+import { formatTimeSlotLabel, formatWeekday } from "./timeSlotFormat";
 import type { ConstraintViolationDetail, LessonFailureDetail } from "../types/scheduler";
 import type { Teacher } from "../types/teacher";
 import type { Class } from "../types/class";
@@ -218,6 +219,18 @@ function describeMissingFields(violation: ConstraintViolationDetail): string {
   return missing.length > 0 ? missing.join("與") : "時段或老師";
 }
 
+// Task 90: BLOCK_* violations' {blockLabel} (「第 1 組」, "" without a
+// block_no) and {weekdayLabel} (the weekday of the violation's time slot).
+function describeBlock(violation: ConstraintViolationDetail): string {
+  const blockNo = violation.block_no ?? null;
+  return blockNo === null ? "" : `第 ${blockNo} 組`;
+}
+
+function resolveWeekdayLabel(id: number | null, lookups: NameLookups): string {
+  const timeSlot = id === null ? undefined : lookups.timeSlotById.get(id);
+  return timeSlot === undefined ? "" : formatWeekday(timeSlot.weekday);
+}
+
 function applyTemplate(template: string, values: Record<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (_match, key: string) => values[key] ?? "");
 }
@@ -242,6 +255,8 @@ function buildTemplateValues(
     inactiveEntities: formatInactiveEntities(resolveInactiveEntities(violation, lookups)),
     fixedTimeSlotLabel: resolveFixedTimeSlotLabel(violation.lesson_id, lookups),
     missingFields: describeMissingFields(violation),
+    blockLabel: describeBlock(violation),
+    weekdayLabel: resolveWeekdayLabel(violation.time_slot_id, lookups),
   };
 }
 
@@ -262,6 +277,9 @@ export function getViolationSentence(
   }
   if (violation.type === "STATIC_FIXED_SLOT_TEACHER_UNAVAILABLE" && violation.teacher_id === null) {
     return applyTemplate(FIXED_SLOT_ALL_TEACHERS_UNAVAILABLE_TEMPLATE, values);
+  }
+  if (violation.type === "STATIC_BLOCK_TEACHER_UNAVAILABLE" && violation.teacher_id === null) {
+    return applyTemplate(BLOCK_ALL_TEACHERS_UNAVAILABLE_TEMPLATE, values);
   }
   return applyTemplate(template, values);
 }

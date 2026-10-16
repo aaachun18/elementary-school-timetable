@@ -8,12 +8,14 @@
 // 「這次異動會新增的問題」. Marks are only a hint: a red cell can still be
 // dropped on, and the preview decides.
 
+import { BLOCK_REFUSAL_MESSAGES } from "../constants/errorMessages";
 import type {
+  BlockMember,
   ConstraintViolationDetail,
   MoveCandidatesResult,
   ScheduleCheckResult,
 } from "../types/scheduler";
-import { diffViolations } from "./violationMerge";
+import { diffViolations, splitBySeverity } from "./violationMerge";
 
 // safe: the change adds no problem (it may solve some, or leave existing
 // ones as they are). conflict: it adds at least one, with the sentences.
@@ -21,9 +23,14 @@ import { diffViolations } from "./violationMerge";
 // shown with the cell's ordinary style, no mark. none: no data for this
 // target (e.g. a lesson the backend didn't list as a swap partner) -- no
 // hint either way.
+// Task 90: blocked -- the lesson block (連堂) rules refuse this target
+// (backend Task 89's BLOCK_* reasons; the backend would answer 409), with
+// the Chinese reason. Dropping there sends nothing and shows the reason.
+// Only ERRORs make a change "conflict": a new WARNING alone stays "safe".
 export type CandidateMark =
   | { status: "safe" }
   | { status: "conflict"; reasons: string[] }
+  | { status: "blocked"; reason: string }
   | { status: "unavailable" }
   | { status: "none" };
 
@@ -56,13 +63,24 @@ export function assessCandidate(
   sentenceOf: SentenceOf,
 ): CandidateMark {
   const diff = diffViolations(baseline.violations, after.violations, sentenceOf);
-  if (diff.added.length === 0) {
+  const { errors } = splitBySeverity(diff.added);
+  if (errors.length === 0) {
     return { status: "safe" };
   }
   return {
     status: "conflict",
-    reasons: diff.added.map((item) => (item.count > 1 ? `${item.sentence} ×${item.count}` : item.sentence)),
+    reasons: errors.map((item) => (item.count > 1 ? `${item.sentence} ×${item.count}` : item.sentence)),
   };
+}
+
+// Task 90: a BLOCK_* code -> its blocked mark; null for any other reason
+// (NON_TEACHING_SLOT / CURRENT_SLOT stay "unavailable").
+export function blockedMarkFor(reason: string | null): CandidateMark | null {
+  if (reason === null) {
+    return null;
+  }
+  const text = BLOCK_REFUSAL_MESSAGES[reason];
+  return text === undefined ? null : { status: "blocked", reason: text };
 }
 
 // Dropping on the empty part of the cell for this time slot: a move.
@@ -76,7 +94,7 @@ export function markForCell(
     return NO_MARK;
   }
   if (!candidate.available || candidate.move === null) {
-    return { status: "unavailable" };
+    return blockedMarkFor(candidate.unavailable_reason) ?? { status: "unavailable" };
   }
   return assessCandidate(data.baseline, candidate.move, sentenceOf);
 }
@@ -88,11 +106,14 @@ export function markForSwap(
   otherScheduleId: number,
   sentenceOf: SentenceOf,
 ): CandidateMark {
-  const swap = data.candidates
-    .find((item) => item.time_slot_id === timeSlotId)
-    ?.swaps.find((item) => item.swap_with_schedule_id === otherScheduleId);
+  const candidate = data.candidates.find((item) => item.time_slot_id === timeSlotId);
+  const swap = candidate?.swaps.find((item) => item.swap_with_schedule_id === otherScheduleId);
   if (swap === undefined) {
-    return NO_MARK;
+    // Task 90: a swap the block rules refuse is listed apart.
+    const unsupported = (candidate?.unsupported_swaps ?? []).find(
+      (item) => item.swap_with_schedule_id === otherScheduleId,
+    );
+    return (unsupported === undefined ? null : blockedMarkFor(unsupported.reason)) ?? NO_MARK;
   }
   return assessCandidate(data.baseline, swap.check, sentenceOf);
 }
@@ -106,6 +127,9 @@ export function candidateLabel(mark: CandidateMark, action: "move" | "swap"): st
   if (mark.status === "conflict") {
     return "衝突";
   }
+  if (mark.status === "blocked") {
+    return action === "move" ? "不可放" : "不可對調";
+  }
   return null;
 }
 
@@ -115,6 +139,9 @@ export function candidateDescription(mark: CandidateMark, action: "move" | "swap
   const verb = action === "move" ? "移到這裡" : "與這堂課對調";
   if (mark.status === "safe") {
     return `${verb}不會新增問題`;
+  }
+  if (mark.status === "blocked") {
+    return mark.reason;
   }
   if (mark.status !== "conflict") {
     return null;
@@ -156,29 +183,69 @@ export function candidateStateFor(
 // re-renders on every dragover change). cells: time slot id -> move mark;
 // swaps: swapMarkKey(time slot id, schedule id) -> swap mark. Targets
 // missing from the maps get no hint.
+// Task 90: for a lesson block, where the whole dragged block would land --
+// cellRanges: time slot id -> the time slots of every lesson of the block
+// after moving there (block_members); swapRanges: swapMarkKey -> the same
+// for that swap (only the dragged block's lessons, not the other group's).
+// A target missing from these lands on its own cell only.
 export interface CandidateMarks {
   cells: ReadonlyMap<number, CandidateMark>;
   swaps: ReadonlyMap<string, CandidateMark>;
+  cellRanges: ReadonlyMap<number, readonly number[]>;
+  swapRanges: ReadonlyMap<string, readonly number[]>;
+}
+
+// The time slots `groupIds`' lessons go to; null when there's no block
+// information (a single lesson).
+function landingSlots(
+  members: readonly BlockMember[] | null | undefined,
+  groupIds: ReadonlySet<number>,
+): number[] | null {
+  if (members === null || members === undefined) {
+    return null;
+  }
+  const slots = members
+    .filter((member) => groupIds.has(member.schedule_id) && member.to_time_slot_id !== null)
+    .map((member) => member.to_time_slot_id as number);
+  return slots.length > 0 ? slots : null;
 }
 
 export function swapMarkKey(timeSlotId: number, scheduleId: number): string {
   return `${timeSlotId}:${scheduleId}`;
 }
 
+// `groupIds`: the schedule ids that move with the selected lesson
+// (utils/lessonBlocks.ts blockGroupMemberIds()); defaults to the lesson
+// alone.
 export function buildCandidateMarks(
   data: MoveCandidatesResult,
   sentenceOf: SentenceOf,
+  groupIds: ReadonlySet<number> = new Set([data.schedule_id]),
 ): CandidateMarks {
   const cells = new Map<number, CandidateMark>();
   const swaps = new Map<string, CandidateMark>();
+  const cellRanges = new Map<number, readonly number[]>();
+  const swapRanges = new Map<string, readonly number[]>();
   for (const candidate of data.candidates) {
     cells.set(candidate.time_slot_id, markForCell(data, candidate.time_slot_id, sentenceOf));
+    const moveRange = landingSlots(candidate.block_members, groupIds);
+    if (moveRange !== null) {
+      cellRanges.set(candidate.time_slot_id, moveRange);
+    }
     for (const swap of candidate.swaps) {
-      swaps.set(
-        swapMarkKey(candidate.time_slot_id, swap.swap_with_schedule_id),
-        assessCandidate(data.baseline, swap.check, sentenceOf),
-      );
+      const key = swapMarkKey(candidate.time_slot_id, swap.swap_with_schedule_id);
+      swaps.set(key, assessCandidate(data.baseline, swap.check, sentenceOf));
+      const swapRange = landingSlots(swap.block_members, groupIds);
+      if (swapRange !== null) {
+        swapRanges.set(key, swapRange);
+      }
+    }
+    for (const unsupported of candidate.unsupported_swaps ?? []) {
+      const mark = blockedMarkFor(unsupported.reason);
+      if (mark !== null) {
+        swaps.set(swapMarkKey(candidate.time_slot_id, unsupported.swap_with_schedule_id), mark);
+      }
     }
   }
-  return { cells, swaps };
+  return { cells, swaps, cellRanges, swapRanges };
 }
