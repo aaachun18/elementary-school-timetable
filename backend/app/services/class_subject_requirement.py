@@ -12,10 +12,12 @@ from app.schemas.class_subject_requirement import (
 )
 from app.services.exceptions import (
     DependentRecordsExistError,
+    InvalidLessonPatternError,
     RequirementEditBlockedByPublishedScheduleError,
     RequirementUsedByPublishedScheduleError,
     raise_for_integrity_error,
 )
+from app.services.lesson_pattern import assign_block_fields, check_pattern_total
 from app.services.schedule_version import (
     published_semester_ids,
     semester_has_published_version,
@@ -34,6 +36,9 @@ LOCKED_REQUIREMENT_FIELDS = frozenset(
         "required_teacher_id",
         "required_room_type",
         "consecutive_limit",
+        # Task 87: changing the pattern regroups the lessons a locked
+        # timetable already uses.
+        "lesson_pattern",
     }
 )
 
@@ -154,8 +159,30 @@ def update_class_subject_requirement(
             "PUBLISHED or ARCHIVED schedule version."
         )
 
+    # Task 87: the pattern must add up to weekly_periods as they will be
+    # AFTER this update -- changing either one alone can break that.
+    new_weekly_periods = requested.get("weekly_periods", requirement.weekly_periods)
+    new_pattern = requested.get("lesson_pattern", requirement.lesson_pattern)
+    try:
+        check_pattern_total(new_pattern, new_weekly_periods)
+    except ValueError as exc:
+        raise InvalidLessonPatternError(str(exc)) from exc
+    pattern_changed = new_pattern != requirement.lesson_pattern
+
     for field, value in requested.items():
         setattr(requirement, field, value)
+
+    # Task 87: existing lessons follow the new pattern right away (lessons
+    # still to be generated get theirs from generate-lessons).
+    if pattern_changed:
+        assign_block_fields(
+            list(
+                db.scalars(
+                    select(Lesson).where(Lesson.class_subject_requirement_id == requirement_id)
+                ).all()
+            ),
+            new_pattern,
+        )
 
     try:
         db.commit()

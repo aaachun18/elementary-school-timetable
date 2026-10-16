@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, UniqueConstraint
+from sqlalchemy import CheckConstraint, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -20,6 +20,12 @@ class Lesson(TimestampMixin, Base):
 
     __tablename__ = "lessons"
     __table_args__ = (
+        # Task 87: a lesson is either in a block (both set) or not (both
+        # NULL) -- never half of it.
+        CheckConstraint(
+            "(block_no IS NULL) = (block_seq IS NULL)",
+            name="ck_lessons_block_fields_together",
+        ),
         UniqueConstraint(
             "class_subject_requirement_id",
             "sequence_number",
@@ -44,6 +50,12 @@ class Lesson(TimestampMixin, Base):
     fixed_time_slot_id: Mapped[int | None] = mapped_column(
         ForeignKey("time_slots.id")
     )
+    # Task 87: which block of the requirement's lesson_pattern this lesson
+    # belongs to (1 = the first / longest block) and its place in it (1 =
+    # first period). Both None when the requirement has no pattern. Set by
+    # generate-lessons and kept in step when the pattern changes.
+    block_no: Mapped[int | None] = mapped_column()
+    block_seq: Mapped[int | None] = mapped_column()
 
     class_subject_requirement: Mapped["ClassSubjectRequirement"] = relationship()
     fixed_time_slot: Mapped["TimeSlot | None"] = relationship()

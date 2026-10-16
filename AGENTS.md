@@ -201,7 +201,7 @@ Scheduler 必須可以在沒有 FastAPI request 的情況下被獨立測試。
 * weekly_periods
 * required_teacher
 * required_room_type
-* consecutive_limit
+* lesson_pattern（連堂樣式，例如 2+1；consecutive_limit 已停用，由它取代）
 
 ### Lesson
 

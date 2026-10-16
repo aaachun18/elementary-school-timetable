@@ -54,7 +54,7 @@ flowchart TB
 
 **為什麼 Scheduling Engine 要獨立於框架**:`scheduling_engine/` 底下沒有任何一行 import SQLAlchemy、FastAPI,或是直接碰資料庫,只吃/吐純 Python dataclass(`LessonAssignment`、`SchedulingResources`、`ConstraintViolation`…)。這個邊界帶來幾個具體、可驗證的好處:
 
-- **測試速度**:`tests/scheduling_engine/` 底下總共 107 個測試(Constraint、Greedy、Backtracking、靜態可行性檢查、Fixed Time Slot),實測 `pytest tests/scheduling_engine/ -q` 只要 **0.12 秒**,因為完全不需要 `Base.metadata.create_all()`/`drop_all()` 這種資料庫層級的操作。相對地,`tests/` 底下 453 個 API 層測試,因為每個測試都要對真實 PostgreSQL 建表/清表,總耗時約 2 分鐘。
+- **測試速度**:`tests/scheduling_engine/` 底下總共 132 個測試(Constraint、Greedy、Backtracking、靜態可行性檢查、Fixed Time Slot),實測 `pytest tests/scheduling_engine/ -q` 只要 **0.12 秒**,因為完全不需要 `Base.metadata.create_all()`/`drop_all()` 這種資料庫層級的操作。相對地,`tests/` 底下 491 個 API 層測試,因為每個測試都要對真實 PostgreSQL 建表/清表,總耗時約 2 分鐘。
 - **獨立可測試性**:Task 17 到 Task 23 開發整個約束引擎、Greedy、Backtracking、靜態可行性檢查的過程中,一次都沒有啟動過 FastAPI 或連過資料庫——所有邏輯都是用手寫的 dataclass 資料直接驗證。直到 Task 21 才第一次需要「接上真實資料庫」,而那個轉接層(`backend/app/services/scheduler.py`)清楚地被隔離在 Service 層,`scheduling_engine/` 本身完全沒被碰過。
 - **關注點分離**:排課邏輯的正確性(這組候選會不會衝突、這樣排合不合法)跟「這筆資料在資料庫裡長怎樣」是兩個完全不同層次的問題,混在一起會讓兩邊都難測試、難改。
 
@@ -231,11 +231,14 @@ erDiagram
         int required_teacher_id FK
         string required_room_type
         int consecutive_limit
+        string lesson_pattern
     }
     LESSON {
         int id PK
         int class_subject_requirement_id FK
         int sequence_number
+        int block_no
+        int block_seq
     }
     SCHEDULE_VERSION {
         int id PK
@@ -308,6 +311,7 @@ H12(停用狀態)理論上要分別檢查教師/班級/科目/教室四種實體
 | H10 | Room Capacity | ⏸️ **延後** | `Room.capacity` 欄位已預留(nullable),但未實作對應 Constraint,見第 10 節 |
 | H11 | Non-teaching Period | ✅ 已做 | 即時檢查;在目前的 API 流程中實際上不會被觸發(只有 `greedy.py` 的逐候選解釋路徑會產生,但 `run_scheduler()` 只呼叫 Backtracking),前端失敗診斷因此對它顯示「此為排課引擎內部判斷」而非導向某個修正頁面,見 3.3 |
 | H12 | Active Status | ✅ 已做 | 即時檢查,涵蓋教師/班級/科目/教室 |
+| — | 連堂組合(Lesson Block,非 H 編號) | ✅ 引擎與預檢已做 | 需求的連堂樣式(如 2+1);同組同一天相鄰教學時段、同教師同教室,不同組不同天;以「一組一個排課單位」實作(決策 26);檢查服務與手動調整尚未支援(第 10 節) |
 | — | 固定時段(Fixed Time Slot,非 H 編號) | ✅ 已做 | 以定義域實作:固定課的時段候選只剩固定時段(Task 28);不可能成立的固定時段在排課前預檢(6.3 第 5 類,Task 81);寫入前再確認沒有被移動(決策 23) |
 
 12 條 Hard Constraint 中 11 條已實作(H1–H9、H11、H12),H10 是唯一延後項目;另外固定時段也是引擎保證的規則(不在 H 編號內)。
@@ -338,17 +342,18 @@ Backtracking 的結果區分三種本質不同的失敗:
 
 這個區分很重要:對使用者來說,「保證排不出來,問題出在資料本身」跟「可能排得出來,但機器沒找到,試著放寬搜尋預算」是完全不同的建議。
 
-### 6.3 靜態可行性檢查(Task 23,Task 38 擴充為四類,Task 81 擴充為五類):不用搜尋就能證明無解
+### 6.3 靜態可行性檢查(Task 23,Task 38 擴充為四類,Task 81 擴充為五類,Task 87 擴充為六類):不用搜尋就能證明無解
 
-有五類問題根本不需要跑一次搜尋就能靠加總/比對確定會失敗:
+有六類問題根本不需要跑一次搜尋就能靠加總/比對確定會失敗:
 
 1. **教師工作量超標**:被 `required_teacher_id` 指定的所有 `Lesson` 節數加總,超過該教師 `max_weekly_periods`。
 2. **教師可用時段不足**:被指定的節數超過該教師實際可用的時段數(全校時段數 − 該教師不可用時段數)。
 3. **停用狀態衝突**:需求涉及的教師/班級/科目本身就是停用狀態。
 4. **零合格教師**(Task 38 補上):某個 `Lesson` 完全沒有任何候選老師——沒有 `required_teacher_id` 規則、也沒有任何老師具備該科目的 H5 資格;或 `required_teacher_id` 指定的老師剛好不具資格。這類判斷原本只存在 Backtracking 自己的 pre-flight 步驟裡,直到 Task 38 一個真實案例(見第 8 節案例一)才發現它沒有被納入這裡,導致跟其他三類檢查「互斥」。
 5. **固定時段不可能成立**(Task 81,決策 23):固定的時段不存在或是非教學時段、能教這堂課的教師在該時段都不可排課、同班或只能由同一位教師授課的兩堂以上課固定在同一時段、同一時段需要某類型教室的固定課多於該類型教室數。每一項都指出是哪一堂課(班級、科目、時段)。
+6. **連堂組合不可能成立**(Task 87,決策 26):一組的節數超過任何一天最長的連續教學時段(`STATIC_BLOCK_TOO_LONG`)、組數多於有教學時段的天數(`_TOO_MANY_DAYS`)、有足夠天數但沒有足夠「各自有夠長連續時段」的不同天(例如 3+3 只有一天有連續 3 節,`_NOT_ENOUGH_DAYS`)、組內固定時段互相矛盾或讓整組跨過非教學時段(`_FIXED_CONFLICT`)、同一需求的兩組被固定在同一天(`_FIXED_SAME_DAY`)、能教這組的教師在每一段可能的連續時段裡都有不可排課的節次(`_TEACHER_UNAVAILABLE`)。每一項都指出需求(班級、科目)與組別。搜尋中排不進去的組(Greedy)會把該組每一節都列為失敗,沒有任何可用起始位置時原因是 `BLOCK_NO_WINDOW`。
 
-這五類檢查在 `run-scheduler` 呼叫 `schedule_backtracking()` 之前執行,一旦命中就直接回報,完全不進入搜尋。這樣做除了節省搜尋時間,也避免這類失敗被 Backtracking 自己發現時,落入「搜尋整個耗盡、但無法歸咎到單一 `Lesson`」的模糊地帶(這正是 Task 22 修的那個 bug 的根源:一個必然失敗的案例,因為候選產生邏輯沒有正確識別它是「零候選」,結果搜尋跑到底才回報「無解」卻給不出任何理由——跟 Task 38 的案例是同一種「零候選沒被正確辨識」的根本問題,只是發生在流程的不同位置)。
+這六類檢查在 `run-scheduler` 呼叫 `schedule_backtracking()` 之前執行,一旦命中就直接回報,完全不進入搜尋。這樣做除了節省搜尋時間,也避免這類失敗被 Backtracking 自己發現時,落入「搜尋整個耗盡、但無法歸咎到單一 `Lesson`」的模糊地帶(這正是 Task 22 修的那個 bug 的根源:一個必然失敗的案例,因為候選產生邏輯沒有正確識別它是「零候選」,結果搜尋跑到底才回報「無解」卻給不出任何理由——跟 Task 38 的案例是同一種「零候選沒被正確辨識」的根本問題,只是發生在流程的不同位置)。
 
 ### 6.4 具體案例:教師工作量超標的完整錯誤訊息
 
@@ -412,6 +417,7 @@ HTTP 422
 | 23 | 自動排課要怎麼保證「固定時段的課一定排在固定時段」?固定時段本身不可能成立時要怎麼說明?(Task 81) | (a) 新增一條 Constraint,在每個候選上檢查「是否在固定時段」 (b) 縮小定義域:固定課的時段候選只剩固定時段,另外在排課前做預檢 (c) 排完再用檢查服務找出偏離的課 | (b) | 引擎裡每堂課是一個變數,定義域是(教師 × 時段 × 教室)的候選組合;Task 28 起固定課的 `LessonAssignment` 帶著已填好的 `time_slot_id` 進入搜尋,`candidate_time_slot_ids()` 只回傳這一個時段,所以搜尋本來就不可能把它排到別處——(a) 只會重複這件事,還要對每個候選多跑一次檢查;(c) 是事後補救,無法保證。這個做法缺的是「說得清楚」:固定時段本身不可能成立時(例如固定在午休),搜尋會跑完整棵樹才回報一個找不到原因的 `DEFINITELY_INFEASIBLE`。因此 `static_feasibility.py` 新增第 5 類預檢 `_check_fixed_time_slots()`,在搜尋前找出:時段不存在(`STATIC_FIXED_SLOT_UNKNOWN`)、非教學時段(`_NON_TEACHING`)、能教這堂課的教師(指定教師,或沒有指定時所有合格教師)在該時段都不可排課(`_TEACHER_UNAVAILABLE`)、同班兩堂以上固定在同一時段(`_CLASS_CLASH`)、只能由同一位教師(指定教師或唯一合格教師)授課的兩堂以上固定在同一時段(`_TEACHER_CLASH`)、同一時段需要某類型教室的固定課多於該類型教室數(`_ROOM_SHORTAGE`)。每一項都帶 `lesson_id`、班級、科目、時段與需求 id,沿用既有的 `STATIC_CHECK_FAILED`(422)回應,前端以既有的失敗診斷顯示成中文句子,時段經 `formatTimeSlotLabel()` 顯示教學節序號(決策 21)。沒有固定課時這一步只掃過一次課程清單,搜尋行為不變。寫入前 `run_scheduler()` 再以 `lessons_moved_off_fixed_slot()` 確認沒有固定課被移動,若有(只可能是引擎程式錯誤)就不寫入並丟出例外。固定時段不是 AGENTS.md 的 H1–H12 之一,所以不給 H 編號,文件中以「固定時段(以定義域實作)」呈現。分工:引擎保證自動排課的結果;檢查服務的 `FIXED_TIME_SLOT_MISMATCH` 保留,用來發現**手動移動或對調**之後偏離固定時段的課——手動移動刻意不更新 `Lesson.fixed_time_slot_id`(避免默默改掉排課前的設定),這個既有取捨不變。 |
 | 24 | 編輯模式想在選取或拖曳一堂課時標出「放到每一格會不會產生新問題」,後端要提供什麼?(Task 83) | (a) 前端對每一格各呼叫一次 move-lesson 的 dry_run (b) 新端點一次回傳每個時段的試算,且直接算好「新增/解決的問題」 (c) 新端點一次回傳每個時段試算後的**完整違規清單**,差異由前端算 | (c) | (a) 一堂課約 40–50 個時段就要 40–50 次請求,每次都要重新查資料庫並寫入後 rollback,拖曳時太慢。`GET /schedule-versions/{id}/move-candidates/{schedule_id}` 一次回傳:`baseline`(目前的檢查,與 `GET /check` 相同)與每個時段一筆 `candidates`:`available`(非教學時段為 `NON_TEACHING_SLOT`、目前所在時段為 `CURRENT_SLOT`,兩者 `move` 為 null)、`move`(移到這裡、教室不變之後的完整檢查,等同 move-lesson 的 dry_run)、`swaps`(與這個時段中同班、同教師或同教室的每一堂課對調後的完整檢查與對方排課列 id,等同 swap-lessons 的 dry_run)。swap 對象列出三種關係的聯集,因為課表的班級/教師/教室三種檢視中,同一格顯示的課不同,由前端依目前檢視挑選。不採 (b):「新增/解決」的判斷以「問題身分」比對(Task 71 的 `violationIdentityKey()`),這套規則已在前端並有測試;後端若再實作一份,兩邊遲早會不一致,所以後端只回傳與既有端點完全相同格式的原始清單,前端沿用 `diffViolations()`。**唯讀且只限 DRAFT**:只有草稿能移動或對調,已發布或已封存的版本回 409(沿用鎖定訊息);權限比照 `/check`,只限 ADMIN,TEACHER 一律 403,在查任何資料之前就擋下,不洩漏哪些 id 存在;排課列不存在或屬於其他版本都回 404。**效能**:檢查服務拆成 `load_check_context()`(一次載入需求、資源與固定時段)與純計算的 `check_assignments()`,`GET /check` 改成兩者的組合,行為與回應不變;新端點只查一次資料庫,之後在記憶體中替換那一兩列的時段逐一試算,完全不寫入、也不做寫入後 rollback。一致性由測試保證:對同一份資料的每個候選時段,`move`/`swaps` 必須與實際呼叫 move-lesson/swap-lessons 的 dry_run 結果完全相同。量測(測試資料庫,50 個時段,含 HTTP 往返):30 列約 0.02–0.1 秒(第一次請求含啟動成本)、300 列約 0.23–0.24 秒。 |
 | 25 | 選取或拖曳一堂課時,要怎麼在課表上標出候選位置?(Task 84) | (a) 只用顏色標格子,紅色格禁止放下 (b) 標示僅供參考:安全/衝突兩種標籤加文字與原因,任何格子都仍可放下並走既有預覽 | (b) | **判定與預覽對話框完全相同**:每個標示都是 `diffViolations(baseline, 移動或對調後)`(以 `violationIdentityKey()` 比對),有新增問題就是「衝突」、只解決或維持既有問題就是「安全」,句子也用同一個 `getViolationSentence()`(時段為教學節序號),所以紅色格正好就是放下後預覽會出現「這次異動會新增的問題」的格子;非教學時段與目前所在格不加標示,維持原本樣式。放置語意沿用 Task 71:格子空白處用 `move`,放到某堂課上用 `swaps` 中對方 id 相符的檢查,找不到就不提示(`utils/moveCandidates.ts`)。**外觀(Task 85 精簡)**:每格最多一個淡色底加一個小圖示——可放是淺綠底與 ✓,衝突是淺紅底加細斜紋與 ✕(形狀與紋路不同,不只靠顏色),非教學格與目前所在格不加標示;圖示的 `title` 與 `aria-label` 寫出會發生什麼並列出最多 3 條原因(超過顯示「…等 N 項」)。Task 84 原本的左側粗色條、「✓ 可放」「✕ 衝突」文字標籤與每堂課的「可對調」徽章讓格子太擠,改為對調的說明只放在該課的 `title` 與 `aria-label`。飽和度刻意壓低,與琥珀色定位框、天藍色「剛調整」、拖曳經過的框線、非教學格的深灰都分得出來;格子同時有這些標記時改顯示那個標記,圖示保留。課表上方的圖例縮成三個小色塊加「可放」「衝突」「非教學」,細節放在圖例的滑鼠提示。**不阻擋**:紅色格仍可放下,由預覽決定(「仍要移動」),因為中間步驟本來就可能暫時衝突(決策 15)。**載入與快取**:選取或開始拖曳時才呼叫 Task 83 的端點,每個(版本、排課列、編輯版次)只呼叫一次,重複選同一堂課讀快取;儲存移動、對調或換教師後版次加一,舊快取不再使用。課程改變時 AbortController 取消舊請求,結果也依快取鍵存放,舊回應不會套用到新課程;只在請求的回呼中更新狀態,不在 effect 內同步 setState。**不中斷拖曳**:拖曳來源由課表元件在 dragstart 之後的下一個事件循環才告知頁面(沿用 Task 71 的延後做法),請求與標示更新都在那之後;標示只改格子的 class 與在每格最後加上一個標籤元素,課程按鈕的 key 與位置不變、`draggable` 也不受影響,所以被拖曳的元素不會重新掛載。清除時機:放下或結束拖曳、取消選取或按 Esc、預覽或儲存進行中、離開編輯模式、換版本;切換檢視時,若那堂課不在新的課表上就不顯示。**失敗降級**:403、404、409 或網路錯誤時不跳錯誤對話框、不加標示,只在課表下方以次要樣式顯示「目前無法顯示候選位置，仍可直接放下並預覽」,其他功能照常。 |
+| 26 | 每週不只一節的課常要綁成連堂(例如自然每週 3 節 =「2 節連堂 + 1 節」,且兩者不同天),要怎麼表示與排課?(Task 87) | (a) 沿用 `consecutive_limit`(單一上限數字) (b) 需求加「連堂樣式」字串(如 2+1),課程記錄所屬組;引擎把一組當成一個單位排 (c) 每節課仍獨立排,再加一條「同組要相鄰」的約束讓搜尋自己湊 | (b) | `consecutive_limit` 只是一個上限,表達不了「哪幾節綁在一起、幾組」;(c) 讓搜尋逐節猜測哪兩節要相鄰,組越大搜尋空間越大、失敗時也說不出是哪一組。**樣式**:`ClassSubjectRequirement.lesson_pattern`,例如 `2+1`、`2+2+1`、`3`;每組 1 到 3 節、總和必須等於 `weekly_periods`(建立時由 schema 檢查,修改時以修改後的兩個值檢查,不一致回 422);一律存成由大到小(`1+2` 存成 `2+1`),同一個樣式只有一種寫法,第 1 組永遠是最長的一組;空值 = 不指定連堂,所有行為與以前完全相同。樣式列入需求編輯保護(被已發布或已封存課表使用時不可修改,沿用 409)。**課程分組**:`Lesson.block_no`/`block_seq`(組別與組內順序,沒有樣式時都是 NULL,資料庫 CHECK 保證兩者同時有或同時沒有),依 `sequence_number` 依序填入各組;展開課程(diff-sync)會一併校正既有課程的分組,修改樣式時也立即重新分組,跨學期複製會連同樣式與分組一起複製。**規則**:同一組的所有節在同一天、`period` 相鄰且都是教學時段(中間隔著午休等非教學時段或缺一節就不算連續)、同一位教師、同一間教室,組內依序;同一需求的不同組必須在不同天。**引擎**:一組是一個排課單位,定義域是(教師、起始時段、教室),起始時段只列出「當天有連續 N 個教學時段」的位置;放置時把一組展開成各節的 `LessonAssignment`,再用既有的 H1–H12 約束逐節檢查,另加即時約束 `LessonBlockConstraint`(同組連續、不同組不同天);寫入時本來就是逐節的排課列。沒有分組的課程就是「只有一節的單位」,候選、排序、回溯與以前完全一樣——`SchedulingResources` 只多兩個預設為空的欄位(`lesson_blocks`、`time_slot_positions`),Task 87 之前既有的 560 個後端測試(其中引擎 107 個)全數未改預期而通過,同一份無樣式資料新舊版的排課結果相同、時間在誤差內。**與固定時段**:組內任何一節被固定,整組的起始時段就跟著決定(只保留讓該節落在固定時段的起始位置);組內固定時段互相矛盾(不同天、不相鄰、順序不符,或會讓整組跨過午休)或兩組被固定在同一天,都在預檢指出。**取捨**:`consecutive_limit` 欄位與資料保留,但已停用(API 標為 deprecated,沒有任何規則讀它),以免破壞既有資料與用戶端;檢查服務、手動整組移動與前端設定尚未支援連堂(見第 10 節)。 |
 
 **決策 18 的狀態轉換表**(`PATCH /schedule-versions/{id}` 的 `status`):
 
@@ -502,28 +508,30 @@ PUBLISHED 與 ARCHIVED 版本的其他欄位(`semester_id`、`version_number`)�
 
 測試分成兩個完全獨立的層級,理由直接對應第 2 節提到的架構分離:
 
-- **`tests/scheduling_engine/`(107 個測試)**:純 Python 邏輯測試,輸入輸出都是手寫的 dataclass,不碰資料庫、不啟動 FastAPI。這一層測試的是「約束有沒有正確判斷違規」「MRV 排序對不對」「回溯的邊界語意精不精確」這些領域邏輯的正確性,可以用最小、最精確的手造資料涵蓋邊界案例(例如刻意讓 Greedy 失敗、Backtracking 成功的對照組)。
-- **`tests/`(453 個測試)**:透過 `TestClient` 打真實的 FastAPI + PostgreSQL(獨立的 `timetable_test` 資料庫,每個測試前後 `create_all`/`drop_all`),測試的是「這一層有沒有正確接起來」——路由、認證/授權、Pydantic 驗證、資料庫約束、例外轉譯成正確的 HTTP 狀態碼。
+- **`tests/scheduling_engine/`(132 個測試)**:純 Python 邏輯測試,輸入輸出都是手寫的 dataclass,不碰資料庫、不啟動 FastAPI。這一層測試的是「約束有沒有正確判斷違規」「MRV 排序對不對」「回溯的邊界語意精不精確」這些領域邏輯的正確性,可以用最小、最精確的手造資料涵蓋邊界案例(例如刻意讓 Greedy 失敗、Backtracking 成功的對照組)。
+- **`tests/`(491 個測試)**:透過 `TestClient` 打真實的 FastAPI + PostgreSQL(獨立的 `timetable_test` 資料庫,每個測試前後 `create_all`/`drop_all`),測試的是「這一層有沒有正確接起來」——路由、認證/授權、Pydantic 驗證、資料庫約束、例外轉譯成正確的 HTTP 狀態碼。
 
 兩層分開測試,是因為它們回答的問題完全不同:引擎層測試不應該因為資料庫連線設定錯誤而失敗,API 層測試也不需要重新驗證約束邏輯本身對不對(那是引擎層的責任)。前端(第 3 節)目前沒有對應的自動化測試層,以真實資料手動驗證取代,見 3.3 節末段。
 
 **持續整合(Task 58)**:每次 push 到 `main` 與每個 pull request,都會由 GitHub Actions(`.github/workflows/ci.yml`)在乾淨的 Linux 環境自動執行兩個獨立的 job:後端 job 啟動一個真實的 PostgreSQL 16 服務,執行完整的 `python -m pytest tests/`,再於另一個全新的空資料庫上執行 `alembic upgrade head`,確認 migration 能從零跑完;前端 job 執行 `npm ci`、`npm run lint`、`npm test`(Task 74,純函式單元測試)與 `npm run build`。CI 使用的資料庫帳密與 `SECRET_KEY` 都是只存在於該次執行的假值,不依賴 `.env`。
 
-**目前總計 719 個測試,全數通過**:後端 560 個(2026-10-15 以 `python -m pytest tests/` 實際執行,`560 passed`;各類數字取自 `pytest --collect-only` 依檔案統計),前端 159 個(2026-10-16 以 `npm test` 實際執行,`159 passed`)。分佈:
+**目前總計 782 個測試,全數通過**:後端 623 個(2026-10-16 以 `python -m pytest tests/` 實際執行,`623 passed`;各類數字取自 `pytest --collect-only` 依檔案統計),前端 159 個(2026-10-16 以 `npm test` 實際執行,`159 passed`)。分佈:
 
 | 類別 | 測試數 |
 |---|---|
-| Scheduling Engine(純邏輯) | 107 |
+| Scheduling Engine(純邏輯) | 132 |
 | ├─ Constraint 單元測試 | 37 |
 | ├─ 靜態可行性檢查 | 13 |
 | ├─ Backtracking | 10 |
 | ├─ Greedy | 7 |
 | ├─ Fixed Time Slot(Task 28) | 6 |
-| └─ Fixed Time Slot 保證與預檢(多組資料下一定排在固定時段、混合時滿足所有硬性約束、六種預檢各自觸發與不誤判、與其他約束競爭時判定無解,Task 81) | 34 |
-| API / 整合測試 | 453 |
+| ├─ Fixed Time Slot 保證與預檢(多組資料下一定排在固定時段、混合時滿足所有硬性約束、六種預檢各自觸發與不誤判、與其他約束競爭時判定無解,Task 81) | 34 |
+| └─ Lesson Blocks 連堂(連續時段的計算與午休斷開、整組排進連續時段且不同組不同天、Greedy 與 Backtracking、多需求並存不違反任何硬性約束、固定時段決定起點、無法成立時判定無解、沒有分組時結果與回溯次數完全相同、連堂規則本身、六種預檢與不誤判,Task 87) | 25 |
+| API / 整合測試 | 491 |
 | ├─ ScheduleVersion(含 PUBLISHED 鎖定、TEACHER 過濾、草稿連同排課結果刪除) | 28 |
 | ├─ ScheduleVersionDelete(刪除已封存連同排課列、取消發布後刪除、需求鎖定重算、已發布 409、草稿不變、複製來源、權限、刪除後換人與複製,Task 80) | 10 |
 | ├─ ScheduleCopy(複製課表:跨學期/同學期、原樣複製、rollback、權限,Task 62) | 23 |
+| ├─ LessonPattern(連堂樣式的正規化與各種非法格式、加總不符、範圍、建立與修改的 422、編輯保護 409、展開課程的分組、修改樣式立即重新分組、展開時校正分組、排課端到端與預檢 422,Task 87) | 38 |
 | ├─ TeacherReassignment(換人:更新範圍、換人後檢查、連鎖換人、dry_run、隔離、rollback、權限,Task 63;變動列計數,Task 64) | 24 |
 | ├─ ScheduleVersionPublish(發布即切換、來回切換、非法轉換、rollback、DB unique index、ARCHIVED 鎖定與可見性,Task 64;取消發布、建立限草稿,Task 65) | 28 |
 | ├─ MoveSwapLessons(移動與對調節次:變動內容、衝突回報、dry_run、拒絕、隔離、rollback、權限、複製→換人→移動,Task 65;移離固定時段改為回報違規,Task 66) | 29 |
@@ -595,12 +603,13 @@ PUBLISHED 與 ARCHIVED 版本的其他欄位(`semester_id`、`version_number`)�
 - **`User` 帳號與 `Teacher` 網域實體沒有關聯**:登入系統的 `User`(`ADMIN`/`TEACHER` 角色)跟排課領域裡的 `Teacher` 是兩張完全獨立的表,一個 `TEACHER` 角色的帳號目前無法對應到某一位特定 `Teacher`,「老師只能看到自己的課表」這類功能還做不到。
 - **`STUDENT` 角色未實作**:`AGENTS.md` 列出三種角色,目前 `User.role` 的 CheckConstraint 只接受 `ADMIN`/`TEACHER`。
 - **`School` 沒有實際接進資料模型**:`School` 表存在,但沒有任何其他表的外鍵指向它——系統實質上是隱含的單一學校假設,`Grade.level` 全域唯一就是這個假設的直接後果(如果要支援多校,這條唯一約束必須改成 `(school_id, level)` 複合唯一)。
-- **`Teacher.min_weekly_periods` 與 `ClassSubjectRequirement.consecutive_limit` 是「已建欄位、未接引擎」的狀態**:前者沒有對應的「最低工作量」Hard Constraint(目前只有 H8 上限),後者對應到 Soft Constraint S4(避免連續過多堂課),尚未實作。
+- **`Teacher.min_weekly_periods` 是「已建欄位、未接引擎」的狀態**:沒有對應的「最低工作量」Hard Constraint(目前只有 H8 上限)。`ClassSubjectRequirement.consecutive_limit` 自 Task 87 起已停用(欄位與資料保留、API 標為 deprecated),由連堂樣式 `lesson_pattern` 取代(決策 26)。
+- **連堂組合目前只完成資料模型、展開課程、引擎與預檢(Task 87)**:檢查服務(`GET .../check`)還不會回報連堂違規(同組不連續、不同組同一天),課表的手動移動、對調與換教師仍是逐節操作、不會整組一起動,前端也還沒有設定或顯示連堂樣式的畫面(目前只能透過 API 設定)。這些在後續 Task 補上,全部完成後再移除這一條。
 
 ---
 
 ## 11. 電梯簡報草稿(30 秒版本)
 
-> 這是一個國小排課系統。核心是把老師的任教資格、可用時段、工作量上限,還有班級的每週需求、教室類型,建成一套完全獨立於 API 框架跟資料庫的 Constraint Engine,自己實作了 Greedy 跟 Backtracking 兩種排課演算法。系統的重點之一是「可解釋」——每次排不出課表,都能講出具體是哪個老師、哪個限制造成的,不會只回一句排不出來,前端的排課控制台跟失敗診斷畫面把這件事直接視覺化,不用查資料庫就能看懂。目前有 719 個自動化測試(後端 560、前端純函式 159),排課引擎那部分完全不需要資料庫,秒級就能跑完。
+> 這是一個國小排課系統。核心是把老師的任教資格、可用時段、工作量上限,還有班級的每週需求、教室類型,建成一套完全獨立於 API 框架跟資料庫的 Constraint Engine,自己實作了 Greedy 跟 Backtracking 兩種排課演算法。系統的重點之一是「可解釋」——每次排不出課表,都能講出具體是哪個老師、哪個限制造成的,不會只回一句排不出來,前端的排課控制台跟失敗診斷畫面把這件事直接視覺化,不用查資料庫就能看懂。目前有 782 個自動化測試(後端 623、前端純函式 159),排課引擎那部分完全不需要資料庫,秒級就能跑完。
 
 （可依實際口語習慣調整用詞與停頓,上面這版大約落在 30 秒中等語速。）

@@ -106,6 +106,32 @@ class TimeSlotInfo:
 
 
 @dataclass(frozen=True)
+class TimeSlotPosition:
+    """Task 87: where a time slot sits in the week -- what "consecutive
+    periods on one day" means for lesson blocks. Mirrors TimeSlot.weekday /
+    TimeSlot.period."""
+
+    time_slot_id: int
+    weekday: int
+    period: int
+
+
+@dataclass(frozen=True)
+class LessonBlock:
+    """Task 87: lessons of one requirement that must be taught as one block
+    (a lesson_pattern block, e.g. the "2" of "2+1"): same day, adjacent
+    teaching periods in lesson_ids order, one teacher, one room. Different
+    blocks of the same requirement go on different days. A lesson in no
+    block is scheduled on its own, exactly as before."""
+
+    class_subject_requirement_id: int
+    block_no: int
+    # In block order (block_seq 1, 2, ...): lesson_ids[0] takes the first
+    # period of the block.
+    lesson_ids: tuple[int, ...]
+
+
+@dataclass(frozen=True)
 class ActiveStatusInfo:
     """H12: whether one teacher/class/subject/room is currently active.
 

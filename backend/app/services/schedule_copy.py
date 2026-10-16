@@ -47,6 +47,9 @@ COPIED_REQUIREMENT_FIELDS = (
     "required_teacher_id",
     "required_room_type",
     "consecutive_limit",
+    # Task 87: the pattern travels with the requirement; the copied
+    # lessons keep their block fields (below), so blocks stay intact.
+    "lesson_pattern",
 )
 NOT_COPIED_REQUIREMENT_FIELDS = ("id", "semester_id", "created_at", "updated_at")
 
@@ -133,6 +136,8 @@ def _stage_requirement_and_lesson_copies(
             ].id,
             sequence_number=lesson.sequence_number,
             fixed_time_slot_id=lesson.fixed_time_slot_id,
+            block_no=lesson.block_no,
+            block_seq=lesson.block_seq,
         )
         for lesson in source_lessons
     }

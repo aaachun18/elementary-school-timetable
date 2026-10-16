@@ -28,6 +28,7 @@ from app.services.exceptions import (
     DependentRecordsExistError,
     DuplicateValueError,
     InactiveTeacherAssignmentError,
+    InvalidLessonPatternError,
     InvalidReferenceError,
     InvalidStatusTransitionError,
     LessonOverProvisionedError,
@@ -92,6 +93,13 @@ def handle_dependent_records_exist(
         status_code=409,
         content={"detail": "此資料仍被其他資料參照，無法刪除"},
     )
+
+
+@app.exception_handler(InvalidLessonPatternError)
+def handle_invalid_lesson_pattern(
+    request: Request, exc: InvalidLessonPatternError
+) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
 
 
 @app.exception_handler(InvalidReferenceError)

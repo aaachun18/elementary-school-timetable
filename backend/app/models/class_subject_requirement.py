@@ -37,7 +37,14 @@ class ClassSubjectRequirement(TimestampMixin, Base):
         ForeignKey("teachers.id")
     )
     required_room_type: Mapped[str | None] = mapped_column(String(100))
+    # Deprecated since Task 87: no rule reads it any more -- replaced by
+    # lesson_pattern. Kept (column and data) so nothing is lost.
     consecutive_limit: Mapped[int | None] = mapped_column()
+    # Task 87: how weekly_periods is split into blocks of consecutive
+    # lessons, e.g. "2+1" (canonical form: largest block first, see
+    # app/services/lesson_pattern.py). None = no pattern: lessons are
+    # independent, exactly as before.
+    lesson_pattern: Mapped[str | None] = mapped_column(String(20))
 
     semester: Mapped["Semester"] = relationship()
     class_: Mapped["Class"] = relationship()

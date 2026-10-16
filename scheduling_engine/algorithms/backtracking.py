@@ -45,20 +45,31 @@ in resources.py -- teacher and room are still searched normally. If the
 fixed slot conflicts with something else, every candidate in that
 Lesson's pool fails the same real-time constraints as any other conflict,
 so it surfaces as an ordinary search failure, explained the same way.
+
+Note (Task 87): every position is a scheduling UNIT (algorithms/blocks.py)
+-- a single lesson, or a whole lesson block (連堂) whose candidates are
+(teacher, start window, room). Committing a unit adds all of its lessons;
+retracting it removes them all. Without blocks every unit is one lesson
+with exactly the candidate pool it always had, so the search, its order and
+backtrack_count are unchanged.
 """
 
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Literal
 
+from scheduling_engine.algorithms.blocks import (
+    block_constraints,
+    build_units,
+    iter_unit_candidates,
+    unit_candidate_count,
+)
 from scheduling_engine.algorithms.resources import (
     LessonFailure,
     SchedulingResources,
     build_lookup_tables,
     build_real_time_constraints,
-    candidate_room_ids,
     candidate_teacher_ids,
-    candidate_time_slot_ids,
     no_candidate_teacher_violation,
 )
 from scheduling_engine.constraints.base import ConstraintViolation
@@ -125,24 +136,24 @@ def schedule_backtracking(
     timeout_seconds: float | None = None,
 ) -> BacktrackingResult:
     tables = build_lookup_tables(resources)
-    real_time_constraints = build_real_time_constraints(
-        resources, include_teacher_workload=True
-    )
+    real_time_constraints = [
+        *build_real_time_constraints(resources, include_teacher_workload=True),
+        *block_constraints(resources),
+    ]
 
     # MRV ordering -- identical rule to Greedy (see its module docstring
     # for why the key is a teacher x time-slot x room product, generalized
     # for Task 28's fixed time slots), computed once up front and never
     # revisited: backtracking changes WHICH CANDIDATE is tried at a
     # position, never the order of positions themselves.
-    ordered_lessons = sorted(
-        lessons,
-        key=lambda lesson: (
-            len(candidate_teacher_ids(lesson, tables))
-            * len(candidate_time_slot_ids(lesson, resources))
-            * len(candidate_room_ids(lesson, tables))
-        ),
+    #
+    # Task 87: positions are units (one per lesson without blocks, same key).
+    ordered_units = sorted(
+        build_units(lessons, resources),
+        key=lambda unit: unit_candidate_count(unit, resources, tables),
     )
-    total = len(ordered_lessons)
+    ordered_lessons = [lesson for unit in ordered_units for lesson in unit.lessons]
+    total = len(ordered_units)
 
     # Pre-flight: any Lesson with zero raw teacher candidates makes the
     # whole thing trivially infeasible -- no point starting a search.
@@ -167,14 +178,9 @@ def schedule_backtracking(
 
     # Each position's static candidate pool (teacher x time_slot x room) --
     # fixed regardless of search state, computed once.
-    candidate_pools: list[list[LessonAssignment]] = [
-        [
-            replace(lesson, teacher_id=teacher_id, time_slot_id=slot_id, room_id=room_id)
-            for teacher_id in candidate_teacher_ids(lesson, tables)
-            for slot_id in candidate_time_slot_ids(lesson, resources)
-            for room_id in candidate_room_ids(lesson, tables)
-        ]
-        for lesson in ordered_lessons
+    # Task 87: a candidate is one LessonAssignment per lesson of the unit.
+    candidate_pools: list[list[tuple[LessonAssignment, ...]]] = [
+        list(iter_unit_candidates(unit, resources, tables)) for unit in ordered_units
     ]
 
     state = SchedulingState()
@@ -182,7 +188,7 @@ def schedule_backtracking(
     # there. committed[i]: the LessonAssignment actually placed at
     # position i right now, or None if nothing is committed there yet.
     cursor = [0] * total
-    committed: list[LessonAssignment | None] = [None] * total
+    committed: list[tuple[LessonAssignment, ...] | None] = [None] * total
 
     backtrack_count = 0
     start_time = time.monotonic()
@@ -206,9 +212,10 @@ def schedule_backtracking(
         while cursor[position] < len(pool):
             candidate = pool[cursor[position]]
             cursor[position] += 1
-            hypothetical = [*state.assignments, candidate]
+            hypothetical = [*state.assignments, *candidate]
             if all(c.validate(hypothetical) for c in real_time_constraints):
-                state.add_assignment(candidate)
+                for assignment in candidate:
+                    state.add_assignment(assignment)
                 committed[position] = candidate
                 found = True
                 break
@@ -245,7 +252,8 @@ def schedule_backtracking(
                 )
 
             position -= 1
-            state.remove_last_assignment()
+            for _ in committed[position] or ():
+                state.remove_last_assignment()
             committed[position] = None
             backtrack_count += 1
 

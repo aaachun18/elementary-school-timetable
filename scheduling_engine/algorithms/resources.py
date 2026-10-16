@@ -13,7 +13,7 @@ back; Backtracking: same, but retract and try the next one if a later
 Lesson gets stuck) -- see greedy.py and backtracking.py.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from scheduling_engine.constraints.active_status import ActiveStatusConstraint
 from scheduling_engine.constraints.base import (
@@ -39,6 +39,7 @@ from scheduling_engine.constraints.teacher_workload import TeacherWorkloadConstr
 from scheduling_engine.models.domain import (
     ActiveStatusInfo,
     LessonAssignment,
+    LessonBlock,
     RequiredTeacherRule,
     RequirementPeriods,
     RoomInfo,
@@ -47,6 +48,7 @@ from scheduling_engine.models.domain import (
     TeacherUnavailability,
     TeacherWorkloadLimit,
     TimeSlotInfo,
+    TimeSlotPosition,
 )
 
 
@@ -69,6 +71,11 @@ class SchedulingResources:
     active_statuses: list[ActiveStatusInfo]
     requirement_periods: list[RequirementPeriods]
     teacher_workload_limits: list[TeacherWorkloadLimit]
+    # Task 87: both optional -- empty means "no lesson blocks", and every
+    # algorithm behaves exactly as before. time_slot_positions is only read
+    # for blocks (consecutive periods of one day).
+    lesson_blocks: list[LessonBlock] = field(default_factory=list)
+    time_slot_positions: list[TimeSlotPosition] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

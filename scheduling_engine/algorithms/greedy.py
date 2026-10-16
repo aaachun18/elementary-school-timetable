@@ -22,10 +22,25 @@ pinned to that one value -- every real-time constraint still validates the
 resulting candidate exactly as it would any other, so a fixed slot that
 conflicts with something else fails the normal way, with the normal
 per-Lesson explanation.
+
+Note (Task 87): lesson blocks (連堂) are placed as one unit each -- see
+algorithms/blocks.py. A block's first valid (teacher, start window, room)
+is taken; if it has none, every lesson of the block is reported as failed
+with the same reasons. Lessons in no block go through exactly the code path
+they always did.
 """
 
 from dataclasses import dataclass, replace
 
+from scheduling_engine.algorithms.blocks import (
+    SchedulingUnit,
+    block_constraints,
+    build_units,
+    iter_unit_candidates,
+    no_block_window_violation,
+    unit_candidate_count,
+    unit_windows,
+)
 from scheduling_engine.algorithms.resources import (
     LessonFailure,
     LookupTables,
@@ -131,6 +146,46 @@ def _explain_no_valid_candidate(
     return reasons
 
 
+def _find_first_valid_block_candidate(
+    unit: SchedulingUnit,
+    state: SchedulingState,
+    resources: SchedulingResources,
+    tables: LookupTables,
+    real_time_constraints: list[BaseConstraint],
+) -> tuple[LessonAssignment, ...] | None:
+    for candidate in iter_unit_candidates(unit, resources, tables):
+        hypothetical = [*state.assignments, *candidate]
+        if all(c.validate(hypothetical) for c in real_time_constraints):
+            return candidate
+    return None
+
+
+def _explain_no_valid_block_candidate(
+    unit: SchedulingUnit,
+    state: SchedulingState,
+    resources: SchedulingResources,
+    tables: LookupTables,
+    real_time_constraints: list[BaseConstraint],
+) -> list[ConstraintViolation]:
+    """Same approach as _explain_no_valid_candidate(), for a whole block."""
+    first = unit.lessons[0]
+    if not candidate_teacher_ids(first, tables):
+        return [no_candidate_teacher_violation(first, tables)]
+    if not unit_windows(unit, resources):
+        return [no_block_window_violation(unit)]
+    seen_messages: set[str] = set()
+    reasons: list[ConstraintViolation] = []
+    for candidate in iter_unit_candidates(unit, resources, tables):
+        hypothetical = [*state.assignments, *candidate]
+        for constraint in real_time_constraints:
+            for violation in constraint.explain_violations(hypothetical):
+                if violation.message in seen_messages:
+                    continue
+                seen_messages.add(violation.message)
+                reasons.append(violation)
+    return reasons
+
+
 def schedule_greedy(
     lessons: list[LessonAssignment],
     resources: SchedulingResources,
@@ -149,7 +204,10 @@ def schedule_greedy(
     """
     working_state = state if state is not None else SchedulingState()
     tables: LookupTables = build_lookup_tables(resources)
-    real_time_constraints = build_real_time_constraints(resources)
+    real_time_constraints = [
+        *build_real_time_constraints(resources),
+        *block_constraints(resources),
+    ]
 
     # MRV: process the Lesson with the fewest total (teacher x time slot x
     # room) combinations first -- generalized from "fewest candidate
@@ -161,18 +219,39 @@ def schedule_greedy(
     # uniform factors never changed the relative order teacher-count-only
     # sorting already produced -- this is a strict generalization, not a
     # behavior change, for every Lesson that isn't fixed.
-    ordered_lessons = sorted(
-        lessons,
-        key=lambda lesson: (
-            len(candidate_teacher_ids(lesson, tables))
-            * len(candidate_time_slot_ids(lesson, resources))
-            * len(candidate_room_ids(lesson, tables))
-        ),
+    #
+    # Task 87: sorting UNITS -- without blocks, one unit per lesson with the
+    # very same key, so the order is unchanged.
+    ordered_units = sorted(
+        build_units(lessons, resources),
+        key=lambda unit: unit_candidate_count(unit, resources, tables),
     )
 
     lesson_failures: list[LessonFailure] = []
 
-    for lesson in ordered_lessons:
+    for unit in ordered_units:
+        if unit.block is not None:
+            block_candidate = _find_first_valid_block_candidate(
+                unit, working_state, resources, tables, real_time_constraints
+            )
+            if block_candidate is not None:
+                for assignment in block_candidate:
+                    working_state.add_assignment(assignment)
+                continue
+            block_reasons = _explain_no_valid_block_candidate(
+                unit, working_state, resources, tables, real_time_constraints
+            )
+            lesson_failures.extend(
+                LessonFailure(
+                    lesson_id=member.lesson_id,
+                    class_subject_requirement_id=member.class_subject_requirement_id,
+                    reasons=block_reasons,
+                )
+                for member in unit.lessons
+            )
+            continue
+
+        lesson = unit.lessons[0]
         candidate_teachers = candidate_teacher_ids(lesson, tables)
         candidate_time_slots = candidate_time_slot_ids(lesson, resources)
         candidate_rooms = candidate_room_ids(lesson, tables)

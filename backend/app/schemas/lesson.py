@@ -8,6 +8,11 @@ class LessonRead(BaseModel):
     class_subject_requirement_id: int
     sequence_number: int
     fixed_time_slot_id: int | None
+    # Task 87: the lesson's block in its requirement's lesson_pattern
+    # (block_no 1 = first/longest block; block_seq 1 = first period of
+    # it). Both null when the requirement has no pattern.
+    block_no: int | None
+    block_seq: int | None
     created_at: datetime
     updated_at: datetime
 

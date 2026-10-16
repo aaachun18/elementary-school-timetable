@@ -37,6 +37,13 @@ DB access.
 
 from dataclasses import dataclass
 
+from scheduling_engine.algorithms.blocks import (
+    SchedulingUnit,
+    build_units,
+    teaching_runs,
+    unit_windows,
+    weekday_by_slot,
+)
 from scheduling_engine.algorithms.resources import (
     LessonFailure,
     LookupTables,
@@ -546,11 +553,205 @@ def _fixed_slot_clashes(
     return violations
 
 
+# --- Task 87: lesson blocks (連堂) ---
+#
+# A block needs `size` consecutive teaching periods on one day, the blocks
+# of one requirement need different days, and fixed lessons inside a block
+# pin where it starts. Each check below is decidable from the time slots,
+# the blocks and the fixed slots alone -- no search.
+
+BLOCK_TOO_LONG = "STATIC_BLOCK_TOO_LONG"
+BLOCK_TOO_MANY_DAYS = "STATIC_BLOCK_TOO_MANY_DAYS"
+BLOCK_NOT_ENOUGH_DAYS = "STATIC_BLOCK_NOT_ENOUGH_DAYS"
+BLOCK_FIXED_CONFLICT = "STATIC_BLOCK_FIXED_CONFLICT"
+BLOCK_FIXED_SAME_DAY = "STATIC_BLOCK_FIXED_SAME_DAY"
+BLOCK_TEACHER_UNAVAILABLE = "STATIC_BLOCK_TEACHER_UNAVAILABLE"
+
+
+def _block_violation(
+    violation_type: str,
+    unit: SchedulingUnit,
+    message: str,
+    suggested_action: str,
+    *,
+    teacher_id: int | None = None,
+) -> ConstraintViolation:
+    """Names the requirement (class, subject) and, through lesson_id, the
+    block's first lesson."""
+    first = unit.lessons[0]
+    return ConstraintViolation(
+        type=violation_type,
+        severity=Severity.ERROR,
+        lesson_id=first.lesson_id,
+        teacher_id=teacher_id,
+        class_id=first.class_id,
+        subject_id=first.subject_id,
+        time_slot_id=None,
+        class_subject_requirement_id=first.class_subject_requirement_id,
+        message=message,
+        suggested_action=suggested_action,
+    )
+
+
+def _check_lesson_blocks(
+    lessons: list[LessonAssignment], resources: SchedulingResources
+) -> list[ConstraintViolation]:
+    """Blocks that can never be placed:
+
+    - a block longer than the longest run of consecutive teaching periods
+      on any day (TOO_LONG);
+    - more blocks in one requirement than days with a teaching period
+      (TOO_MANY_DAYS);
+    - not enough DIFFERENT days with a long enough run for all of a
+      requirement's blocks at once, e.g. "3+3" when only one day has three
+      consecutive teaching periods (NOT_ENOUGH_DAYS);
+    - fixed lessons inside one block that contradict each other or the
+      consecutive periods -- different days, not adjacent, out of block
+      order, or past the end of a run (FIXED_CONFLICT);
+    - two blocks of one requirement fixed to the same day (FIXED_SAME_DAY);
+    - every teacher who can teach the block has an unavailable period in
+      every window the block could use (TEACHER_UNAVAILABLE).
+
+    Fixed slots that are unknown or non-teaching are left to
+    _check_fixed_time_slots(). Lessons in no block are skipped, so without
+    blocks this does nothing.
+    """
+    if not resources.lesson_blocks:
+        return []
+    units = [unit for unit in build_units(lessons, resources) if unit.block is not None]
+    if not units:
+        return []
+
+    tables = build_lookup_tables(resources)
+    runs = teaching_runs(resources)
+    weekday_of = weekday_by_slot(resources)
+    longest_run_by_day: dict[int, int] = {}
+    for run in runs:
+        weekday = weekday_of[run[0]]
+        longest_run_by_day[weekday] = max(longest_run_by_day.get(weekday, 0), len(run))
+    longest_run = max(longest_run_by_day.values(), default=0)
+    teaching_slots = {slot_id for run in runs for slot_id in run}
+    unavailable = {(item.teacher_id, item.time_slot_id) for item in resources.teacher_unavailability}
+
+    violations: list[ConstraintViolation] = []
+    units_by_requirement: dict[int, list[SchedulingUnit]] = {}
+    for unit in units:
+        units_by_requirement.setdefault(unit.lessons[0].class_subject_requirement_id, []).append(unit)
+
+    for requirement_id, requirement_units in units_by_requirement.items():
+        sizes = sorted((len(unit.lessons) for unit in requirement_units), reverse=True)
+        any_too_long = False
+        for unit in requirement_units:
+            size = len(unit.lessons)
+            if size > longest_run:
+                any_too_long = True
+                violations.append(
+                    _block_violation(
+                        BLOCK_TOO_LONG,
+                        unit,
+                        f"Block {unit.block.block_no} of requirement {requirement_id} needs "  # type: ignore[union-attr]
+                        f"{size} consecutive teaching periods, but no day has more than {longest_run}.",
+                        "Use smaller blocks in the lesson pattern, or add teaching periods.",
+                    )
+                )
+        days = len(longest_run_by_day)
+        if len(requirement_units) > days:
+            violations.append(
+                _block_violation(
+                    BLOCK_TOO_MANY_DAYS,
+                    requirement_units[0],
+                    f"Requirement {requirement_id} has {len(requirement_units)} blocks, which must "
+                    f"be on different days, but the school has only {days} day(s) with teaching periods.",
+                    "Use fewer blocks in the lesson pattern.",
+                )
+            )
+        elif not any_too_long:
+            # Blocks largest first against days with the longest runs first:
+            # each block needs its own day with a long enough run.
+            day_lengths = sorted(longest_run_by_day.values(), reverse=True)
+            if any(day_lengths[index] < size for index, size in enumerate(sizes)):
+                violations.append(
+                    _block_violation(
+                        BLOCK_NOT_ENOUGH_DAYS,
+                        requirement_units[0],
+                        f"Requirement {requirement_id}'s blocks {sizes} each need their own day with "
+                        f"that many consecutive teaching periods; the days only have runs of {day_lengths}.",
+                        "Use smaller blocks in the lesson pattern, or add teaching periods.",
+                    )
+                )
+
+        fixed_days: dict[int, list[int]] = {}
+        for unit in requirement_units:
+            block_no = unit.block.block_no  # type: ignore[union-attr]
+            fixed = [
+                lesson.time_slot_id
+                for lesson in unit.lessons
+                if lesson.time_slot_id is not None
+            ]
+            if fixed and all(slot_id in teaching_slots for slot_id in fixed):
+                windows = unit_windows(unit, resources)
+                if not windows:
+                    violations.append(
+                        _block_violation(
+                            BLOCK_FIXED_CONFLICT,
+                            unit,
+                            f"The fixed time slots {fixed} of block {block_no} of requirement "
+                            f"{requirement_id} can't all be inside one run of {len(unit.lessons)} "
+                            "consecutive teaching periods in block order.",
+                            "Fix the block's lessons to consecutive teaching periods of one day, "
+                            "in order, or clear their fixed time slots.",
+                        )
+                    )
+                    continue
+                window_days = {weekday_of[window[0]] for window in windows}
+                if len(window_days) == 1:
+                    fixed_days.setdefault(next(iter(window_days)), []).append(block_no)
+
+            candidates = candidate_teacher_ids(unit.lessons[0], tables)
+            windows = unit_windows(unit, resources)
+            if (
+                candidates
+                and windows
+                and all(
+                    any((teacher_id, slot_id) in unavailable for slot_id in window)
+                    for teacher_id in candidates
+                    for window in windows
+                )
+            ):
+                violations.append(
+                    _block_violation(
+                        BLOCK_TEACHER_UNAVAILABLE,
+                        unit,
+                        f"Every teacher who can teach block {block_no} of requirement {requirement_id} "
+                        f"({candidates}) is unavailable in some period of every window of "
+                        f"{len(unit.lessons)} consecutive teaching periods it could use.",
+                        "Remove some of the teacher's unavailable time slots, or change the lesson pattern.",
+                        teacher_id=candidates[0] if len(candidates) == 1 else None,
+                    )
+                )
+
+        for weekday, block_nos in fixed_days.items():
+            if len(block_nos) < 2:
+                continue
+            for unit in requirement_units:
+                if unit.block.block_no in block_nos:  # type: ignore[union-attr]
+                    violations.append(
+                        _block_violation(
+                            BLOCK_FIXED_SAME_DAY,
+                            unit,
+                            f"Blocks {sorted(block_nos)} of requirement {requirement_id} are fixed "
+                            f"to the same day (weekday {weekday}); its blocks must be on different days.",
+                            "Fix the blocks to different days, or clear their fixed time slots.",
+                        )
+                    )
+    return violations
+
+
 def check_static_feasibility(
     lessons: list[LessonAssignment], resources: SchedulingResources
 ) -> StaticFeasibilityResult:
-    """Entry point: run all five checks (the fixed-time-slot check added
-    in Task 81) and combine their results -- see
+    """Entry point: run all six checks (the fixed-time-slot check added
+    in Task 81, the lesson-block check in Task 87) and combine their results -- see
     this module's docstring for why all of them must run together rather than
     stopping at the first one that finds something (the Task 38 bug this
     fixed was exactly that: a real run with both a workload problem and a
@@ -567,6 +768,7 @@ def check_static_feasibility(
         + _check_teacher_availability_insufficient(lessons, resources)
         + _check_inactive_entity_conflict(lessons, resources)
         + _check_fixed_time_slots(lessons, resources)
+        + _check_lesson_blocks(lessons, resources)
     )
     lesson_failures = _check_zero_candidate_teacher_lessons(lessons, resources)
     return StaticFeasibilityResult(

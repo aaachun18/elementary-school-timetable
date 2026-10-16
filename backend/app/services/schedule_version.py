@@ -13,6 +13,7 @@ from app.models.schedule_version import (
     ScheduleVersion,
 )
 from app.schemas.schedule_version import ScheduleVersionCreate, ScheduleVersionUpdate
+from app.services.lesson_pattern import assign_block_fields, block_positions
 from app.services.exceptions import (
     ArchivedVersionImmutableError,
     DependentRecordsExistError,
@@ -341,6 +342,12 @@ def generate_lessons(
 
     over_provisioned: list[dict[str, int | bool | list[int]]] = []
     to_create: list[tuple[int, int]] = []  # (class_subject_requirement_id, sequence_number)
+    # Task 87: existing lessons whose block fields were brought in line with
+    # their requirement's lesson_pattern (saved with the new lessons).
+    regrouped = False
+    pattern_by_requirement = {
+        requirement.id: requirement.lesson_pattern for requirement in requirements
+    }
 
     for requirement in requirements:
         existing_lessons = list(
@@ -370,25 +377,38 @@ def generate_lessons(
                     "fixed_lesson_ids": fixed_excess_lesson_ids,
                 }
             )
-        elif existing_count < requirement.weekly_periods:
-            for sequence_number in range(
-                existing_count + 1, requirement.weekly_periods + 1
-            ):
-                to_create.append((requirement.id, sequence_number))
+        else:
+            if existing_count < requirement.weekly_periods:
+                for sequence_number in range(
+                    existing_count + 1, requirement.weekly_periods + 1
+                ):
+                    to_create.append((requirement.id, sequence_number))
+            # Task 87: re-syncing is part of the same diff-sync -- an
+            # existing lesson's block follows the pattern as it is now.
+            if assign_block_fields(existing_lessons, requirement.lesson_pattern):
+                regrouped = True
 
     if over_provisioned:
+        db.rollback()  # undo any block re-sync staged above
         raise LessonOverProvisionedError(over_provisioned)
 
     created: list[Lesson] = []
     for class_subject_requirement_id, sequence_number in to_create:
+        # Task 87: (block_no, block_seq) of this sequence number in the
+        # requirement's pattern; both None without a pattern.
+        block_no, block_seq = block_positions(
+            pattern_by_requirement[class_subject_requirement_id], sequence_number
+        )[sequence_number - 1]
         lesson = Lesson(
             class_subject_requirement_id=class_subject_requirement_id,
             sequence_number=sequence_number,
+            block_no=block_no,
+            block_seq=block_seq,
         )
         db.add(lesson)
         created.append(lesson)
 
-    if created:
+    if created or regrouped:
         try:
             db.commit()
         except IntegrityError as exc:

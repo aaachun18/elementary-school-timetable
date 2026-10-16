@@ -12,7 +12,7 @@ here, or from SQLAlchemy/FastAPI at all -- see AGENTS.md section 4.
 """
 
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from sqlalchemy import select
@@ -45,6 +45,7 @@ from scheduling_engine.constraints.base import ConstraintViolation  # noqa: E402
 from scheduling_engine.models.domain import (  # noqa: E402
     ActiveStatusInfo,
     LessonAssignment,
+    LessonBlock,
     RequiredTeacherRule,
     RequirementPeriods,
     RoomInfo,
@@ -53,6 +54,7 @@ from scheduling_engine.models.domain import (  # noqa: E402
     TeacherUnavailability,
     TeacherWorkloadLimit,
     TimeSlotInfo,
+    TimeSlotPosition,
 )
 from scheduling_engine.static_feasibility import check_static_feasibility  # noqa: E402
 
@@ -135,7 +137,30 @@ def _build_lessons_and_resources(
         for lesson in lessons_orm
     ]
 
-    return lessons, build_scheduling_resources(db, requirements)
+    # Task 87: lessons of one lesson_pattern block are placed as one unit
+    # (scheduling_engine/algorithms/blocks.py). Lessons without block
+    # fields -- every lesson of a requirement with no pattern -- stay
+    # independent, and with no blocks at all the engine runs exactly as
+    # before.
+    members: dict[tuple[int, int], list[tuple[int, int]]] = {}
+    for lesson in lessons_orm:
+        if lesson.block_no is not None and lesson.block_seq is not None:
+            members.setdefault((lesson.class_subject_requirement_id, lesson.block_no), []).append(
+                (lesson.block_seq, lesson.id)
+            )
+    lesson_blocks = [
+        LessonBlock(
+            class_subject_requirement_id=requirement_id,
+            block_no=block_no,
+            lesson_ids=tuple(lesson_id for _, lesson_id in sorted(seq_and_ids)),
+        )
+        for (requirement_id, block_no), seq_and_ids in sorted(members.items())
+    ]
+
+    resources = build_scheduling_resources(db, requirements)
+    if lesson_blocks:
+        resources = replace(resources, lesson_blocks=lesson_blocks)
+    return lessons, resources
 
 
 def build_scheduling_resources(
@@ -192,6 +217,16 @@ def build_scheduling_resources(
         for time_slot in all_time_slots
     ]
     time_slot_ids = [time_slot.id for time_slot in all_time_slots]
+    # Task 87: which slots are consecutive periods of one day (only read
+    # for lesson blocks).
+    time_slot_positions = [
+        TimeSlotPosition(
+            time_slot_id=time_slot.id,
+            weekday=time_slot.weekday,
+            period=time_slot.period,
+        )
+        for time_slot in all_time_slots
+    ]
 
     all_teachers = list(db.scalars(select(Teacher)).all())
     all_classes = list(db.scalars(select(Class)).all())
@@ -250,6 +285,7 @@ def build_scheduling_resources(
         room_type_requirements=room_type_requirements,
         rooms=rooms,
         time_slots=time_slots,
+        time_slot_positions=time_slot_positions,
         active_statuses=active_statuses,
         requirement_periods=requirement_periods,
         teacher_workload_limits=teacher_workload_limits,

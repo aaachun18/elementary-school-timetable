@@ -19,6 +19,12 @@ class InvalidReferenceError(Exception):
     """
 
 
+class InvalidLessonPatternError(Exception):
+    """Task 87: a requirement's lesson_pattern doesn't add up to its
+    weekly_periods after an update (-> 422). The message is the Chinese
+    text from app/services/lesson_pattern.py."""
+
+
 class DuplicateValueError(Exception):
     """Raised by a create/update service function when a value violates a
     UNIQUE constraint (e.g. duplicate Subject.name) or a CHECK constraint
