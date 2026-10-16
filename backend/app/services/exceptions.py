@@ -31,6 +31,17 @@ class InvalidTeacherPeriodsError(Exception):
     app/services/teacher_periods.py."""
 
 
+class BlockAdjustmentRefusedError(Exception):
+    """Task 89: a move or swap the lesson block (連堂) rules don't allow
+    (-> 409). `reason` is the code from app/services/block_adjustment.py
+    (BLOCK_OUT_OF_RANGE / BLOCK_TARGET_OCCUPIED / BLOCK_SWAP_UNSUPPORTED),
+    the same one move-candidates reports for that target."""
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason)
+
+
 class DuplicateValueError(Exception):
     """Raised by a create/update service function when a value violates a
     UNIQUE constraint (e.g. duplicate Subject.name) or a CHECK constraint

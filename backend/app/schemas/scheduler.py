@@ -166,27 +166,60 @@ class ScheduleAdjustmentResult(BaseModel):
 # --- Task 83: GET /schedule-versions/{id}/move-candidates/{schedule_id} ---
 
 
+class BlockMemberDetail(BaseModel):
+    """Task 89: one Schedule row that moves with a change involving a
+    lesson block (連堂), and the time slot it goes to."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    schedule_id: int
+    to_time_slot_id: int | None
+
+
+class UnsupportedSwapDetail(BaseModel):
+    """Task 89: a lesson in the slot that can't be swapped with under the
+    block rules; reason is BLOCK_SWAP_UNSUPPORTED (what swap-lessons would
+    answer with 409)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    swap_with_schedule_id: int
+    reason: str
+
+
 class MoveCandidateSwap(BaseModel):
     """Swapping the lesson with this row (one in the candidate time slot
     that shares its class, teacher or room): the version's check after the
-    swap -- what swap-lessons with dry_run would report."""
+    swap -- what swap-lessons with dry_run would report. Task 89:
+    block_members lists every row the swap moves (both whole groups) when a
+    block is involved; null for two lessons of no block."""
 
     swap_with_schedule_id: int
     check: ScheduleCheckResult
+    block_members: list[BlockMemberDetail] | None = None
 
 
 class MoveCandidateSlot(BaseModel):
-    """One time slot. available=False (with unavailable_reason
-    NON_TEACHING_SLOT or CURRENT_SLOT) means it is not a move target, and
-    `move` is null. `move` is the version's check after moving the lesson
-    here (room unchanged) -- what move-lesson with dry_run would report.
-    `swaps` lists every possible swap in this slot (possibly empty)."""
+    """One time slot. available=False means it is not a move target, and
+    `move` is null; unavailable_reason is NON_TEACHING_SLOT or CURRENT_SLOT,
+    or (Task 89, a lesson in a block only) BLOCK_OUT_OF_RANGE -- the whole
+    block doesn't fit into adjacent teaching periods of that day there --
+    or BLOCK_TARGET_OCCUPIED -- the block would land on other lessons of
+    its class (swap with them instead, if `swaps` offers it). `move` is the
+    version's check after moving the lesson here (room unchanged) -- what
+    move-lesson with dry_run would report. `swaps` lists every possible
+    swap in this slot (possibly empty). Task 89: block_members (lesson in a
+    block, available slot only) says where every lesson of the block goes;
+    unsupported_swaps lists the lessons here a swap with is refused (null
+    when none)."""
 
     time_slot_id: int
     available: bool
     unavailable_reason: str | None
     move: ScheduleCheckResult | None
     swaps: list[MoveCandidateSwap]
+    block_members: list[BlockMemberDetail] | None = None
+    unsupported_swaps: list[UnsupportedSwapDetail] | None = None
 
 
 class MoveCandidatesResult(BaseModel):

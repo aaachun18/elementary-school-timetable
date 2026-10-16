@@ -15,6 +15,7 @@ from app.schemas.schedule_version import (
     ScheduleVersionUpdate,
 )
 from app.schemas.scheduler import (
+    BlockMemberDetail,
     ConstraintViolationDetail,
     LessonFailureDetail,
     MoveCandidateSlot,
@@ -29,6 +30,7 @@ from app.schemas.scheduler import (
     SchedulerRunResult,
     TeacherReassignmentRequest,
     TeacherReassignmentResult,
+    UnsupportedSwapDetail,
 )
 from app.services import schedule_adjustment as schedule_adjustment_service
 from app.services import schedule_check as schedule_check_service
@@ -422,6 +424,14 @@ def swap_lessons(
 # AdjustmentTargetNotFoundError (404) are converted by main.py's handlers.
 
 
+def _block_members(
+    members: list[move_candidates_service.BlockMember] | None,
+) -> list[BlockMemberDetail] | None:
+    if members is None:
+        return None
+    return [BlockMemberDetail.model_validate(member) for member in members]
+
+
 @router.get(
     "/{schedule_version_id}/move-candidates/{schedule_id}",
     response_model=MoveCandidatesResult,
@@ -461,9 +471,19 @@ def list_move_candidates(
                     MoveCandidateSwap(
                         swap_with_schedule_id=swap.swap_with_schedule_id,
                         check=_build_check_result(schedule_version_id, swap.violations),
+                        block_members=_block_members(swap.block_members),
                     )
                     for swap in candidate.swaps
                 ],
+                block_members=_block_members(candidate.block_members),
+                unsupported_swaps=(
+                    None
+                    if candidate.unsupported_swaps is None
+                    else [
+                        UnsupportedSwapDetail.model_validate(item)
+                        for item in candidate.unsupported_swaps
+                    ]
+                ),
             )
             for candidate in outcome.candidates
         ],

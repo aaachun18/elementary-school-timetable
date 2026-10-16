@@ -19,9 +19,11 @@ from app.routers.subject import router as subject_router
 from app.routers.teacher import router as teacher_router
 from app.routers.time_slot import router as time_slot_router
 from app.routers.users import router as users_router
+from app.services.block_adjustment import REFUSAL_MESSAGES
 from app.services.exceptions import (
     ArchivedVersionImmutableError,
     CannotDeleteSelfError,
+    BlockAdjustmentRefusedError,
     CannotSwapWithSelfError,
     CopyAcrossAcademicYearsError,
     CopySourceInconsistentError,
@@ -326,6 +328,18 @@ def handle_cannot_swap_with_self(
     return JSONResponse(
         status_code=409,
         content={"detail": "不能與自己對調"},
+    )
+
+
+@app.exception_handler(BlockAdjustmentRefusedError)
+def handle_block_adjustment_refused(
+    request: Request, exc: BlockAdjustmentRefusedError
+) -> JSONResponse:
+    # Task 89: `reason` is additive -- the frontend can tell the cases apart
+    # (and match them to move-candidates' unavailable reasons).
+    return JSONResponse(
+        status_code=409,
+        content={"detail": REFUSAL_MESSAGES[exc.reason], "reason": exc.reason},
     )
 
 

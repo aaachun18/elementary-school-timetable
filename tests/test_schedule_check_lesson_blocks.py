@@ -387,16 +387,16 @@ def test_move_and_swap_previews_match_check_after_saving(
     client: TestClient, db_session: Session
 ) -> None:
     world, rows = _broken_world(db_session)
-    # One after another, each saved before the next: block 1's second
-    # lesson to Monday period 1 (reverse order), then to Tuesday period 2
-    # (block 1 split, and on block 2's day), then swapped with English's
-    # first lesson (Wednesday), then block 1 made whole on Monday 4-5.
+    # Task 89 rewrote these steps: a lesson of a block now moves with its
+    # whole block, so a move can no longer split one. One after another,
+    # each saved before the next: block 2 (one lesson) to Monday period 5
+    # (block 1 still across lunch, now also on block 2's day), swapped
+    # with English's first lesson (Wednesday), then block 1 moved whole to
+    # Tuesday 4-5 by its second lesson.
     cases = [
-        lambda dry: _move(client, world.version.id, rows[1].id, world.slot(1, 1), dry_run=dry),
-        lambda dry: _move(client, world.version.id, rows[1].id, world.slot(2, 2), dry_run=dry),
-        lambda dry: _swap(client, world.version.id, rows[1].id, rows[3].id, dry_run=dry),
-        lambda dry: _move(client, world.version.id, rows[1].id, world.slot(1, 5), dry_run=dry),
-        lambda dry: _move(client, world.version.id, rows[0].id, world.slot(1, 4), dry_run=dry),
+        lambda dry: _move(client, world.version.id, rows[2].id, world.slot(1, 5), dry_run=dry),
+        lambda dry: _swap(client, world.version.id, rows[2].id, rows[3].id, dry_run=dry),
+        lambda dry: _move(client, world.version.id, rows[1].id, world.slot(2, 5), dry_run=dry),
     ]
     seen: set[str] = set()
     for case in cases:
@@ -454,16 +454,17 @@ def test_move_candidates_match_check_and_previews(
                 assert swap["check"] == preview["check"]
 
     assert compared > 0
-    # Moving block 1's second lesson to Monday period 3 is not offered
-    # (lunch); to period 1 it is, and the block is still broken (reverse
-    # order) -- with the same identity key as before the move.
-    second = _by_slot(_ok(_candidates(client, world.version.id, rows[1].id)))
-    assert second[world.slot(1, LUNCH)]["available"] is False
+    # Task 89 rewrote this part (a move can no longer split a block):
+    # moving block 2 (one lesson) next to block 1 on Monday leaves block 1
+    # broken -- with the same identity key as before the move -- and adds
+    # BLOCK_SAME_DAY.
+    single = _by_slot(_ok(_candidates(client, world.version.id, rows[2].id)))
+    assert single[world.slot(1, LUNCH)]["available"] is False
     keys_before = {v["identity_key"] for v in _block_violations(_check(client, world))}
-    keys_after = {v["identity_key"] for v in _block_violations(second[world.slot(1, 1)]["move"])}
-    assert keys_before == keys_after == {
-        f"BLOCK_NOT_CONSECUTIVE:{world.science_requirement.id}:1"
-    }
+    keys_after = {v["identity_key"] for v in _block_violations(single[world.slot(1, 5)]["move"])}
+    requirement_id = world.science_requirement.id
+    assert keys_before == {f"BLOCK_NOT_CONSECUTIVE:{requirement_id}:1"}
+    assert keys_after == keys_before | {f"BLOCK_SAME_DAY:{requirement_id}:1,2"}
 
 
 @pytest.mark.parametrize("weekday", [1, 3])

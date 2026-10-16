@@ -17,8 +17,17 @@ block: the returned check lists them.
 Schedule's only unique constraint is (schedule_version_id, lesson_id);
 nothing is unique on time_slot_id, so a swap can update both rows directly
 without any intermediate-state trick.
+
+Task 89: a lesson in a lesson block (連堂) takes its whole block with it.
+Which rows go where is decided by services/block_adjustment.py -- the same
+plan move-candidates uses -- before anything changes; a plan the rules
+refuse raises BlockAdjustmentRefusedError (-> 409), and otherwise every
+planned row is updated in the one transaction (all or nothing). A lesson of
+no block plans to exactly the one row (two for a swap) these endpoints
+always changed.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
@@ -27,9 +36,10 @@ from app.models.room import Room
 from app.models.schedule import Schedule
 from app.models.schedule_version import ScheduleVersion
 from app.models.time_slot import TimeSlot
-from app.services import schedule_check
+from app.services import block_adjustment, schedule_check
 from app.services.exceptions import (
     AdjustmentTargetNotFoundError,
+    BlockAdjustmentRefusedError,
     CannotSwapWithSelfError,
     ScheduleNotInVersionError,
 )
@@ -96,6 +106,42 @@ def _apply(
     return change
 
 
+def _plan(
+    db: Session,
+    schedule_version: ScheduleVersion,
+    make_plan: Callable[[block_adjustment.Layout], block_adjustment.Plan],
+) -> block_adjustment.Plan:
+    """Task 89: the plan for this change, from the version's rows as
+    stored; raises BlockAdjustmentRefusedError (nothing changed yet) when
+    the block rules refuse it."""
+    layout = block_adjustment.Layout(
+        schedule_check.load_assignment_rows(db, schedule_version.id),
+        schedule_check.load_check_context(db, schedule_version.semester_id, schedule_version.id),
+    )
+    plan = make_plan(layout)
+    if plan.refusal is not None:
+        raise BlockAdjustmentRefusedError(plan.refusal)
+    return plan
+
+
+def _apply_plan(
+    db: Session, plan: block_adjustment.Plan, room_ids: dict[int, int]
+) -> list[ScheduleChange]:
+    """Every planned row to its slot (room from room_ids, default: its
+    own), in plan order; returns the rows that actually changed."""
+    assert plan.slots is not None
+    changes: list[ScheduleChange] = []
+    for planned in plan.slots:
+        schedule = db.get(Schedule, planned.schedule_id)
+        assert schedule is not None  # loaded from this version a moment ago
+        change = _apply(
+            schedule, planned.time_slot_id, room_ids.get(planned.schedule_id, schedule.room_id)
+        )
+        if change is not None:
+            changes.append(change)
+    return changes
+
+
 def _flush_check_and_finish(
     db: Session, schedule_version_id: int, *, dry_run: bool
 ) -> list[ConstraintViolation]:
@@ -123,27 +169,35 @@ def move_lesson(
     target_room_id None means "keep the current room" (this API cannot
     clear a room). Moving to the current slot (and room) is a no-op with
     no changes. A slot where the class already has another lesson is NOT
-    turned into a swap -- that's swap_lessons()'s job."""
+    turned into a swap -- that's swap_lessons()'s job (for a block such a
+    target is refused: BLOCK_TARGET_OCCUPIED). Task 89: a lesson in a block
+    moves with its whole block; a target room then applies to all of it."""
     schedule_version = _get_unlocked_version(db, schedule_version_id)
     if schedule_version is None:
         return None
-    schedule = _get_schedule_in_version(db, schedule_version_id, schedule_id)
+    _get_schedule_in_version(db, schedule_version_id, schedule_id)
     if db.get(TimeSlot, target_time_slot_id) is None:
         raise AdjustmentTargetNotFoundError("TimeSlot not found")
     if target_room_id is not None and db.get(Room, target_room_id) is None:
         raise AdjustmentTargetNotFoundError("Room not found")
+    plan = _plan(
+        db, schedule_version, lambda layout: layout.plan_move(schedule_id, target_time_slot_id)
+    )
 
     try:
-        new_room_id = schedule.room_id if target_room_id is None else target_room_id
-        change = _apply(schedule, target_time_slot_id, new_room_id)
+        assert plan.slots is not None
+        room_ids = (
+            {}
+            if target_room_id is None
+            else {planned.schedule_id: target_room_id for planned in plan.slots}
+        )
+        changes = _apply_plan(db, plan, room_ids)
         violations = _flush_check_and_finish(db, schedule_version_id, dry_run=dry_run)
     except Exception:
         # Not swallowed: re-raised after undoing every staged change.
         db.rollback()
         raise
-    return AdjustmentOutcome(
-        changes=[change] if change is not None else [], violations=violations
-    )
+    return AdjustmentOutcome(changes=changes, violations=violations)
 
 
 def swap_lessons(
@@ -156,25 +210,22 @@ def swap_lessons(
 ) -> AdjustmentOutcome | None:
     """Returns None if the ScheduleVersion doesn't exist (caller -> 404).
     The two rows exchange time_slot_id; each keeps its own teacher and
-    room. Two rows already in the same slot produce no changes."""
+    room. Two rows already in the same slot produce no changes. Task 89:
+    with a block involved the two whole groups exchange places (see
+    services/block_adjustment.py), or BlockAdjustmentRefusedError."""
     schedule_version = _get_unlocked_version(db, schedule_version_id)
     if schedule_version is None:
         return None
     if schedule_id == swap_with_schedule_id:
         raise CannotSwapWithSelfError(f"Schedule {schedule_id} cannot swap with itself.")
-    first = _get_schedule_in_version(db, schedule_version_id, schedule_id)
-    second = _get_schedule_in_version(db, schedule_version_id, swap_with_schedule_id)
+    _get_schedule_in_version(db, schedule_version_id, schedule_id)
+    _get_schedule_in_version(db, schedule_version_id, swap_with_schedule_id)
+    plan = _plan(
+        db, schedule_version, lambda layout: layout.plan_swap(schedule_id, swap_with_schedule_id)
+    )
 
     try:
-        first_slot, second_slot = first.time_slot_id, second.time_slot_id
-        changes = [
-            change
-            for change in (
-                _apply(first, second_slot, first.room_id),
-                _apply(second, first_slot, second.room_id),
-            )
-            if change is not None
-        ]
+        changes = _apply_plan(db, plan, {})
         violations = _flush_check_and_finish(db, schedule_version_id, dry_run=dry_run)
     except Exception:
         db.rollback()
