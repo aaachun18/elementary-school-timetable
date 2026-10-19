@@ -44,6 +44,7 @@ from scheduling_engine.algorithms.resources import (  # noqa: E402
 from scheduling_engine.constraints.base import ConstraintViolation  # noqa: E402
 from scheduling_engine.models.domain import (  # noqa: E402
     ActiveStatusInfo,
+    DefaultRoom,
     LessonAssignment,
     LessonBlock,
     RequiredTeacherRule,
@@ -56,7 +57,12 @@ from scheduling_engine.models.domain import (  # noqa: E402
     TimeSlotInfo,
     TimeSlotPosition,
 )
-from scheduling_engine.static_feasibility import check_static_feasibility  # noqa: E402
+from scheduling_engine.static_feasibility import (  # noqa: E402
+    FIXED_SLOT_HOMEROOM_CLASH,
+    HOMEROOM_OVERBOOKED,
+    ROOM_TYPE_NOT_FOUND,
+    check_static_feasibility,
+)
 
 from app.models.class_subject_requirement import ClassSubjectRequirement
 from app.models.grade_class import Class
@@ -240,6 +246,21 @@ def build_scheduling_resources(
     all_classes = list(db.scalars(select(Class)).all())
     all_subjects = list(db.scalars(select(Subject)).all())
 
+    # Task 92B: a requirement with no room type (原班上課) is held in its
+    # class's homeroom, when the class has one -- the engine's only room
+    # candidate for it (decision 29). No homeroom: no entry, room None as
+    # before. A requirement with a room type never gets one.
+    homeroom_by_class = {class_.id: class_.homeroom_room_id for class_ in all_classes}
+    default_rooms = [
+        DefaultRoom(
+            class_subject_requirement_id=requirement.id,
+            room_id=homeroom_by_class[requirement.class_id],  # type: ignore[arg-type]
+        )
+        for requirement in requirements
+        if requirement.required_room_type is None
+        and homeroom_by_class.get(requirement.class_id) is not None
+    ]
+
     # H12 needs the REAL is_active value for every entity, active or not --
     # nothing is pre-filtered out here; ActiveStatusConstraint is what
     # decides what to do with an inactive one.
@@ -297,7 +318,59 @@ def build_scheduling_resources(
         active_statuses=active_statuses,
         requirement_periods=requirement_periods,
         teacher_workload_limits=teacher_workload_limits,
+        default_rooms=default_rooms,
     )
+
+
+def _name_room_violations(
+    db: Session, violations: list[ConstraintViolation]
+) -> list[ConstraintViolation]:
+    """Task 92B: the engine's room pre-checks can only name ids; the
+    frontend has no sentence of its own for them yet, so their message is
+    what the user reads. Rewritten here with the class, subject and room
+    names (every other violation is returned as is)."""
+    def class_name(class_id: int | None) -> str:
+        class_ = db.get(Class, class_id) if class_id is not None else None
+        return class_.name if class_ is not None else f"班級 {class_id}"
+
+    def room_name(room_id: int | None) -> str:
+        room = db.get(Room, room_id) if room_id is not None else None
+        return room.name if room is not None else f"教室 {room_id}"
+
+    def sharing_classes(room_id: int | None) -> str:
+        classes = db.scalars(
+            select(Class).where(Class.homeroom_room_id == room_id).order_by(Class.id)
+        ).all()
+        return "、".join(class_.name for class_ in classes)
+
+    named: list[ConstraintViolation] = []
+    for violation in violations:
+        message = violation.message
+        if violation.type == ROOM_TYPE_NOT_FOUND:
+            requirement = db.get(ClassSubjectRequirement, violation.class_subject_requirement_id)
+            subject = db.get(Subject, violation.subject_id)
+            if requirement is not None and subject is not None:
+                message = (
+                    f"{class_name(violation.class_id)}的{subject.name}指定的教室類型"
+                    f"「{requirement.required_room_type}」找不到任何可用的教室"
+                )
+        elif violation.type == HOMEROOM_OVERBOOKED:
+            # The engine's text is "導師教室 {room_id} 要上…（班級 {ids}）"
+            # (static_feasibility._check_rooms()): the room and the classes
+            # are renamed, the counts in between kept.
+            counts = violation.message.removeprefix(f"導師教室 {violation.room_id}")
+            counts = counts.rsplit("（班級 ", 1)[0].strip()
+            message = (
+                f"導師教室「{room_name(violation.room_id)}」"
+                f"（{sharing_classes(violation.room_id)}）{counts}"
+            )
+        elif violation.type == FIXED_SLOT_HOMEROOM_CLASH:
+            message = (
+                f"{sharing_classes(violation.room_id)}共用導師教室「{room_name(violation.room_id)}」，"
+                "而且都有課固定在同一個時段，這間教室同一時段只能上一堂課"
+            )
+        named.append(replace(violation, message=message))
+    return named
 
 
 @dataclass
@@ -378,7 +451,7 @@ def run_scheduler(
     static_check = check_static_feasibility(lessons, resources)
     if not static_check.feasible:
         return SchedulerRunOutcome(
-            static_violations=static_check.violations,
+            static_violations=_name_room_violations(db, static_check.violations),
             static_lesson_failures=static_check.lesson_failures,
             search_result=None,
         )

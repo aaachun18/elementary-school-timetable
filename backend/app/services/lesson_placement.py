@@ -21,12 +21,13 @@ the same pure function GET /check runs -- so the candidates, the preview
 and the check after placing can't disagree.
 
 Teacher: the request's teacher_id, else the requirement's required teacher,
-else refused (TEACHER_REQUIRED). Room: the request's room_id, else none --
-the same as run-scheduler, which leaves the room empty for a requirement
-with no room type ("原班上課") and never uses the class's homeroom; for a
-requirement with a room type nothing is picked either, the check reports
-H9 until the user names a room. Qualification, availability, workload and
-double-booking never block a placement: the check reports them.
+else refused (TEACHER_REQUIRED). Room (Task 92B, decision 29 -- the same
+rule as run-scheduler): the request's room_id; else, for a requirement
+with no room type (原班上課), the class's homeroom; else none. For a
+requirement with a room type nothing is picked: the user names the room
+(H9 only compares a room that is there, so an empty one is not reported).
+Qualification, availability, workload and double-booking never block a
+placement: the check reports them.
 """
 
 from dataclasses import dataclass, replace
@@ -94,9 +95,9 @@ class UnscheduledLesson:
     block_seq: int | None
     lesson_pattern: str | None
     fixed_time_slot_id: int | None
-    # The first active room of the requirement's room type (by id); None
-    # when the requirement has no room type -- placing then leaves the room
-    # empty, like run-scheduler.
+    # Task 92B: no room type -> the class's homeroom (what placing uses by
+    # default, None when the class has none); a room type -> the first
+    # active room of that type (by id), only a hint: placing doesn't pick it.
     suggested_room_id: int | None
     # Active teachers qualified for the subject (TeacherSubject), by name.
     eligible_teachers: list[EligibleTeacher]
@@ -142,7 +143,7 @@ def list_unscheduled_lessons(
     if schedule_version is None:
         return None
     rows = db.execute(
-        select(Lesson, ClassSubjectRequirement, Class.name, Subject.name)
+        select(Lesson, ClassSubjectRequirement, Class, Subject.name)
         .join(ClassSubjectRequirement, Lesson.class_subject_requirement_id == ClassSubjectRequirement.id)
         .join(Class, ClassSubjectRequirement.class_id == Class.id)
         .join(Subject, ClassSubjectRequirement.subject_id == Subject.id)
@@ -177,7 +178,7 @@ def list_unscheduled_lessons(
             lesson_id=lesson.id,
             class_subject_requirement_id=requirement.id,
             class_id=requirement.class_id,
-            class_name=class_name,
+            class_name=class_.name,
             subject_id=requirement.subject_id,
             subject_name=subject_name,
             sequence_number=lesson.sequence_number,
@@ -187,13 +188,13 @@ def list_unscheduled_lessons(
             lesson_pattern=requirement.lesson_pattern,
             fixed_time_slot_id=lesson.fixed_time_slot_id,
             suggested_room_id=(
-                None
+                class_.homeroom_room_id
                 if requirement.required_room_type is None
                 else rooms.get(requirement.required_room_type)
             ),
             eligible_teachers=list(teachers[requirement.subject_id]),
         )
-        for lesson, requirement, class_name, subject_name in rows
+        for lesson, requirement, class_, subject_name in rows
     ]
 
 
@@ -270,6 +271,11 @@ def _prepare(
     resolved_teacher_id = _resolve_teacher(db, requirement, teacher_id)
     if room_id is not None and db.get(Room, room_id) is None:
         raise AdjustmentTargetNotFoundError("Room not found")
+    if room_id is None and requirement.required_room_type is None:
+        # Task 92B: 原班上課 -> the homeroom, exactly like run-scheduler.
+        class_ = db.get(Class, requirement.class_id)
+        assert class_ is not None  # foreign key
+        room_id = class_.homeroom_room_id
 
     rows = schedule_check.load_assignment_rows(db, schedule_version_id)
     context = schedule_check.load_check_context(db, schedule_version.semester_id, schedule_version_id)

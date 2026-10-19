@@ -38,6 +38,7 @@ from scheduling_engine.constraints.teacher_qualification import (
 from scheduling_engine.constraints.teacher_workload import TeacherWorkloadConstraint
 from scheduling_engine.models.domain import (
     ActiveStatusInfo,
+    DefaultRoom,
     LessonAssignment,
     LessonBlock,
     RequiredTeacherRule,
@@ -76,6 +77,9 @@ class SchedulingResources:
     # for blocks (consecutive periods of one day).
     lesson_blocks: list[LessonBlock] = field(default_factory=list)
     time_slot_positions: list[TimeSlotPosition] = field(default_factory=list)
+    # Task 92B: optional -- empty means no homeroom anywhere, and every
+    # lesson of no room type gets room None exactly as before.
+    default_rooms: list[DefaultRoom] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -88,6 +92,8 @@ class LookupTables:
     qualified_teachers_by_subject: dict[int, list[int]]
     required_room_type_by_requirement: dict[int, str]
     room_ids_by_type: dict[str, list[int]]
+    # Task 92B: requirement -> the homeroom its lessons are held in.
+    default_room_by_requirement: dict[int, int] = field(default_factory=dict)
 
 
 def build_lookup_tables(resources: SchedulingResources) -> LookupTables:
@@ -116,6 +122,9 @@ def build_lookup_tables(resources: SchedulingResources) -> LookupTables:
         qualified_teachers_by_subject=qualified_teachers_by_subject,
         required_room_type_by_requirement=required_room_type_by_requirement,
         room_ids_by_type=room_ids_by_type,
+        default_room_by_requirement={
+            item.class_subject_requirement_id: item.room_id for item in resources.default_rooms
+        },
     )
 
 
@@ -204,12 +213,15 @@ def candidate_room_ids(
 ) -> list[int | None]:
     """H9: if this Lesson's requirement needs a specific room type, only
     rooms of that type are candidates. Otherwise ("原班上課" -- no
-    room-type restriction) the only candidate tried is room_id=None."""
+    room-type restriction) the only candidate tried is the class's
+    homeroom (Task 92B, resources.default_rooms), or room_id=None when the
+    class has none. Either way one candidate: the homeroom is fixed, not a
+    search variable -- H3 then keeps two classes sharing it apart."""
     required_room_type = tables.required_room_type_by_requirement.get(
         lesson.class_subject_requirement_id
     )
     if required_room_type is None:
-        return [None]
+        return [tables.default_room_by_requirement.get(lesson.class_subject_requirement_id)]
     return list(tables.room_ids_by_type.get(required_room_type, []))
 
 

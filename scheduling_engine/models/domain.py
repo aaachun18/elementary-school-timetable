@@ -88,6 +88,18 @@ class RoomTypeRequirement:
 
 
 @dataclass(frozen=True)
+class DefaultRoom:
+    """Task 92B: this requirement's lessons are held in this room -- the
+    class's homeroom, for a requirement with no room type (原班上課). Not
+    searched: it is the only room candidate (candidate_room_ids()), so a
+    whole lesson block and a fixed lesson get it too. Sparse: no entry
+    means "no room" (room_id None), exactly as before."""
+
+    class_subject_requirement_id: int
+    room_id: int
+
+
+@dataclass(frozen=True)
 class RoomInfo:
     """H9 (half 2): what type of room an actual Room is -- the other side
     of the comparison RoomTypeConstraint makes. Mirrors Room.room_type."""

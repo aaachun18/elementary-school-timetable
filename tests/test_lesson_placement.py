@@ -194,7 +194,17 @@ def test_suggested_room_is_the_first_active_room_of_the_type(
     science, art = _ok(_unscheduled(client, world.version.id))["lessons"]
 
     assert science["suggested_room_id"] == open_.id
-    # No room type: none, even though the class has a homeroom.
+    # Task 92B: no room type -> the class's homeroom.
+    assert art["suggested_room_id"] == homeroom.id
+
+
+def test_suggested_room_without_type_or_homeroom_is_none(
+    client: TestClient, db_session: Session
+) -> None:
+    world = _world(db_session, skip_rows=("A1",))
+
+    [art] = _ok(_unscheduled(client, world.version.id))["lessons"]
+
     assert art["suggested_room_id"] is None
 
 
@@ -429,21 +439,47 @@ def test_missing_or_inactive_teacher_is_refused(client: TestClient, db_session: 
     assert _lesson(world, "A1") not in _rows_of(world)
 
 
-def test_room_defaults_to_none_even_with_a_homeroom(client: TestClient, db_session: Session) -> None:
-    world = _world(db_session, skip_rows=("A1", "E2"))
-    homeroom = Room(name="四甲教室", room_type="普通教室", is_active=True)
-    db_session.add(homeroom)
+@pytest.mark.parametrize(
+    ("name", "teacher", "homeroom", "named_room", "expected", "why"),
+    [
+        ("A1", "t2", True, False, "homeroom", "no room type, the class has a homeroom"),
+        ("A1", "t2", False, False, None, "no room type, no homeroom: empty as before"),
+        ("S3", "t1", True, False, None, "a room type: never the homeroom"),
+        ("A1", "t2", True, True, "named", "the request's room wins"),
+    ],
+)
+def test_room_default_follows_run_scheduler(
+    client: TestClient,
+    db_session: Session,
+    name: str,
+    teacher: str,
+    homeroom: bool,
+    named_room: bool,
+    expected: str | None,
+    why: str,
+) -> None:
+    """Task 92B (decision 29): the same room rule as run-scheduler."""
+    world = _world(db_session, skip_rows=(name,))
+    room = Room(name="四甲教室", room_type="普通教室", is_active=True)
+    other = Room(name="美勞教室", room_type="美勞教室", is_active=True)
+    db_session.add_all([room, other])
     db_session.flush()
-    db_session.get(Class, world.science.class_id).homeroom_room_id = homeroom.id  # type: ignore[union-attr]
+    world.science.required_room_type = "自然教室"
+    if homeroom:
+        db_session.get(Class, world.science.class_id).homeroom_room_id = room.id  # type: ignore[union-attr]
     db_session.commit()
+    room_id = other.id if named_room else None
+    want = {"homeroom": room.id, "named": other.id, None: None}[expected]
 
-    default = _ok(_place(client, world.version.id, _lesson(world, "A1"), world.slot(3, 5), teacher_id=world.t2.id))
-    named = _ok(_place(client, world.version.id, _lesson(world, "E2"), world.slot(3, 6), teacher_id=world.t2.id, room_id=homeroom.id))
+    candidates = _ok(_place_candidates(
+        client, world.version.id, _lesson(world, name), teacher_id=getattr(world, teacher).id,
+        **({"room_id": room_id} if room_id is not None else {}),
+    ))
+    data = _ok(_place(client, world.version.id, _lesson(world, name), world.slot(3, 5), teacher_id=getattr(world, teacher).id, room_id=room_id))
 
-    assert default["changes"][0]["new_room_id"] is None
-    assert named["changes"][0]["new_room_id"] == homeroom.id
-    rows = _rows_of(world)
-    assert (rows[_lesson(world, "A1")].room_id, rows[_lesson(world, "E2")].room_id) == (None, homeroom.id)
+    assert candidates["room_id"] == want, why
+    assert data["changes"][0]["new_room_id"] == want, why
+    assert _rows_of(world)[_lesson(world, name)].room_id == want, why
 
 
 def test_room_type_requirement_is_checked_only_once_a_room_is_named(

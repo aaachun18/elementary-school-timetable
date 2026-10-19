@@ -433,7 +433,7 @@ powershell -ExecutionPolicy Bypass -File scripts\reset_demo_requirements.ps1 -Co
 
 它透過 `docker compose exec -T postgres psql` 執行 `scripts/reset_demo_requirements.sql`(帳號與資料庫名稱取自容器自己的環境變數),只把指定教師改回封存版本 v4 排課列上的教師。學期與版本的 id 寫死在 SQL 裡,**只適用於開發資料庫中的這份示範資料,不是通用工具**。
 
-自動排課不會替沒有指定教室類型的需求排教室,所以示範版本原本沒有教室、「依教室」檢視是空的。`scripts/add_demo_rooms.ps1`(格式相同,預設試跑,加 `-Commit` 才寫入)會替學期 13 的每個 `[SEED]` 班級建立一間導師教室,並把各版本中沒有教室的課都排進該班的導師教室;只需執行一次,可重複執行。
+示範版本建立時,自動排課還不會替沒有指定教室類型的需求排教室,所以原本沒有教室、「依教室」檢視是空的(Task 92B 起自動排課會使用班級的導師教室,見 `docs/SYSTEM_DESIGN.md` 決策 29)。`scripts/add_demo_rooms.ps1`(格式相同,預設試跑,加 `-Commit` 才寫入)會替學期 13 的每個 `[SEED]` 班級建立一間導師教室,並把各版本中沒有教室的課都排進該班的導師教室;只需執行一次,可重複執行。
 
 ## 測試
 
@@ -473,12 +473,12 @@ CI(`.github/workflows/ci.yml`)在每次 push 與 pull request 時執行同樣的
 
 ### 測試數量
 
-**目前總計 960 個測試,全數通過**(2026-10-19 實際執行確認):後端 754 個、前端 206 個。
+**目前總計 987 個測試,全數通過**(2026-10-19 實際執行確認):後端 781 個、前端 206 個。
 
 | 類別 | 測試數 | 執行方式 |
 |---|---|---|
-| Scheduling Engine(純 Python 邏輯,不碰資料庫) | 138 | `pytest tests/scheduling_engine/` |
-| API / 整合測試(真實 FastAPI + PostgreSQL) | 616 | 其餘 `tests/test_*.py` |
+| Scheduling Engine(純 Python 邏輯,不碰資料庫) | 150 | `pytest tests/scheduling_engine/` |
+| API / 整合測試(真實 FastAPI + PostgreSQL) | 631 | 其餘 `tests/test_*.py` |
 | 前端純函式單元測試(Vitest) | 206 | `cd frontend && npm test` |
 
 前端測試只涵蓋純函式(衝突句子合併與前後比對、定位規則、拖放規則、換教師列表、版本狀態標籤、錯誤訊息翻譯、密碼規則、節次顯示、版本刪除規則、失敗診斷句子、候選格標示、對話框鍵盤操作、連堂樣式選項、連堂分組與連接條),元件與頁面互動沒有自動化測試。
