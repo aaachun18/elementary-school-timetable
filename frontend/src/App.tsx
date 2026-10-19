@@ -27,18 +27,13 @@ export default function App(): ReactElement {
             </ProtectedRoute>
           }
         >
-          {/* Task 43: everything except /timetable is additionally wrapped
-              in AdminOnlyRoute -- a TEACHER hitting any of these URLs
-              directly (not just missing the nav link) bounces to
-              /timetable instead of rendering. */}
-          <Route
-            path="/"
-            element={
-              <AdminOnlyRoute>
-                <Home />
-              </AdminOnlyRoute>
-            }
-          />
+          {/* Task 43: everything except / and /timetable is additionally
+              wrapped in AdminOnlyRoute -- a TEACHER hitting any of these
+              URLs directly (not just missing the nav link) bounces to
+              /timetable instead of rendering. Task 97: the home page is a
+              dashboard by role, so a TEACHER gets its simplified version
+              (decision 33). */}
+          <Route path="/" element={<Home />} />
           <Route
             path="/data"
             element={

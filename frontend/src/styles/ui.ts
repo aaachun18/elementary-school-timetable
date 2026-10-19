@@ -271,3 +271,16 @@ export const FIELD_HELP = "mt-1 max-w-56 whitespace-normal text-xs text-gray-500
 export const FIELD_HINT_WARNING = "mt-1 max-w-56 whitespace-normal text-xs text-amber-700";
 // The small ⚠ next to a table value that has such a problem.
 export const INLINE_WARNING_ICON = "ml-1 cursor-help text-amber-600";
+
+// --- Task 97: home page dashboard ---
+export const DASHBOARD_GRID = "grid grid-cols-1 gap-4 md:grid-cols-2";
+export const DASHBOARD_CARD_TITLE = "mb-3 text-base font-semibold text-gray-900";
+export const STAT_ROW = "flex flex-wrap gap-6";
+export const STAT_VALUE = "text-2xl font-semibold text-gray-900";
+export const STAT_VALUE_PROBLEM = "text-2xl font-semibold text-red-600";
+export const STAT_VALUE_WARNING = "text-2xl font-semibold text-amber-700";
+export const STAT_LABEL = "text-xs text-gray-500";
+// A link styled as the page's main action button.
+export const LINK_BUTTON =
+  "inline-flex items-center justify-center rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700";
+export const LINK_TEXT = "text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline";

@@ -10,7 +10,8 @@ import { BUTTON_SECONDARY_SM, NAV_BAR, NAV_LINK, NAV_LINK_ACTIVE } from "../styl
 // once, here, instead of duplicated per page.
 export default function Layout(): ReactElement {
   const navigate = useNavigate();
-  // Task 43: a confirmed TEACHER only gets the 課表檢視 link + 登出 -- every
+  // Task 43: a confirmed TEACHER only gets the 課表檢視 link + 登出 (Task 97:
+  // and 首頁, a simplified dashboard) -- every
   // other link (which also bounces back via AdminOnlyRoute, see App.tsx,
   // if typed directly) is left out of the nav entirely rather than shown
   // disabled. An unknown role (null) sees the full nav, same "only block a
@@ -34,11 +35,12 @@ export default function Layout(): ReactElement {
   return (
     <div className="min-h-screen bg-gray-50">
       <nav className={NAV_BAR}>
+        {/* Task 97: everyone has a home page (a TEACHER's is simplified). */}
+        <NavLink to="/" end className={navLinkClassName}>
+          首頁
+        </NavLink>
         {!isRestrictedToTimetable && (
           <>
-            <NavLink to="/" className={navLinkClassName}>
-              首頁
-            </NavLink>
             <NavLink to="/data" className={navLinkClassName}>
               基礎資料
             </NavLink>
