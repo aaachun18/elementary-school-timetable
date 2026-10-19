@@ -233,3 +233,117 @@ class MoveCandidatesResult(BaseModel):
     current_time_slot_id: int | None
     baseline: ScheduleCheckResult
     candidates: list[MoveCandidateSlot]
+
+
+# --- Task 92: unscheduled lessons and placing them (decision 28) ---
+
+
+class EligibleTeacherDetail(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    teacher_id: int
+    name: str
+
+
+class UnscheduledLessonDetail(BaseModel):
+    """A lesson of the version's semester with no Schedule row in the
+    version. suggested_room_id: the first active room of the requirement's
+    room type, null when it has none (placing then leaves the room empty,
+    like run-scheduler). eligible_teachers: active teachers qualified for
+    the subject, by name -- returned even when required_teacher_id is set."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    lesson_id: int
+    class_subject_requirement_id: int
+    class_id: int
+    class_name: str
+    subject_id: int
+    subject_name: str
+    sequence_number: int
+    required_teacher_id: int | None
+    block_no: int | None
+    block_seq: int | None
+    lesson_pattern: str | None
+    fixed_time_slot_id: int | None
+    suggested_room_id: int | None
+    eligible_teachers: list[EligibleTeacherDetail]
+
+
+class UnscheduledLessonsResult(BaseModel):
+    """GET /schedule-versions/{id}/unscheduled-lessons: ordered by class,
+    subject, block, place in the block."""
+
+    schedule_version_id: int
+    lessons: list[UnscheduledLessonDetail]
+
+
+class PlaceLessonRequest(BaseModel):
+    """POST /schedule-versions/{id}/place-lesson. teacher_id null: the
+    requirement's required teacher (none -> 409 TEACHER_REQUIRED); room_id
+    null: no room."""
+
+    lesson_id: int
+    time_slot_id: int
+    teacher_id: int | None = None
+    room_id: int | None = None
+    dry_run: bool = False
+
+
+class PlacementChangeDetail(BaseModel):
+    """One new Schedule row. schedule_id is null for dry_run; previous_*
+    are always null (the lesson had no row)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    schedule_id: int | None
+    lesson_id: int
+    teacher_id: int
+    previous_time_slot_id: int | None
+    new_time_slot_id: int
+    previous_room_id: int | None
+    new_room_id: int | None
+
+
+class PlaceLessonResult(BaseModel):
+    """200 response of place-lesson: the rows placed (the lesson and the
+    unplaced rest of its block) and the version's full check after."""
+
+    schedule_version_id: int
+    dry_run: bool
+    changes: list[PlacementChangeDetail]
+    check: ScheduleCheckResult
+
+
+class PlacedLessonDetail(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    lesson_id: int
+    to_time_slot_id: int
+
+
+class PlaceCandidateSlot(BaseModel):
+    """One time slot. available=False: unavailable_reason is
+    NON_TEACHING_SLOT, BLOCK_OUT_OF_RANGE, BLOCK_TARGET_OCCUPIED or
+    BLOCK_PARTIAL_MISMATCH and `check` is null. Otherwise `check` is what
+    place-lesson with dry_run would report. block_members (a lesson of a
+    block, available slot only): every lesson placed with it."""
+
+    time_slot_id: int
+    available: bool
+    unavailable_reason: str | None
+    check: ScheduleCheckResult | None
+    block_members: list[PlacedLessonDetail] | None = None
+
+
+class PlaceCandidatesResult(BaseModel):
+    """GET /schedule-versions/{id}/place-candidates/{lesson_id}: teacher_id
+    and room_id are the ones every candidate was checked with (resolved as
+    place-lesson would); baseline is GET /check as it stands."""
+
+    schedule_version_id: int
+    lesson_id: int
+    teacher_id: int
+    room_id: int | None
+    baseline: ScheduleCheckResult
+    candidates: list[PlaceCandidateSlot]

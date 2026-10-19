@@ -42,6 +42,28 @@ class BlockAdjustmentRefusedError(Exception):
         super().__init__(reason)
 
 
+class PlacementRefusedError(Exception):
+    """Task 92: placing an unscheduled lesson is refused (-> 409). `reason`
+    is TEACHER_REQUIRED (no teacher in the request and none required by
+    the requirement) or one of the codes from plan_place() in
+    app/services/block_adjustment.py -- the same one place-candidates
+    reports for that target."""
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason)
+
+
+class LessonNotInSemesterError(Exception):
+    """Task 92: the lesson to place belongs to a requirement of another
+    semester than the version's (-> 409)."""
+
+
+class LessonAlreadyScheduledError(Exception):
+    """Task 92: the lesson to place already has a Schedule row in the
+    version -- it is moved with move-lesson instead (-> 409)."""
+
+
 class DuplicateValueError(Exception):
     """Raised by a create/update service function when a value violates a
     UNIQUE constraint (e.g. duplicate Subject.name) or a CHECK constraint

@@ -28,6 +28,20 @@ Rules (docs/SYSTEM_DESIGN.md, decision 26):
   one lesson each swap exactly as two lessons always did.
 - A fixed lesson does not stop anything: moving it off its fixed slot is
   reported by the check (FIXED_TIME_SLOT_MISMATCH), as for single lessons.
+
+Task 92: placing a lesson that has no row in the version yet (place-lesson,
+place-candidates) is planned here too, by plan_place() -- decision 28:
+- The target must be a teaching period (NON_TEACHING_SLOT), for a single
+  lesson as well.
+- A lesson of a block is lesson k of it: the block starts k-1 periods
+  before the target, exactly as for a move (BLOCK_OUT_OF_RANGE), and every
+  lesson of the block that has no row yet is placed with it.
+- Lessons of the block that already have a row must sit exactly where the
+  block would put them; one elsewhere (or with no time slot) refuses the
+  placement (BLOCK_PARTIAL_MISMATCH) -- nothing already placed is moved.
+- No lesson of the class may sit in a slot a placed lesson would take
+  (BLOCK_TARGET_OCCUPIED, a single lesson too): there is no swap for a
+  lesson that isn't in the timetable.
 """
 
 from dataclasses import dataclass, replace
@@ -39,6 +53,10 @@ LessonAssignment = schedule_check.LessonAssignment
 BLOCK_OUT_OF_RANGE = "BLOCK_OUT_OF_RANGE"
 BLOCK_TARGET_OCCUPIED = "BLOCK_TARGET_OCCUPIED"
 BLOCK_SWAP_UNSUPPORTED = "BLOCK_SWAP_UNSUPPORTED"
+# Task 92: placement only (move-candidates has always reported this one
+# for its own targets; services/move_candidates.py uses this constant).
+NON_TEACHING_SLOT = "NON_TEACHING_SLOT"
+BLOCK_PARTIAL_MISMATCH = "BLOCK_PARTIAL_MISMATCH"
 
 REFUSAL_MESSAGES = {
     BLOCK_OUT_OF_RANGE: "連堂整組放不進這個位置，整組需要同一天相鄰的教學時段",
@@ -62,6 +80,24 @@ class Plan:
     group first; `refusal` is one of the codes above."""
 
     slots: tuple[PlannedSlot, ...] | None
+    refusal: str | None
+
+
+@dataclass(frozen=True)
+class PlacedLesson:
+    """Task 92: one lesson of a placement and the time slot it goes to."""
+
+    lesson_id: int
+    time_slot_id: int
+
+
+@dataclass(frozen=True)
+class Placement:
+    """Task 92: exactly one of the two is set. `lessons` are the lessons
+    that get a new row, in block order; `refusal` is NON_TEACHING_SLOT or
+    one of the BLOCK_* codes."""
+
+    lessons: tuple[PlacedLesson, ...] | None
     refusal: str | None
 
 
@@ -93,16 +129,21 @@ class Layout:
             for position in resources.time_slot_positions
         }
         teaching = {slot.time_slot_id: slot.is_teaching_period for slot in resources.time_slots}
+        self._is_teaching = teaching
         self._teaching_slot_at = {
             place: slot_id
             for slot_id, place in self._position.items()
             if teaching.get(slot_id, True)
         }
         schedule_of_lesson = {assignment.lesson_id: schedule_id for schedule_id, assignment in rows}
+        self._schedule_of_lesson = schedule_of_lesson
         self._group_of: dict[int, _Group] = {}
+        self._block_of_lesson: dict[int, tuple[int, ...]] = {}
         for block in resources.lesson_blocks:
             if len(block.lesson_ids) < 2:
                 continue  # a one-lesson block moves like any single lesson
+            for lesson_id in block.lesson_ids:
+                self._block_of_lesson[lesson_id] = block.lesson_ids
             members = tuple(
                 (index, schedule_of_lesson[lesson_id])
                 for index, lesson_id in enumerate(block.lesson_ids)
@@ -183,6 +224,41 @@ class Layout:
             for (_, mine), (_, theirs) in zip(first.members, second.members)
         ]
         return Plan(slots=tuple(planned), refusal=None)
+
+
+    def is_lesson_in_block(self, lesson_id: int) -> bool:
+        """Task 92: by lesson, for a lesson that may have no row."""
+        return lesson_id in self._block_of_lesson
+
+    def plan_place(self, lesson_id: int, class_id: int, target_time_slot_id: int) -> Placement:
+        """Task 92: where `lesson_id` (no row in this version, of class
+        `class_id`) and the unplaced rest of its block go when it is put
+        in the target slot -- see the module docstring for the rules."""
+        place = self._position.get(target_time_slot_id)
+        if place is None or not self._is_teaching.get(target_time_slot_id, True):
+            return Placement(lessons=None, refusal=NON_TEACHING_SLOT)
+        weekday, period = place
+
+        block = self._block_of_lesson.get(lesson_id, (lesson_id,))
+        start = period - block.index(lesson_id)
+        span = [self._teaching_slot_at.get((weekday, start + index)) for index in range(len(block))]
+        if any(slot_id is None for slot_id in span):
+            return Placement(lessons=None, refusal=BLOCK_OUT_OF_RANGE)
+
+        placed: list[PlacedLesson] = []
+        for member, slot_id in zip(block, span):
+            assert slot_id is not None
+            schedule_id = self._schedule_of_lesson.get(member)
+            if schedule_id is None:
+                placed.append(PlacedLesson(member, slot_id))
+            elif self.assignment[schedule_id].time_slot_id != slot_id:
+                return Placement(lessons=None, refusal=BLOCK_PARTIAL_MISMATCH)
+
+        taken = {item.time_slot_id for item in placed}
+        for other in self.assignment.values():
+            if other.class_id == class_id and other.time_slot_id in taken:
+                return Placement(lessons=None, refusal=BLOCK_TARGET_OCCUPIED)
+        return Placement(lessons=tuple(placed), refusal=None)
 
 
 def arranged(rows: list[tuple[int, LessonAssignment]], plan: Plan) -> list[LessonAssignment]:

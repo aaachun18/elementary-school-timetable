@@ -38,7 +38,8 @@ LessonAssignment = schedule_check.LessonAssignment
 # Why a time slot is not a move target. The frontend's own rule
 # (utils/lessonDrop.ts canMoveLessonTo) is the same for the first two;
 # the block ones come from services/block_adjustment.py (Task 89).
-NON_TEACHING_SLOT = "NON_TEACHING_SLOT"
+# Task 92: defined in block_adjustment.py, which placement shares it from.
+NON_TEACHING_SLOT = block_adjustment.NON_TEACHING_SLOT
 CURRENT_SLOT = "CURRENT_SLOT"
 
 

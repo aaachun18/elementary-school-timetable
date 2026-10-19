@@ -20,6 +20,7 @@ from app.routers.teacher import router as teacher_router
 from app.routers.time_slot import router as time_slot_router
 from app.routers.users import router as users_router
 from app.services.block_adjustment import REFUSAL_MESSAGES
+from app.services.lesson_placement import PLACEMENT_REFUSAL_MESSAGES
 from app.services.exceptions import (
     ArchivedVersionImmutableError,
     CannotDeleteSelfError,
@@ -34,12 +35,15 @@ from app.services.exceptions import (
     InvalidTeacherPeriodsError,
     InvalidReferenceError,
     InvalidStatusTransitionError,
+    LessonAlreadyScheduledError,
+    LessonNotInSemesterError,
     LessonOverProvisionedError,
     PublishedVersionDeleteError,
     PublishedVersionImmutableError,
     RequirementEditBlockedByPublishedScheduleError,
     RequirementSemesterMismatchError,
     RequirementUsedByPublishedScheduleError,
+    PlacementRefusedError,
     ScheduleNotInVersionError,
     ScheduleVersionAlreadyScheduledError,
     TargetRecordNotFoundError,
@@ -340,6 +344,37 @@ def handle_block_adjustment_refused(
     return JSONResponse(
         status_code=409,
         content={"detail": REFUSAL_MESSAGES[exc.reason], "reason": exc.reason},
+    )
+
+
+@app.exception_handler(PlacementRefusedError)
+def handle_placement_refused(
+    request: Request, exc: PlacementRefusedError
+) -> JSONResponse:
+    # Task 92: same {detail, reason} shape as a refused block move.
+    return JSONResponse(
+        status_code=409,
+        content={"detail": PLACEMENT_REFUSAL_MESSAGES[exc.reason], "reason": exc.reason},
+    )
+
+
+@app.exception_handler(LessonNotInSemesterError)
+def handle_lesson_not_in_semester(
+    request: Request, exc: LessonNotInSemesterError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "此課程不屬於該課表的學期"},
+    )
+
+
+@app.exception_handler(LessonAlreadyScheduledError)
+def handle_lesson_already_scheduled(
+    request: Request, exc: LessonAlreadyScheduledError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "此課程在該課表已有排課紀錄，請改用移動"},
     )
 
 

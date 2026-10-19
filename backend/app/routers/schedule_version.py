@@ -22,6 +22,12 @@ from app.schemas.scheduler import (
     MoveCandidatesResult,
     MoveCandidateSwap,
     MoveLessonRequest,
+    PlaceCandidateSlot,
+    PlaceCandidatesResult,
+    PlacedLessonDetail,
+    PlaceLessonRequest,
+    PlaceLessonResult,
+    PlacementChangeDetail,
     ScheduleAdjustmentResult,
     ScheduleChangeDetail,
     ScheduleCheckResult,
@@ -30,9 +36,12 @@ from app.schemas.scheduler import (
     SchedulerRunResult,
     TeacherReassignmentRequest,
     TeacherReassignmentResult,
+    UnscheduledLessonDetail,
+    UnscheduledLessonsResult,
     UnsupportedSwapDetail,
 )
 from app.services import schedule_adjustment as schedule_adjustment_service
+from app.services import lesson_placement as lesson_placement_service
 from app.services import schedule_check as schedule_check_service
 from app.services import move_candidates as move_candidates_service
 from app.services import schedule_copy as schedule_copy_service
@@ -487,4 +496,118 @@ def list_move_candidates(
             )
             for candidate in outcome.candidates
         ],
+    )
+
+
+# --- Task 92: unscheduled lessons and placing them (decision 28) ---
+# PublishedVersionImmutableError / ArchivedVersionImmutableError /
+# LessonNotInSemesterError / LessonAlreadyScheduledError /
+# InactiveTeacherAssignmentError / PlacementRefusedError (409) and
+# AdjustmentTargetNotFoundError (404) are converted by main.py's handlers.
+
+
+@router.get(
+    "/{schedule_version_id}/unscheduled-lessons",
+    response_model=UnscheduledLessonsResult,
+    dependencies=[Depends(require_admin)],
+)
+def list_unscheduled_lessons(
+    schedule_version_id: int,
+    db: Session = Depends(get_db),
+) -> UnscheduledLessonsResult:
+    # Read-only: any version status.
+    lessons = lesson_placement_service.list_unscheduled_lessons(db, schedule_version_id)
+    if lessons is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ScheduleVersion not found",
+        )
+    return UnscheduledLessonsResult(
+        schedule_version_id=schedule_version_id,
+        lessons=[UnscheduledLessonDetail.model_validate(lesson) for lesson in lessons],
+    )
+
+
+@router.get(
+    "/{schedule_version_id}/place-candidates/{lesson_id}",
+    response_model=PlaceCandidatesResult,
+    dependencies=[Depends(require_admin)],
+)
+def list_place_candidates(
+    schedule_version_id: int,
+    lesson_id: int,
+    teacher_id: int | None = None,
+    room_id: int | None = None,
+    db: Session = Depends(get_db),
+) -> PlaceCandidatesResult:
+    # Read-only, DRAFT only (like move-candidates). Writes nothing.
+    outcome = lesson_placement_service.list_place_candidates(
+        db, schedule_version_id, lesson_id, teacher_id, room_id
+    )
+    if outcome is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ScheduleVersion not found",
+        )
+    return PlaceCandidatesResult(
+        schedule_version_id=schedule_version_id,
+        lesson_id=outcome.lesson_id,
+        teacher_id=outcome.teacher_id,
+        room_id=outcome.room_id,
+        baseline=_build_check_result(schedule_version_id, outcome.baseline),
+        candidates=[
+            PlaceCandidateSlot(
+                time_slot_id=candidate.time_slot_id,
+                available=candidate.available,
+                unavailable_reason=candidate.unavailable_reason,
+                check=(
+                    None
+                    if candidate.violations is None
+                    else _build_check_result(schedule_version_id, candidate.violations)
+                ),
+                block_members=(
+                    None
+                    if candidate.block_members is None
+                    else [
+                        PlacedLessonDetail(
+                            lesson_id=member.lesson_id, to_time_slot_id=member.time_slot_id
+                        )
+                        for member in candidate.block_members
+                    ]
+                ),
+            )
+            for candidate in outcome.candidates
+        ],
+    )
+
+
+@router.post(
+    "/{schedule_version_id}/place-lesson",
+    response_model=PlaceLessonResult,
+    dependencies=[Depends(require_admin)],
+)
+def place_lesson(
+    schedule_version_id: int,
+    placement: PlaceLessonRequest,
+    db: Session = Depends(get_db),
+) -> PlaceLessonResult:
+    outcome = lesson_placement_service.place_lesson(
+        db,
+        schedule_version_id,
+        placement.lesson_id,
+        placement.time_slot_id,
+        placement.teacher_id,
+        placement.room_id,
+        dry_run=placement.dry_run,
+    )
+    if outcome is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ScheduleVersion not found",
+        )
+    return PlaceLessonResult(
+        schedule_version_id=schedule_version_id,
+        dry_run=placement.dry_run,
+        changes=[PlacementChangeDetail.model_validate(change) for change in outcome.changes],
+        check=_build_check_result(schedule_version_id, outcome.violations),
     )
