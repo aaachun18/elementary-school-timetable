@@ -238,6 +238,12 @@ export interface UnscheduledLesson {
   fixed_time_slot_id: number | null;
   suggested_room_id: number | null;
   eligible_teachers: EligibleTeacher[];
+  // Task 94 (backend, additive): the requirement's room type; the room
+  // place-lesson uses when no room_id is sent; and, with a room type,
+  // whether an active room of exactly that type exists (null without one).
+  room_type?: string | null;
+  default_room_id?: number | null;
+  has_matching_room?: boolean | null;
 }
 
 // GET /schedule-versions/{id}/unscheduled-lessons -- ordered by class,

@@ -307,6 +307,9 @@ export const VIOLATION_TYPE_TEMPLATES: Record<string, string> = {
   BLOCK_NOT_CONSECUTIVE: "{className}的{subjectName}{blockLabel}連堂沒有排在同一天相鄰的節次！",
   BLOCK_SAME_DAY: "{className}的{subjectName}有不同組的連堂排在同一天（{weekdayLabel}）！",
   TEACHER_MIN_WORKLOAD: "{teacherName}的排課總節數低於每週最低授課節數！",
+  // Task 94: a WARNING -- a room type is required but the lesson has no room.
+  ROOM_MISSING_FOR_TYPE:
+    "{className}的{subjectName}指定了教室類型「{requiredRoomType}」，但{timeSlotLabel}這堂課沒有教室！",
   BLOCK_NO_WINDOW: "{className}的{subjectName}的連堂找不到同一天足夠的連續教學節次！",
   STATIC_BLOCK_TOO_LONG:
     "{className}的{subjectName}的連堂樣式中，有一組的節數超過任何一天可連續上課的節數！",
@@ -366,6 +369,8 @@ export const VIOLATION_TYPE_HEADINGS: Record<string, string> = {
   BLOCK_SAME_DAY: "同一門課的不同組排在同一天",
   // Task 90: the only WARNING type -- listed last.
   TEACHER_MIN_WORKLOAD: "教師授課節數低於最低要求（警告）",
+  // Task 94: the other WARNING type.
+  ROOM_MISSING_FOR_TYPE: "指定了教室類型卻沒有教室（警告）",
 };
 
 export const UNKNOWN_VIOLATION_TYPE_HEADING = "其他問題";
@@ -393,6 +398,8 @@ export const VIOLATION_TYPE_SUGGESTIONS: Record<string, string> = {
   BLOCK_NOT_CONSECUTIVE: "把這組連堂整組移到同一天相鄰的教學節次（拖曳其中一節即可整組移動）。",
   BLOCK_SAME_DAY: "把其中一組移到另一天。",
   TEACHER_MIN_WORKLOAD: "可為這位老師多安排課程，或到基礎資料調整最低每週節數；這是提醒，不影響課表是否合法。",
+  ROOM_MISSING_FOR_TYPE:
+    "到基礎資料確認教室的「類型」與需求指定的教室類型完全相同，再為這堂課選教室；這是提醒，不影響課表是否合法。",
 };
 
 // Task 90 (backend Task 89): why a lesson block can't go where it was

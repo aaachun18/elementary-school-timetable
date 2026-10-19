@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { VIOLATION_TYPE_HEADINGS, VIOLATION_TYPE_SUGGESTIONS } from "../constants/errorMessages";
 import { resolveViolationPageTarget } from "../constants/violationPageMapping";
+import { resolveLocateTarget } from "./violationLocate";
 import type { ConstraintViolationDetail } from "../types/scheduler";
 import type { TimeSlot } from "../types/timeSlot";
 import {
@@ -276,5 +278,36 @@ describe("room pre-check sentences and pages", () => {
 
     expect(getViolationSentence(violation, roomLookups)).toContain("教室 901班A教室");
     expect(pathOf(violation)).toBe("/data?tab=rooms");
+  });
+});
+
+// Task 94: a WARNING -- the requirement names a room type, the lesson has
+// no room.
+describe("ROOM_MISSING_FOR_TYPE", () => {
+  const typedLookups: NameLookups = {
+    ...lookups,
+    requirementById: new Map([[5, { id: 5, class_id: 10, subject_id: 20, required_room_type: "自然教室" }]] as never),
+  };
+  const warning = fixedSlotViolation("ROOM_MISSING_FOR_TYPE", {
+    severity: "WARNING",
+    teacher_id: 1,
+    identity_key: "ROOM_MISSING_FOR_TYPE:50",
+  });
+
+  it("names the class, subject, room type and slot", () => {
+    expect(getViolationSentence(warning, typedLookups)).toBe(
+      "901班A的國語指定了教室類型「自然教室」，但星期五第 7 節這堂課沒有教室！",
+    );
+  });
+
+  it("has a heading, a suggestion and points at the rooms tab", () => {
+    expect(VIOLATION_TYPE_HEADINGS.ROOM_MISSING_FOR_TYPE).toContain("警告");
+    expect(VIOLATION_TYPE_SUGGESTIONS.ROOM_MISSING_FOR_TYPE).toContain("完全相同");
+    const target = resolveViolationPageTarget(warning, typedLookups);
+    expect(target.kind === "link" ? target.path : null).toBe("/data?tab=rooms");
+  });
+
+  it("is located in the class's timetable (the lesson has no room)", () => {
+    expect(resolveLocateTarget(warning, typedLookups)).toEqual({ viewMode: "class", targetId: 10 });
   });
 });

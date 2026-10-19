@@ -43,6 +43,12 @@ export interface PlacementCard {
   requiredTeacherId: number | null;
   eligibleTeachers: EligibleTeacher[];
   suggestedRoomId: number | null;
+  // Task 94 (from the backend): the requirement's room type, the room
+  // place-lesson uses when none is sent, and -- with a room type --
+  // whether any active room has exactly that type (null without one).
+  roomType: string | null;
+  defaultRoomId: number | null;
+  hasMatchingRoom: boolean | null;
   // 「自然 · 2 節連堂」 / 「自然 · 1 節」.
   label: string;
 }
@@ -90,6 +96,9 @@ export function buildPlacementCards(lessons: readonly UnscheduledLesson[]): Plac
       requiredTeacherId: lesson.required_teacher_id,
       eligibleTeachers: lesson.eligible_teachers,
       suggestedRoomId: lesson.suggested_room_id,
+      roomType: lesson.room_type ?? null,
+      defaultRoomId: lesson.default_room_id ?? null,
+      hasMatchingRoom: lesson.has_matching_room ?? null,
       label: "",
     };
     byKey.set(key, card);
@@ -178,8 +187,19 @@ export function roomForCard(
 // no room (a requirement with a room type, or a class without a homeroom):
 // place-lesson treats an omitted room_id as "the default", so for 原班上課
 // in a class with a homeroom it would put the homeroom there anyway.
-export function canChooseNoRoom(backendDefaultRoomId: number | null): boolean {
-  return backendDefaultRoomId === null;
+// Task 94: decided from the backend's default_room_id (the card's
+// defaultRoomId), no longer recomputed here.
+export function canChooseNoRoom(card: PlacementCard): boolean {
+  return card.defaultRoomId === null;
+}
+
+// Task 94: the selection bar's line when the requirement's room type
+// matches no active room -- placing leaves the lesson without a room.
+export function missingRoomTypeHint(card: PlacementCard): string | null {
+  if (card.roomType === null || card.hasMatchingRoom !== false) {
+    return null;
+  }
+  return `找不到類型「${card.roomType}」的教室，放入後這堂課沒有教室`;
 }
 
 // --- Candidates ---
@@ -290,13 +310,4 @@ export function placeRefusalReasonOf(error: unknown): string | null {
   }
   const reason = (response.data as { reason?: unknown }).reason;
   return typeof reason === "string" && reason in PLACE_REFUSAL_MESSAGES ? reason : null;
-}
-
-// What place-lesson puts in when no room_id is sent (backend Task 92B):
-// the class's homeroom for a requirement with no room type, else none.
-export function backendDefaultRoom(
-  requiredRoomType: string | null,
-  homeroomRoomId: number | null,
-): number | null {
-  return requiredRoomType === null ? homeroomRoomId : null;
 }

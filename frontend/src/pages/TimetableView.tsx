@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactElement } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { list as listScheduleVersions } from "../api/scheduleVersions";
 import { list as listSemesters } from "../api/semesters";
 import { list as listAcademicYears } from "../api/academicYears";
@@ -29,13 +29,13 @@ import { buildCandidateMarks, swapMarkKey, type CandidateMark } from "../utils/m
 import type { PeriodDisplayMap } from "../utils/periodDisplay";
 import {
   PLACE_REFUSAL_MESSAGES,
-  backendDefaultRoom,
   buildPlaceCandidateMarks,
   buildPlacementCards,
   canChooseNoRoom,
   cardsForView,
   firstPlacedSlot,
   lessonCount,
+  missingRoomTypeHint,
   roomForCard,
   teacherForCard,
   type PlacementCard,
@@ -688,15 +688,6 @@ export default function TimetableView(): ReactElement {
   const checkProblemCount = checkCounts.errors.length;
   const checkWarningCount = checkCounts.warnings.length;
 
-  // Task 93: what place-lesson puts in when no room is sent.
-  const selectedCardDefaultRoom =
-    selectedCard === null
-      ? null
-      : backendDefaultRoom(
-          timetable.data?.lookups.requirementById.get(selectedCard.requirementId)?.required_room_type ?? null,
-          (classesResource.data ?? []).find((item) => item.id === selectedCard.classId)?.homeroom_room_id ?? null,
-        );
-
   const selectedLessonSlotLabel =
     selectedLesson === null || checkLookups === null
       ? ""
@@ -886,7 +877,7 @@ export default function TimetableView(): ReactElement {
                       className="rounded border border-blue-300 bg-white px-1 py-0.5 text-sm"
                     >
                       {(roomForCard(selectedCard, chosenRoomByCard) === null ||
-                        canChooseNoRoom(selectedCardDefaultRoom)) && <option value="">不指定教室</option>}
+                        canChooseNoRoom(selectedCard)) && <option value="">不指定教室</option>}
                       {(roomsResource.data ?? []).map((room) => (
                         <option key={room.id} value={room.id}>
                           {room.name}
@@ -901,6 +892,16 @@ export default function TimetableView(): ReactElement {
                   >
                     取消
                   </button>
+                  {/* Task 94: the required room type matches no active room. */}
+                  {missingRoomTypeHint(selectedCard) !== null && (
+                    <span className="w-full text-amber-800" role="status">
+                      {missingRoomTypeHint(selectedCard)}（
+                      <Link to="/data?tab=rooms" className="text-blue-600 hover:underline">
+                        到教室資料確認類型
+                      </Link>
+                      ）
+                    </span>
+                  )}
                 </div>
               )}
               {adjustment.previewError !== null && (

@@ -31,6 +31,8 @@ const VIEW_BY_TYPE: Record<string, TimetableViewMode> = {
   BLOCK_NOT_CONSECUTIVE: "class",
   BLOCK_SAME_DAY: "class",
   TEACHER_MIN_WORKLOAD: "teacher",
+  // Task 94: the lesson has no room, so it shows in its class's timetable.
+  ROOM_MISSING_FOR_TYPE: "class",
 };
 
 // H12 names a lesson involving SOMETHING inactive -- the view follows

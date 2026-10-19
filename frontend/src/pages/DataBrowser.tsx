@@ -70,6 +70,7 @@ import { useMembershipList } from "../hooks/useMembershipList";
 import { buildPeriodDisplay } from "../utils/periodDisplay";
 import { formatTimeSlotLabel, formatWeekday } from "../utils/timeSlotFormat";
 import { isCurrentUserAdmin } from "../utils/auth";
+import { roomTypeOptions } from "../utils/roomTypes";
 import type { School, SchoolCreate, SchoolUpdate } from "../types/school";
 import type { Subject, SubjectCreate, SubjectUpdate } from "../types/subject";
 import type { Room, RoomCreate, RoomUpdate } from "../types/room";
@@ -91,6 +92,7 @@ import {
   BUTTON_SECONDARY_SM,
   ERROR_TEXT,
   HELP_TEXT,
+  FIELD_HELP,
   INPUT,
   LOADING_TEXT,
   MUTED_TEXT,
@@ -2422,6 +2424,7 @@ function RoomNewRow({
           onChange={(event) => setName(event.target.value)}
           disabled={isPending}
           aria-label="教室名稱"
+          placeholder="這間教室自己的名字"
         className={INPUT}
         />
       </td>
@@ -2432,8 +2435,10 @@ function RoomNewRow({
           disabled={isPending}
           aria-label="教室類型"
           placeholder="例如：普通教室"
+          list={ROOM_TYPE_LIST_ID}
         className={INPUT}
         />
+        <p className={FIELD_HELP}>{ROOM_TYPE_HELP}</p>
       </td>
       <td className={TD}>
         <input
@@ -2521,8 +2526,10 @@ function RoomRow({
             onChange={(event) => setDraftRoomType(event.target.value)}
             disabled={isPending}
             aria-label="教室類型"
+            list={ROOM_TYPE_LIST_ID}
           className={INPUT}
           />
+          <p className={FIELD_HELP}>{ROOM_TYPE_HELP}</p>
         </td>
         <td className={TD}>
           <input
@@ -2600,6 +2607,11 @@ function RoomRow({
   );
 }
 
+// Task 94: a room's type is what a requirement's 指定教室類型 is matched
+// against (exactly, as text); its name is only its own label.
+const ROOM_TYPE_LIST_ID = "room-type-options";
+const ROOM_TYPE_HELP = "用來配對排課需求的教室類型，例如：自然教室、音樂教室（要與需求填的完全相同）";
+
 function RoomsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
   const { data, isLoading, errorMessage } = useResource(() => listRooms(), []);
   const crud = useCrudList<Room, RoomCreate, RoomUpdate>(data, {
@@ -2631,6 +2643,12 @@ function RoomsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
               </button>
             </p>
           )}
+          {/* Task 94: the types already in use, as suggestions. */}
+          <datalist id={ROOM_TYPE_LIST_ID}>
+            {roomTypeOptions(crud.items).map((roomType) => (
+              <option key={roomType} value={roomType} />
+            ))}
+          </datalist>
           <div className={TABLE_WRAPPER}>
           <table className={TABLE}>
             <thead>

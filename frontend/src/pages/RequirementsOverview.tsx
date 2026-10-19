@@ -11,6 +11,8 @@ import { list as listClasses } from "../api/classes";
 import { list as listSubjects } from "../api/subjects";
 import { list as listTeachers } from "../api/teachers";
 import { list as listTimeSlots } from "../api/timeSlots";
+import { list as listRooms } from "../api/rooms";
+import RoomTypeField, { REQUIREMENT_ROOM_TYPE_LIST_ID } from "../components/RoomTypeField";
 import { useResource } from "../hooks/useResource";
 import { useCrudList } from "../hooks/useCrudList";
 import { formatSemesterLabel } from "../utils/scheduleVersionFormat";
@@ -31,6 +33,8 @@ import type { Semester } from "../types/semester";
 import type { Class } from "../types/class";
 import type { Subject } from "../types/subject";
 import type { Teacher } from "../types/teacher";
+import type { Room } from "../types/room";
+import { hasActiveRoomOfType, roomTypeHint, roomTypeOptions } from "../utils/roomTypes";
 import { isCurrentUserAdmin } from "../utils/auth";
 import {
   BUTTON_DANGER_SM,
@@ -39,6 +43,7 @@ import {
   BUTTON_SECONDARY_SM,
   ERROR_TEXT,
   HELP_TEXT,
+  INLINE_WARNING_ICON,
   LOADING_TEXT,
   LOCK_BADGE,
   NOTICE,
@@ -192,6 +197,7 @@ function RequirementNewRow({
   subjects,
   teachers,
   teachingDays,
+  rooms,
   isPending,
   errorMessage,
   onConfirm,
@@ -204,6 +210,8 @@ function RequirementNewRow({
   subjects: Subject[];
   teachers: Teacher[];
   teachingDays: number | null;
+  // Task 94: for the room type suggestions and hint.
+  rooms: Room[] | null;
   isPending: boolean;
   errorMessage: string | null;
   onConfirm: (data: ClassSubjectRequirementCreate) => void;
@@ -352,13 +360,11 @@ function RequirementNewRow({
         </select>
       </td>
       <td className={TD}>
-        <input
+        <RoomTypeField
           value={requiredRoomType}
-          onChange={(event) => setRequiredRoomType(event.target.value)}
+          onChange={setRequiredRoomType}
           disabled={isPending}
-          aria-label="指定教室類型"
-          placeholder="原班教室"
-          className={`${SELECT} w-28`}
+          rooms={rooms}
         />
       </td>
       <td className={TD}>
@@ -414,6 +420,7 @@ function RequirementRow({
   teachers,
   teacherNameById,
   teachingDays,
+  rooms,
   isAdmin,
   isEditing,
   isPending,
@@ -435,6 +442,8 @@ function RequirementRow({
   teachers: Teacher[];
   teacherNameById: Map<number, string>;
   teachingDays: number | null;
+  // Task 94: for the room type suggestions and hints.
+  rooms: Room[] | null;
   isAdmin: boolean;
   isEditing: boolean;
   isPending: boolean;
@@ -603,13 +612,11 @@ function RequirementRow({
           </select>
         </td>
         <td className={TD}>
-          <input
+          <RoomTypeField
             value={draftRequiredRoomType}
-            onChange={(event) => setDraftRequiredRoomType(event.target.value)}
+            onChange={setDraftRequiredRoomType}
             disabled={isPending}
-            aria-label="指定教室類型"
-            placeholder="原班教室"
-            className={`${SELECT} w-28`}
+            rooms={rooms}
           />
         </td>
         <td className={TD}>
@@ -677,7 +684,20 @@ function RequirementRow({
           : (teacherNameById.get(requirement.required_teacher_id) ??
             `教師 ID ${requirement.required_teacher_id}`)}
       </td>
-      <td className={cellClass}>{requirement.required_room_type ?? "原班教室"}</td>
+      <td className={cellClass}>
+        {requirement.required_room_type ?? "原班教室"}
+        {/* Task 94: a type no active room has -- placing finds no room. */}
+        {rooms !== null && !hasActiveRoomOfType(rooms, requirement.required_room_type) && (
+          <span
+            className={INLINE_WARNING_ICON}
+            role="img"
+            title={roomTypeHint(rooms, requirement.required_room_type) ?? undefined}
+            aria-label={roomTypeHint(rooms, requirement.required_room_type) ?? undefined}
+          >
+            ⚠
+          </span>
+        )}
+      </td>
       {/* Task 92A: just the pattern (「2+1」/「不指定」) -- its meaning is the
           title, so the column stays narrow. */}
       <td className={cellClass} title={formatLessonPattern(requirement.lesson_pattern)}>
@@ -736,6 +756,9 @@ export default function RequirementsOverview(): ReactElement {
   // Task 90: only for how many days a week have teaching periods (the
   // pattern choices). Not required: if it fails, no choice is filtered.
   const timeSlotsResource = useResource(() => listTimeSlots(0, 1000), []);
+  // Task 94: which room types exist (suggestions, 「找不到教室」 hints). Not
+  // required: if it fails, every type just shows the hint.
+  const roomsResource = useResource(() => listRooms(0, 1000), []);
 
   const crud = useCrudList<
     ClassSubjectRequirement,
@@ -843,6 +866,12 @@ export default function RequirementsOverview(): ReactElement {
           </button>
         </p>
       )}
+      {/* Task 94: one suggestion list for every row's 指定教室類型. */}
+      <datalist id={REQUIREMENT_ROOM_TYPE_LIST_ID}>
+        {roomTypeOptions(roomsResource.data ?? [], { activeOnly: true }).map((roomType) => (
+          <option key={roomType} value={roomType} />
+        ))}
+      </datalist>
       <div className={TABLE_WRAPPER}>
         <table className={TABLE}>
           <thead>
@@ -867,6 +896,7 @@ export default function RequirementsOverview(): ReactElement {
                 subjects={subjects}
                 teachers={teachers}
                 teachingDays={teachingDays}
+                rooms={roomsResource.data}
                 isPending={crud.pendingKey === "new"}
                 errorMessage={crud.rowErrors.get("new") ?? null}
                 onConfirm={(data) => void crud.submitCreate(data)}
@@ -888,6 +918,7 @@ export default function RequirementsOverview(): ReactElement {
                 teachers={teachers}
                 teacherNameById={teacherNameById}
                 teachingDays={teachingDays}
+                rooms={roomsResource.data}
                 isAdmin={isAdmin}
                 isEditing={crud.editingId === requirement.id}
                 isPending={crud.pendingKey === requirement.id}

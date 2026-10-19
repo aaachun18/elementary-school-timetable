@@ -101,6 +101,23 @@ class UnscheduledLesson:
     suggested_room_id: int | None
     # Active teachers qualified for the subject (TeacherSubject), by name.
     eligible_teachers: list[EligibleTeacher]
+    # Task 94: the requirement's room type (None: 原班上課).
+    room_type: str | None = None
+    # Task 94: the room place-lesson uses when no room_id is sent --
+    # default_room_id(), the very function placing calls.
+    default_room_id: int | None = None
+    # Task 94: with a room type, whether at least one active room has
+    # exactly that type; None when the requirement has no room type (there
+    # is nothing to match).
+    has_matching_room: bool | None = None
+
+
+def default_room_id(required_room_type: str | None, homeroom_room_id: int | None) -> int | None:
+    """Task 92B / 94: the room a placement gets when the request names
+    none -- the class's homeroom for a requirement with no room type
+    (原班上課, like run-scheduler), else none. Shared by place-lesson /
+    place-candidates and the unscheduled list's default_room_id."""
+    return homeroom_room_id if required_room_type is None else None
 
 
 def _eligible_teachers(db: Session, subject_ids: set[int]) -> dict[int, list[EligibleTeacher]]:
@@ -193,6 +210,13 @@ def list_unscheduled_lessons(
                 else rooms.get(requirement.required_room_type)
             ),
             eligible_teachers=list(teachers[requirement.subject_id]),
+            room_type=requirement.required_room_type,
+            default_room_id=default_room_id(requirement.required_room_type, class_.homeroom_room_id),
+            has_matching_room=(
+                None
+                if requirement.required_room_type is None
+                else requirement.required_room_type in rooms
+            ),
         )
         for lesson, requirement, class_, subject_name in rows
     ]
@@ -271,11 +295,11 @@ def _prepare(
     resolved_teacher_id = _resolve_teacher(db, requirement, teacher_id)
     if room_id is not None and db.get(Room, room_id) is None:
         raise AdjustmentTargetNotFoundError("Room not found")
-    if room_id is None and requirement.required_room_type is None:
+    if room_id is None:
         # Task 92B: 原班上課 -> the homeroom, exactly like run-scheduler.
         class_ = db.get(Class, requirement.class_id)
         assert class_ is not None  # foreign key
-        room_id = class_.homeroom_room_id
+        room_id = default_room_id(requirement.required_room_type, class_.homeroom_room_id)
 
     rows = schedule_check.load_assignment_rows(db, schedule_version_id)
     context = schedule_check.load_check_context(db, schedule_version.semester_id, schedule_version_id)

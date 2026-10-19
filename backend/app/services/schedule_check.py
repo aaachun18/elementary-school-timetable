@@ -12,7 +12,7 @@ validation step later features (copy to next semester, reassigning a
 teacher, manual edits) can call after the fact.
 """
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -49,8 +49,10 @@ from scheduling_engine.models.domain import (  # noqa: E402
 )
 
 from app.models.class_subject_requirement import ClassSubjectRequirement
+from app.models.grade_class import Class
 from app.models.lesson import Lesson
 from app.models.schedule import Schedule
+from app.models.subject import Subject
 from app.models.teacher import Teacher
 from app.services import schedule_version as schedule_version_service
 
@@ -206,6 +208,61 @@ def _fixed_time_slot_violations(
     return violations
 
 
+# Task 94: a lesson whose requirement names a room type but whose row has no
+# room at all. H9 (RoomTypeConstraint) only compares a room that is there,
+# and its definition stays as it is -- so an empty room used to pass the
+# check silently (typically: no room has exactly that type, so nothing was
+# picked). A WARNING, like TEACHER_MIN_WORKLOAD: it never makes the
+# timetable invalid and never blocks anything. One per lesson; its
+# identity_key is the lesson, so moving the lesson keeps the same warning.
+# Rows without a teacher or time slot are INCOMPLETE_SCHEDULE_ROW instead.
+ROOM_MISSING_FOR_TYPE = "ROOM_MISSING_FOR_TYPE"
+
+
+def _missing_room_violations(
+    assignments: list[LessonAssignment], context: "CheckContext"
+) -> list[ConstraintViolation]:
+    room_type_of = {
+        rule.class_subject_requirement_id: rule.required_room_type
+        for rule in context.resources.room_type_requirements
+    }
+    violations: list[ConstraintViolation] = []
+    for assignment in assignments:
+        room_type = room_type_of.get(assignment.class_subject_requirement_id)
+        if (
+            room_type is None
+            or assignment.room_id is not None
+            or assignment.teacher_id is None
+            or assignment.time_slot_id is None
+        ):
+            continue
+        class_name = context.class_names.get(assignment.class_id, f"班級 {assignment.class_id}")
+        subject_name = context.subject_names.get(assignment.subject_id, f"科目 {assignment.subject_id}")
+        violations.append(
+            ConstraintViolation(
+                type=ROOM_MISSING_FOR_TYPE,
+                severity=Severity.WARNING,
+                lesson_id=assignment.lesson_id,
+                teacher_id=assignment.teacher_id,
+                class_id=assignment.class_id,
+                subject_id=assignment.subject_id,
+                time_slot_id=assignment.time_slot_id,
+                room_id=None,
+                class_subject_requirement_id=assignment.class_subject_requirement_id,
+                message=(
+                    f"{class_name}的{subject_name}指定了教室類型「{room_type}」，"
+                    "但這堂課沒有教室（警告，不影響課表是否合法）"
+                ),
+                suggested_action=(
+                    f"為這堂課選一間類型為「{room_type}」的教室，"
+                    "或確認教室資料的類型與需求指定的類型完全相同"
+                ),
+                identity_key=f"{ROOM_MISSING_FOR_TYPE}:{assignment.lesson_id}",
+            )
+        )
+    return violations
+
+
 def load_assignment_rows(
     db: Session, schedule_version_id: int
 ) -> list[tuple[int, LessonAssignment]]:
@@ -271,6 +328,10 @@ class CheckContext:
     schedule_ids: dict[int, int]
     # Task 88: the minimum weekly periods of every active teacher.
     teacher_minimums: list[TeacherMinimumWorkload]
+    # Task 94: names for ROOM_MISSING_FOR_TYPE's message (the semester's
+    # classes and subjects), loaded with the rest of the context.
+    class_names: dict[int, str] = field(default_factory=dict)
+    subject_names: dict[int, str] = field(default_factory=dict)
 
 
 def _load_schedule_ids(db: Session, schedule_version_id: int) -> dict[int, int]:
@@ -312,11 +373,23 @@ def load_check_context(
             ).all()
         )
         resources = replace(resources, lesson_blocks=build_lesson_blocks(lessons))
+    class_ids = {requirement.class_id for requirement in requirements}
+    subject_ids = {requirement.subject_id for requirement in requirements}
     return CheckContext(
         resources=resources,
         fixed_time_slots=_load_fixed_time_slots(db, schedule_version_id),
         schedule_ids=_load_schedule_ids(db, schedule_version_id),
         teacher_minimums=_load_teacher_minimums(db),
+        class_names=(
+            dict(db.execute(select(Class.id, Class.name).where(Class.id.in_(class_ids))).tuples().all())
+            if class_ids
+            else {}
+        ),
+        subject_names=(
+            dict(db.execute(select(Subject.id, Subject.name).where(Subject.id.in_(subject_ids))).tuples().all())
+            if subject_ids
+            else {}
+        ),
     )
 
 
@@ -343,6 +416,8 @@ def check_assignments(
     violations.extend(
         TeacherMinWorkloadConstraint(context.teacher_minimums).explain_violations(assignments)
     )
+    # Task 94: also a WARNING only.
+    violations.extend(_missing_room_violations(assignments, context))
     return sorted(
         (_with_schedule_id(violation, context.schedule_ids) for violation in violations),
         key=_violation_sort_key,

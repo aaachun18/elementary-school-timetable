@@ -263,3 +263,11 @@ export const PLACE_CARD_BUTTON_NEEDS_TEACHER = `${PLACE_CARD_BUTTON_BASE} cursor
 export const PLACE_TEACHER_SELECT =
   "rounded border border-gray-300 bg-white px-1 py-0.5 text-xs text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50";
 export const PLACE_TOGGLE = "text-xs font-medium text-blue-600 hover:text-blue-700";
+
+// --- Task 94: room type forms ---
+// A short help line under a form input.
+export const FIELD_HELP = "mt-1 max-w-56 whitespace-normal text-xs text-gray-500";
+// A non-blocking heads-up under a form input (e.g. no room has this type).
+export const FIELD_HINT_WARNING = "mt-1 max-w-56 whitespace-normal text-xs text-amber-700";
+// The small ⚠ next to a table value that has such a problem.
+export const INLINE_WARNING_ICON = "ml-1 cursor-help text-amber-600";

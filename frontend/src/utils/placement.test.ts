@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   PLACE_REFUSAL_MESSAGES,
-  backendDefaultRoom,
   blockSize,
   buildPlaceCandidateMarks,
   buildPlacementCards,
@@ -11,6 +10,7 @@ import {
   firstPlacedSlot,
   groupCardsByClass,
   lessonCount,
+  missingRoomTypeHint,
   needsTeacherChoice,
   placeCandidateCacheKey,
   placeRefusalMessage,
@@ -167,12 +167,31 @@ describe("teacher and room", () => {
     expect(roomForCard(block, new Map())).toBeNull(); // no suggested room: none, not blocking
   });
 
+  // Task 94: the backend says what its default is (default_room_id); the
+  // same three cases as before, now read from the card.
   it("offers 「不指定教室」 only where the backend's default is no room", () => {
-    expect(backendDefaultRoom(null, 50)).toBe(50); // 原班上課 with a homeroom
-    expect(backendDefaultRoom(null, null)).toBeNull();
-    expect(backendDefaultRoom("自然教室", 50)).toBeNull();
-    expect(canChooseNoRoom(backendDefaultRoom(null, 50))).toBe(false);
-    expect(canChooseNoRoom(backendDefaultRoom("自然教室", 50))).toBe(true);
+    const [withHomeroom] = buildPlacementCards([lesson({ default_room_id: 50 })]); // 原班上課 with a homeroom
+    const [noHomeroom] = buildPlacementCards([lesson({ default_room_id: null, suggested_room_id: null })]);
+    const [typed] = buildPlacementCards([lesson({ room_type: "自然教室", default_room_id: null, has_matching_room: true })]);
+    expect(canChooseNoRoom(withHomeroom)).toBe(false);
+    expect(canChooseNoRoom(noHomeroom)).toBe(true);
+    expect(canChooseNoRoom(typed)).toBe(true);
+  });
+
+  it("reads the room fields, missing ones as null (an older backend)", () => {
+    const [card] = buildPlacementCards([lesson({ room_type: "自然教室", default_room_id: null, has_matching_room: false })]);
+    expect([card.roomType, card.defaultRoomId, card.hasMatchingRoom]).toEqual(["自然教室", null, false]);
+    const [older] = buildPlacementCards([lesson({})]);
+    expect([older.roomType, older.defaultRoomId, older.hasMatchingRoom]).toEqual([null, null, null]);
+  });
+
+  it("warns on selection when no room has the required type", () => {
+    const [missing] = buildPlacementCards([lesson({ room_type: "自然教室", has_matching_room: false })]);
+    const [found] = buildPlacementCards([lesson({ room_type: "自然教室", has_matching_room: true })]);
+    const [untyped] = buildPlacementCards([lesson({ room_type: null, has_matching_room: null })]);
+    expect(missingRoomTypeHint(missing)).toBe("找不到類型「自然教室」的教室，放入後這堂課沒有教室");
+    expect(missingRoomTypeHint(found)).toBeNull();
+    expect(missingRoomTypeHint(untyped)).toBeNull();
   });
 });
 

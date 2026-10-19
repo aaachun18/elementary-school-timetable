@@ -268,6 +268,12 @@ class UnscheduledLessonDetail(BaseModel):
     fixed_time_slot_id: int | None
     suggested_room_id: int | None
     eligible_teachers: list[EligibleTeacherDetail]
+    # Task 94 (additive): the requirement's room type; the room place-lesson
+    # uses when no room_id is sent; and, with a room type, whether an
+    # active room of exactly that type exists (null without a room type).
+    room_type: str | None = None
+    default_room_id: int | None = None
+    has_matching_room: bool | None = None
 
 
 class UnscheduledLessonsResult(BaseModel):

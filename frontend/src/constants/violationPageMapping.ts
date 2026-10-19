@@ -84,6 +84,13 @@ const SCHEDULER_FIXED_SLOT_PAGE: ViolationPageLink = {
   path: "/scheduler",
 };
 
+// Task 94: where a room's type is set.
+const ROOMS_TAB_PAGE: ViolationPageLink = {
+  kind: "link",
+  label: DATA_BROWSER_TAB_LABEL.rooms,
+  path: "/data?tab=rooms",
+};
+
 // Task 93: where a class's homeroom (導師班教室) is set.
 const CLASSES_TAB_PAGE: ViolationPageLink = {
   kind: "link",
@@ -127,6 +134,8 @@ const STATIC_TARGET_BY_TYPE: Record<string, ViolationPageTarget> = {
   BLOCK_NOT_CONSECUTIVE: REQUIREMENTS_PAGE,
   BLOCK_SAME_DAY: REQUIREMENTS_PAGE,
   TEACHER_MIN_WORKLOAD: TEACHERS_TAB_PAGE,
+  // Task 94: usually no room has exactly the required type -> the rooms tab.
+  ROOM_MISSING_FOR_TYPE: ROOMS_TAB_PAGE,
 
   // 教室的預檢(Task 93,後端 Task 92B):類型對不上 -> 排課需求總覽(指定教室類型欄,
   // 也可能是教室資料少了這個類型);導師教室超量 -> 班級分頁(導師班教室欄);
