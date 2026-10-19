@@ -53,6 +53,7 @@ docker compose --profile full up --build -d
 | ![發布版本的確認對話框](docs/images/publish-switch.png) | 版本發布(步驟 f):發布新版本時,目前生效的版本自動封存,每學期隨時只有一個已發布版本。 |
 | ![已鎖定的排課需求](docs/images/requirements-locked.png) | 排課需求總覽(步驟 h):被已發布或已封存課表使用的需求整列鎖定,不能編輯或刪除。 |
 | ![連堂整組拖曳](docs/images/block-drag.png) | 連堂整組拖曳(步驟 i):同一組連堂以左緣細條相連,拖曳任一節時框出整組會落在的格子,放不下的位置標示為不可放並說明原因。 |
+| ![未排入課程](docs/images/unscheduled-lessons.png) | 排課後新增需求:未排入的課程依班級列在課表上方,連堂合併成一張卡,可拖曳或點選放入,連堂整組一起放入並先預覽 |
 
 <!--
 待補截圖:每一行是一張圖的佔位(檔名 :: 替代文字 :: 說明)。圖片放進 docs/images/ 後執行 scripts/apply_readme_screenshots.ps1,
