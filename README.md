@@ -36,16 +36,6 @@ docker compose --profile full up --build -d
 
 ## 功能展示
 
-<!--
-待補截圖(檔名已規劃,圖片放入 docs/images/ 後把下面整段改成表格即可;檔案還不存在,所以先不放圖片連結以免破圖):
-(依 docs/DEMO_SCRIPT.md 的步驟拍攝)
-- docs/images/conflict-check.png   步驟 b:複製 v4 後檢查,「共 2 項問題」分組清單與「在課表中查看」的琥珀色定位框
-- docs/images/timetable-edit.png   步驟 c:拖拉後的預覽對話框(綠色「會解決」;或紅色「會新增」與「仍要移動」)
-- docs/images/reassign-teacher.png 步驟 e:換教師面板與預覽對話框(受影響課堂數、「不會新增或解決任何問題」、影響範圍說明)
-- docs/images/publish-switch.png   步驟 f:發布確認對話框,目前生效的 v11 會自動封存
-- docs/images/requirements-locked.png 步驟 h:排課需求總覽中已鎖定的需求列
--->
-
 完整的操作流程與每一步的預期畫面,見 [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md)。示範中的「換教師」會改到學期共用的排課需求,每輪示範後用 `scripts/reset_demo_requirements.ps1` 重置(見下方「重置示範資料」)。
 
 ## 畫面截圖
@@ -53,9 +43,20 @@ docker compose --profile full up --build -d
 | 截圖 | 說明 |
 |---|---|
 | ![基礎資料瀏覽](docs/images/data-browser.png) | 基礎資料瀏覽(老師分頁展開):CRUD 操作按鈕,以及任教資格、不可用時段的即時管理。 |
-| ![排課控制台](docs/images/scheduler-success.png) | 排課控制台:選版本 → 展開課程清單 → 自動排課的三步驟流程(此截圖拍攝於版本管理功能加入之前)。 |
+| ![排課控制台](docs/images/scheduler-success.png) | 排課控制台:選版本 → 展開課程清單 → 自動排課,以及版本的發布、取消發布、複製與刪除。 |
 | ![失敗診斷](docs/images/failure-diagnostics.png) | 排課失敗診斷:具體列出每堂課失敗原因與建議修正頁面連結,而非單純回報失敗。 |
 | ![課表檢視](docs/images/timetable-view.png) | 課表檢視:依班級/教師/教室切換視角,含非教學時段(早自習、午餐/午休)顯示(此截圖拍攝於節次重新編號之前:現在非教學列只寫名稱並以深灰色顯示,午休後的課依序為第 5–7 節)。 |
+| ![檢查衝突結果](docs/images/conflict-check.png) | 檢查衝突(DEMO_SCRIPT 步驟 b):複製已發布版本成草稿後檢查,問題依類型分組並合併計次,「在課表中查看」以琥珀色框定位到課表格子。 |
+| ![課表編輯模式的異動預覽](docs/images/timetable-edit.png) | 課表編輯模式(步驟 c):拖曳課程後先預覽這次異動會新增或解決哪些問題,確認後才儲存;候選格以淡綠/淡紅標示。 |
+| ![換教師面板與預覽](docs/images/reassign-teacher.png) | 換教師(步驟 e):以一門課為單位換人,預覽受影響的課堂數、新增與解決的問題,以及影響範圍。 |
+| ![發布版本的確認對話框](docs/images/publish-switch.png) | 版本發布(步驟 f):發布新版本時,目前生效的版本自動封存,每學期隨時只有一個已發布版本。 |
+| ![已鎖定的排課需求](docs/images/requirements-locked.png) | 排課需求總覽(步驟 h):被已發布或已封存課表使用的需求整列鎖定,不能編輯或刪除。 |
+| ![連堂整組拖曳](docs/images/block-drag.png) | 連堂整組拖曳(步驟 i):同一組連堂以左緣細條相連,拖曳任一節時框出整組會落在的格子,放不下的位置標示為不可放並說明原因。 |
+
+<!--
+待補截圖:每一行是一張圖的佔位(檔名 :: 替代文字 :: 說明)。圖片放進 docs/images/ 後執行 scripts/apply_readme_screenshots.ps1,
+只會把圖片檔已存在的那幾行換成上方表格的列,缺的保留在這裡,README 不會出現破圖。拍攝步驟見 docs/DEMO_SCRIPT.md。
+-->
 
 ## 架構
 
@@ -480,7 +481,7 @@ CI(`.github/workflows/ci.yml`)在每次 push 與 pull request 時執行同樣的
 | API / 整合測試(真實 FastAPI + PostgreSQL) | 563 | 其餘 `tests/test_*.py` |
 | 前端純函式單元測試(Vitest) | 206 | `cd frontend && npm test` |
 
-前端測試只涵蓋純函式(衝突句子合併與前後比對、定位規則、拖放規則、換教師列表、版本狀態標籤、錯誤訊息翻譯、密碼規則、節次顯示、版本刪除規則、失敗診斷句子、候選格標示、對話框鍵盤操作),元件與頁面互動沒有自動化測試。
+前端測試只涵蓋純函式(衝突句子合併與前後比對、定位規則、拖放規則、換教師列表、版本狀態標籤、錯誤訊息翻譯、密碼規則、節次顯示、版本刪除規則、失敗診斷句子、候選格標示、對話框鍵盤操作、連堂樣式選項、連堂分組與連接條),元件與頁面互動沒有自動化測試。
 
 Scheduling Engine 那組測試不需要啟動 FastAPI 或連資料庫,秒級內跑完;API 測試會對 `TEST_DATABASE_URL` 指到的資料庫逐一 `create_all`/`drop_all`,耗時較長。測試策略的完整理由見 `docs/SYSTEM_DESIGN.md` 第 9 節。
 
