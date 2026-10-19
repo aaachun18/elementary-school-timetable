@@ -67,6 +67,10 @@ export const TR_HOVER = "hover:bg-gray-50";
 // separate constant, not TD + "text-gray-400", so the two text colors never
 // compete.
 export const TD_LOCKED = "border-b border-gray-100 px-3 py-2 text-gray-400";
+// Task 92A: short values (names, numbers, a semester) that must not wrap
+// -- the table wrapper scrolls sideways instead of squeezing them.
+export const TD_NOWRAP = `${TD} whitespace-nowrap`;
+export const TD_LOCKED_NOWRAP = `${TD_LOCKED} whitespace-nowrap`;
 
 // --- Nav ---
 export const NAV_BAR =
@@ -217,3 +221,26 @@ export const MOVE_TARGET_STRIP =
 // The 「已選取：…」 status bar above the grid.
 export const SELECTION_BAR =
   "flex flex-wrap items-center gap-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900";
+
+// --- Task 92A: preview dialogs (move/swap/換教師) ---
+// A little wider than DIALOG so a typical problem line fits on one line.
+export const DIALOG_WIDE =
+  "m-auto w-full max-w-xl rounded-lg border border-gray-200 bg-white p-0 shadow-xl backdrop:bg-black/40";
+// 「這次會做什麼」.
+export const PREVIEW_ACTION_LINE = "text-base font-medium text-gray-900";
+// The verdict: green when nothing new is wrong, red otherwise.
+export const PREVIEW_VERDICT_OK = "text-sm font-semibold text-green-700";
+export const PREVIEW_VERDICT_PROBLEM = "text-sm font-semibold text-red-700";
+export const PREVIEW_LIST = "m-0 flex list-none flex-col gap-1 p-0";
+export const PREVIEW_LINE = "flex items-baseline gap-2 text-sm text-gray-800";
+export const PREVIEW_LINE_LIGHT = "flex items-baseline gap-2 text-sm text-gray-500";
+// The small category tag in front of each problem line.
+export const PREVIEW_TAG_BASE = "shrink-0 rounded px-1.5 py-0.5 text-xs font-medium";
+export const PREVIEW_TAG_ERROR = `${PREVIEW_TAG_BASE} bg-red-50 text-red-700`;
+export const PREVIEW_TAG_WARNING = `${PREVIEW_TAG_BASE} bg-amber-50 text-amber-800`;
+export const PREVIEW_TAG_UNRESOLVED = `${PREVIEW_TAG_BASE} bg-gray-100 text-gray-600`;
+export const PREVIEW_TAG_RESOLVED = `${PREVIEW_TAG_BASE} bg-green-50 text-green-700`;
+// The one small footnote line, and 「另有 N 項既有問題…」.
+export const PREVIEW_NOTE = "text-xs text-gray-500";
+// 「另外 N 項」/「影響範圍」 toggles.
+export const PREVIEW_TOGGLE = "self-start text-xs font-medium text-blue-600 hover:text-blue-700";

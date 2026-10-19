@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import { useId, useState, type ReactElement } from "react";
 import ConfirmDialog from "./ConfirmDialog";
 import ViolationDiffSummary from "./ViolationDiffSummary";
 import type { AdjustmentPreview, LessonAdjustment } from "../hooks/useLessonAdjustment";
@@ -8,9 +8,23 @@ import {
   resolveTimeSlotLabel,
   type NameLookups,
 } from "../utils/failureDiagnostics";
-import { diffViolations, splitBySeverity } from "../utils/violationMerge";
+import { diffViolations } from "../utils/violationMerge";
+import {
+  PREVIEW_VISIBLE_CHANGES,
+  buildPreviewSummary,
+  describeMoveLine,
+  describeSwapLine,
+  visibleItems,
+} from "../utils/previewSummary";
 import type { ScheduleChangeDetail } from "../types/scheduler";
-import { ERROR_TEXT, MUTED_TEXT } from "../styles/ui";
+import {
+  ERROR_TEXT,
+  MUTED_TEXT,
+  PREVIEW_ACTION_LINE,
+  PREVIEW_LIST,
+  PREVIEW_NOTE,
+  PREVIEW_TOGGLE,
+} from "../styles/ui";
 
 interface AdjustmentPreviewDialogProps {
   // null = closed.
@@ -31,33 +45,36 @@ function lessonName(lesson: EnrichedSchedule): string {
   return `${lesson.className} ${lesson.subjectName}`;
 }
 
-// The plain-language one-liner at the top of the dialog.
-function describeAdjustment(adjustment: LessonAdjustment, lookups: NameLookups): string {
+// Task 92A: the one 「這次會做什麼」 line (utils/previewSummary.ts).
+function describeAdjustment(
+  adjustment: LessonAdjustment,
+  changes: readonly ScheduleChangeDetail[],
+  lookups: NameLookups,
+): string {
   const { lesson } = adjustment;
   const currentSlot = resolveTimeSlotLabel(lesson.timeSlotId, lookups);
   if (adjustment.kind === "move") {
-    return `把「${lessonName(lesson)}」從 ${currentSlot} 移到 ${resolveTimeSlotLabel(
-      adjustment.targetTimeSlotId,
-      lookups,
-    )}`;
+    return describeMoveLine(
+      lessonName(lesson),
+      currentSlot,
+      resolveTimeSlotLabel(adjustment.targetTimeSlotId, lookups),
+      changes.length,
+    );
   }
-  const otherSlot = resolveTimeSlotLabel(adjustment.other.timeSlotId, lookups);
-  return `把「${lessonName(lesson)}」（${currentSlot}）與「${lessonName(
-    adjustment.other,
-  )}」（${otherSlot}）的時段對調`;
+  return describeSwapLine(
+    lessonName(lesson),
+    currentSlot,
+    lessonName(adjustment.other),
+    resolveTimeSlotLabel(adjustment.other.timeSlotId, lookups),
+    changes.length,
+  );
 }
 
 // Task 90: a lesson block (連堂) moves or swaps as a whole -- the backend's
 // `changes` then list more rows than the one (move) or two (swap) lessons
-// picked. The short line under the description says so; null otherwise.
-function describeBlockChange(
-  adjustment: LessonAdjustment,
-  changes: readonly ScheduleChangeDetail[],
-): string | null {
-  if (adjustment.kind === "move") {
-    return changes.length > 1 ? `整組 ${changes.length} 節一起移動` : null;
-  }
-  return changes.length > 2 ? `兩組連堂整組對調，共 ${changes.length} 節` : null;
+// picked.
+function isBlockChange(adjustment: LessonAdjustment, changes: readonly ScheduleChangeDetail[]): boolean {
+  return changes.length > (adjustment.kind === "move" ? 1 : 2);
 }
 
 // Every changed row as 「{班級} {科目}：{原時段} → {新時段}」.
@@ -74,8 +91,38 @@ function describeChange(
   )}`;
 }
 
+// Task 92A: the rows of a lesson block change, at most
+// PREVIEW_VISIBLE_CHANGES before 「另外 N 列」.
+function BlockChangeList({ lines }: { lines: string[] }): ReactElement {
+  const [expanded, setExpanded] = useState(false);
+  const listId = useId();
+  const { shown, hiddenCount } = visibleItems(lines, PREVIEW_VISIBLE_CHANGES, expanded);
+  const canCollapse = expanded && lines.length > PREVIEW_VISIBLE_CHANGES;
+  return (
+    <>
+      <ul id={listId} className={`${PREVIEW_LIST} ${PREVIEW_NOTE}`} aria-label="會變動的課">
+        {shown.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
+      {(hiddenCount > 0 || canCollapse) && (
+        <button
+          type="button"
+          className={PREVIEW_TOGGLE}
+          aria-expanded={expanded}
+          aria-controls={listId}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? "收合" : `另外 ${hiddenCount} 列`}
+        </button>
+      )}
+    </>
+  );
+}
+
 // Task 69: the move/swap preview -- what THIS change does to the version's
-// problems (ViolationDiffSummary), not the whole "after" check.
+// problems, not the whole "after" check. Task 92A: title, one line of what
+// changes, one verdict line, the problem lines, one footnote, buttons.
 export default function AdjustmentPreviewDialog({
   preview,
   lookups,
@@ -89,16 +136,16 @@ export default function AdjustmentPreviewDialog({
   const isMove = preview?.adjustment.kind === "move";
   const verb = isMove ? "移動" : "對調";
   const hasChanges = preview !== null && preview.after.changes.length > 0;
-  const diff =
+  const summary =
     preview === null
       ? null
-      : diffViolations(preview.before.violations, preview.after.check.violations, (violation) =>
-          getViolationSentence(violation, lookups),
+      : buildPreviewSummary(
+          diffViolations(preview.before.violations, preview.after.check.violations, (violation) =>
+            getViolationSentence(violation, lookups),
+          ),
         );
   // Task 90: only new ERRORs make this a 「仍要…」 change.
-  const addsProblems = diff !== null && splitBySeverity(diff.added).errors.length > 0;
-  const blockChange =
-    preview === null ? null : describeBlockChange(preview.adjustment, preview.after.changes);
+  const addsProblems = summary !== null && summary.addsProblems;
   const scheduleById = new Map(schedules.map((schedule) => [schedule.scheduleId, schedule]));
 
   return (
@@ -114,33 +161,24 @@ export default function AdjustmentPreviewDialog({
       onConfirm={onConfirm}
       onCancel={onCancel}
       restoreFocusFallback={restoreFocusFallback}
+      wide
     >
-      {preview !== null && diff !== null && (
+      {preview !== null && summary !== null && (
         <>
-          <p className="font-medium text-gray-900">{describeAdjustment(preview.adjustment, lookups)}</p>
-          {blockChange !== null && (
-            <div className="text-sm text-gray-700">
-              <p className="font-medium text-indigo-800">{blockChange}：</p>
-              <ul className="m-0 list-none p-0">
-                {preview.after.changes.map((change) => (
-                  <li key={change.schedule_id}>{describeChange(change, scheduleById, lookups)}</li>
-                ))}
-              </ul>
-            </div>
+          <p className={PREVIEW_ACTION_LINE}>
+            {describeAdjustment(preview.adjustment, preview.after.changes, lookups)}
+          </p>
+          {isBlockChange(preview.adjustment, preview.after.changes) && (
+            <BlockChangeList
+              lines={preview.after.changes.map((change) => describeChange(change, scheduleById, lookups))}
+            />
           )}
           {!hasChanges ? (
             <p className={MUTED_TEXT}>沒有任何變動。</p>
           ) : (
             <>
-              <ViolationDiffSummary diff={diff} lookups={lookups} changeNoun="異動" />
-              <p className={MUTED_TEXT}>
-                {blockChange !== null
-                  ? "連堂整組一起異動，老師與教室各自不變。"
-                  : isMove
-                    ? "只會改變這堂課的時段，老師與教室不變。"
-                    : "只會交換兩堂課的時段，老師與教室各自不變。"}
-                確認後立即儲存，沒有復原功能。
-              </p>
+              <ViolationDiffSummary summary={summary} changeNoun="異動" />
+              <p className={PREVIEW_NOTE}>確認後立即儲存，無法復原</p>
             </>
           )}
           {saveError !== null && (

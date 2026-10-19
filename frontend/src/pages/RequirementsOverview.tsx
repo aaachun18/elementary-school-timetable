@@ -49,7 +49,8 @@ import {
   TABLE_HEAD_ROW,
   TABLE_WRAPPER,
   TD,
-  TD_LOCKED,
+  TD_LOCKED_NOWRAP,
+  TD_NOWRAP,
   TH,
   TR_HOVER,
 } from "../styles/ui";
@@ -649,7 +650,8 @@ function RequirementRow({
   // backend's is_locked) -- shown greyed out with its reason, edit/delete
   // disabled. The backend's 409 stays as the last line of defense.
   const isLocked = requirement.is_locked;
-  const cellClass = isLocked ? TD_LOCKED : TD;
+  // Task 92A: short values never wrap (the table scrolls sideways instead).
+  const cellClass = isLocked ? TD_LOCKED_NOWRAP : TD_NOWRAP;
   const lockedReason = "被已發布或已封存的課表使用，如需調整請先複製成草稿";
 
   return (
@@ -676,18 +678,22 @@ function RequirementRow({
             `教師 ID ${requirement.required_teacher_id}`)}
       </td>
       <td className={cellClass}>{requirement.required_room_type ?? "原班教室"}</td>
-      <td className={cellClass}>{formatLessonPattern(requirement.lesson_pattern)}</td>
-      <td className={TD}>
+      {/* Task 92A: just the pattern (「2+1」/「不指定」) -- its meaning is the
+          title, so the column stays narrow. */}
+      <td className={cellClass} title={formatLessonPattern(requirement.lesson_pattern)}>
+        {requirement.lesson_pattern ?? "不指定"}
+      </td>
+      <td className={TD_NOWRAP}>
         {isLocked && (
-          <div className="mb-1 flex flex-col items-start gap-1">
-            <span className={LOCK_BADGE}>
+          <div className="mb-1 flex items-center gap-2">
+            <span className={LOCK_BADGE} title={lockedReason} aria-label={`已鎖定：${lockedReason}`}>
               <span aria-hidden="true">🔒</span>已鎖定
             </span>
-            <span className="text-xs text-gray-500">{lockedReason}</span>
+            <span className="text-xs text-gray-500">請先複製成草稿</span>
           </div>
         )}
         {isAdmin && (
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-nowrap items-center gap-2">
             <button
               type="button"
               onClick={onStartEdit}

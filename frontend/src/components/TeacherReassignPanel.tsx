@@ -167,10 +167,7 @@ export default function TeacherReassignPanel({
       aria-label="換教師"
     >
       <h2 className={SUBSECTION_TITLE}>換教師</h2>
-      <p className={HELP_TEXT}>
-        以「一門課」（某班級的某科目）為單位換人，例如處理教師離職：先選原教師，再為每門課指定新教師並預覽。可以連續操作，例如把
-        A 的課交給 B 之後，再改選 B 把 B 原本的課交給 C。
-      </p>
+      <p className={HELP_TEXT}>先選原教師，再為每門課選新教師，按「預覽」確認。</p>
 
       <label htmlFor="reassign-original-teacher" className={`${LABEL} mb-1 block`}>
         原教師

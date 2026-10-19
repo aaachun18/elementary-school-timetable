@@ -6,6 +6,7 @@ import {
   BUTTON_SECONDARY,
   DIALOG,
   DIALOG_TITLE,
+  DIALOG_WIDE,
 } from "../styles/ui";
 
 interface ConfirmDialogProps {
@@ -34,6 +35,8 @@ interface ConfirmDialogProps {
   // while the dialog's request ran). Without it focus stays where the
   // browser leaves it.
   restoreFocusFallback?: () => void;
+  // Task 92A: the preview dialogs use a slightly wider dialog.
+  wide?: boolean;
 }
 
 // Task 85: everything inside the dialog that Tab can reach, in order.
@@ -79,6 +82,7 @@ export default function ConfirmDialog({
   onConfirm,
   onCancel,
   restoreFocusFallback,
+  wide = false,
 }: ConfirmDialogProps): ReactElement {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
@@ -284,7 +288,7 @@ export default function ConfirmDialog({
       onCancel={handleCancelEvent}
       onClose={handleCloseEvent}
       aria-labelledby={titleId}
-      className={DIALOG}
+      className={wide ? DIALOG_WIDE : DIALOG}
     >
       {/* Content only while open: a closed <dialog> is hidden anyway, and
           this keeps its inputs out of the page's tab order and DOM. */}
