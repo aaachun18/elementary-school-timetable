@@ -409,3 +409,13 @@ describe("Task 90: lesson block targets", () => {
     expect(marks.swapRanges.size).toBe(0);
   });
 });
+
+describe("Task 93: marks for placing an unscheduled lesson", () => {
+  it("reads like a move, with 「放到這裡」", () => {
+    expect(candidateLabel({ status: "safe" }, "place")).toBe("可放");
+    expect(candidateLabel({ status: "blocked", reason: "這個時段本班已經有課" }, "place")).toBe("不可放");
+    expect(candidateDescription({ status: "safe" }, "place")).toBe("放到這裡不會新增問題");
+    expect(candidateDescription({ status: "conflict", reasons: ["陳老師衝堂"] }, "place")).toBe("放到這裡會新增問題：陳老師衝堂");
+    expect(candidateDescription({ status: "blocked", reason: "這個時段本班已經有課" }, "place")).toBe("這個時段本班已經有課");
+  });
+});

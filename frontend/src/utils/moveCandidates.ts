@@ -118,25 +118,29 @@ export function markForSwap(
   return assessCandidate(data.baseline, swap.check, sentenceOf);
 }
 
+// What a mark is about: moving the selected lesson to a cell, swapping it
+// with a lesson, or (Task 93) placing an unscheduled lesson in a cell.
+export type CandidateAction = "move" | "swap" | "place";
+
 // The short visible label -- never colour alone. A cell's mark is about
 // moving there ("可放"), a lesson's about swapping with it ("可對調").
-export function candidateLabel(mark: CandidateMark, action: "move" | "swap"): string | null {
+export function candidateLabel(mark: CandidateMark, action: CandidateAction): string | null {
   if (mark.status === "safe") {
-    return action === "move" ? "可放" : "可對調";
+    return action === "swap" ? "可對調" : "可放";
   }
   if (mark.status === "conflict") {
     return "衝突";
   }
   if (mark.status === "blocked") {
-    return action === "move" ? "不可放" : "不可對調";
+    return action === "swap" ? "不可對調" : "不可放";
   }
   return null;
 }
 
 // title / aria-label text: what dropping here would do, with at most
 // MAX_LISTED_REASONS reasons.
-export function candidateDescription(mark: CandidateMark, action: "move" | "swap"): string | null {
-  const verb = action === "move" ? "移到這裡" : "與這堂課對調";
+export function candidateDescription(mark: CandidateMark, action: CandidateAction): string | null {
+  const verb = action === "move" ? "移到這裡" : action === "place" ? "放到這裡" : "與這堂課對調";
   if (mark.status === "safe") {
     return `${verb}不會新增問題`;
   }

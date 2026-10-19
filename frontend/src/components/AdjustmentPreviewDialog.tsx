@@ -1,5 +1,6 @@
-import { useId, useState, type ReactElement } from "react";
+import type { ReactElement } from "react";
 import ConfirmDialog from "./ConfirmDialog";
+import PreviewChangeList from "./PreviewChangeList";
 import ViolationDiffSummary from "./ViolationDiffSummary";
 import type { AdjustmentPreview, LessonAdjustment } from "../hooks/useLessonAdjustment";
 import type { EnrichedSchedule } from "../hooks/useTimetableData";
@@ -9,22 +10,9 @@ import {
   type NameLookups,
 } from "../utils/failureDiagnostics";
 import { diffViolations } from "../utils/violationMerge";
-import {
-  PREVIEW_VISIBLE_CHANGES,
-  buildPreviewSummary,
-  describeMoveLine,
-  describeSwapLine,
-  visibleItems,
-} from "../utils/previewSummary";
+import { buildPreviewSummary, describeMoveLine, describeSwapLine } from "../utils/previewSummary";
 import type { ScheduleChangeDetail } from "../types/scheduler";
-import {
-  ERROR_TEXT,
-  MUTED_TEXT,
-  PREVIEW_ACTION_LINE,
-  PREVIEW_LIST,
-  PREVIEW_NOTE,
-  PREVIEW_TOGGLE,
-} from "../styles/ui";
+import { ERROR_TEXT, MUTED_TEXT, PREVIEW_ACTION_LINE, PREVIEW_NOTE } from "../styles/ui";
 
 interface AdjustmentPreviewDialogProps {
   // null = closed.
@@ -91,35 +79,6 @@ function describeChange(
   )}`;
 }
 
-// Task 92A: the rows of a lesson block change, at most
-// PREVIEW_VISIBLE_CHANGES before 「另外 N 列」.
-function BlockChangeList({ lines }: { lines: string[] }): ReactElement {
-  const [expanded, setExpanded] = useState(false);
-  const listId = useId();
-  const { shown, hiddenCount } = visibleItems(lines, PREVIEW_VISIBLE_CHANGES, expanded);
-  const canCollapse = expanded && lines.length > PREVIEW_VISIBLE_CHANGES;
-  return (
-    <>
-      <ul id={listId} className={`${PREVIEW_LIST} ${PREVIEW_NOTE}`} aria-label="會變動的課">
-        {shown.map((line) => (
-          <li key={line}>{line}</li>
-        ))}
-      </ul>
-      {(hiddenCount > 0 || canCollapse) && (
-        <button
-          type="button"
-          className={PREVIEW_TOGGLE}
-          aria-expanded={expanded}
-          aria-controls={listId}
-          onClick={() => setExpanded((value) => !value)}
-        >
-          {expanded ? "收合" : `另外 ${hiddenCount} 列`}
-        </button>
-      )}
-    </>
-  );
-}
-
 // Task 69: the move/swap preview -- what THIS change does to the version's
 // problems, not the whole "after" check. Task 92A: title, one line of what
 // changes, one verdict line, the problem lines, one footnote, buttons.
@@ -169,7 +128,7 @@ export default function AdjustmentPreviewDialog({
             {describeAdjustment(preview.adjustment, preview.after.changes, lookups)}
           </p>
           {isBlockChange(preview.adjustment, preview.after.changes) && (
-            <BlockChangeList
+            <PreviewChangeList
               lines={preview.after.changes.map((change) => describeChange(change, scheduleById, lookups))}
             />
           )}

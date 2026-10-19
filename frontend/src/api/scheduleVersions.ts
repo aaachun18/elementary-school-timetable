@@ -9,12 +9,16 @@ import type {
   GenerateLessonsResponse,
   MoveCandidatesResult,
   MoveLessonRequest,
+  PlaceCandidatesResult,
+  PlaceLessonRequest,
+  PlaceLessonResult,
   RunSchedulerSuccessResponse,
   ScheduleAdjustmentResult,
   ScheduleCheckResult,
   SwapLessonsRequest,
   TeacherReassignmentRequest,
   TeacherReassignmentResult,
+  UnscheduledLessonsResult,
 } from "../types/scheduler";
 
 // Mirrors backend/app/routers/schedule_version.py's 5 CRUD endpoints -- see
@@ -188,6 +192,54 @@ export async function moveCandidates(
   const response = await apiClient.get<MoveCandidatesResult>(
     `/api/v1/schedule-versions/${versionId}/move-candidates/${scheduleId}`,
     { signal },
+  );
+  return response.data;
+}
+
+// --- Task 93: unscheduled lessons (backend Task 92; ADMIN only). ---
+
+// Lessons of the version's semester with no Schedule row in it (any
+// version status).
+export async function unscheduledLessons(versionId: number): Promise<UnscheduledLessonsResult> {
+  const response = await apiClient.get<UnscheduledLessonsResult>(
+    `/api/v1/schedule-versions/${versionId}/unscheduled-lessons`,
+  );
+  return response.data;
+}
+
+// Read-only "what if" of placing one lesson (and the unplaced rest of its
+// block) into every time slot, with this teacher and room (DRAFT only).
+// teacherId null: the requirement's required teacher (none -> 409
+// TEACHER_REQUIRED); roomId null: the backend's default room.
+export async function placeCandidates(
+  versionId: number,
+  lessonId: number,
+  teacherId: number | null,
+  roomId: number | null,
+  signal?: AbortSignal,
+): Promise<PlaceCandidatesResult> {
+  const params: Record<string, number> = {};
+  if (teacherId !== null) {
+    params.teacher_id = teacherId;
+  }
+  if (roomId !== null) {
+    params.room_id = roomId;
+  }
+  const response = await apiClient.get<PlaceCandidatesResult>(
+    `/api/v1/schedule-versions/${versionId}/place-candidates/${lessonId}`,
+    { params, signal },
+  );
+  return response.data;
+}
+
+// Saves unless dry_run is true; conflicts never block, they're in `check`.
+export async function placeLesson(
+  versionId: number,
+  body: PlaceLessonRequest,
+): Promise<PlaceLessonResult> {
+  const response = await apiClient.post<PlaceLessonResult>(
+    `/api/v1/schedule-versions/${versionId}/place-lesson`,
+    body,
   );
   return response.data;
 }

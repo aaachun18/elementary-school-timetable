@@ -318,6 +318,12 @@ export const VIOLATION_TYPE_TEMPLATES: Record<string, string> = {
   STATIC_BLOCK_FIXED_SAME_DAY: "{className}的{subjectName}有不同組的連堂被固定在同一天！",
   STATIC_BLOCK_TEACHER_UNAVAILABLE:
     "{className}的{subjectName}的連堂排不進去：{teacherName}在每一段可用的連續節次中都有不可排課的時段！",
+  // Task 93: the room pre-checks of backend Task 92B.
+  STATIC_ROOM_TYPE_NOT_FOUND:
+    "{className}的{subjectName}指定的教室類型「{requiredRoomType}」找不到任何可用的教室！",
+  STATIC_HOMEROOM_OVERBOOKED: "導師教室{roomName}要上的課多於一週的教學時段，共用這間教室的班級排不下！",
+  STATIC_FIXED_SLOT_HOMEROOM_CLASH:
+    "{className}的{subjectName}被固定在{timeSlotLabel}，但共用導師教室{roomName}的另一班同一時段也有固定的課！",
 };
 
 // Task 90: STATIC_BLOCK_TEACHER_UNAVAILABLE without a teacher_id -- every

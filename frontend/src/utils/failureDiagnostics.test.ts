@@ -226,3 +226,55 @@ describe("Task 90: lesson block sentences", () => {
     expect(sentence).toBe("901班A的國語（共 2 堂課）：連堂找不到同一天足夠的連續教學節次，這些課無法排定！");
   });
 });
+
+// Task 93: the room pre-checks of backend Task 92B.
+describe("room pre-check sentences and pages", () => {
+  const roomLookups: NameLookups = {
+    ...lookups,
+    roomById: new Map([[60, { id: 60, name: "901班A教室", room_type: "普通教室", is_active: false }]] as never),
+    requirementById: new Map([[5, { id: 5, class_id: 10, subject_id: 20, required_room_type: "自然教室 " }]] as never),
+  };
+  const pathOf = (violation: ConstraintViolationDetail): string | null => {
+    const target = resolveViolationPageTarget(violation, roomLookups);
+    return target.kind === "link" ? target.path : null;
+  };
+
+  it.each([
+    [
+      "STATIC_ROOM_TYPE_NOT_FOUND",
+      { lesson_id: null, time_slot_id: null },
+      "901班A的國語指定的教室類型「自然教室 」找不到任何可用的教室！",
+      "/requirements",
+    ],
+    [
+      "STATIC_HOMEROOM_OVERBOOKED",
+      { lesson_id: null, time_slot_id: null, class_id: null, subject_id: null, class_subject_requirement_id: null, room_id: 60 },
+      "導師教室901班A教室要上的課多於一週的教學時段，共用這間教室的班級排不下！",
+      "/data?tab=classes",
+    ],
+    [
+      "STATIC_FIXED_SLOT_HOMEROOM_CLASH",
+      { room_id: 60 },
+      "901班A的國語被固定在星期五第 7 節，但共用導師教室901班A教室的另一班同一時段也有固定的課！",
+      "/scheduler",
+    ],
+  ])("%s", (type, fields, sentence, path) => {
+    const violation = fixedSlotViolation(type, fields as Partial<ConstraintViolationDetail>);
+
+    expect(getViolationSentence(violation, roomLookups)).toBe(sentence);
+    expect(pathOf(violation)).toBe(path);
+  });
+
+  it("points an inactive homeroom at the rooms tab", () => {
+    const violation = fixedSlotViolation("STATIC_INACTIVE_ENTITY_CONFLICT", {
+      lesson_id: null,
+      class_id: null,
+      subject_id: null,
+      time_slot_id: null,
+      room_id: 60,
+    });
+
+    expect(getViolationSentence(violation, roomLookups)).toContain("教室 901班A教室");
+    expect(pathOf(violation)).toBe("/data?tab=rooms");
+  });
+});

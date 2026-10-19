@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactElement } from "react";
 import { useSearchParams } from "react-router-dom";
 import { list as listScheduleVersions } from "../api/scheduleVersions";
 import { list as listSemesters } from "../api/semesters";
@@ -8,20 +8,38 @@ import { list as listTeachers } from "../api/teachers";
 import { list as listRooms } from "../api/rooms";
 import AdjustmentPreviewDialog from "../components/AdjustmentPreviewDialog";
 import ConflictChecklist from "../components/ConflictChecklist";
+import PlacementPreviewDialog from "../components/PlacementPreviewDialog";
 import TeacherReassignPanel from "../components/TeacherReassignPanel";
 import TimetableGrid from "../components/TimetableGrid";
+import UnscheduledLessonsPanel from "../components/UnscheduledLessonsPanel";
 import { useFlashMessage } from "../hooks/useFlashMessage";
 import { useLessonAdjustment, type SavedAdjustment } from "../hooks/useLessonAdjustment";
 import { useMoveCandidates } from "../hooks/useMoveCandidates";
+import { usePlaceCandidates } from "../hooks/usePlaceCandidates";
+import { usePlacement, type SavedPlacement } from "../hooks/usePlacement";
 import { useResource } from "../hooks/useResource";
 import { useScheduleCheck } from "../hooks/useScheduleCheck";
 import { useTimetableData, type EnrichedSchedule } from "../hooks/useTimetableData";
+import { useUnscheduledLessons } from "../hooks/useUnscheduledLessons";
 import { isCurrentUserAdmin } from "../utils/auth";
 import { getViolationSentence, resolveTimeSlotLabel } from "../utils/failureDiagnostics";
 import { blockGroupMemberIds } from "../utils/lessonBlocks";
 import { lessonTargetId } from "../utils/lessonDrop";
 import { buildCandidateMarks, swapMarkKey, type CandidateMark } from "../utils/moveCandidates";
 import type { PeriodDisplayMap } from "../utils/periodDisplay";
+import {
+  PLACE_REFUSAL_MESSAGES,
+  backendDefaultRoom,
+  buildPlaceCandidateMarks,
+  buildPlacementCards,
+  canChooseNoRoom,
+  cardsForView,
+  firstPlacedSlot,
+  lessonCount,
+  roomForCard,
+  teacherForCard,
+  type PlacementCard,
+} from "../utils/placement";
 import { formatVersionLabel } from "../utils/scheduleVersionFormat";
 import { mergeViolationsBySentence, splitBySeverity } from "../utils/violationMerge";
 import { resolveLocateTarget, type TimetableViewMode } from "../utils/violationLocate";
@@ -169,10 +187,39 @@ export default function TimetableView(): ReactElement {
   // --- Task 70: 換教師 panel (ADMIN, DRAFT only); independent of edit mode.
   const [isReassignPanelOpen, setIsReassignPanelOpen] = useState(false);
 
+  // --- Task 93: 「未排入課程」 -- lessons of the semester with no row in this
+  // version, placed by dragging a card onto a cell or clicking it and then
+  // a cell's 「放到這裡」. Only in edit mode (ADMIN + DRAFT); nothing is
+  // fetched otherwise. ---
+  const isDraftVersionSelected =
+    (versionsResource.data ?? []).find((version) => version.id === selectedVersionId)?.status === "DRAFT";
+  const isPlacementActive = isAdmin && isEditModeOn && isDraftVersionSelected;
+  const unscheduled = useUnscheduledLessons(isPlacementActive ? selectedVersionId : null);
+  const placementCards = useMemo(() => buildPlacementCards(unscheduled.lessons), [unscheduled.lessons]);
+  const placement = usePlacement(selectedVersionId);
+  const [selectedCardKey, setSelectedCardKey] = useState<string | null>(null);
+  const [draggingCardKey, setDraggingCardKey] = useState<string | null>(null);
+  const [chosenTeacherByCard, setChosenTeacherByCard] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const [chosenRoomByCard, setChosenRoomByCard] = useState<ReadonlyMap<string, number | null>>(() => new Map());
+  const [showAllClasses, setShowAllClasses] = useState(false);
+  // A short hint instead of a request (no teacher yet, a refused cell).
+  const placeHintFlash = useFlashMessage(5000);
+  const selectedCard = placementCards.find((card) => card.key === selectedCardKey) ?? null;
+  const draggingCard = placementCards.find((card) => card.key === draggingCardKey) ?? null;
+  // A drag wins over the click selection, as for lessons.
+  const placingCard = isPlacementActive ? (draggingCard ?? selectedCard) : null;
+  const isBusy = adjustment.phase !== "idle" || placement.phase !== "idle";
+
+  function resetPlacement(): void {
+    placement.reset();
+    setSelectedCardKey(null);
+    setDraggingCardKey(null);
+  }
+
   // Esc deselects (when no dialog is open -- the dialog handles its own
   // Esc). Listening on the document so it works wherever focus is.
-  const hasSelection = adjustment.selectedScheduleId !== null;
-  const canClearSelection = hasSelection && adjustment.phase === "idle";
+  const hasSelection = adjustment.selectedScheduleId !== null || selectedCardKey !== null;
+  const canClearSelection = hasSelection && adjustment.phase === "idle" && placement.phase === "idle";
   const clearSelection = adjustment.clearSelection;
   useEffect(() => {
     if (!canClearSelection) {
@@ -181,6 +228,7 @@ export default function TimetableView(): ReactElement {
     function handleKeyDown(event: KeyboardEvent): void {
       if (event.key === "Escape") {
         clearSelection();
+        setSelectedCardKey(null);
       }
     }
     document.addEventListener("keydown", handleKeyDown);
@@ -197,6 +245,9 @@ export default function TimetableView(): ReactElement {
     setAdjustedTimeSlotId(null);
     setIsReassignPanelOpen(false);
     setDragSourceId(null);
+    resetPlacement();
+    setChosenTeacherByCard(new Map());
+    setChosenRoomByCard(new Map());
   }
 
   function handleSelectViewMode(mode: TimetableViewMode): void {
@@ -213,6 +264,7 @@ export default function TimetableView(): ReactElement {
     adjustment.reset();
     setAdjustedTimeSlotId(null);
     setDragSourceId(null);
+    resetPlacement();
   }
 
   function handleRunCheck(): void {
@@ -255,10 +307,9 @@ export default function TimetableView(): ReactElement {
     (versionsResource.data ?? []).find((version) => version.id === selectedVersionId)
       ?.status === "DRAFT";
   const canShowCandidates =
-    isAdmin && isEditModeOn && isDraftVersion && adjustment.phase === "idle";
-  const candidateSourceId = canShowCandidates
-    ? (dragSourceId ?? adjustment.selectedScheduleId)
-    : null;
+    isAdmin && isEditModeOn && isDraftVersion && adjustment.phase === "idle" && placement.phase === "idle";
+  const candidateSourceId =
+    canShowCandidates && placingCard === null ? (dragSourceId ?? adjustment.selectedScheduleId) : null;
   const candidateSource =
     schedules.find((schedule) => schedule.scheduleId === candidateSourceId) ?? null;
   const shownCandidateSourceId =
@@ -292,6 +343,29 @@ export default function TimetableView(): ReactElement {
     );
   }, [candidateData, timetableLookups, timetableSchedules]);
 
+  // Task 93: the placing card's candidates, with its teacher and room (no
+  // teacher picked yet: nothing is fetched).
+  const placingTeacherId = placingCard === null ? null : teacherForCard(placingCard, chosenTeacherByCard);
+  const placingRoomId = placingCard === null ? null : roomForCard(placingCard, chosenRoomByCard);
+  const placeCandidateState = usePlaceCandidates(
+    selectedVersionId,
+    canShowCandidates && placingCard !== null ? placingCard.anchorLessonId : null,
+    placingTeacherId,
+    placingRoomId,
+    candidateRevision,
+  );
+  const placeCandidateData = placeCandidateState.status === "ready" ? placeCandidateState.data : null;
+  const placeMarks = useMemo(
+    () =>
+      placeCandidateData === null || timetableLookups === null
+        ? null
+        : buildPlaceCandidateMarks(placeCandidateData, (violation) =>
+            getViolationSentence(violation, timetableLookups),
+          ),
+    [placeCandidateData, timetableLookups],
+  );
+  const shownMarks = placingCard !== null ? placeMarks : candidateMarks;
+
   // Task 90: the blocked mark for this lesson's move / swap, when the shown
   // marks are this lesson's; null otherwise (then the request is sent and
   // the backend decides, as before).
@@ -324,6 +398,7 @@ export default function TimetableView(): ReactElement {
   // previews swapping them.
   function handleLessonClick(lesson: EnrichedSchedule): void {
     setAdjustedTimeSlotId(null);
+    setSelectedCardKey(null);
     if (selectedLesson === null || selectedLesson.scheduleId === lesson.scheduleId) {
       adjustment.toggleSelection(lesson.scheduleId);
       return;
@@ -362,6 +437,7 @@ export default function TimetableView(): ReactElement {
   function handleDragStartLesson(lesson: EnrichedSchedule): void {
     setAdjustedTimeSlotId(null);
     adjustment.clearSelection();
+    setSelectedCardKey(null);
     setDragSourceId(lesson.scheduleId);
   }
 
@@ -408,6 +484,119 @@ export default function TimetableView(): ReactElement {
     setCandidateRevision((previous) => previous + 1);
     if (scheduleCheck.result !== null) {
       scheduleCheck.run();
+    }
+  }
+
+  // --- Task 93: placing a card ---
+
+  function handleCardClick(card: PlacementCard): void {
+    if (teacherForCard(card, chosenTeacherByCard) === null) {
+      placeHintFlash.showFlash(PLACE_REFUSAL_MESSAGES.TEACHER_REQUIRED);
+      return;
+    }
+    setAdjustedTimeSlotId(null);
+    adjustment.clearSelection();
+    setSelectedCardKey((previous) => (previous === card.key ? null : card.key));
+  }
+
+  function handleCardDragStart(card: PlacementCard, event: DragEvent<HTMLButtonElement>): void {
+    if (isBusy || teacherForCard(card, chosenTeacherByCard) === null) {
+      event.preventDefault();
+      if (!isBusy) {
+        placeHintFlash.showFlash(PLACE_REFUSAL_MESSAGES.TEACHER_REQUIRED);
+      }
+      return;
+    }
+    event.dataTransfer.setData("text/plain", `place:${card.key}`);
+    event.dataTransfer.effectAllowed = "move";
+    // Deferred one tick, like a lesson's drag (Task 71/84): changing the
+    // dragged element's look inside dragstart can cancel the drag.
+    window.setTimeout(() => {
+      setAdjustedTimeSlotId(null);
+      adjustment.clearSelection();
+      setSelectedCardKey(null);
+      setDraggingCardKey(card.key);
+    }, 0);
+  }
+
+  function handleCardDragEnd(): void {
+    setDraggingCardKey(null);
+  }
+
+  function handleChooseTeacher(card: PlacementCard, teacherId: number | null): void {
+    setChosenTeacherByCard((previous) => {
+      const next = new Map(previous);
+      if (teacherId === null) {
+        next.delete(card.key);
+      } else {
+        next.set(card.key, teacherId);
+      }
+      return next;
+    });
+    if (teacherId === null && selectedCardKey === card.key) {
+      setSelectedCardKey(null);
+    }
+  }
+
+  function handleChooseRoom(card: PlacementCard, roomId: number | null): void {
+    setChosenRoomByCard((previous) => new Map(previous).set(card.key, roomId));
+  }
+
+  // Drop or 「放到這裡」. A cell the backend refuses (gray) sends nothing.
+  function handlePlaceOnCell(timeSlot: TimeSlot): void {
+    const card = placingCard;
+    if (card === null) {
+      return;
+    }
+    const teacherId = teacherForCard(card, chosenTeacherByCard);
+    if (teacherId === null) {
+      placeHintFlash.showFlash(PLACE_REFUSAL_MESSAGES.TEACHER_REQUIRED);
+      return;
+    }
+    const mark = placeCandidateData?.lesson_id === card.anchorLessonId ? placeMarks?.cells.get(timeSlot.id) : undefined;
+    if (mark?.status === "blocked") {
+      placeHintFlash.showFlash(`無法放在這裡：${mark.reason}`);
+      return;
+    }
+    setAdjustedTimeSlotId(null);
+    setDraggingCardKey(null);
+    placement.requestPreview({
+      card,
+      timeSlotId: timeSlot.id,
+      teacherId,
+      roomId: roomForCard(card, chosenRoomByCard),
+    });
+  }
+
+  function handlePlacementSaved({ request, result }: SavedPlacement): void {
+    focusAfterReloadRef.current = null;
+    timetable.reload();
+    unscheduled.reload();
+    if (scheduleCheck.result !== null) {
+      scheduleCheck.setResult(result.check);
+    }
+    setAdjustedTimeSlotId(firstPlacedSlot(result.changes, request.card.lessonIds));
+    adjustmentFlash.showFlash("已放入並儲存");
+    setCandidateRevision((previous) => previous + 1);
+    setSelectedCardKey(null);
+  }
+
+  function handleConfirmPlacement(): void {
+    void placement.confirm().then((saved) => {
+      if (saved !== null) {
+        handlePlacementSaved(saved);
+      }
+    });
+  }
+
+  // After closing the preview: back to the card, else the timetable.
+  function restoreFocusAfterPlacement(): void {
+    const key = placement.preview?.request.card.key ?? null;
+    const cardButton =
+      key === null ? null : document.querySelector<HTMLElement>(`[data-place-card="${key}"]`);
+    cardButton?.focus();
+    if (cardButton === null || document.activeElement !== cardButton) {
+      timetableSectionRef.current?.focus();
     }
   }
 
@@ -499,6 +688,15 @@ export default function TimetableView(): ReactElement {
   const checkProblemCount = checkCounts.errors.length;
   const checkWarningCount = checkCounts.warnings.length;
 
+  // Task 93: what place-lesson puts in when no room is sent.
+  const selectedCardDefaultRoom =
+    selectedCard === null
+      ? null
+      : backendDefaultRoom(
+          timetable.data?.lookups.requirementById.get(selectedCard.requirementId)?.required_room_type ?? null,
+          (classesResource.data ?? []).find((item) => item.id === selectedCard.classId)?.homeroom_room_id ?? null,
+        );
+
   const selectedLessonSlotLabel =
     selectedLesson === null || checkLookups === null
       ? ""
@@ -538,7 +736,7 @@ export default function TimetableView(): ReactElement {
             onChange={(event) =>
               handleSelectVersion(event.target.value === "" ? null : Number(event.target.value))
             }
-            disabled={adjustment.phase !== "idle"}
+            disabled={isBusy}
             className={SELECT}
           >
             <option value="">請選擇…</option>
@@ -621,7 +819,7 @@ export default function TimetableView(): ReactElement {
                 <button
                   type="button"
                   onClick={handleToggleEditMode}
-                  disabled={!isDraftSelected || adjustment.phase !== "idle"}
+                  disabled={!isDraftSelected || isBusy}
                   aria-pressed={isEditing}
                   className={isEditing ? BUTTON_PRIMARY : BUTTON_SECONDARY}
                 >
@@ -653,6 +851,57 @@ export default function TimetableView(): ReactElement {
                 <p role="alert" className={NOTICE}>
                   無法放在這裡：{blockedFlash.message}
                 </p>
+              )}
+              {placeHintFlash.message !== null && (
+                <p role="alert" className={NOTICE}>
+                  {placeHintFlash.message}
+                </p>
+              )}
+              {placement.previewError !== null && (
+                <p role="alert" className={ERROR_TEXT}>
+                  無法預覽這次放入，已取消：{placement.previewError}
+                </p>
+              )}
+              {isEditing && placement.phase === "loadingPreview" && (
+                <p className={LOADING_TEXT} aria-live="polite">
+                  正在預覽放入結果…
+                </p>
+              )}
+              {isEditing && selectedCard !== null && placement.phase === "idle" && (
+                <div className={SELECTION_BAR} aria-live="polite">
+                  <span>
+                    已選取：{selectedCard.className} {selectedCard.label}。點「放到這裡」放入
+                  </span>
+                  <label className="inline-flex items-center gap-1">
+                    <span>教室</span>
+                    <select
+                      aria-label="放入的教室"
+                      value={roomForCard(selectedCard, chosenRoomByCard) ?? ""}
+                      onChange={(event) =>
+                        handleChooseRoom(
+                          selectedCard,
+                          event.target.value === "" ? null : Number(event.target.value),
+                        )
+                      }
+                      className="rounded border border-blue-300 bg-white px-1 py-0.5 text-sm"
+                    >
+                      {(roomForCard(selectedCard, chosenRoomByCard) === null ||
+                        canChooseNoRoom(selectedCardDefaultRoom)) && <option value="">不指定教室</option>}
+                      {(roomsResource.data ?? []).map((room) => (
+                        <option key={room.id} value={room.id}>
+                          {room.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCardKey(null)}
+                    className={BUTTON_SECONDARY_SM}
+                  >
+                    取消
+                  </button>
+                </div>
               )}
               {adjustment.previewError !== null && (
                 <p role="alert" className={ERROR_TEXT}>
@@ -728,6 +977,32 @@ export default function TimetableView(): ReactElement {
             ))}
           </select>
 
+          {isEditing && lessonCount(placementCards) > 0 && (
+            <UnscheduledLessonsPanel
+              cards={cardsForView(placementCards, viewMode, selectedTargetId, showAllClasses)}
+              totalLessonCount={lessonCount(placementCards)}
+              showAllToggle={
+                viewMode === "class" && selectedTargetId !== null
+                  ? { showAll: showAllClasses, onToggle: () => setShowAllClasses((value) => !value) }
+                  : null
+              }
+              chosenTeacherByCard={chosenTeacherByCard}
+              onChooseTeacher={handleChooseTeacher}
+              selectedCardKey={selectedCardKey}
+              draggingCardKey={draggingCardKey}
+              disabled={isBusy || timetable.isLoading}
+              errorMessage={unscheduled.errorMessage}
+              onCardClick={handleCardClick}
+              onCardDragStart={handleCardDragStart}
+              onCardDragEnd={handleCardDragEnd}
+            />
+          )}
+          {isEditing && unscheduled.errorMessage !== null && lessonCount(placementCards) === 0 && (
+            <p role="alert" className={ERROR_TEXT}>
+              無法載入未排入課程：{unscheduled.errorMessage}
+            </p>
+          )}
+
           {timetable.isLoading && <p className={LOADING_TEXT}>載入中…</p>}
           {timetable.errorMessage !== null && (
             <p role="alert" className={ERROR_TEXT}>
@@ -736,7 +1011,7 @@ export default function TimetableView(): ReactElement {
           )}
 
           {/* Task 84: only while marks are shown. */}
-          {isEditing && candidateMarks !== null && (
+          {isEditing && shownMarks !== null && (
             <div
               className={CANDIDATE_LEGEND}
               aria-label="候選位置圖例"
@@ -775,7 +1050,7 @@ export default function TimetableView(): ReactElement {
                 isEditing
                   ? {
                       selected: selectedLesson,
-                      disabled: adjustment.phase !== "idle" || timetable.isLoading,
+                      disabled: isBusy || timetable.isLoading,
                       lessonById: timetable.data.lookups.lessonById ?? new Map(),
                       onLessonClick: handleLessonClick,
                       onMoveHere: handleMoveHere,
@@ -784,13 +1059,18 @@ export default function TimetableView(): ReactElement {
                       onDragEndLesson: handleDragEndLesson,
                       onDropOnCell: handleDropOnCell,
                       onDropOnLesson: handleDropOnLesson,
-                      candidateMarks,
+                      candidateMarks: shownMarks,
+                      placing: placingCard === null ? null : { isDragging: draggingCard !== null },
+                      onPlaceOnCell: handlePlaceOnCell,
                     }
                   : null
               }
             />
           )}
           {isEditing && shownCandidateSourceId !== null && candidateState.status === "failed" && (
+            <p className={`${MUTED_TEXT} mt-2`}>目前無法顯示候選位置，仍可直接放下並預覽</p>
+          )}
+          {isEditing && placingCard !== null && placeCandidateState.status === "failed" && (
             <p className={`${MUTED_TEXT} mt-2`}>目前無法顯示候選位置，仍可直接放下並預覽</p>
           )}
         </section>
@@ -806,6 +1086,17 @@ export default function TimetableView(): ReactElement {
           onCancel={adjustment.closePreview}
           restoreFocusFallback={restoreFocusAfterPreview}
           schedules={schedules}
+        />
+      )}
+      {timetable.data !== null && (
+        <PlacementPreviewDialog
+          preview={placement.preview}
+          lookups={timetable.data.lookups}
+          isSaving={placement.phase === "saving"}
+          saveError={placement.saveError}
+          onConfirm={handleConfirmPlacement}
+          onCancel={placement.closePreview}
+          restoreFocusFallback={restoreFocusAfterPlacement}
         />
       )}
     </div>

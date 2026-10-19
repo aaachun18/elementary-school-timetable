@@ -244,3 +244,22 @@ export const PREVIEW_TAG_RESOLVED = `${PREVIEW_TAG_BASE} bg-green-50 text-green-
 export const PREVIEW_NOTE = "text-xs text-gray-500";
 // 「另外 N 項」/「影響範圍」 toggles.
 export const PREVIEW_TOGGLE = "self-start text-xs font-medium text-blue-600 hover:text-blue-700";
+
+// --- Task 93: the 「未排入課程」 panel (edit mode) ---
+export const PLACE_PANEL = "mb-4 rounded-lg border border-amber-200 bg-amber-50/40 p-3";
+export const PLACE_PANEL_TITLE = "text-sm font-semibold text-gray-900";
+export const PLACE_GROUP = "flex flex-wrap items-center gap-2";
+export const PLACE_GROUP_LABEL = "w-20 shrink-0 text-xs font-medium text-gray-600";
+// One card: the draggable button plus, when no teacher is required, a
+// small teacher picker next to it.
+export const PLACE_CARD = "inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-1 py-0.5";
+const PLACE_CARD_BUTTON_BASE = "rounded px-2 py-1 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500";
+export const PLACE_CARD_BUTTON = `${PLACE_CARD_BUTTON_BASE} cursor-grab text-gray-900 hover:bg-blue-50`;
+export const PLACE_CARD_BUTTON_SELECTED = `${PLACE_CARD_BUTTON_BASE} cursor-grab bg-blue-100 font-medium text-blue-900 ring-2 ring-blue-500`;
+export const PLACE_CARD_BUTTON_DRAGGING = `${PLACE_CARD_BUTTON_BASE} cursor-grabbing border border-dashed border-gray-400 bg-gray-100 text-gray-500`;
+// No teacher picked yet: looks disabled, but stays focusable so a click or
+// a drag can say why (「請先選擇教師」).
+export const PLACE_CARD_BUTTON_NEEDS_TEACHER = `${PLACE_CARD_BUTTON_BASE} cursor-not-allowed text-gray-400`;
+export const PLACE_TEACHER_SELECT =
+  "rounded border border-gray-300 bg-white px-1 py-0.5 text-xs text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50";
+export const PLACE_TOGGLE = "text-xs font-medium text-blue-600 hover:text-blue-700";

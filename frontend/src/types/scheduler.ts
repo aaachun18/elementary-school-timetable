@@ -210,3 +210,98 @@ export interface MoveCandidatesResult {
   baseline: ScheduleCheckResult;
   candidates: MoveCandidateSlot[];
 }
+
+// --- Task 93: unscheduled lessons and placing them (backend Task 92 / 92B,
+// decision 28/29). Mirrors backend/app/schemas/scheduler.py. ---
+
+export interface EligibleTeacher {
+  teacher_id: number;
+  name: string;
+}
+
+// A lesson of the version's semester with no Schedule row in the version.
+// suggested_room_id: the class's homeroom for a requirement with no room
+// type, else the first active room of its type; null when there is none.
+// eligible_teachers: active teachers qualified for the subject, by name.
+export interface UnscheduledLesson {
+  lesson_id: number;
+  class_subject_requirement_id: number;
+  class_id: number;
+  class_name: string;
+  subject_id: number;
+  subject_name: string;
+  sequence_number: number;
+  required_teacher_id: number | null;
+  block_no: number | null;
+  block_seq: number | null;
+  lesson_pattern: string | null;
+  fixed_time_slot_id: number | null;
+  suggested_room_id: number | null;
+  eligible_teachers: EligibleTeacher[];
+}
+
+// GET /schedule-versions/{id}/unscheduled-lessons -- ordered by class,
+// subject, block, place in the block.
+export interface UnscheduledLessonsResult {
+  schedule_version_id: number;
+  lessons: UnscheduledLesson[];
+}
+
+// One lesson placed with the requested one, and where it goes.
+export interface PlacedLessonDetail {
+  lesson_id: number;
+  to_time_slot_id: number;
+}
+
+// available=false: unavailable_reason is NON_TEACHING_SLOT,
+// BLOCK_OUT_OF_RANGE, BLOCK_TARGET_OCCUPIED or BLOCK_PARTIAL_MISMATCH and
+// `check` is null. block_members: every lesson placed with this one (a
+// lesson block, available slot only), else null.
+export interface PlaceCandidateSlot {
+  time_slot_id: number;
+  available: boolean;
+  unavailable_reason: string | null;
+  check: ScheduleCheckResult | null;
+  block_members?: PlacedLessonDetail[] | null;
+}
+
+// GET /schedule-versions/{id}/place-candidates/{lesson_id}: teacher_id and
+// room_id are the ones every candidate was checked with.
+export interface PlaceCandidatesResult {
+  schedule_version_id: number;
+  lesson_id: number;
+  teacher_id: number;
+  room_id: number | null;
+  baseline: ScheduleCheckResult;
+  candidates: PlaceCandidateSlot[];
+}
+
+// Body of POST /schedule-versions/{id}/place-lesson. teacher_id null: the
+// requirement's required teacher; room_id null: the backend's default
+// (homeroom for no room type, else none).
+export interface PlaceLessonRequest {
+  lesson_id: number;
+  time_slot_id: number;
+  teacher_id?: number | null;
+  room_id?: number | null;
+  dry_run?: boolean;
+}
+
+// One new Schedule row. schedule_id is null for dry_run (match by
+// lesson_id); previous_* are always null.
+export interface PlacementChangeDetail {
+  schedule_id: number | null;
+  lesson_id: number;
+  teacher_id: number;
+  previous_time_slot_id: number | null;
+  new_time_slot_id: number;
+  previous_room_id: number | null;
+  new_room_id: number | null;
+}
+
+export interface PlaceLessonResult {
+  schedule_version_id: number;
+  dry_run: boolean;
+  changes: PlacementChangeDetail[];
+  check: ScheduleCheckResult;
+}

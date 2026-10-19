@@ -12,6 +12,7 @@ import {
   candidateDescription,
   candidateLabel,
   swapMarkKey,
+  type CandidateAction,
   type CandidateMark,
   type CandidateMarks,
 } from "../utils/moveCandidates";
@@ -86,6 +87,13 @@ export interface TimetableGridEditProps {
   candidateMarks: CandidateMarks | null;
   onDropOnCell: (lesson: EnrichedSchedule, timeSlot: TimeSlot) => void;
   onDropOnLesson: (lesson: EnrichedSchedule, other: EnrichedSchedule) => void;
+  // Task 93: an unscheduled card (the 「未排入課程」 panel) is selected or
+  // being dragged -- every teaching cell is then a place target (its
+  // 「放到這裡」, or a drop), and candidateMarks are that card's. null
+  // otherwise: the grid works exactly as before. isDragging is reported a
+  // tick after the card's dragstart, like a lesson's.
+  placing: { isDragging: boolean } | null;
+  onPlaceOnCell: (timeSlot: TimeSlot) => void;
 }
 
 interface TimetableGridProps {
@@ -122,9 +130,15 @@ function sameHover(a: DragHover | null, b: DragHover | null): boolean {
 // move mark (null for none/unavailable). ✓ / ✕ differ in shape, not just
 // colour; the label and the full description (with up to 3 reasons) are
 // the title and the accessible name.
-function CandidateIcon({ mark }: { mark: CandidateMark }): ReactElement | null {
-  const label = candidateLabel(mark, "move");
-  const description = candidateDescription(mark, "move");
+function CandidateIcon({
+  mark,
+  action,
+}: {
+  mark: CandidateMark;
+  action: CandidateAction;
+}): ReactElement | null {
+  const label = candidateLabel(mark, action);
+  const description = candidateDescription(mark, action);
   if (label === null || description === null) {
     return null;
   }
@@ -293,11 +307,28 @@ export default function TimetableGrid({
     [schedules, selectedLesson],
   );
   const marks = edit?.candidateMarks ?? null;
+  // Task 93: an unscheduled card is the drag source instead of a lesson.
+  const isPlacingDrag = dragging === null && edit?.placing?.isDragging === true;
+  const isDragActive = dragging !== null || isPlacingDrag;
+  const markAction: CandidateAction = (edit?.placing ?? null) !== null ? "place" : "move";
+  const timeSlotById = useMemo(
+    () => new Map(Array.from(timeSlotByWeekdayAndPeriod.values(), (slot) => [slot.id, slot])),
+    [timeSlotByWeekdayAndPeriod],
+  );
+
+  // Where the current drag may be dropped: a lesson moves (as before); a
+  // card goes into any teaching cell (the backend decides the rest).
+  function canDropAt(timeSlot: TimeSlot | undefined): timeSlot is TimeSlot {
+    if (dragging !== null) {
+      return canMoveLessonTo(dragging, timeSlot);
+    }
+    return isPlacingDrag && timeSlot !== undefined && timeSlot.is_teaching_period;
+  }
 
   // The cells the dragged block would land in for the target under the
   // pointer (empty for a single lesson, or a target it can't go to).
   function landingRange(): ReadonlySet<number> {
-    if (dragging === null || dragHover === null || marks === null) {
+    if (!isDragActive || dragHover === null || marks === null) {
       return new Set();
     }
     if (dragHover.kind === "cell") {
@@ -369,9 +400,17 @@ export default function TimetableGrid({
     event.preventDefault();
     event.stopPropagation();
     const lesson = draggedLessonOf(event);
+    const wasPlacing = isPlacingDrag;
     endDrag();
     if (edit !== null && !edit.disabled && lesson !== undefined && canSwapLessons(lesson, target)) {
       edit.onDropOnLesson(lesson, target);
+      return;
+    }
+    // Task 93: a card dropped on a lesson goes into that lesson's cell
+    // (always refused there -- the class has a lesson -- with the reason).
+    const slot = target.timeSlotId === null ? undefined : timeSlotById.get(target.timeSlotId);
+    if (edit !== null && !edit.disabled && lesson === undefined && wasPlacing && slot !== undefined) {
+      edit.onPlaceOnCell(slot);
     }
   }
 
@@ -380,11 +419,11 @@ export default function TimetableGrid({
     timeSlot: TimeSlot | undefined,
     event: DragEvent<HTMLTableCellElement>,
   ): void {
-    if (dragging === null) {
+    if (!isDragActive) {
       return;
     }
     updateHover({ kind: "cell", key });
-    if (canMoveLessonTo(dragging, timeSlot)) {
+    if (canDropAt(timeSlot)) {
       event.preventDefault();
       event.dataTransfer.dropEffect = "move";
     } else {
@@ -395,9 +434,12 @@ export default function TimetableGrid({
   function handleCellDrop(timeSlot: TimeSlot | undefined, event: DragEvent<HTMLTableCellElement>): void {
     event.preventDefault();
     const lesson = draggedLessonOf(event);
+    const canPlace = lesson === undefined && canDropAt(timeSlot);
     endDrag();
     if (edit !== null && !edit.disabled && lesson !== undefined && canMoveLessonTo(lesson, timeSlot)) {
       edit.onDropOnCell(lesson, timeSlot);
+    } else if (edit !== null && !edit.disabled && canPlace && timeSlot !== undefined) {
+      edit.onPlaceOnCell(timeSlot);
     }
   }
 
@@ -411,7 +453,7 @@ export default function TimetableGrid({
 
   // The drop hint for a cell under the pointer, if any; null otherwise.
   function cellDropClass(key: string, timeSlot: TimeSlot | undefined): string | null {
-    if (dragging === null) {
+    if (!isDragActive) {
       return null;
     }
     if (dragHover?.kind !== "cell" || dragHover.key !== key) {
@@ -420,7 +462,7 @@ export default function TimetableGrid({
     }
     const isBlocked =
       timeSlot !== undefined && marks?.cells.get(timeSlot.id)?.status === "blocked";
-    return canMoveLessonTo(dragging, timeSlot) && !isBlocked ? DROP_TARGET_OK : DROP_TARGET_BLOCKED;
+    return canDropAt(timeSlot) && !isBlocked ? DROP_TARGET_OK : DROP_TARGET_BLOCKED;
   }
 
   function lessonDragState(lesson: EnrichedSchedule): LessonDragState {
@@ -464,11 +506,24 @@ export default function TimetableGrid({
     return edit !== null && edit.selected !== null && canMoveLessonTo(edit.selected, timeSlot);
   }
 
+  // Task 93: 「放到這裡」 for a selected (not dragged) card -- every
+  // teaching cell, like a drop.
+  function canPlaceHere(timeSlot: TimeSlot | undefined): timeSlot is TimeSlot {
+    return (
+      edit !== null &&
+      edit.selected === null &&
+      edit.placing !== null &&
+      !edit.placing.isDragging &&
+      timeSlot !== undefined &&
+      timeSlot.is_teaching_period
+    );
+  }
+
   // Task 85: the click-flow target's accessible name -- the slot, plus what
   // moving there would do when a candidate mark is known.
-  function moveTargetLabel(timeSlot: TimeSlot, mark: CandidateMark): string {
-    const target = `移到 ${formatTimeSlotLabel(timeSlot, periodDisplay)}`;
-    const description = candidateDescription(mark, "move");
+  function moveTargetLabel(timeSlot: TimeSlot, mark: CandidateMark, action: CandidateAction = "move"): string {
+    const target = `${action === "place" ? "放到" : "移到"} ${formatTimeSlotLabel(timeSlot, periodDisplay)}`;
+    const description = candidateDescription(mark, action);
     return description === null ? target : `${target}（${description}）`;
   }
 
@@ -557,9 +612,9 @@ export default function TimetableGrid({
                   edit !== null && edit.candidateMarks !== null && timeSlot !== undefined
                     ? (edit.candidateMarks.cells.get(timeSlot.id) ?? NO_MARK)
                     : NO_MARK;
-                const canDropHere = dragging !== null && canMoveLessonTo(dragging, timeSlot);
+                const canDropHere = isDragActive && canDropAt(timeSlot);
                 const isDragOverCell =
-                  dragging !== null && dragHover?.kind === "cell" && dragHover.key === key;
+                  isDragActive && dragHover?.kind === "cell" && dragHover.key === key;
                 // Task 85: a cell showing another marker (drag hover,
                 // 剛調整, 在課表中查看) shows that instead of the fill; its
                 // corner icon stays.
@@ -620,7 +675,7 @@ export default function TimetableGrid({
                               </div>
                             ) : (
                               <div aria-hidden="true" data-drop-zone="" className={DROP_ZONE}>
-                                移到這裡
+                                {markAction === "place" ? "放到這裡" : "移到這裡"}
                               </div>
                             )
                           ) : (
@@ -644,9 +699,22 @@ export default function TimetableGrid({
                             移到這裡
                           </button>
                         )}
+                        {/* Task 93: the same target for a selected card. */}
+                        {canPlaceHere(timeSlot) && (
+                          <button
+                            type="button"
+                            onClick={() => edit.onPlaceOnCell(timeSlot)}
+                            disabled={edit.disabled}
+                            aria-label={moveTargetLabel(timeSlot, cellMark, "place")}
+                            title={candidateDescription(cellMark, "place") ?? undefined}
+                            className={matches.length === 0 ? CELL_MOVE_TARGET : MOVE_TARGET_STRIP}
+                          >
+                            放到這裡
+                          </button>
+                        )}
                         {/* Task 84: added last, so nothing above it ever shifts
                             position (no lesson button is remounted mid-drag). */}
-                        <CandidateIcon mark={cellMark} />
+                        <CandidateIcon mark={cellMark} action={markAction} />
                       </div>
                     </td>
                   );

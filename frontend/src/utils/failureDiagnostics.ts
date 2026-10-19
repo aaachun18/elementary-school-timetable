@@ -257,6 +257,11 @@ function buildTemplateValues(
     missingFields: describeMissingFields(violation),
     blockLabel: describeBlock(violation),
     weekdayLabel: resolveWeekdayLabel(violation.time_slot_id, lookups),
+    // Task 93: STATIC_ROOM_TYPE_NOT_FOUND names the type it can't find.
+    requiredRoomType:
+      violation.class_subject_requirement_id === null
+        ? ""
+        : (lookups.requirementById.get(violation.class_subject_requirement_id)?.required_room_type ?? ""),
   };
 }
 

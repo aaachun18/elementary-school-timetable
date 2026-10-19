@@ -84,6 +84,13 @@ const SCHEDULER_FIXED_SLOT_PAGE: ViolationPageLink = {
   path: "/scheduler",
 };
 
+// Task 93: where a class's homeroom (導師班教室) is set.
+const CLASSES_TAB_PAGE: ViolationPageLink = {
+  kind: "link",
+  label: DATA_BROWSER_TAB_LABEL.classes,
+  path: "/data?tab=classes",
+};
+
 const STATIC_TARGET_BY_TYPE: Record<string, ViolationPageTarget> = {
   // 需求本身的設定問題.
   STATIC_TEACHER_WORKLOAD_EXCEEDED: REQUIREMENTS_PAGE,
@@ -120,6 +127,13 @@ const STATIC_TARGET_BY_TYPE: Record<string, ViolationPageTarget> = {
   BLOCK_NOT_CONSECUTIVE: REQUIREMENTS_PAGE,
   BLOCK_SAME_DAY: REQUIREMENTS_PAGE,
   TEACHER_MIN_WORKLOAD: TEACHERS_TAB_PAGE,
+
+  // 教室的預檢(Task 93,後端 Task 92B):類型對不上 -> 排課需求總覽(指定教室類型欄,
+  // 也可能是教室資料少了這個類型);導師教室超量 -> 班級分頁(導師班教室欄);
+  // 共用導師教室的固定課衝突 -> 排課控制台.
+  STATIC_ROOM_TYPE_NOT_FOUND: REQUIREMENTS_PAGE,
+  STATIC_HOMEROOM_OVERBOOKED: CLASSES_TAB_PAGE,
+  STATIC_FIXED_SLOT_HOMEROOM_CLASH: SCHEDULER_FIXED_SLOT_PAGE,
 
   // 排課引擎內部判斷,無對應可修正頁面.
   H1_TEACHER_CONFLICT: ENGINE_INTERNAL_TEXT,
