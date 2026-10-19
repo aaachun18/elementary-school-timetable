@@ -354,3 +354,44 @@ class PlaceCandidatesResult(BaseModel):
     room_id: int | None
     baseline: ScheduleCheckResult
     candidates: list[PlaceCandidateSlot]
+
+
+# --- Task 95: changing the room of scheduled lessons (decision 32) ---
+
+
+class ChangeRoomRequest(BaseModel):
+    """POST /schedule-versions/{id}/change-room. room_id null clears the
+    room. scope "lesson": the row and the rest of its lesson block (連堂)
+    in this version; "requirement": every row of its requirement here."""
+
+    schedule_id: int
+    room_id: int | None = None
+    scope: Literal["lesson", "requirement"] = "lesson"
+    dry_run: bool = False
+
+
+class RoomChangeDetail(BaseModel):
+    """One row whose room changes; its time slot and teacher stay (both
+    time slot fields are the row's slot)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    schedule_id: int
+    lesson_id: int
+    teacher_id: int | None
+    previous_time_slot_id: int | None
+    new_time_slot_id: int | None
+    previous_room_id: int | None
+    new_room_id: int | None
+
+
+class ChangeRoomResult(BaseModel):
+    """200 response. `changes` lists only rows whose room actually changes
+    -- empty when every row in scope already has that room (nothing was
+    changed); `check` is the version's full check after the change."""
+
+    schedule_version_id: int
+    dry_run: bool
+    scope: str
+    changes: list[RoomChangeDetail]
+    check: ScheduleCheckResult

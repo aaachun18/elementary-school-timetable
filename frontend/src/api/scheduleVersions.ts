@@ -6,6 +6,8 @@ import type {
   ScheduleVersionUpdate,
 } from "../types/scheduleVersion";
 import type {
+  ChangeRoomRequest,
+  ChangeRoomResult,
   GenerateLessonsResponse,
   MoveCandidatesResult,
   MoveLessonRequest,
@@ -239,6 +241,16 @@ export async function placeLesson(
 ): Promise<PlaceLessonResult> {
   const response = await apiClient.post<PlaceLessonResult>(
     `/api/v1/schedule-versions/${versionId}/place-lesson`,
+    body,
+  );
+  return response.data;
+}
+
+// --- Task 95: change the room of scheduled lessons in a DRAFT (ADMIN
+// only). Saves unless dry_run is true; conflicts are reported in `check`.
+export async function changeRoom(versionId: number, body: ChangeRoomRequest): Promise<ChangeRoomResult> {
+  const response = await apiClient.post<ChangeRoomResult>(
+    `/api/v1/schedule-versions/${versionId}/change-room`,
     body,
   );
   return response.data;

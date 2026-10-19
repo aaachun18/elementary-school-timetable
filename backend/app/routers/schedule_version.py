@@ -16,6 +16,8 @@ from app.schemas.schedule_version import (
 )
 from app.schemas.scheduler import (
     BlockMemberDetail,
+    ChangeRoomRequest,
+    ChangeRoomResult,
     ConstraintViolationDetail,
     LessonFailureDetail,
     MoveCandidateSlot,
@@ -28,6 +30,7 @@ from app.schemas.scheduler import (
     PlaceLessonRequest,
     PlaceLessonResult,
     PlacementChangeDetail,
+    RoomChangeDetail,
     ScheduleAdjustmentResult,
     ScheduleChangeDetail,
     ScheduleCheckResult,
@@ -42,6 +45,7 @@ from app.schemas.scheduler import (
 )
 from app.services import schedule_adjustment as schedule_adjustment_service
 from app.services import lesson_placement as lesson_placement_service
+from app.services import room_change as room_change_service
 from app.services import schedule_check as schedule_check_service
 from app.services import move_candidates as move_candidates_service
 from app.services import schedule_copy as schedule_copy_service
@@ -609,5 +613,42 @@ def place_lesson(
         schedule_version_id=schedule_version_id,
         dry_run=placement.dry_run,
         changes=[PlacementChangeDetail.model_validate(change) for change in outcome.changes],
+        check=_build_check_result(schedule_version_id, outcome.violations),
+    )
+
+
+# --- Task 95: change the room of scheduled lessons (decision 32) ---
+# Locked version / row of another version / inactive room (409) and a
+# missing row or room (404) are converted by main.py's handlers.
+
+
+@router.post(
+    "/{schedule_version_id}/change-room",
+    response_model=ChangeRoomResult,
+    dependencies=[Depends(require_admin)],
+)
+def change_room(
+    schedule_version_id: int,
+    request: ChangeRoomRequest,
+    db: Session = Depends(get_db),
+) -> ChangeRoomResult:
+    outcome = room_change_service.change_room(
+        db,
+        schedule_version_id,
+        request.schedule_id,
+        request.room_id,
+        request.scope,
+        dry_run=request.dry_run,
+    )
+    if outcome is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ScheduleVersion not found",
+        )
+    return ChangeRoomResult(
+        schedule_version_id=schedule_version_id,
+        dry_run=request.dry_run,
+        scope=request.scope,
+        changes=[RoomChangeDetail.model_validate(change) for change in outcome.changes],
         check=_build_check_result(schedule_version_id, outcome.violations),
     )

@@ -9,6 +9,8 @@ import { list as listRooms } from "../api/rooms";
 import AdjustmentPreviewDialog from "../components/AdjustmentPreviewDialog";
 import ConflictChecklist from "../components/ConflictChecklist";
 import PlacementPreviewDialog from "../components/PlacementPreviewDialog";
+import RoomChangeControls from "../components/RoomChangeControls";
+import RoomChangePreviewDialog from "../components/RoomChangePreviewDialog";
 import TeacherReassignPanel from "../components/TeacherReassignPanel";
 import TimetableGrid from "../components/TimetableGrid";
 import UnscheduledLessonsPanel from "../components/UnscheduledLessonsPanel";
@@ -17,6 +19,7 @@ import { useLessonAdjustment, type SavedAdjustment } from "../hooks/useLessonAdj
 import { useMoveCandidates } from "../hooks/useMoveCandidates";
 import { usePlaceCandidates } from "../hooks/usePlaceCandidates";
 import { usePlacement, type SavedPlacement } from "../hooks/usePlacement";
+import { useRoomChange, type SavedRoomChange } from "../hooks/useRoomChange";
 import { useResource } from "../hooks/useResource";
 import { useScheduleCheck } from "../hooks/useScheduleCheck";
 import { useTimetableData, type EnrichedSchedule } from "../hooks/useTimetableData";
@@ -27,6 +30,8 @@ import { blockGroupMemberIds } from "../utils/lessonBlocks";
 import { lessonTargetId } from "../utils/lessonDrop";
 import { buildCandidateMarks, swapMarkKey, type CandidateMark } from "../utils/moveCandidates";
 import type { PeriodDisplayMap } from "../utils/periodDisplay";
+import { canChangeRoom } from "../utils/roomChange";
+import { isLocatedProblemGone, planAdjustmentRefresh } from "../utils/adjustmentRefresh";
 import {
   PLACE_REFUSAL_MESSAGES,
   buildPlaceCandidateMarks,
@@ -41,9 +46,9 @@ import {
   type PlacementCard,
 } from "../utils/placement";
 import { formatVersionLabel } from "../utils/scheduleVersionFormat";
-import { mergeViolationsBySentence, splitBySeverity } from "../utils/violationMerge";
+import { mergeViolationsBySentence, splitBySeverity, violationIdentityKey } from "../utils/violationMerge";
 import { resolveLocateTarget, type TimetableViewMode } from "../utils/violationLocate";
-import type { ConstraintViolationDetail } from "../types/scheduler";
+import type { ConstraintViolationDetail, RoomChangeScope } from "../types/scheduler";
 import type { TimeSlot } from "../types/timeSlot";
 import {
   BUTTON_PRIMARY,
@@ -121,6 +126,9 @@ export default function TimetableView(): ReactElement {
   // marked. Cleared by any other change of what the grid shows (view,
   // target, version) and by re-checking.
   const [highlightedTimeSlotId, setHighlightedTimeSlotId] = useState<number | null>(null);
+  // Task 96: the problem behind that mark (violationIdentityKey); once a
+  // newer check no longer has it, the cell isn't marked any more.
+  const [locatedProblemKey, setLocatedProblemKey] = useState<string | null>(null);
   // Bumped on every locate so the grid scrolls into view even when the
   // same line is located twice in a row.
   const [locateRequestCount, setLocateRequestCount] = useState(0);
@@ -208,10 +216,13 @@ export default function TimetableView(): ReactElement {
   const draggingCard = placementCards.find((card) => card.key === draggingCardKey) ?? null;
   // A drag wins over the click selection, as for lessons.
   const placingCard = isPlacementActive ? (draggingCard ?? selectedCard) : null;
-  const isBusy = adjustment.phase !== "idle" || placement.phase !== "idle";
+  // --- Task 95: 「更改教室」 of the selected scheduled lesson. ---
+  const roomChange = useRoomChange(selectedVersionId);
+  const isBusy = adjustment.phase !== "idle" || placement.phase !== "idle" || roomChange.phase !== "idle";
 
   function resetPlacement(): void {
     placement.reset();
+    roomChange.reset();
     setSelectedCardKey(null);
     setDraggingCardKey(null);
   }
@@ -285,6 +296,7 @@ export default function TimetableView(): ReactElement {
     setViewMode(target.viewMode);
     setSelectedTargetId(target.targetId);
     setHighlightedTimeSlotId(violation.time_slot_id);
+    setLocatedProblemKey(violationIdentityKey(violation));
     setLocateRequestCount((previous) => previous + 1);
   }
 
@@ -306,8 +318,7 @@ export default function TimetableView(): ReactElement {
   const isDraftVersion =
     (versionsResource.data ?? []).find((version) => version.id === selectedVersionId)
       ?.status === "DRAFT";
-  const canShowCandidates =
-    isAdmin && isEditModeOn && isDraftVersion && adjustment.phase === "idle" && placement.phase === "idle";
+  const canShowCandidates = isAdmin && isEditModeOn && isDraftVersion && !isBusy;
   const candidateSourceId =
     canShowCandidates && placingCard === null ? (dragSourceId ?? adjustment.selectedScheduleId) : null;
   const candidateSource =
@@ -461,30 +472,45 @@ export default function TimetableView(): ReactElement {
     adjustment.requestPreview({ kind: "swap", lesson, other });
   }
 
+  // Task 96: after ANY saved adjustment (move, swap, 換教師, placing, room
+  // change) -- what to refresh is decided once, in planAdjustmentRefresh():
+  // the timetable, the unscheduled panel in edit mode, and 檢查衝突 again
+  // exactly like 「重新檢查」 when a result is on screen. The old result
+  // stays visible until the new one arrives (useScheduleCheck.run() never
+  // clears it first), so nothing flashes.
+  function refreshAfterAdjustment(): void {
+    const plan = planAdjustmentRefresh({
+      isAdmin,
+      versionStatus:
+        (versionsResource.data ?? []).find((version) => version.id === selectedVersionId)?.status ?? null,
+      isEditModeOn,
+      isCheckShown: scheduleCheck.result !== null || scheduleCheck.errorMessage !== null,
+    });
+    if (plan.reloadTimetable) {
+      timetable.reload();
+    }
+    if (plan.reloadUnscheduled) {
+      unscheduled.reload();
+    }
+    if (plan.rerunCheck) {
+      scheduleCheck.run();
+    }
+    setCandidateRevision((previous) => previous + 1);
+  }
+
   function handleAdjustmentSaved({ adjustment: saved, result }: SavedAdjustment): void {
     focusAfterReloadRef.current = saved.lesson.scheduleId;
-    timetable.reload();
-    // Keep an existing 檢查衝突 result in step with what was just saved --
-    // the response already carries the whole version's new check.
-    if (scheduleCheck.result !== null) {
-      scheduleCheck.setResult(result.check);
-    }
+    refreshAfterAdjustment();
     const movedChange = result.changes.find(
       (change) => change.schedule_id === saved.lesson.scheduleId,
     );
     setAdjustedTimeSlotId(movedChange?.new_time_slot_id ?? null);
     adjustmentFlash.showFlash(saved.kind === "move" ? "已移動並儲存" : "已對調並儲存");
-    setCandidateRevision((previous) => previous + 1);
   }
 
-  // Task 70: after a reassignment the grid shows the new teacher, and an
-  // existing 檢查衝突 result is re-run against the saved state.
+  // Task 70: after a reassignment the grid shows the new teacher.
   function handleReassignmentSaved(): void {
-    timetable.reload();
-    setCandidateRevision((previous) => previous + 1);
-    if (scheduleCheck.result !== null) {
-      scheduleCheck.run();
-    }
+    refreshAfterAdjustment();
   }
 
   // --- Task 93: placing a card ---
@@ -570,14 +596,9 @@ export default function TimetableView(): ReactElement {
 
   function handlePlacementSaved({ request, result }: SavedPlacement): void {
     focusAfterReloadRef.current = null;
-    timetable.reload();
-    unscheduled.reload();
-    if (scheduleCheck.result !== null) {
-      scheduleCheck.setResult(result.check);
-    }
+    refreshAfterAdjustment();
     setAdjustedTimeSlotId(firstPlacedSlot(result.changes, request.card.lessonIds));
     adjustmentFlash.showFlash("已放入並儲存");
-    setCandidateRevision((previous) => previous + 1);
     setSelectedCardKey(null);
   }
 
@@ -598,6 +619,31 @@ export default function TimetableView(): ReactElement {
     if (cardButton === null || document.activeElement !== cardButton) {
       timetableSectionRef.current?.focus();
     }
+  }
+
+  // --- Task 95: changing the room of the selected lesson ---
+
+  function handleRoomChangePreview(roomId: number | null, scope: RoomChangeScope): void {
+    if (selectedLesson === null) {
+      return;
+    }
+    previewedLessonIdRef.current = selectedLesson.scheduleId;
+    roomChange.requestPreview({ lesson: selectedLesson, roomId, scope });
+  }
+
+  function handleRoomChangeSaved({ request }: SavedRoomChange): void {
+    focusAfterReloadRef.current = request.lesson.scheduleId;
+    refreshAfterAdjustment();
+    adjustmentFlash.showFlash("已更改教室並儲存");
+    adjustment.clearSelection();
+  }
+
+  function handleConfirmRoomChange(): void {
+    void roomChange.confirm().then((saved) => {
+      if (saved !== null) {
+        handleRoomChangeSaved(saved);
+      }
+    });
   }
 
   function handleConfirmAdjustment(): void {
@@ -904,6 +950,16 @@ export default function TimetableView(): ReactElement {
                   )}
                 </div>
               )}
+              {roomChange.previewError !== null && (
+                <p role="alert" className={ERROR_TEXT}>
+                  無法預覽這次更改，已取消：{roomChange.previewError}
+                </p>
+              )}
+              {isEditing && roomChange.phase === "loadingPreview" && (
+                <p className={LOADING_TEXT} aria-live="polite">
+                  正在預覽更改教室的結果…
+                </p>
+              )}
               {adjustment.previewError !== null && (
                 <p role="alert" className={ERROR_TEXT}>
                   無法預覽這次異動，已取消：{adjustment.previewError}
@@ -920,6 +976,24 @@ export default function TimetableView(): ReactElement {
                     已選取：{selectedLesson.className} {selectedLesson.subjectName}（
                     {selectedLessonSlotLabel}）。點選「移到這裡」移動，或點選另一堂課與它對調
                   </span>
+                  {canChangeRoom({
+                    isAdmin,
+                    versionStatus: selectedVersion?.status ?? null,
+                    isEditModeOn,
+                    hasSelectedLesson: true,
+                  }) && (
+                    <RoomChangeControls
+                      key={selectedLesson.scheduleId}
+                      lesson={selectedLesson}
+                      rooms={roomsResource.data}
+                      requiredRoomType={
+                        timetable.data?.lookups.requirementById.get(selectedLesson.requirementId)
+                          ?.required_room_type ?? null
+                      }
+                      disabled={isBusy || timetable.isLoading}
+                      onPreview={handleRoomChangePreview}
+                    />
+                  )}
                   <button
                     type="button"
                     onClick={adjustment.clearSelection}
@@ -1045,7 +1119,11 @@ export default function TimetableView(): ReactElement {
               viewMode={viewMode}
               targetId={selectedTargetId}
               timeSlotByWeekdayAndPeriod={timeSlotByWeekdayAndPeriod}
-              highlightedTimeSlotId={highlightedTimeSlotId}
+              highlightedTimeSlotId={
+                isLocatedProblemGone(locatedProblemKey, scheduleCheck.result?.violations ?? null)
+                  ? null
+                  : highlightedTimeSlotId
+              }
               adjustedTimeSlotId={isEditing ? adjustedTimeSlotId : null}
               edit={
                 isEditing
@@ -1087,6 +1165,17 @@ export default function TimetableView(): ReactElement {
           onCancel={adjustment.closePreview}
           restoreFocusFallback={restoreFocusAfterPreview}
           schedules={schedules}
+        />
+      )}
+      {timetable.data !== null && (
+        <RoomChangePreviewDialog
+          preview={roomChange.preview}
+          lookups={timetable.data.lookups}
+          isSaving={roomChange.phase === "saving"}
+          saveError={roomChange.saveError}
+          onConfirm={handleConfirmRoomChange}
+          onCancel={roomChange.closePreview}
+          restoreFocusFallback={restoreFocusAfterPreview}
         />
       )}
       {timetable.data !== null && (

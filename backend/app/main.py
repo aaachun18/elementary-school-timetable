@@ -30,6 +30,7 @@ from app.services.exceptions import (
     CopySourceInconsistentError,
     DependentRecordsExistError,
     DuplicateValueError,
+    InactiveRoomAssignmentError,
     InactiveTeacherAssignmentError,
     InvalidLessonPatternError,
     InvalidTeacherPeriodsError,
@@ -292,6 +293,16 @@ def handle_inactive_teacher_assignment(
     return JSONResponse(
         status_code=409,
         content={"detail": "無法指派已停用的老師"},
+    )
+
+
+@app.exception_handler(InactiveRoomAssignmentError)
+def handle_inactive_room_assignment(
+    request: Request, exc: InactiveRoomAssignmentError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "無法指派已停用的教室"},
     )
 
 

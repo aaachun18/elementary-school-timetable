@@ -277,6 +277,13 @@ class RequirementSemesterMismatchError(Exception):
     """
 
 
+class InactiveRoomAssignmentError(Exception):
+    """Raised by change_room() (Task 95) when the new room's is_active is
+    False (-> 409) -- the same stance as an inactive teacher for
+    reassign-teacher: every other room problem (type, double-booking) is
+    reported by the check instead."""
+
+
 class InactiveTeacherAssignmentError(Exception):
     """Raised by reassign_teacher() (Task 63) when the new teacher's
     is_active is False. Every other rule (qualification, availability,

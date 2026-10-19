@@ -311,3 +311,39 @@ export interface PlaceLessonResult {
   changes: PlacementChangeDetail[];
   check: ScheduleCheckResult;
 }
+
+// --- Task 95: changing the room of scheduled lessons (backend
+// change-room, decision 32). ---
+
+// "lesson": the row and the rest of its lesson block (連堂) in the version;
+// "requirement": every row of its requirement in the version.
+export type RoomChangeScope = "lesson" | "requirement";
+
+// Body of POST /schedule-versions/{id}/change-room. room_id null clears
+// the room.
+export interface ChangeRoomRequest {
+  schedule_id: number;
+  room_id: number | null;
+  scope?: RoomChangeScope;
+  dry_run?: boolean;
+}
+
+// One row whose room changes; its time slot and teacher stay.
+export interface RoomChangeDetail {
+  schedule_id: number;
+  lesson_id: number;
+  teacher_id: number | null;
+  previous_time_slot_id: number | null;
+  new_time_slot_id: number | null;
+  previous_room_id: number | null;
+  new_room_id: number | null;
+}
+
+// `changes` is empty when every row in scope already has that room.
+export interface ChangeRoomResult {
+  schedule_version_id: number;
+  dry_run: boolean;
+  scope: RoomChangeScope;
+  changes: RoomChangeDetail[];
+  check: ScheduleCheckResult;
+}
