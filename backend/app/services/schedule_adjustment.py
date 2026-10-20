@@ -37,6 +37,7 @@ from app.models.schedule import Schedule
 from app.models.schedule_version import ScheduleVersion
 from app.models.time_slot import TimeSlot
 from app.services import block_adjustment, schedule_check
+from app.services.school_scope import get_in_school, school_id_of_version
 from app.services.exceptions import (
     AdjustmentTargetNotFoundError,
     BlockAdjustmentRefusedError,
@@ -176,9 +177,10 @@ def move_lesson(
     if schedule_version is None:
         return None
     _get_schedule_in_version(db, schedule_version_id, schedule_id)
-    if db.get(TimeSlot, target_time_slot_id) is None:
+    school_id = school_id_of_version(db, schedule_version)
+    if get_in_school(db, TimeSlot, target_time_slot_id, school_id) is None:
         raise AdjustmentTargetNotFoundError("TimeSlot not found")
-    if target_room_id is not None and db.get(Room, target_room_id) is None:
+    if target_room_id is not None and get_in_school(db, Room, target_room_id, school_id) is None:
         raise AdjustmentTargetNotFoundError("Room not found")
     plan = _plan(
         db, schedule_version, lambda layout: layout.plan_move(schedule_id, target_time_slot_id)

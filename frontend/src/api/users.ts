@@ -1,9 +1,10 @@
 import { apiClient } from "./client";
-import type { PasswordReset, User, UserCreate } from "../types/user";
+import type { PasswordReset, User, UserCreate, UserUpdate } from "../types/user";
 
-// Task 59: the account-management calls. All ADMIN-only on the backend
-// (backend/app/routers/users.py); apiClient attaches the stored JWT to
-// every request automatically.
+// Task 59: the account-management calls (backend/app/routers/users.py --
+// Task 98: the 系統管理員 and the 教學組長, each seeing only the accounts
+// they may manage); apiClient attaches the stored JWT to every request
+// automatically.
 
 export async function list(): Promise<User[]> {
   const response = await apiClient.get<User[]>("/api/v1/users/");
@@ -11,13 +12,25 @@ export async function list(): Promise<User[]> {
 }
 
 // Creating an account deliberately reuses POST /api/v1/auth/register
-// (Task 57) rather than a separate users endpoint. Its response carries a
-// few more fields than a list row (is_active/created_at/updated_at), so
-// only the fields this page's User type actually describes are kept.
+// (Task 57) rather than a separate users endpoint. Its response has no
+// teacher_name, so the name the form sent is used for the new row.
+interface RegisterResponse {
+  id: number;
+  username: string;
+  role: User["role"];
+  is_active: boolean;
+  school_id: number | null;
+}
+
 export async function create(data: UserCreate): Promise<User> {
-  const response = await apiClient.post<User>("/api/v1/auth/register", data);
-  const { id, username, role } = response.data;
-  return { id, username, role };
+  const response = await apiClient.post<RegisterResponse>("/api/v1/auth/register", data);
+  const { id, username, role, is_active, school_id } = response.data;
+  return { id, username, role, is_active, school_id, teacher_name: data.teacher_name ?? null };
+}
+
+export async function update(userId: number, data: UserUpdate): Promise<User> {
+  const response = await apiClient.patch<User>(`/api/v1/users/${userId}`, data);
+  return response.data;
 }
 
 export async function resetPassword(userId: number, data: PasswordReset): Promise<void> {

@@ -9,9 +9,7 @@ from scheduling_engine.models.domain import (
     LessonAssignment,
     RequiredTeacherRule,
     RequirementPeriods,
-    RoomInfo,
-    RoomTypeRequirement,
-    TeacherQualification,
+    RequiredRoomRule,
     TeacherUnavailability,
     TeacherWorkloadLimit,
     TimeSlotInfo,
@@ -38,11 +36,10 @@ def _pending_lesson(
 def _empty_resources(**overrides: object) -> SchedulingResources:
     base = dict(
         time_slot_ids=[],
-        teacher_qualifications=[],
+        teacher_ids=[],
         teacher_unavailability=[],
         required_teacher_rules=[],
-        room_type_requirements=[],
-        rooms=[],
+        required_room_rules=[],
         time_slots=[],
         active_statuses=[],
         requirement_periods=[],
@@ -66,10 +63,7 @@ def test_backtracking_succeeds_with_ample_resources_and_zero_backtracks() -> Non
     ]
     resources = _empty_resources(
         time_slot_ids=[100, 200],
-        teacher_qualifications=[
-            TeacherQualification(teacher_id=1, subject_id=10),
-            TeacherQualification(teacher_id=1, subject_id=20),
-        ],
+        teacher_ids=[1],
         time_slots=[
             TimeSlotInfo(time_slot_id=100, is_teaching_period=True),
             TimeSlotInfo(time_slot_id=200, is_teaching_period=True),
@@ -112,19 +106,15 @@ def test_backtracking_succeeds_where_greedy_fails() -> None:
             RequiredTeacherRule(class_subject_requirement_id=1, required_teacher_id=10),
             RequiredTeacherRule(class_subject_requirement_id=2, required_teacher_id=11),
         ],
-        teacher_qualifications=[
-            TeacherQualification(teacher_id=10, subject_id=10),
-            TeacherQualification(teacher_id=11, subject_id=20),
-        ],
+        teacher_ids=[10, 11],
         teacher_unavailability=[
             # Teacher 11 (lesson B) can ONLY use slot 100.
             TeacherUnavailability(teacher_id=11, time_slot_id=200),
         ],
-        room_type_requirements=[
-            RoomTypeRequirement(class_subject_requirement_id=1, required_room_type="特別教室"),
-            RoomTypeRequirement(class_subject_requirement_id=2, required_room_type="特別教室"),
-        ],
-        rooms=[RoomInfo(room_id=500, room_type="特別教室")],  # only ONE such room
+        required_room_rules=[
+            RequiredRoomRule(class_subject_requirement_id=1, room_id=500),
+            RequiredRoomRule(class_subject_requirement_id=2, room_id=500),
+        ],  # both require the one room 500
         time_slots=[
             TimeSlotInfo(time_slot_id=100, is_teaching_period=True),
             TimeSlotInfo(time_slot_id=200, is_teaching_period=True),
@@ -172,13 +162,9 @@ def test_backtracking_filters_out_overloaded_teacher_in_real_time() -> None:
 
     resources = _empty_resources(
         time_slot_ids=[100, 200],
-        teacher_qualifications=[
-            TeacherQualification(teacher_id=10, subject_id=10),
-            # Teacher 10 tried first for subject 20 too, but is already at
-            # capacity from lesson_1 by the time lesson_2 is attempted.
-            TeacherQualification(teacher_id=10, subject_id=20),
-            TeacherQualification(teacher_id=11, subject_id=20),
-        ],
+        # Teacher 10 is tried first for lesson_2 too, but is already at
+        # capacity from lesson_1 by the time lesson_2 is attempted.
+        teacher_ids=[10, 11],
         teacher_workload_limits=[
             TeacherWorkloadLimit(teacher_id=10, max_weekly_periods=1)
         ],
@@ -219,10 +205,7 @@ def test_backtracking_reports_definitely_infeasible() -> None:
 
     resources = _empty_resources(
         time_slot_ids=[100],
-        teacher_qualifications=[
-            TeacherQualification(teacher_id=1, subject_id=10),
-            TeacherQualification(teacher_id=2, subject_id=20),
-        ],
+        teacher_ids=[1, 2],
         time_slots=[TimeSlotInfo(time_slot_id=100, is_teaching_period=True)],
         requirement_periods=[
             RequirementPeriods(class_subject_requirement_id=1, weekly_periods=1),
@@ -237,9 +220,9 @@ def test_backtracking_reports_definitely_infeasible() -> None:
     assert result.failure_type == "DEFINITELY_INFEASIBLE"
 
 
-def test_backtracking_reports_definitely_infeasible_for_missing_qualification() -> None:
-    # Pre-flight case: zero candidate teachers at all, checked before any
-    # search happens.
+def test_backtracking_reports_definitely_infeasible_without_any_teacher() -> None:
+    # Pre-flight case: zero candidate teachers at all (Task 98: no teacher
+    # takes part in the semester), checked before any search happens.
     lesson = _pending_lesson(
         lesson_id=1, class_subject_requirement_id=1, class_id=1, subject_id=99
     )
@@ -261,14 +244,14 @@ def test_backtracking_reports_definitely_infeasible_for_missing_qualification() 
     assert result.lesson_failures[0].reasons[0].type == "NO_CANDIDATE_TEACHER"
 
 
-def test_backtracking_reports_required_teacher_not_qualified() -> None:
+def test_backtracking_reports_required_teacher_not_participating() -> None:
     """Task 22 regression: a required-teacher rule (H6) naming a teacher
-    who lacks the H5 qualification for this subject used to slip past the
-    pre-flight "zero candidates" check (candidate_teacher_ids returned the
-    required teacher as a candidate regardless of qualification), so the
-    search would exhaust itself and report DEFINITELY_INFEASIBLE with an
-    EMPTY lesson_failures list -- no explanation at all. This must now be
-    caught up front, same as any other zero-candidate Lesson.
+    who can never be assigned (Task 98: one who doesn't take part in the
+    semester; before, one lacking the qualification) used to slip past the
+    pre-flight "zero candidates" check, so the search would exhaust itself
+    and report DEFINITELY_INFEASIBLE with an EMPTY lesson_failures list --
+    no explanation at all. This must be caught up front, same as any other
+    zero-candidate Lesson.
     """
     lesson = _pending_lesson(
         lesson_id=1, class_subject_requirement_id=1, class_id=1, subject_id=8
@@ -279,11 +262,8 @@ def test_backtracking_reports_required_teacher_not_qualified() -> None:
         required_teacher_rules=[
             RequiredTeacherRule(class_subject_requirement_id=1, required_teacher_id=6)
         ],
-        # Teacher 6 exists and is qualified for OTHER subjects, but not 8.
-        teacher_qualifications=[
-            TeacherQualification(teacher_id=6, subject_id=9),
-            TeacherQualification(teacher_id=6, subject_id=10),
-        ],
+        # Teacher 7 takes part in the semester, the required teacher 6 doesn't.
+        teacher_ids=[7],
         requirement_periods=[
             RequirementPeriods(class_subject_requirement_id=1, weekly_periods=1)
         ],
@@ -297,7 +277,7 @@ def test_backtracking_reports_required_teacher_not_qualified() -> None:
     assert result.backtrack_count == 0
     assert len(result.lesson_failures) == 1
     reason = result.lesson_failures[0].reasons[0]
-    assert reason.type == "H6_REQUIRED_TEACHER_NOT_QUALIFIED"
+    assert reason.type == "H6_REQUIRED_TEACHER_NOT_PARTICIPATING"
     assert reason.teacher_id == 6
 
 
@@ -321,18 +301,14 @@ def test_backtracking_reports_search_limit_exceeded_not_infeasible() -> None:
             RequiredTeacherRule(class_subject_requirement_id=1, required_teacher_id=10),
             RequiredTeacherRule(class_subject_requirement_id=2, required_teacher_id=11),
         ],
-        teacher_qualifications=[
-            TeacherQualification(teacher_id=10, subject_id=10),
-            TeacherQualification(teacher_id=11, subject_id=20),
-        ],
+        teacher_ids=[10, 11],
         teacher_unavailability=[
             TeacherUnavailability(teacher_id=11, time_slot_id=200),
         ],
-        room_type_requirements=[
-            RoomTypeRequirement(class_subject_requirement_id=1, required_room_type="特別教室"),
-            RoomTypeRequirement(class_subject_requirement_id=2, required_room_type="特別教室"),
+        required_room_rules=[
+            RequiredRoomRule(class_subject_requirement_id=1, room_id=500),
+            RequiredRoomRule(class_subject_requirement_id=2, room_id=500),
         ],
-        rooms=[RoomInfo(room_id=500, room_type="特別教室")],
         time_slots=[
             TimeSlotInfo(time_slot_id=100, is_teaching_period=True),
             TimeSlotInfo(time_slot_id=200, is_teaching_period=True),
@@ -389,11 +365,7 @@ def test_backtracking_max_backtrack_steps_boundary_is_exact() -> None:
             RequiredTeacherRule(class_subject_requirement_id=2, required_teacher_id=2),
             RequiredTeacherRule(class_subject_requirement_id=3, required_teacher_id=3),
         ],
-        teacher_qualifications=[
-            TeacherQualification(teacher_id=1, subject_id=10),
-            TeacherQualification(teacher_id=2, subject_id=20),
-            TeacherQualification(teacher_id=3, subject_id=30),
-        ],
+        teacher_ids=[1, 2, 3],
         teacher_unavailability=[
             # Teacher 1 (lesson A) is unrestricted.
             # Teacher 2 (lesson B) can ONLY use slot 100.
@@ -403,12 +375,11 @@ def test_backtracking_max_backtrack_steps_boundary_is_exact() -> None:
             TeacherUnavailability(teacher_id=3, time_slot_id=100),
             TeacherUnavailability(teacher_id=3, time_slot_id=300),
         ],
-        room_type_requirements=[
-            RoomTypeRequirement(class_subject_requirement_id=1, required_room_type="特別教室"),
-            RoomTypeRequirement(class_subject_requirement_id=2, required_room_type="特別教室"),
-            RoomTypeRequirement(class_subject_requirement_id=3, required_room_type="特別教室"),
-        ],
-        rooms=[RoomInfo(room_id=500, room_type="特別教室")],  # only ONE shared room
+        required_room_rules=[
+            RequiredRoomRule(class_subject_requirement_id=1, room_id=500),
+            RequiredRoomRule(class_subject_requirement_id=2, room_id=500),
+            RequiredRoomRule(class_subject_requirement_id=3, room_id=500),
+        ],  # all require the one room 500
         time_slots=[
             TimeSlotInfo(time_slot_id=100, is_teaching_period=True),
             TimeSlotInfo(time_slot_id=200, is_teaching_period=True),
@@ -458,18 +429,14 @@ def test_backtracking_reports_timeout_not_infeasible() -> None:
             RequiredTeacherRule(class_subject_requirement_id=1, required_teacher_id=10),
             RequiredTeacherRule(class_subject_requirement_id=2, required_teacher_id=11),
         ],
-        teacher_qualifications=[
-            TeacherQualification(teacher_id=10, subject_id=10),
-            TeacherQualification(teacher_id=11, subject_id=20),
-        ],
+        teacher_ids=[10, 11],
         teacher_unavailability=[
             TeacherUnavailability(teacher_id=11, time_slot_id=200),
         ],
-        room_type_requirements=[
-            RoomTypeRequirement(class_subject_requirement_id=1, required_room_type="特別教室"),
-            RoomTypeRequirement(class_subject_requirement_id=2, required_room_type="特別教室"),
+        required_room_rules=[
+            RequiredRoomRule(class_subject_requirement_id=1, room_id=500),
+            RequiredRoomRule(class_subject_requirement_id=2, room_id=500),
         ],
-        rooms=[RoomInfo(room_id=500, room_type="特別教室")],
         time_slots=[
             TimeSlotInfo(time_slot_id=100, is_teaching_period=True),
             TimeSlotInfo(time_slot_id=200, is_teaching_period=True),
@@ -498,7 +465,7 @@ def test_backtracking_detects_h7_violation_when_lesson_count_is_short() -> None:
     )
     resources = _empty_resources(
         time_slot_ids=[100],
-        teacher_qualifications=[TeacherQualification(teacher_id=1, subject_id=10)],
+        teacher_ids=[1],
         time_slots=[TimeSlotInfo(time_slot_id=100, is_teaching_period=True)],
         requirement_periods=[
             RequirementPeriods(class_subject_requirement_id=1, weekly_periods=2)

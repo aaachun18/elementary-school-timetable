@@ -2,6 +2,7 @@ from sqlalchemy import Select, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.models.academic_year import Semester
 from app.models.class_subject_requirement import ClassSubjectRequirement
 from app.models.lesson import Lesson
 from app.models.schedule import Schedule
@@ -22,6 +23,11 @@ from app.services.exceptions import (
     PublishedVersionDeleteError,
     PublishedVersionImmutableError,
     raise_for_integrity_error,
+)
+from app.services.school_scope import (
+    ensure_references_in_school,
+    get_in_school,
+    in_school,
 )
 
 # Task 64: the only status changes allowed (an unchanged status is a
@@ -57,8 +63,9 @@ def raise_if_version_locked(schedule_version: ScheduleVersion) -> None:
 
 
 def create_schedule_version(
-    db: Session, version_data: ScheduleVersionCreate
+    db: Session, version_data: ScheduleVersionCreate, *, school_id: int
 ) -> ScheduleVersion:
+    ensure_references_in_school(db, school_id, [(Semester, version_data.semester_id)])
     schedule_version = ScheduleVersion(
         semester_id=version_data.semester_id,
         version_number=version_data.version_number,
@@ -97,7 +104,7 @@ def semester_has_published_version(db: Session, semester_id: int) -> bool:
 
 
 def get_schedule_version(
-    db: Session, schedule_version_id: int, *, role: str | None = None
+    db: Session, schedule_version_id: int, *, school_id: int, role: str | None = None
 ) -> ScheduleVersion | None:
     """Task 43: a TEACHER may only ever see a PUBLISHED ScheduleVersion --
     a DRAFT one's id resolves to None for them, exactly like it not
@@ -105,10 +112,11 @@ def get_schedule_version(
     can't see a draft's contents has no reason to be told one exists at
     that id either, and the router already turns None into a plain 404
     for the "doesn't exist" case, so TEACHER gets that same response for
-    both. `role=None` (every other caller -- ADMIN requests, and any
-    internal call that doesn't pass it) sees every version, unfiltered.
+    both. `role=None` (every other caller -- the 教學組長's requests, and
+    any internal call that doesn't pass it) sees every version of the
+    school, unfiltered. Task 98: a version of another school is None too.
     """
-    schedule_version = db.get(ScheduleVersion, schedule_version_id)
+    schedule_version = get_in_school(db, ScheduleVersion, schedule_version_id, school_id)
     if schedule_version is None:
         return None
     # Task 64: ARCHIVED is hidden from a TEACHER exactly like DRAFT.
@@ -118,9 +126,14 @@ def get_schedule_version(
 
 
 def get_schedule_versions(
-    db: Session, skip: int = 0, limit: int = 100, *, role: str | None = None
+    db: Session,
+    skip: int = 0,
+    limit: int = 100,
+    *,
+    school_id: int,
+    role: str | None = None,
 ) -> list[ScheduleVersion]:
-    stmt = select(ScheduleVersion)
+    stmt = select(ScheduleVersion).where(in_school(ScheduleVersion, school_id))
     if role == "TEACHER":
         stmt = stmt.where(ScheduleVersion.status == PUBLISHED)
     stmt = stmt.offset(skip).limit(limit)
@@ -167,7 +180,11 @@ def _publish(db: Session, schedule_version: ScheduleVersion) -> None:
 
 
 def update_schedule_version(
-    db: Session, schedule_version_id: int, version_data: ScheduleVersionUpdate
+    db: Session,
+    schedule_version_id: int,
+    version_data: ScheduleVersionUpdate,
+    *,
+    school_id: int,
 ) -> ScheduleVersion | None:
     """Task 64 status rules (see ALLOWED_STATUS_TRANSITIONS):
     - unchanged status: a no-op for the status, other versions untouched;
@@ -180,9 +197,10 @@ def update_schedule_version(
     (raise_if_version_locked). Everything is one transaction: a failure
     never leaves the old version archived without the new one published.
     """
-    schedule_version = db.get(ScheduleVersion, schedule_version_id)
+    schedule_version = get_in_school(db, ScheduleVersion, schedule_version_id, school_id)
     if schedule_version is None:
         return None
+    ensure_references_in_school(db, school_id, [(Semester, version_data.semester_id)])
 
     current_status = schedule_version.status
     new_status = version_data.status or current_status
@@ -222,8 +240,10 @@ def update_schedule_version(
     return schedule_version
 
 
-def delete_schedule_version(db: Session, schedule_version_id: int) -> bool:
-    schedule_version = db.get(ScheduleVersion, schedule_version_id)
+def delete_schedule_version(
+    db: Session, schedule_version_id: int, *, school_id: int
+) -> bool:
+    schedule_version = get_in_school(db, ScheduleVersion, schedule_version_id, school_id)
     if schedule_version is None:
         return False
 

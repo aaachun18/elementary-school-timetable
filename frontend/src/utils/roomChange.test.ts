@@ -9,16 +9,16 @@ import {
 import type { Room } from "../types/room";
 import type { RoomChangeDetail } from "../types/scheduler";
 
-function room(id: number, name: string, roomType: string, isActive = true): Room {
-  return { id, name, room_type: roomType, capacity: null, is_active: isActive, created_at: "", updated_at: "" };
+function room(id: number, name: string, isActive = true): Room {
+  return { id, name, capacity: null, is_active: isActive, created_at: "", updated_at: "" };
 }
 
 const ROOMS = [
-  room(1, "甲班教室", "普通教室"),
-  room(2, "自然教室二", "自然教室"),
-  room(3, "自然教室", "專科教室"), // named like the type, typed otherwise
-  room(4, "自然教室一", "自然教室"),
-  room(5, "舊自然教室", "自然教室", false),
+  room(1, "甲班教室"),
+  room(2, "自然教室二"),
+  room(3, "自然教室"),
+  room(4, "自然教室一"),
+  room(5, "舊自然教室", false),
 ];
 
 function change(scheduleId: number, previous: number | null, next: number | null, slot = 10): RoomChangeDetail {
@@ -37,23 +37,27 @@ const names = new Map(ROOMS.map((r) => [r.id, r.name]));
 const roomName = (id: number | null): string | null => (id === null ? null : (names.get(id) ?? null));
 
 describe("roomChoices", () => {
-  it("puts the active rooms of exactly the requirement's type first, then the rest, each by name", () => {
-    expect(roomChoices(ROOMS, "自然教室").map((c) => [c.id, c.matchesType])).toEqual([
-      [4, true],
+  it("puts the requirement's own room first, then the other active rooms by name (Task 98)", () => {
+    expect(roomChoices(ROOMS, 2).map((c) => [c.id, c.isRequired])).toEqual([
       [2, true],
       [1, false],
       [3, false],
+      [4, false],
     ]);
   });
 
-  it("labels each room with its type", () => {
-    expect(roomChoices(ROOMS, "自然教室")[3].label).toBe("自然教室（專科教室）");
+  it("labels each room with its name only", () => {
+    expect(roomChoices(ROOMS, 2)[2].label).toBe("自然教室");
   });
 
-  it("is just the active rooms by name without a room type, and empty without rooms", () => {
+  it("is just the active rooms by name without a required room, and empty without rooms", () => {
     expect(roomChoices(ROOMS, null).map((c) => c.id)).toEqual([1, 3, 4, 2]);
-    expect(roomChoices(ROOMS, null).every((c) => !c.matchesType)).toBe(true);
-    expect(roomChoices([], "自然教室")).toEqual([]);
+    expect(roomChoices(ROOMS, null).every((c) => !c.isRequired)).toBe(true);
+    expect(roomChoices([], 2)).toEqual([]);
+  });
+
+  it("never offers an inactive required room", () => {
+    expect(roomChoices(ROOMS, 5).some((c) => c.id === 5)).toBe(false);
   });
 });
 

@@ -13,6 +13,13 @@ class DependentRecordsExistError(Exception):
     """
 
 
+class AccountPermissionError(Exception):
+    """Task 98: the logged-in account may not create / change this account
+    the way it asked (-> 403), e.g. a 教學組長 creating a 教學組長, or
+    binding a teacher to another school. The message is Chinese text for
+    the user."""
+
+
 class InvalidReferenceError(Exception):
     """Raised by a create/update service function when a foreign key column
     (e.g. grade_id) points at a row that does not exist.

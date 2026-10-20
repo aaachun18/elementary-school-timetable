@@ -2,10 +2,15 @@ from sqlalchemy import Select, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.models.academic_year import Semester
 from app.models.class_subject_requirement import ClassSubjectRequirement
+from app.models.grade_class import Class
 from app.models.lesson import Lesson
+from app.models.room import Room
 from app.models.schedule import Schedule
 from app.models.schedule_version import LOCKED_STATUSES, ScheduleVersion
+from app.models.subject import Subject
+from app.models.teacher import Teacher
 from app.schemas.class_subject_requirement import (
     ClassSubjectRequirementCreate,
     ClassSubjectRequirementUpdate,
@@ -22,6 +27,11 @@ from app.services.schedule_version import (
     published_semester_ids,
     semester_has_published_version,
 )
+from app.services.school_scope import (
+    ensure_references_in_school,
+    get_in_school,
+    in_school,
+)
 
 # Task 72: every field PATCH can change. A requirement whose lessons are
 # placed in a PUBLISHED or ARCHIVED version may not change any of them: the
@@ -34,6 +44,7 @@ LOCKED_REQUIREMENT_FIELDS = frozenset(
         "semester_id",
         "weekly_periods",
         "required_teacher_id",
+        "required_room_id",
         "required_room_type",
         "consecutive_limit",
         # Task 87: changing the pattern regroups the lessons a locked
@@ -82,9 +93,28 @@ def locked_requirement_ids(db: Session, requirement_ids: list[int]) -> set[int]:
     )
 
 
+def _ensure_references_in_school(
+    db: Session, school_id: int, fields: dict[str, object]
+) -> None:
+    """Task 98: the semester, class, subject, required teacher and required
+    room a requirement points at must all be of the caller's school."""
+    references: list[tuple[type, int | None]] = [
+        (model, fields.get(field))  # type: ignore[misc]
+        for model, field in (
+            (Semester, "semester_id"),
+            (Class, "class_id"),
+            (Subject, "subject_id"),
+            (Teacher, "required_teacher_id"),
+            (Room, "required_room_id"),
+        )
+    ]
+    ensure_references_in_school(db, school_id, references)
+
+
 def create_class_subject_requirement(
-    db: Session, requirement_data: ClassSubjectRequirementCreate
+    db: Session, requirement_data: ClassSubjectRequirementCreate, *, school_id: int
 ) -> ClassSubjectRequirement:
+    _ensure_references_in_school(db, school_id, requirement_data.model_dump())
     requirement = ClassSubjectRequirement(**requirement_data.model_dump())
     db.add(requirement)
     try:
@@ -97,12 +127,13 @@ def create_class_subject_requirement(
 
 
 def get_class_subject_requirement(
-    db: Session, requirement_id: int, *, role: str | None = None
+    db: Session, requirement_id: int, *, school_id: int, role: str | None = None
 ) -> ClassSubjectRequirement | None:
     """Task 72: a TEACHER only sees a requirement whose semester currently
     has a PUBLISHED version; any other one resolves to None (the router's
-    existing 404). `role=None` (ADMIN and internal callers) sees all."""
-    requirement = db.get(ClassSubjectRequirement, requirement_id)
+    existing 404). `role=None` (the 教學組長 and internal callers) sees
+    all of the school's."""
+    requirement = get_in_school(db, ClassSubjectRequirement, requirement_id, school_id)
     if requirement is None:
         return None
     if role == "TEACHER" and not semester_has_published_version(
@@ -117,6 +148,7 @@ def get_class_subject_requirements(
     skip: int = 0,
     limit: int = 100,
     *,
+    school_id: int,
     semester_id: int | None = None,
     role: str | None = None,
 ) -> list[ClassSubjectRequirement]:
@@ -124,7 +156,9 @@ def get_class_subject_requirements(
     matches no rows. Ordered by id so skip/limit pages are stable. Task 72:
     a TEACHER only gets requirements of semesters that currently have a
     PUBLISHED version."""
-    stmt = select(ClassSubjectRequirement)
+    stmt = select(ClassSubjectRequirement).where(
+        in_school(ClassSubjectRequirement, school_id)
+    )
     if semester_id is not None:
         stmt = stmt.where(ClassSubjectRequirement.semester_id == semester_id)
     if role == "TEACHER":
@@ -139,12 +173,15 @@ def update_class_subject_requirement(
     db: Session,
     requirement_id: int,
     requirement_data: ClassSubjectRequirementUpdate,
+    *,
+    school_id: int,
 ) -> ClassSubjectRequirement | None:
-    requirement = db.get(ClassSubjectRequirement, requirement_id)
+    requirement = get_in_school(db, ClassSubjectRequirement, requirement_id, school_id)
     if requirement is None:
         return None
 
     requested = requirement_data.model_dump(exclude_unset=True)
+    _ensure_references_in_school(db, school_id, requested)
     # Task 72: only an actual change counts -- sending a field's current
     # value is not an edit (same rule as ScheduleVersion's locked fields).
     changed_locked_fields = sorted(
@@ -193,8 +230,10 @@ def update_class_subject_requirement(
     return requirement
 
 
-def delete_class_subject_requirement(db: Session, requirement_id: int) -> bool:
-    requirement = db.get(ClassSubjectRequirement, requirement_id)
+def delete_class_subject_requirement(
+    db: Session, requirement_id: int, *, school_id: int
+) -> bool:
+    requirement = get_in_school(db, ClassSubjectRequirement, requirement_id, school_id)
     if requirement is None:
         return False
 

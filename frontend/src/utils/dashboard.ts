@@ -113,7 +113,7 @@ export function summarizeDraftHealth(
 
 export interface DataIssue {
   message: string;
-  // Where to fix it (a 基礎資料 tab).
+  // Where to fix it (a 學校資料 tab, or 帳號管理 for teachers).
   path: string;
 }
 
@@ -139,15 +139,17 @@ export function summarizeDataHealth(data: {
   const subjects = active(data.subjects);
   const rooms = active(data.rooms);
   const issues: DataIssue[] = [];
+  // Task 98: teachers are 一般老師 accounts (帳號管理); the rest are
+  // 學校資料 tabs.
   const none: [number, string, string][] = [
-    [teachers.length, "老師", "teachers"],
-    [classes.length, "班級", "classes"],
-    [subjects.length, "科目", "subjects"],
-    [rooms.length, "教室", "rooms"],
+    [teachers.length, "老師", "/users"],
+    [classes.length, "班級", "/data?tab=classes"],
+    [subjects.length, "科目", "/data?tab=subjects"],
+    [rooms.length, "教室", "/data?tab=rooms"],
   ];
-  for (const [count, label, tab] of none) {
+  for (const [count, label, path] of none) {
     if (count === 0) {
-      issues.push({ message: `還沒有任何啟用中的${label}`, path: `/data?tab=${tab}` });
+      issues.push({ message: `還沒有任何啟用中的${label}`, path });
     }
   }
   const withoutHomeroom = classes.filter((item) => item.homeroom_room_id === null);

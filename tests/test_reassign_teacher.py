@@ -13,9 +13,11 @@ from app.models.lesson import Lesson
 from app.models.schedule import Schedule
 from app.models.schedule_version import ScheduleVersion
 from app.models.subject import Subject
-from app.models.teacher import Teacher, TeacherAvailability, TeacherSubject
+from app.models.semester_teacher import SemesterTeacher, SemesterTeacherUnavailability
+from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
 from app.services import schedule_check, teacher_reassignment
+from tests.conftest import enroll_in_semester, get_test_school_id, next_free_grade_level
 
 # Task 63: POST /api/v1/schedule-versions/{id}/reassign-teacher. Test data
 # is written straight to the database through db_session (the same session
@@ -31,15 +33,15 @@ class Builder:
 
     def __init__(self, db: Session, year: int = 6001) -> None:
         self.db = db
-        self.academic_year = AcademicYear(year=year, is_active=True)
+        self.academic_year = AcademicYear(school_id=get_test_school_id(db), year=year, is_active=True)
         db.add(self.academic_year)
         db.flush()
         self.semester = self.semester_in_year(number=1)
-        self.grade = Grade(name=f"Grade {year}", level=year)
+        self.grade = Grade(school_id=get_test_school_id(db), name=f"Grade {year}", level=next_free_grade_level(db))
         db.add(self.grade)
         db.flush()
         self.slots = [
-            TimeSlot(weekday=1, period=period, is_teaching_period=True)
+            TimeSlot(school_id=get_test_school_id(db), weekday=1, period=period, is_teaching_period=True)
             for period in range(1, 7)
         ]
         db.add_all(self.slots)
@@ -54,27 +56,48 @@ class Builder:
         return semester
 
     def subject(self, name: str) -> Subject:
-        subject = Subject(name=name, is_active=True)
+        subject = Subject(school_id=get_test_school_id(self.db), name=name, is_active=True)
         self.db.add(subject)
         self.db.commit()
         return subject
 
     def teacher(
-        self, name: str, subjects: list[Subject], max_weekly_periods: int = 20
+        self, name: str, max_weekly_periods: int = 20, *, takes_part: bool = True
     ) -> Teacher:
+        """Task 98: a teacher of the school, taking part in the builder's
+        semester (unless takes_part=False) with this weekly maximum."""
         teacher = Teacher(
+            school_id=get_test_school_id(self.db),
             name=name,
             is_active=True,
             min_weekly_periods=0,
             max_weekly_periods=max_weekly_periods,
         )
         self.db.add(teacher)
-        self.db.flush()
-        self.db.add_all(
-            [TeacherSubject(teacher_id=teacher.id, subject_id=s.id) for s in subjects]
+        self.db.commit()
+        if takes_part:
+            enroll_in_semester(self.db, self.semester.id, teacher)
+        return teacher
+
+    def semester_teacher(self, teacher: Teacher) -> SemesterTeacher:
+        """The teacher's settings for the builder's semester."""
+        row = self.db.scalars(
+            select(SemesterTeacher).where(
+                SemesterTeacher.semester_id == self.semester.id,
+                SemesterTeacher.teacher_id == teacher.id,
+            )
+        ).one()
+        return row
+
+    def make_unavailable(self, teacher: Teacher, time_slot_id: int) -> None:
+        """Task 98: unavailable in the builder's semester."""
+        self.db.add(
+            SemesterTeacherUnavailability(
+                semester_teacher_id=self.semester_teacher(teacher).id,
+                time_slot_id=time_slot_id,
+            )
         )
         self.db.commit()
-        return teacher
 
     def class_(self, name: str) -> Class:
         class_ = Class(grade_id=self.grade.id, name=name, is_active=True)
@@ -157,8 +180,8 @@ def _build_world(db: Session, *, english_required_teacher: bool = True) -> World
     builder = Builder(db)
     english = builder.subject("英文")
     science = builder.subject("自然")
-    old_teacher = builder.teacher("舊老師", [english, science])
-    new_teacher = builder.teacher("新老師", [english, science])
+    old_teacher = builder.teacher("舊老師")
+    new_teacher = builder.teacher("新老師")
     class_1 = builder.class_("一年甲班")
     class_2 = builder.class_("一年乙班")
     version = builder.version()
@@ -379,12 +402,7 @@ def test_reassign_reports_teacher_conflict(client: TestClient, db_session: Sessi
 
 def test_reassign_reports_unavailable_slot(client: TestClient, db_session: Session) -> None:
     world = _build_world(db_session)
-    db_session.add(
-        TeacherAvailability(
-            teacher_id=world.new_teacher.id, time_slot_id=world.builder.slots[1].id
-        )
-    )
-    db_session.commit()
+    world.builder.make_unavailable(world.new_teacher, world.builder.slots[1].id)
 
     data = _reassign_ok(
         client, world.version.id, world.english_requirement.id, world.new_teacher.id
@@ -393,26 +411,28 @@ def test_reassign_reports_unavailable_slot(client: TestClient, db_session: Sessi
     assert "H4_TEACHER_AVAILABILITY" in _violation_types(data)
 
 
-def test_reassign_reports_missing_qualification(
+def test_reassign_reports_teacher_not_taking_part(
     client: TestClient, db_session: Session
 ) -> None:
+    """Task 98 (was: missing qualification): not refused, but the check
+    reports it -- the semester knows no weekly maximum or unavailable
+    slots for such a teacher."""
     world = _build_world(db_session)
-    unqualified = world.builder.teacher("無資格老師", [world.science])
+    outsider = world.builder.teacher("未參與老師", takes_part=False)
 
     data = _reassign_ok(
-        client, world.version.id, world.english_requirement.id, unqualified.id
+        client, world.version.id, world.english_requirement.id, outsider.id
     )
 
-    assert "H5_TEACHER_QUALIFICATION" in _violation_types(data)
+    assert "H5_TEACHER_NOT_PARTICIPATING" in _violation_types(data)
 
 
 def test_reassign_reports_workload_over_limit(
     client: TestClient, db_session: Session
 ) -> None:
     world = _build_world(db_session)
-    teacher = db_session.get(Teacher, world.new_teacher.id)
-    assert teacher is not None
-    teacher.max_weekly_periods = 2  # already teaches 1, English adds 2
+    # Task 98: the semester's own maximum.
+    world.builder.semester_teacher(world.new_teacher).max_weekly_periods = 2  # already teaches 1, English adds 2
     db_session.commit()
 
     data = _reassign_ok(
@@ -444,10 +464,10 @@ def test_reassign_chain_after_teacher_leaves(client: TestClient, db_session: Ses
     science = builder.subject("自然")
     integrated = builder.subject("綜合")
     english = builder.subject("英文")
-    teacher_x = builder.teacher("X 老師", [science, integrated])
-    teacher_a = builder.teacher("A 老師", [integrated, english])
-    teacher_b = builder.teacher("B 老師", [science])
-    teacher_c = builder.teacher("C 老師", [english])
+    teacher_x = builder.teacher("X 老師")
+    teacher_a = builder.teacher("A 老師")
+    teacher_b = builder.teacher("B 老師")
+    teacher_c = builder.teacher("C 老師")
     class_1 = builder.class_("三年甲班")
     class_2 = builder.class_("三年乙班")
     version = builder.version()
@@ -480,16 +500,16 @@ def test_dry_run_saves_nothing_but_reports_violations(
     client: TestClient, db_session: Session
 ) -> None:
     world = _build_world(db_session)
-    unqualified = world.builder.teacher("無資格老師", [world.science])
+    outsider = world.builder.teacher("未參與老師", takes_part=False)
     before = _snapshot(db_session)
 
     data = _reassign_ok(
-        client, world.version.id, world.english_requirement.id, unqualified.id, dry_run=True
+        client, world.version.id, world.english_requirement.id, outsider.id, dry_run=True
     )
 
     assert data["dry_run"] is True
     assert data["updated_schedule_row_count"] == 2
-    assert "H5_TEACHER_QUALIFICATION" in _violation_types(data)
+    assert "H5_TEACHER_NOT_PARTICIPATING" in _violation_types(data)
     assert _snapshot(db_session) == before
 
 

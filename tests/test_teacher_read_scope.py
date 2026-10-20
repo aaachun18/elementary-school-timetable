@@ -11,6 +11,7 @@ from app.models.lesson import Lesson
 from app.models.schedule import Schedule
 from app.models.schedule_version import ScheduleVersion
 from tests.test_reassign_teacher import Builder
+from tests.conftest import get_test_school_id
 
 # Task 72: what a TEACHER may read. Lessons and class-subject-requirements
 # are only visible for semesters that currently have a PUBLISHED version
@@ -47,7 +48,7 @@ def _set_status(db: Session, version: ScheduleVersion, status: str) -> None:
 def _build_world(db: Session) -> ScopeWorld:
     builder = Builder(db)
     archived_semester = builder.semester_in_year(number=2)
-    other_year = AcademicYear(year=6002, is_active=True)
+    other_year = AcademicYear(school_id=get_test_school_id(db), year=6002, is_active=True)
     db.add(other_year)
     db.flush()
     draft_semester = Semester(academic_year_id=other_year.id, number=1, is_active=True)
@@ -55,7 +56,7 @@ def _build_world(db: Session) -> ScopeWorld:
     db.commit()
 
     english = builder.subject("英文")
-    teacher = builder.teacher("老師", [english])
+    teacher = builder.teacher("老師")
     class_ = builder.class_("一班")
 
     published_version = builder.version()

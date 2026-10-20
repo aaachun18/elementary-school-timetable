@@ -43,12 +43,10 @@ export interface PlacementCard {
   requiredTeacherId: number | null;
   eligibleTeachers: EligibleTeacher[];
   suggestedRoomId: number | null;
-  // Task 94 (from the backend): the requirement's room type, the room
-  // place-lesson uses when none is sent, and -- with a room type --
-  // whether any active room has exactly that type (null without one).
-  roomType: string | null;
+  // Task 98 (from the backend): the requirement's special room (null:
+  // 原班教室); Task 94: the room place-lesson uses when none is sent.
+  requiredRoomId: number | null;
   defaultRoomId: number | null;
-  hasMatchingRoom: boolean | null;
   // 「自然 · 2 節連堂」 / 「自然 · 1 節」.
   label: string;
 }
@@ -96,9 +94,8 @@ export function buildPlacementCards(lessons: readonly UnscheduledLesson[]): Plac
       requiredTeacherId: lesson.required_teacher_id,
       eligibleTeachers: lesson.eligible_teachers,
       suggestedRoomId: lesson.suggested_room_id,
-      roomType: lesson.room_type ?? null,
+      requiredRoomId: lesson.required_room_id ?? null,
       defaultRoomId: lesson.default_room_id ?? null,
-      hasMatchingRoom: lesson.has_matching_room ?? null,
       label: "",
     };
     byKey.set(key, card);
@@ -184,7 +181,7 @@ export function roomForCard(
 }
 
 // 「不指定教室」 can only be asked for where the backend's own default is
-// no room (a requirement with a room type, or a class without a homeroom):
+// no room (Task 98: no special room and a class without a homeroom):
 // place-lesson treats an omitted room_id as "the default", so for 原班上課
 // in a class with a homeroom it would put the homeroom there anyway.
 // Task 94: decided from the backend's default_room_id (the card's
@@ -193,13 +190,16 @@ export function canChooseNoRoom(card: PlacementCard): boolean {
   return card.defaultRoomId === null;
 }
 
-// Task 94: the selection bar's line when the requirement's room type
-// matches no active room -- placing leaves the lesson without a room.
-export function missingRoomTypeHint(card: PlacementCard): string | null {
-  if (card.roomType === null || card.hasMatchingRoom !== false) {
+// Task 98: the selection bar's line for a requirement with a special
+// room -- placing puts the lesson there unless another room is chosen.
+export function requiredRoomHint(
+  card: PlacementCard,
+  roomName: (roomId: number | null) => string | null,
+): string | null {
+  if (card.requiredRoomId === null) {
     return null;
   }
-  return `找不到類型「${card.roomType}」的教室，放入後這堂課沒有教室`;
+  return `這門課指定在「${roomName(card.requiredRoomId) ?? `教室 ${card.requiredRoomId}`}」上課`;
 }
 
 // --- Candidates ---

@@ -7,7 +7,8 @@ export interface ClassSubjectRequirement {
   subject_id: number;
   weekly_periods: number;
   required_teacher_id: number | null;
-  required_room_type: string | null;
+  // Task 98: the one special room (null: 原班教室).
+  required_room_id: number | null;
   // Task 90: deprecated by the backend (Task 87) -- no rule reads it any
   // more; kept only because the API still returns it. Never shown or sent.
   consecutive_limit: number | null;
@@ -29,7 +30,7 @@ export interface ClassSubjectRequirementCreate {
   subject_id: number;
   weekly_periods: number;
   required_teacher_id?: number | null;
-  required_room_type?: string | null;
+  required_room_id?: number | null;
   lesson_pattern?: string | null;
 }
 
@@ -39,7 +40,7 @@ export interface ClassSubjectRequirementUpdate {
   subject_id?: number;
   weekly_periods?: number;
   required_teacher_id?: number | null;
-  required_room_type?: string | null;
+  required_room_id?: number | null;
   lesson_pattern?: string | null;
 }
 

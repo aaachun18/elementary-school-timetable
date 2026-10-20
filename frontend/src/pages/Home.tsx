@@ -12,7 +12,7 @@ import { list as listSemesters } from "../api/semesters";
 import { list as listSubjects } from "../api/subjects";
 import { list as listTeachers } from "../api/teachers";
 import { useResource } from "../hooks/useResource";
-import { getCurrentUsername, isCurrentUserAdmin } from "../utils/auth";
+import { getCurrentUserRole, getCurrentUsername, isCurrentUserCoordinator, ROLE_LABELS } from "../utils/auth";
 import {
   formatDateTime,
   pickCurrentSemester,
@@ -140,8 +140,8 @@ function SemesterCard({ data }: { data: ReturnType<typeof useSemesterData> }): R
       {semester === null ? (
         <p className={MUTED_TEXT}>
           還沒有任何學期。
-          <Link to="/data?tab=semesters" className={LINK_TEXT}>
-            到基礎資料新增學年度與學期
+          <Link to="/wizard" className={LINK_TEXT}>
+            到開始排課設定學年度與學期
           </Link>
         </p>
       ) : (
@@ -152,7 +152,7 @@ function SemesterCard({ data }: { data: ReturnType<typeof useSemesterData> }): R
               已發布：v{versions.published.version_number}（發布時間 {formatDateTime(versions.published.updated_at)}）
             </p>
           ) : (
-            <p className={NOTICE}>這個學期還沒有已發布的課表，請到排課控制台發布一個草稿。</p>
+            <p className={NOTICE}>這個學期還沒有已發布的課表，請到排課紀錄發布一個草稿。</p>
           )}
           <div className={STAT_ROW}>
             <Stat value={versions.draftCount} label="草稿版本" />
@@ -186,8 +186,8 @@ function DraftHealthCard({ data }: { data: ReturnType<typeof useSemesterData> })
       {draft === null ? (
         <p className={MUTED_TEXT}>
           {data.semester === null ? "還沒有任何學期。" : "目前沒有任何草稿版本。"}
-          <Link to="/scheduler" className={LINK_TEXT}>
-            到排課控制台建立草稿
+          <Link to="/wizard" className={LINK_TEXT}>
+            到開始排課排出一份課表
           </Link>
         </p>
       ) : summary === null ? (
@@ -207,10 +207,10 @@ function DraftHealthCard({ data }: { data: ReturnType<typeof useSemesterData> })
           ) : (
             <div className="flex flex-wrap gap-4">
               <Link to={timetablePath} className={LINK_TEXT}>
-                到課表檢視查看與修正
+                到課表查看與修正
               </Link>
-              <Link to="/scheduler" className={LINK_TEXT}>
-                到排課控制台
+              <Link to={draftId === null ? "/records" : `/records?scheduleVersionId=${draftId}`} className={LINK_TEXT}>
+                到排課紀錄
               </Link>
             </div>
           )}
@@ -245,14 +245,14 @@ function DataHealthCard(): ReactElement {
             <Stat value={summary.roomCount} label="教室" />
           </div>
           {summary.issues.length === 0 ? (
-            <p className={SUCCESS_TEXT}>✓ 基礎資料齊全</p>
+            <p className={SUCCESS_TEXT}>✓ 學校資料齊全</p>
           ) : (
             <ul className="m-0 flex list-none flex-col gap-1 p-0">
               {summary.issues.map((issue) => (
                 <li key={issue.message} className="text-sm text-amber-800">
                   {issue.message}（
                   <Link to={issue.path} className={LINK_TEXT}>
-                    到基礎資料補齊
+                    前往補齊
                   </Link>
                   ）
                 </li>
@@ -270,14 +270,14 @@ function QuickLinksCard(): ReactElement {
     <section className={CARD} aria-label="快速入口">
       <h2 className={DASHBOARD_CARD_TITLE}>快速入口</h2>
       <div className="flex flex-wrap gap-2">
-        <Link to="/scheduler" className={LINK_BUTTON}>
-          排課控制台
+        <Link to="/wizard" className={LINK_BUTTON}>
+          開始排課
         </Link>
-        <Link to="/timetable" className={LINK_BUTTON}>
-          課表檢視
+        <Link to="/records" className={LINK_BUTTON}>
+          排課紀錄
         </Link>
-        <Link to="/requirements" className={LINK_BUTTON}>
-          排課需求總覽
+        <Link to="/data" className={LINK_BUTTON}>
+          學校資料
         </Link>
       </div>
     </section>
@@ -311,14 +311,14 @@ function TeacherHome(): ReactElement {
               已發布：v{published.version_number}（發布時間 {formatDateTime(published.updated_at)}）
             </p>
           ) : (
-            <p className={NOTICE}>目前學期還沒有已發布的課表，發布後就能在課表檢視查看。</p>
+            <p className={NOTICE}>目前學期還沒有已發布的課表，發布後就能在課表查看。</p>
           )}
           <div>
             <Link
               to={published === null ? "/timetable" : `/timetable?scheduleVersionId=${published.id}`}
               className={LINK_BUTTON}
             >
-              前往課表檢視
+              前往課表
             </Link>
           </div>
         </div>
@@ -331,14 +331,17 @@ function TeacherHome(): ReactElement {
 // sees the semester's versions, the latest draft's health, the basic
 // data's health and quick links; anyone else (a TEACHER) only the
 // published timetable and the way to it. Every card loads on its own.
+// Task 98: the full dashboard is for the 教學組長 (the 系統管理員 has no
+// home page -- RoleRoute sends it to 學校管理).
 export default function Home(): ReactElement {
-  const isAdmin = isCurrentUserAdmin();
+  const isAdmin = isCurrentUserCoordinator();
+  const role = getCurrentUserRole();
   const username = getCurrentUsername();
   return (
     <div className={PAGE}>
       <h1 className={PAGE_TITLE}>首頁</h1>
       <p className={`${MUTED_TEXT} mb-4`}>
-        歡迎回來{username === null ? "" : `，${username}`}（{isAdmin ? "管理員" : "教師"}）
+        歡迎回來{username === null ? "" : `，${username}`}{role === null ? "" : `（${ROLE_LABELS[role]}）`}
       </p>
       {isAdmin ? <AdminHome /> : <TeacherHome />}
     </div>

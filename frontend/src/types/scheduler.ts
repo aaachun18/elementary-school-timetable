@@ -222,7 +222,7 @@ export interface EligibleTeacher {
 // A lesson of the version's semester with no Schedule row in the version.
 // suggested_room_id: the class's homeroom for a requirement with no room
 // type, else the first active room of its type; null when there is none.
-// eligible_teachers: active teachers qualified for the subject, by name.
+// eligible_teachers: the active teachers taking part in the semester, by name.
 export interface UnscheduledLesson {
   lesson_id: number;
   class_subject_requirement_id: number;
@@ -238,12 +238,10 @@ export interface UnscheduledLesson {
   fixed_time_slot_id: number | null;
   suggested_room_id: number | null;
   eligible_teachers: EligibleTeacher[];
-  // Task 94 (backend, additive): the requirement's room type; the room
-  // place-lesson uses when no room_id is sent; and, with a room type,
-  // whether an active room of exactly that type exists (null without one).
-  room_type?: string | null;
+  // Task 98: the requirement's special room (null: 原班教室); Task 94: the
+  // room place-lesson uses when no room_id is sent.
+  required_room_id?: number | null;
   default_room_id?: number | null;
-  has_matching_room?: boolean | null;
 }
 
 // GET /schedule-versions/{id}/unscheduled-lessons -- ordered by class,

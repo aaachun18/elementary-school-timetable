@@ -29,6 +29,7 @@ from app.models.schedule import Schedule
 from app.models.schedule_version import ScheduleVersion
 from app.models.time_slot import TimeSlot
 from app.services import block_adjustment, schedule_check
+from app.services.school_scope import in_school, school_id_of_version
 from app.services.exceptions import AdjustmentTargetNotFoundError
 from app.services.schedule_version import raise_if_version_locked
 
@@ -131,7 +132,9 @@ def list_move_candidates(
     )
     rows = schedule_check.load_assignment_rows(db, schedule_version_id)
     time_slots = db.scalars(
-        select(TimeSlot).order_by(TimeSlot.weekday, TimeSlot.period, TimeSlot.id)
+        select(TimeSlot)
+        .where(in_school(TimeSlot, school_id_of_version(db, schedule_version)))
+        .order_by(TimeSlot.weekday, TimeSlot.period, TimeSlot.id)
     ).all()
     layout = block_adjustment.Layout(rows, context)
 

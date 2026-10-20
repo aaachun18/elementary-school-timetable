@@ -1,8 +1,15 @@
 import { TOKEN_KEY } from "../api/client";
 
-// Mirrors the two values backend/app/models/user.py's CheckConstraint
-// allows for User.role.
-export type UserRole = "ADMIN" | "TEACHER";
+// Mirrors the values backend/app/models/user.py's CheckConstraint allows
+// for User.role. Task 98: ADMIN = 系統管理員, COORDINATOR = 教學組長,
+// TEACHER = 一般老師.
+export type UserRole = "ADMIN" | "COORDINATOR" | "TEACHER";
+
+export const ROLE_LABELS: Record<UserRole, string> = {
+  ADMIN: "系統管理員",
+  COORDINATOR: "教學組長",
+  TEACHER: "一般老師",
+};
 
 interface AccessTokenPayload {
   sub?: string;
@@ -40,7 +47,7 @@ function decodeAccessTokenPayload(token: string): AccessTokenPayload | null {
 }
 
 // Returns null when there is no token, or it can't be decoded, or its
-// role claim isn't one of the two known roles -- every call site treats
+// role claim isn't one of the known roles -- every call site treats
 // null the same as "not an admin" (fail closed: an unrecognized token
 // never unlocks the write buttons).
 export function getCurrentUserRole(): UserRole | null {
@@ -49,7 +56,7 @@ export function getCurrentUserRole(): UserRole | null {
     return null;
   }
   const payload = decodeAccessTokenPayload(token);
-  if (payload?.role === "ADMIN" || payload?.role === "TEACHER") {
+  if (payload?.role === "ADMIN" || payload?.role === "COORDINATOR" || payload?.role === "TEACHER") {
     return payload.role;
   }
   return null;
@@ -68,6 +75,30 @@ export function getCurrentUsername(): string | null {
   return typeof sub === "string" ? sub : null;
 }
 
+// Only the 系統管理員 -- schools, and deleting / binding accounts.
 export function isCurrentUserAdmin(): boolean {
   return getCurrentUserRole() === "ADMIN";
+}
+
+// Task 98: the 系統管理員 or a 教學組長 -- whoever may manage accounts
+// (backend require_manager).
+export function isCurrentUserManager(): boolean {
+  const role = getCurrentUserRole();
+  return role === "ADMIN" || role === "COORDINATOR";
+}
+
+// Task 98: only a 教學組長 changes scheduling data (backend
+// require_coordinator); the 系統管理員 has no scheduling data at all.
+export function isCurrentUserCoordinator(): boolean {
+  return getCurrentUserRole() === "COORDINATOR";
+}
+
+// Task 98: where each role lands -- and where a page the role may not
+// open sends it instead. An unknown role (null) is treated like a 教學組長
+// (the page itself then fails closed on its own requests).
+export function homePathFor(role: UserRole | null): string {
+  if (role === "ADMIN") {
+    return "/schools";
+  }
+  return "/";
 }

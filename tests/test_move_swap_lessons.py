@@ -13,9 +13,10 @@ from app.models.room import Room
 from app.models.schedule import Schedule
 from app.models.schedule_version import ScheduleVersion
 from app.models.subject import Subject
-from app.models.teacher import Teacher, TeacherAvailability
+from app.models.teacher import Teacher
 from app.services import schedule_adjustment, schedule_check
 from tests.test_reassign_teacher import Builder
+from tests.conftest import get_test_school_id
 
 # Task 65: POST /api/v1/schedule-versions/{id}/move-lesson and
 # /swap-lessons. Test data is written straight to the database through
@@ -66,12 +67,12 @@ def _build_timetable(db: Session) -> Timetable:
     builder = Builder(db)
     english = builder.subject("英文")
     science = builder.subject("自然")
-    t1 = builder.teacher("一號老師", [english, science])
-    t2 = builder.teacher("二號老師", [english, science])
+    t1 = builder.teacher("一號老師")
+    t2 = builder.teacher("二號老師")
     c1 = builder.class_("四年甲班")
     c2 = builder.class_("四年乙班")
-    r1 = Room(name="Room 1", room_type="一般教室", is_active=True)
-    r2 = Room(name="Room 2", room_type="一般教室", is_active=True)
+    r1 = Room(school_id=get_test_school_id(db), name="Room 1", is_active=True)
+    r2 = Room(school_id=get_test_school_id(db), name="Room 2", is_active=True)
     db.add_all([r1, r2])
     db.commit()
     version = builder.version()
@@ -244,8 +245,7 @@ def test_move_into_unavailable_slot_is_reported(
     client: TestClient, db_session: Session
 ) -> None:
     tt = _build_timetable(db_session)
-    db_session.add(TeacherAvailability(teacher_id=tt.t2.id, time_slot_id=tt.slot(4)))
-    db_session.commit()
+    tt.builder.make_unavailable(tt.t2, tt.slot(4))
 
     data = _ok(_move(client, tt.version.id, tt.c1_science.id, tt.slot(4)))
 
@@ -596,7 +596,7 @@ def test_copy_reassign_then_move_resolves_conflict(
 ) -> None:
     tt = _build_timetable(db_session)
     # t3 teaches c3 English in slot 3 -- the same slot as c2 English.
-    t3 = tt.builder.teacher("三號老師", [tt.english])
+    t3 = tt.builder.teacher("三號老師")
     c3 = tt.builder.class_("四年丙班")
     tt.builder.course(tt.version, c3, tt.english, t3, [3])
     assert client.get(f"/api/v1/schedule-versions/{tt.version.id}/check").json()["is_valid"]

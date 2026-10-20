@@ -185,11 +185,11 @@ describe("violationIdentityKey", () => {
   );
 
   it.each([
-    "H5_TEACHER_QUALIFICATION",
+    "H5_TEACHER_NOT_PARTICIPATING",
     "H6_REQUIRED_TEACHER",
     "H7_WEEKLY_PERIODS",
     "H8_TEACHER_MAX_WORKLOAD",
-    "H9_ROOM_TYPE",
+    "H9_REQUIRED_ROOM",
     "H12_ACTIVE_STATUS",
   ])("%s ignores the time slot", (type) => {
     expect(keyAt(type, MONDAY_1)).toBe(keyAt(type, WEDNESDAY_1));

@@ -247,10 +247,11 @@ class EligibleTeacherDetail(BaseModel):
 
 class UnscheduledLessonDetail(BaseModel):
     """A lesson of the version's semester with no Schedule row in the
-    version. suggested_room_id (Task 92B): with no room type, the class's
-    homeroom (what place-lesson uses by default; null without one); with a
-    room type, the first active room of that type. eligible_teachers: active teachers qualified for
-    the subject, by name -- returned even when required_teacher_id is set."""
+    version. suggested_room_id (Task 92B / 98): the requirement's special
+    room, else the class's homeroom (what place-lesson uses by default;
+    null without one). eligible_teachers: the active teachers taking part
+    in the semester, by name -- returned even when required_teacher_id is
+    set."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -268,12 +269,10 @@ class UnscheduledLessonDetail(BaseModel):
     fixed_time_slot_id: int | None
     suggested_room_id: int | None
     eligible_teachers: list[EligibleTeacherDetail]
-    # Task 94 (additive): the requirement's room type; the room place-lesson
-    # uses when no room_id is sent; and, with a room type, whether an
-    # active room of exactly that type exists (null without a room type).
-    room_type: str | None = None
+    # Task 98: the requirement's special room (null: 原班教室); Task 94: the
+    # room place-lesson uses when no room_id is sent.
+    required_room_id: int | None = None
     default_room_id: int | None = None
-    has_matching_room: bool | None = None
 
 
 class UnscheduledLessonsResult(BaseModel):

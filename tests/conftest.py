@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from dotenv import load_dotenv
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 # tests/conftest.py -> parent.parent is the repo root, which holds backend/
@@ -30,6 +30,13 @@ from app.core.security import (  # noqa: E402
 )
 from app.database import Base, get_db  # noqa: E402
 from app.main import app  # noqa: E402
+from app.models.grade_class import MAX_GRADE_LEVEL, MIN_GRADE_LEVEL, Grade  # noqa: E402
+from app.models.school import School  # noqa: E402
+from app.models.semester_teacher import (  # noqa: E402
+    SemesterTeacher,
+    SemesterTeacherUnavailability,
+)
+from app.models.teacher import Teacher  # noqa: E402
 from app.models.user import User  # noqa: E402
 
 # bcrypt is deliberately slow in production (that's the point). Nearly every
@@ -89,13 +96,115 @@ def admin_user(db_session: Session) -> User:
     return user
 
 
+TEST_SCHOOL_NAME = "帳號測試學校"
+
+
+def get_test_school_id(db_session: Session) -> int:
+    """Task 98: the one school every test's data and fixture accounts
+    belong to, created on first use. Test builders that insert rows
+    straight into the database call this for their school_id, so their
+    rows are visible to the `client` fixture's 教學組長."""
+    school = db_session.scalars(select(School).where(School.name == TEST_SCHOOL_NAME)).first()
+    if school is None:
+        school = School(name=TEST_SCHOOL_NAME, is_active=True)
+        db_session.add(school)
+        db_session.commit()
+    return school.id
+
+
+def next_free_grade_level(db_session: Session) -> int:
+    """Task 98: grade levels are 1-9 and unique per school, but many test
+    builders used to make up a distinct level per world (8901, 30061, ...)
+    just to keep their grades apart. They now ask for the lowest level the
+    test school hasn't used yet instead; a grade's name still carries the
+    builder's own key."""
+    used = set(
+        db_session.scalars(
+            select(Grade.level).where(Grade.school_id == get_test_school_id(db_session))
+        ).all()
+    )
+    free = [level for level in range(MIN_GRADE_LEVEL, MAX_GRADE_LEVEL + 1) if level not in used]
+    assert free, "the test school already has all nine grade levels"
+    return free[0]
+
+
+def next_free_grade_level_via_api(client: TestClient) -> int:
+    """next_free_grade_level() for tests that build their data through the
+    API (GET /grades lists exactly the client's school)."""
+    used = {grade["level"] for grade in client.get("/api/v1/grades/").json()}
+    free = [level for level in range(MIN_GRADE_LEVEL, MAX_GRADE_LEVEL + 1) if level not in used]
+    assert free, "the school already has all nine grade levels"
+    return free[0]
+
+
+def enroll_in_semester(
+    db_session: Session,
+    semester_id: int,
+    teacher: Teacher,
+    *,
+    min_weekly_periods: int | None = None,
+    max_weekly_periods: int | None = None,
+    unavailable_time_slot_ids: tuple[int, ...] = (),
+) -> SemesterTeacher:
+    """Task 98: makes `teacher` take part in the semester's scheduling, the
+    way the wizard's PUT /semesters/{id}/teachers does, for test builders
+    that write straight to the database. The weekly periods range defaults
+    to the teacher's own (deprecated) Teacher.min/max_weekly_periods, so a
+    builder's existing numbers keep meaning what they meant."""
+    semester_teacher = SemesterTeacher(
+        semester_id=semester_id,
+        teacher_id=teacher.id,
+        min_weekly_periods=(
+            teacher.min_weekly_periods if min_weekly_periods is None else min_weekly_periods
+        ),
+        max_weekly_periods=(
+            teacher.max_weekly_periods if max_weekly_periods is None else max_weekly_periods
+        ),
+    )
+    db_session.add(semester_teacher)
+    db_session.flush()
+    db_session.add_all(
+        SemesterTeacherUnavailability(
+            semester_teacher_id=semester_teacher.id, time_slot_id=time_slot_id
+        )
+        for time_slot_id in unavailable_time_slot_ids
+    )
+    db_session.commit()
+    return semester_teacher
+
+
 @pytest.fixture
-def teacher_user(db_session: Session) -> User:
+def account_school(db_session: Session) -> School:
+    """Task 98: the school the COORDINATOR / TEACHER fixture accounts below
+    belong to -- every non-ADMIN account must belong to one."""
+    school = db_session.get(School, get_test_school_id(db_session))
+    assert school is not None
+    return school
+
+
+@pytest.fixture
+def coordinator_user(db_session: Session, account_school: School) -> User:
+    user = User(
+        username="coordinator_test",
+        hashed_password=hash_password("coordinator-test-password"),
+        role="COORDINATOR",
+        is_active=True,
+        school_id=account_school.id,
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user
+
+
+@pytest.fixture
+def teacher_user(db_session: Session, account_school: School) -> User:
     user = User(
         username="teacher_test",
         hashed_password=hash_password("teacher-test-password"),
         role="TEACHER",
         is_active=True,
+        school_id=account_school.id,
     )
     db_session.add(user)
     db_session.commit()
@@ -106,6 +215,11 @@ def teacher_user(db_session: Session) -> User:
 @pytest.fixture
 def admin_token(admin_user: User) -> str:
     return create_access_token({"sub": admin_user.username})
+
+
+@pytest.fixture
+def coordinator_token(coordinator_user: User) -> str:
+    return create_access_token({"sub": coordinator_user.username})
 
 
 @pytest.fixture
@@ -132,12 +246,21 @@ def _make_client(
 
 
 @pytest.fixture
-def client(db_session: Session, admin_token: str) -> Generator[TestClient, None, None]:
+def client(
+    db_session: Session, coordinator_token: str
+) -> Generator[TestClient, None, None]:
     """Default TestClient used by nearly all existing tests. Carries a real,
-    valid ADMIN JWT on every request (ADMIN satisfies both get_current_user
-    and require_admin), so these tests exercise the real auth/RBAC
+    valid JWT on every request, so these tests exercise the real auth/RBAC
     dependencies rather than bypassing them -- no dependency_overrides for
-    get_current_user/require_admin exist anywhere in this file."""
+    the role checks exist anywhere in this file. Task 98: it is the
+    教學組長 of the test school (get_test_school_id) -- the account that
+    works with scheduling data; the 系統管理員 is `admin_client`."""
+    yield from _make_client(db_session, coordinator_token)
+
+
+@pytest.fixture
+def admin_client(db_session: Session, admin_token: str) -> Generator[TestClient, None, None]:
+    """Task 98: the 系統管理員 -- schools and accounts only."""
     yield from _make_client(db_session, admin_token)
 
 
@@ -148,6 +271,14 @@ def teacher_client(
     """A TestClient authenticated as a TEACHER, for verifying the read-only
     side of RBAC (can GET, cannot POST/PATCH/DELETE)."""
     yield from _make_client(db_session, teacher_token)
+
+
+@pytest.fixture
+def coordinator_client(
+    db_session: Session, coordinator_token: str
+) -> Generator[TestClient, None, None]:
+    """Task 98: a TestClient authenticated as a COORDINATOR (教學組長)."""
+    yield from _make_client(db_session, coordinator_token)
 
 
 @pytest.fixture

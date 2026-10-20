@@ -9,10 +9,17 @@ from app.services.exceptions import (
     DependentRecordsExistError,
     raise_for_integrity_error,
 )
+from app.services.semester_settings import delete_settings_of_time_slot
+from app.services.school_scope import get_in_school, in_school
 
 
-def create_time_slot(db: Session, time_slot_data: TimeSlotCreate) -> TimeSlot:
-    time_slot = TimeSlot(**time_slot_data.model_dump())
+def create_time_slot(
+    db: Session,
+    time_slot_data: TimeSlotCreate,
+    *,
+    school_id: int,
+) -> TimeSlot:
+    time_slot = TimeSlot(**time_slot_data.model_dump(), school_id=school_id)
     db.add(time_slot)
     try:
         db.commit()
@@ -23,19 +30,23 @@ def create_time_slot(db: Session, time_slot_data: TimeSlotCreate) -> TimeSlot:
     return time_slot
 
 
-def get_time_slot(db: Session, time_slot_id: int) -> TimeSlot | None:
-    return db.get(TimeSlot, time_slot_id)
+def get_time_slot(db: Session, time_slot_id: int, *, school_id: int) -> TimeSlot | None:
+    return get_in_school(db, TimeSlot, time_slot_id, school_id)
 
 
-def get_time_slots(db: Session, skip: int = 0, limit: int = 100) -> list[TimeSlot]:
-    stmt = select(TimeSlot).offset(skip).limit(limit)
+def get_time_slots(
+    db: Session, skip: int = 0, limit: int = 100, *, school_id: int
+) -> list[TimeSlot]:
+    stmt = select(
+        TimeSlot
+    ).where(in_school(TimeSlot, school_id)).offset(skip).limit(limit)
     return list(db.scalars(stmt).all())
 
 
 def update_time_slot(
-    db: Session, time_slot_id: int, time_slot_data: TimeSlotUpdate
+    db: Session, time_slot_id: int, time_slot_data: TimeSlotUpdate, *, school_id: int
 ) -> TimeSlot | None:
-    time_slot = db.get(TimeSlot, time_slot_id)
+    time_slot = get_in_school(db, TimeSlot, time_slot_id, school_id)
     if time_slot is None:
         return None
 
@@ -51,8 +62,8 @@ def update_time_slot(
     return time_slot
 
 
-def delete_time_slot(db: Session, time_slot_id: int) -> bool:
-    time_slot = db.get(TimeSlot, time_slot_id)
+def delete_time_slot(db: Session, time_slot_id: int, *, school_id: int) -> bool:
+    time_slot = get_in_school(db, TimeSlot, time_slot_id, school_id)
     if time_slot is None:
         return False
 
@@ -81,6 +92,8 @@ def delete_time_slot(db: Session, time_slot_id: int) -> bool:
     ).all()
     for unavailability in unavailabilities:
         db.delete(unavailability)
+    # Task 98: the same for the semesters' own settings.
+    delete_settings_of_time_slot(db, time_slot_id)
 
     db.delete(time_slot)
     try:

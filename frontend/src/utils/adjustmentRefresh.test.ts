@@ -5,7 +5,7 @@ import type { ConstraintViolationDetail } from "../types/scheduler";
 
 function violation(fields: Partial<ConstraintViolationDetail>): ConstraintViolationDetail {
   return {
-    type: "ROOM_MISSING_FOR_TYPE",
+    type: "REQUIRED_ROOM_MISSING",
     severity: "WARNING",
     lesson_id: 30,
     teacher_id: 6,
@@ -16,7 +16,7 @@ function violation(fields: Partial<ConstraintViolationDetail>): ConstraintViolat
     suggested_action: null,
     room_id: null,
     class_subject_requirement_id: 9,
-    identity_key: "ROOM_MISSING_FOR_TYPE:30",
+    identity_key: "REQUIRED_ROOM_MISSING:30",
     ...fields,
   };
 }
@@ -54,7 +54,7 @@ describe("isLocatedProblemGone", () => {
 
   it("is gone once the newer check no longer has the problem", () => {
     expect(isLocatedProblemGone(located, [])).toBe(true);
-    expect(isLocatedProblemGone(located, [violation({ lesson_id: 31, identity_key: "ROOM_MISSING_FOR_TYPE:31" })])).toBe(true);
+    expect(isLocatedProblemGone(located, [violation({ lesson_id: 31, identity_key: "REQUIRED_ROOM_MISSING:31" })])).toBe(true);
   });
 
   it("stays while the problem is still there, even described in another slot", () => {

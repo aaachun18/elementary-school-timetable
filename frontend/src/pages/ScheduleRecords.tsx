@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useRef, useState, type ReactElement } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import axios from "axios";
 import {
   copy as copyScheduleVersion,
-  create as createScheduleVersion,
   generateLessons,
   list as listScheduleVersions,
   publish as publishScheduleVersion,
@@ -36,6 +35,7 @@ import {
   formatVersionStatus,
   versionStatusBadgeClass,
 } from "../utils/scheduleVersionFormat";
+import { sortRecords } from "../utils/scheduleRecords";
 import type { PeriodDisplayMap } from "../utils/periodDisplay";
 import { formatTimeSlotLabel } from "../utils/timeSlotFormat";
 import {
@@ -53,7 +53,6 @@ import {
   CARD,
   ERROR_TEXT,
   HELP_TEXT,
-  INPUT,
   LABEL,
   LOADING_TEXT,
   MUTED_TEXT,
@@ -63,9 +62,13 @@ import {
   SECTION_TITLE,
   SELECT,
   SUCCESS_TEXT,
+  TABLE,
+  TABLE_HEAD_ROW,
+  TABLE_WRAPPER,
+  TD,
+  TH,
+  TR_HOVER,
 } from "../styles/ui";
-
-type VersionPickerMode = "select" | "create";
 
 // Task 67: which version-management ConfirmDialog is open, if any.
 type VersionAction = "publish" | "unpublish" | "copy" | "delete";
@@ -77,7 +80,13 @@ type CopyTargetMode = "same" | "other";
 // Before the fixed-slot data has loaded (or no version is selected).
 const EMPTY_PERIOD_DISPLAY: PeriodDisplayMap = new Map();
 
-export default function SchedulerConsole(): ReactElement {
+// Task 98: 排課紀錄 -- every schedule version of the school (each run of
+// 開始排課 makes one), newest semester first. Picking one manages it: view
+// and edit its timetable (課表 page, edit mode), publish / unpublish /
+// copy / delete, pin lessons to fixed time slots and schedule a DRAFT again.
+// Formerly the 排課控制台 (Task 32.7 / 67), whose step 1 picker this list
+// replaces; a new version is made by the wizard.
+export default function ScheduleRecords(): ReactElement {
   const versionsResource = useResource(() => listScheduleVersions(), []);
   const semesters = useResource(() => listSemesters(), []);
   const academicYears = useResource(() => listAcademicYears(), []);
@@ -102,42 +111,22 @@ export default function SchedulerConsole(): ReactElement {
     null,
   );
 
-  // Which of the two mutually-exclusive step-1 input modes is showing.
-  // Only rendered/relevant while selectedVersion is null -- once a version
-  // is confirmed (by either path), both forms disappear in favour of the
-  // confirmation banner, so there is never a moment where "選擇既有版本"
-  // and "建立新版本" are both on screen at once.
-  const [pickerMode, setPickerMode] = useState<VersionPickerMode>("select");
-
-  // "使用既有版本" mode's own temporary selection -- deliberately separate
-  // from selectedVersion: picking an option in this dropdown is not yet a
-  // commitment, only clicking 選擇此版本 promotes it to selectedVersion.
-  const [pendingVersionId, setPendingVersionId] = useState<number | "">("");
-
-  // "建立新版本" mode's form fields.
-  const [newSemesterId, setNewSemesterId] = useState<number | "">("");
-  const [newVersionNumber, setNewVersionNumber] = useState(1);
-  const [isCreating, setIsCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
-  // A short-lived confirmation that a version was just CREATED specifically
-  // (as opposed to picked from the list) -- shown alongside the same
-  // confirmation banner used for both paths, not instead of it, so "did I
-  // just pick or create this?" has an explicit answer for a few seconds
-  // without the two paths ending up looking permanently different.
-  const createFlash = useFlashMessage();
-
-  // Auto-suggest the next version_number for whichever semester is picked
-  // in create mode -- max existing version_number for that semester + 1, or
-  // 1 if it has none yet.
+  // ?scheduleVersionId= (the wizard's last step links here) picks that
+  // record as soon as the list has loaded.
+  const [searchParams] = useSearchParams();
+  const requestedVersionId = Number(searchParams.get("scheduleVersionId") ?? "") || null;
+  // Picked once: going back to the list must not pick it again.
+  const isRequestHandled = useRef(false);
   useEffect(() => {
-    if (newSemesterId === "") {
+    if (isRequestHandled.current || requestedVersionId === null) {
       return;
     }
-    const maxExistingVersionNumber = versions
-      .filter((version) => version.semester_id === newSemesterId)
-      .reduce((max, version) => Math.max(max, version.version_number), 0);
-    setNewVersionNumber(maxExistingVersionNumber + 1);
-  }, [newSemesterId, versions]);
+    const requested = versions.find((version) => version.id === requestedVersionId);
+    if (requested !== undefined) {
+      isRequestHandled.current = true;
+      setSelectedVersion(requested);
+    }
+  }, [versions, requestedVersionId]);
 
   // Step 2: generate-lessons.
   const [isGenerating, setIsGenerating] = useState(false);
@@ -309,50 +298,15 @@ export default function SchedulerConsole(): ReactElement {
     }
   }
 
-  function handleConfirmExistingVersion(): void {
-    if (pendingVersionId === "") {
-      return;
-    }
-    const version = versions.find((candidate) => candidate.id === pendingVersionId);
-    if (version === undefined) {
-      return;
-    }
+  function handleSelectVersion(version: ScheduleVersion): void {
     setSelectedVersion(version);
     resetDownstreamResults();
   }
 
-  // The explicit "重新選擇版本" escape hatch (修正方向 4): the only way to
-  // change which version is being operated on, once one is confirmed --
-  // there is no still-editable dropdown sitting around after confirmation.
+  // Back to the list: the only way to change which record is being managed.
   function handleResetVersionSelection(): void {
     setSelectedVersion(null);
-    setPendingVersionId("");
-    setPickerMode("select");
     resetDownstreamResults();
-  }
-
-  async function handleCreateVersion(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    if (newSemesterId === "") {
-      return;
-    }
-    setIsCreating(true);
-    setCreateError(null);
-    try {
-      const created = await createScheduleVersion({
-        semester_id: newSemesterId,
-        version_number: newVersionNumber,
-        status: "DRAFT",
-      });
-      setVersions((previous) => [...previous, created]);
-      setSelectedVersion(created);
-      resetDownstreamResults();
-      createFlash.showFlash(`已建立新版本 v${created.version_number}`);
-    } catch (error) {
-      setCreateError(extractApiErrorMessage(error));
-    } finally {
-      setIsCreating(false);
-    }
   }
 
   async function handleGenerateLessons(): Promise<void> {
@@ -608,17 +562,20 @@ export default function SchedulerConsole(): ReactElement {
 
   return (
     <div className={PAGE}>
-      <h1 className={PAGE_TITLE}>排課控制台</h1>
+      <h1 className={PAGE_TITLE}>排課紀錄</h1>
+      <p className={HELP_TEXT}>
+        每次「開始排課」都會留下一筆排課紀錄。選一筆紀錄就能檢視、手動修改課表，或發布給老師。
+      </p>
 
       {/* 步驟一:選擇/建立 ScheduleVersion -- 二選一,任何時刻都只有其中
           一種輸入方式在畫面上,或是已確認狀態的說明文字,三者互斥。 */}
       <section
         ref={versionSectionRef}
         tabIndex={-1}
-        aria-label="步驟一：選擇排課版本"
+        aria-label="排課紀錄"
         className={`${SECTION} focus:outline-none`}
       >
-        <h2 className={SECTION_TITLE}>步驟一：選擇排課版本</h2>
+        <h2 className={SECTION_TITLE}>{selectedVersion === null ? "全部紀錄" : "目前紀錄"}</h2>
         {/* Version-action feedback sits outside the card so it stays
             visible after a delete sends the page back to the picker. */}
         {versionActionFlash.message !== null && (
@@ -631,135 +588,83 @@ export default function SchedulerConsole(): ReactElement {
         )}
 
         {selectedVersion === null ? (
-          <div className={CARD}>
-            <div className="mb-4 flex gap-6">
-              <label className="flex items-center gap-2 text-sm text-gray-700">
-                <input
-                  type="radio"
-                  name="version-picker-mode"
-                  checked={pickerMode === "select"}
-                  onChange={() => setPickerMode("select")}
-                  className="accent-blue-600"
-                />
-                使用既有版本
-              </label>
-              <label className="flex items-center gap-2 text-sm text-gray-700">
-                <input
-                  type="radio"
-                  name="version-picker-mode"
-                  checked={pickerMode === "create"}
-                  onChange={() => setPickerMode("create")}
-                  className="accent-blue-600"
-                />
-                建立新版本
-              </label>
+          versions.length === 0 ? (
+            <div className={CARD}>
+              <p className={MUTED_TEXT}>
+                還沒有排課紀錄。到「
+                <Link to="/wizard" className="font-medium text-blue-600 hover:underline">
+                  開始排課
+                </Link>
+                」完成設定並排課後，紀錄就會出現在這裡。
+              </p>
             </div>
-
-            {pickerMode === "select" && (
-              <div className="flex flex-col gap-2">
-                <label htmlFor="version-select" className={LABEL}>
-                  選擇版本
-                </label>
-                <div className="flex flex-wrap items-center gap-2">
-                  <select
-                    id="version-select"
-                    value={pendingVersionId}
-                    onChange={(event) =>
-                      setPendingVersionId(
-                        event.target.value === "" ? "" : Number(event.target.value),
-                      )
-                    }
-                    className={SELECT}
-                  >
-                    <option value="">請選擇…</option>
-                    {versions.map((version) => (
-                      <option key={version.id} value={version.id}>
-                        {formatVersionLabel(version, semesterById, academicYearById)}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={handleConfirmExistingVersion}
-                    disabled={pendingVersionId === ""}
-                    className={BUTTON_PRIMARY}
-                  >
-                    選擇此版本
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {pickerMode === "create" && (
-              <form onSubmit={handleCreateVersion} className="flex flex-col gap-3">
-                <div className="flex flex-col gap-1">
-                  <label htmlFor="new-version-semester" className={LABEL}>
-                    學期
-                  </label>
-                  <select
-                    id="new-version-semester"
-                    value={newSemesterId}
-                    onChange={(event) =>
-                      setNewSemesterId(
-                        event.target.value === "" ? "" : Number(event.target.value),
-                      )
-                    }
-                    required
-                    className={`${SELECT} max-w-xs`}
-                  >
-                    <option value="">請選擇…</option>
-                    {(semesters.data ?? []).map((semester) => (
-                      <option key={semester.id} value={semester.id}>
-                        {formatSemesterLabel(semester, academicYearById)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label htmlFor="new-version-number" className={LABEL}>
-                    版本編號
-                  </label>
-                  <input
-                    id="new-version-number"
-                    type="number"
-                    min={1}
-                    value={newVersionNumber}
-                    onChange={(event) => setNewVersionNumber(Number(event.target.value))}
-                    required
-                    className={`${INPUT} max-w-xs`}
-                  />
-                </div>
-                <div>
-                  <button type="submit" disabled={isCreating} className={BUTTON_PRIMARY}>
-                    {isCreating ? "建立中…" : "建立新版本"}
-                  </button>
-                </div>
-                {createError !== null && (
-                  <p role="alert" className={ERROR_TEXT}>
-                    {createError}
-                  </p>
-                )}
-              </form>
-            )}
-          </div>
+          ) : (
+            <div className={TABLE_WRAPPER}>
+              <table className={TABLE}>
+                <thead>
+                  <tr className={TABLE_HEAD_ROW}>
+                    <th className={TH}>紀錄</th>
+                    <th className={TH}>狀態</th>
+                    <th className={TH}>建立時間</th>
+                    <th className={TH}>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortRecords(versions, semesterById, academicYearById).map((version) => (
+                    <tr key={version.id} className={TR_HOVER}>
+                      <td className={TD}>{formatVersionLabel(version, semesterById, academicYearById)}</td>
+                      <td className={TD}>
+                        <span className={versionStatusBadgeClass(version.status)}>
+                          {formatVersionStatus(version.status)}
+                        </span>
+                      </td>
+                      <td className={TD}>{new Date(version.created_at).toLocaleString("zh-TW")}</td>
+                      <td className={TD}>
+                        <div className="flex flex-wrap gap-2">
+                          <Link
+                            to={`/timetable?scheduleVersionId=${version.id}`}
+                            className="font-medium text-blue-600 hover:underline"
+                          >
+                            檢視課表
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => handleSelectVersion(version)}
+                            className={BUTTON_LINK}
+                          >
+                            管理
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         ) : (
           // 已確認狀態:不管是「選擇既有版本」還是「建立新版本」走到這裡,
           // 呈現方式完全一樣 -- 這就是修正方向 1、3 要求的「單一、明確、
           // 一致」的狀態顯示。
           <div className={CARD}>
             <p className="flex flex-wrap items-center gap-2 font-semibold text-gray-900">
-              目前操作版本：
+              目前紀錄：
               {formatVersionLabel(selectedVersion, semesterById, academicYearById)}
               <span className={versionStatusBadgeClass(selectedVersion.status)}>
                 {formatVersionStatus(selectedVersion.status)}
               </span>
             </p>
-            {createFlash.message !== null && (
-              <p className={`${SUCCESS_TEXT} mt-1`}>✓ {createFlash.message}</p>
-            )}
-            <button type="button" onClick={handleResetVersionSelection} className={`${BUTTON_SECONDARY} mt-3`}>
-              重新選擇版本
-            </button>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link
+                to={`/timetable?scheduleVersionId=${selectedVersion.id}`}
+                className={BUTTON_PRIMARY}
+              >
+                {selectedVersion.status === "DRAFT" ? "檢視與手動修改課表" : "檢視課表"}
+              </Link>
+              <button type="button" onClick={handleResetVersionSelection} className={BUTTON_SECONDARY}>
+                回到紀錄列表
+              </button>
+            </div>
 
             {/* 版本管理(Task 67)-- 依狀態顯示不同動作,刻意不綁在「這次
                 session 剛排課成功」上:ADMIN 排課完後可能會先去課表檢視核
@@ -805,9 +710,9 @@ export default function SchedulerConsole(): ReactElement {
               )}
               <p className={`${HELP_TEXT} mt-2`}>
                 {selectedVersion.status === "DRAFT" &&
-                  "發布後老師就能在課表檢視看到這份課表；同學期原本生效的版本會自動改為已封存。已發布與已封存的課表內容都會鎖定，要修改請複製成新草稿。"}
+                  "發布後老師就能在課表看到這份課表；同學期原本生效的版本會自動改為已封存。已發布與已封存的課表內容都會鎖定，要修改請複製成新草稿。"}
                 {selectedVersion.status === "PUBLISHED" &&
-                  "這是本學期目前生效的課表，老師可以在課表檢視看到它。內容已鎖定；要修改請複製成新草稿，調整後再發布（發布時會自動取代這個版本）。也可以取消發布，之後隨時能再發布回來。"}
+                  "這是本學期目前生效的課表，老師可以在課表看到它。內容已鎖定；要修改請複製成新草稿，調整後再發布（發布時會自動取代這個版本）。也可以取消發布，之後隨時能再發布回來。"}
                 {selectedVersion.status === "ARCHIVED" &&
                   "這是已封存的版本，內容已鎖定，老師看不到。可以重新發布，讓它切換為本學期的生效版本（目前生效的版本會自動封存），或複製成新草稿再修改；不再需要時也可以刪除。"}
               </p>
@@ -818,9 +723,10 @@ export default function SchedulerConsole(): ReactElement {
 
       {selectedVersion !== null && (
         <>
-          {/* 步驟二:展開課程清單 */}
+          {/* 課程清單 -- 修改科目需求後重新展開 */}
           <section className={SECTION}>
-            <h2 className={SECTION_TITLE}>步驟二：展開課程清單</h2>
+            <h2 className={SECTION_TITLE}>課程清單</h2>
+            <p className={HELP_TEXT}>到「開始排課」修改科目需求後，在這裡重新展開課程清單，再重新自動排課。</p>
             <div className={CARD}>
               <button
                 type="button"
@@ -942,10 +848,10 @@ export default function SchedulerConsole(): ReactElement {
             </section>
           )}
 
-          {/* 步驟三:開始自動排課 */}
+          {/* 自動排課 */}
           {generateResult !== null && (
             <section className={SECTION}>
-              <h2 className={SECTION_TITLE}>步驟三：開始自動排課</h2>
+              <h2 className={SECTION_TITLE}>自動排課</h2>
               <div className={CARD}>
                 <button
                   type="button"
@@ -962,9 +868,9 @@ export default function SchedulerConsole(): ReactElement {
                       to={`/timetable?scheduleVersionId=${selectedVersion.id}`}
                       className="font-medium text-blue-600 hover:underline"
                     >
-                      課表檢視
+                      課表
                     </Link>
-                    查看，或建立新的草稿版本重新排課。
+                    查看並手動修改，或到「開始排課」重新排出一筆新紀錄。
                   </p>
                 )}
                 {isRunning && <p className={`${MUTED_TEXT} mt-2`}>排課可能需要一點時間，請耐心等候，畫面不會當機。</p>}

@@ -183,6 +183,21 @@ function cellDetailOf(row: EnrichedSchedule, viewMode: TimetableViewMode): strin
   return row.className;
 }
 
+// Task 98: a lesson held outside its class's own classroom says where (the
+// room view already is that room, so it doesn't repeat it there).
+function SpecialRoomNote({
+  lesson,
+  viewMode,
+}: {
+  lesson: EnrichedSchedule;
+  viewMode: TimetableViewMode;
+}): ReactElement | null {
+  if (lesson.specialRoomName === null || viewMode === "room") {
+    return null;
+  }
+  return <span className="text-xs text-indigo-700">＠{lesson.specialRoomName}</span>;
+}
+
 function lessonAriaLabel(lesson: EnrichedSchedule, selected: EnrichedSchedule | null): string {
   // Task 90: a lesson block's lessons say so (the bar is visual only).
   const name = `${lesson.className} ${lesson.subjectName}${blockGroupKey(lesson) !== null ? "（連堂）" : ""}`;
@@ -268,6 +283,7 @@ function LessonButton({
         )}
       </span>
       <span className="text-gray-500">{cellDetailOf(lesson, viewMode)}</span>
+      <SpecialRoomNote lesson={lesson} viewMode={viewMode} />
       {isSelected && <span className="text-xs font-semibold text-blue-700">✓ 已選取</span>}
     </button>
   );
@@ -732,6 +748,7 @@ export default function TimetableGrid({
                         <span className="font-medium text-gray-900">{schedule.subjectName}</span>
                         <br />
                         <span className="text-gray-500">{cellDetailOf(schedule, viewMode)}</span>
+                        <SpecialRoomNote lesson={schedule} viewMode={viewMode} />
                       </>
                     )}
                   </td>

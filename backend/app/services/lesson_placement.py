@@ -42,9 +42,11 @@ from app.models.room import Room
 from app.models.schedule import Schedule
 from app.models.schedule_version import ScheduleVersion
 from app.models.subject import Subject
-from app.models.teacher import Teacher, TeacherSubject
+from app.models.semester_teacher import SemesterTeacher
+from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
 from app.services import block_adjustment, schedule_check
+from app.services.school_scope import get_in_school, in_school, school_id_of_version
 from app.services.exceptions import (
     AdjustmentTargetNotFoundError,
     InactiveTeacherAssignmentError,
@@ -95,58 +97,37 @@ class UnscheduledLesson:
     block_seq: int | None
     lesson_pattern: str | None
     fixed_time_slot_id: int | None
-    # Task 92B: no room type -> the class's homeroom (what placing uses by
-    # default, None when the class has none); a room type -> the first
-    # active room of that type (by id), only a hint: placing doesn't pick it.
+    # Task 92B / 98: the required special room, else the class's homeroom
+    # (what placing uses by default, None when the class has none).
     suggested_room_id: int | None
-    # Active teachers qualified for the subject (TeacherSubject), by name.
+    # Task 98: the active teachers taking part in the semester, by name.
     eligible_teachers: list[EligibleTeacher]
-    # Task 94: the requirement's room type (None: 原班上課).
-    room_type: str | None = None
+    # Task 98: the requirement's special room (None: 原班教室).
+    required_room_id: int | None = None
     # Task 94: the room place-lesson uses when no room_id is sent --
     # default_room_id(), the very function placing calls.
     default_room_id: int | None = None
-    # Task 94: with a room type, whether at least one active room has
-    # exactly that type; None when the requirement has no room type (there
-    # is nothing to match).
-    has_matching_room: bool | None = None
 
 
-def default_room_id(required_room_type: str | None, homeroom_room_id: int | None) -> int | None:
-    """Task 92B / 94: the room a placement gets when the request names
-    none -- the class's homeroom for a requirement with no room type
-    (原班上課, like run-scheduler), else none. Shared by place-lesson /
-    place-candidates and the unscheduled list's default_room_id."""
-    return homeroom_room_id if required_room_type is None else None
+def default_room_id(required_room_id: int | None, homeroom_room_id: int | None) -> int | None:
+    """Task 92B / 94 / 98: the room a placement gets when the request names
+    none -- the requirement's required special room, else the class's
+    homeroom (原班上課, like run-scheduler), else none. Shared by
+    place-lesson / place-candidates and the unscheduled list's
+    default_room_id."""
+    return required_room_id if required_room_id is not None else homeroom_room_id
 
 
-def _eligible_teachers(db: Session, subject_ids: set[int]) -> dict[int, list[EligibleTeacher]]:
-    if not subject_ids:
-        return {}
+def _eligible_teachers(db: Session, semester_id: int) -> list[EligibleTeacher]:
+    """Task 98: the active teachers taking part in the semester's
+    scheduling, by name -- any of them may teach any lesson."""
     rows = db.execute(
-        select(TeacherSubject.subject_id, Teacher.id, Teacher.name)
-        .join(Teacher, TeacherSubject.teacher_id == Teacher.id)
-        .where(TeacherSubject.subject_id.in_(subject_ids), Teacher.is_active.is_(True))
+        select(Teacher.id, Teacher.name)
+        .join(SemesterTeacher, SemesterTeacher.teacher_id == Teacher.id)
+        .where(SemesterTeacher.semester_id == semester_id, Teacher.is_active.is_(True))
         .order_by(Teacher.name, Teacher.id)
     ).all()
-    by_subject: dict[int, list[EligibleTeacher]] = {subject_id: [] for subject_id in subject_ids}
-    for subject_id, teacher_id, name in rows:
-        by_subject[subject_id].append(EligibleTeacher(teacher_id, name))
-    return by_subject
-
-
-def _first_room_of_type(db: Session, room_types: set[str]) -> dict[str, int]:
-    if not room_types:
-        return {}
-    rooms = db.execute(
-        select(Room.room_type, Room.id)
-        .where(Room.room_type.in_(room_types), Room.is_active.is_(True))
-        .order_by(Room.id)
-    ).all()
-    first: dict[str, int] = {}
-    for room_type, room_id in rooms:
-        first.setdefault(room_type, room_id)
-    return first
+    return [EligibleTeacher(teacher_id, name) for teacher_id, name in rows]
 
 
 def list_unscheduled_lessons(
@@ -181,15 +162,7 @@ def list_unscheduled_lessons(
             Lesson.id,
         )
     ).all()
-    teachers = _eligible_teachers(db, {requirement.subject_id for _, requirement, _, _ in rows})
-    rooms = _first_room_of_type(
-        db,
-        {
-            requirement.required_room_type
-            for _, requirement, _, _ in rows
-            if requirement.required_room_type is not None
-        },
-    )
+    teachers = _eligible_teachers(db, schedule_version.semester_id)
     return [
         UnscheduledLesson(
             lesson_id=lesson.id,
@@ -204,18 +177,13 @@ def list_unscheduled_lessons(
             block_seq=lesson.block_seq,
             lesson_pattern=requirement.lesson_pattern,
             fixed_time_slot_id=lesson.fixed_time_slot_id,
-            suggested_room_id=(
-                class_.homeroom_room_id
-                if requirement.required_room_type is None
-                else rooms.get(requirement.required_room_type)
+            suggested_room_id=default_room_id(
+                requirement.required_room_id, class_.homeroom_room_id
             ),
-            eligible_teachers=list(teachers[requirement.subject_id]),
-            room_type=requirement.required_room_type,
-            default_room_id=default_room_id(requirement.required_room_type, class_.homeroom_room_id),
-            has_matching_room=(
-                None
-                if requirement.required_room_type is None
-                else requirement.required_room_type in rooms
+            eligible_teachers=list(teachers),
+            required_room_id=requirement.required_room_id,
+            default_room_id=default_room_id(
+                requirement.required_room_id, class_.homeroom_room_id
             ),
         )
         for lesson, requirement, class_, subject_name in rows
@@ -229,6 +197,7 @@ def list_unscheduled_lessons(
 class _Prepared:
     """Everything a placement of one lesson needs, loaded once."""
 
+    school_id: int
     lesson: Lesson
     requirement: ClassSubjectRequirement
     teacher_id: int
@@ -241,7 +210,10 @@ class _Prepared:
 
 
 def _resolve_teacher(
-    db: Session, requirement: ClassSubjectRequirement, teacher_id: int | None
+    db: Session,
+    requirement: ClassSubjectRequirement,
+    teacher_id: int | None,
+    school_id: int,
 ) -> int:
     """The request's teacher, else the required one, else TEACHER_REQUIRED.
     A deactivated teacher is refused, as for reassign-teacher."""
@@ -249,7 +221,7 @@ def _resolve_teacher(
         teacher_id = requirement.required_teacher_id
         if teacher_id is None:
             raise PlacementRefusedError(TEACHER_REQUIRED)
-    teacher = db.get(Teacher, teacher_id)
+    teacher = get_in_school(db, Teacher, teacher_id, school_id)
     if teacher is None:
         raise AdjustmentTargetNotFoundError("Teacher not found")
     if not teacher.is_active:
@@ -273,7 +245,8 @@ def _prepare(
     if schedule_version is None:
         return None
     raise_if_version_locked(schedule_version)
-    lesson = db.get(Lesson, lesson_id)
+    school_id = school_id_of_version(db, schedule_version)
+    lesson = get_in_school(db, Lesson, lesson_id, school_id)
     if lesson is None:
         raise AdjustmentTargetNotFoundError("Lesson not found")
     requirement = db.get(ClassSubjectRequirement, lesson.class_subject_requirement_id)
@@ -292,14 +265,14 @@ def _prepare(
         raise LessonAlreadyScheduledError(
             f"Lesson {lesson_id} already has Schedule {already} in this version."
         )
-    resolved_teacher_id = _resolve_teacher(db, requirement, teacher_id)
-    if room_id is not None and db.get(Room, room_id) is None:
+    resolved_teacher_id = _resolve_teacher(db, requirement, teacher_id, school_id)
+    if room_id is not None and get_in_school(db, Room, room_id, school_id) is None:
         raise AdjustmentTargetNotFoundError("Room not found")
     if room_id is None:
         # Task 92B: 原班上課 -> the homeroom, exactly like run-scheduler.
         class_ = db.get(Class, requirement.class_id)
         assert class_ is not None  # foreign key
-        room_id = default_room_id(requirement.required_room_type, class_.homeroom_room_id)
+        room_id = default_room_id(requirement.required_room_id, class_.homeroom_room_id)
 
     rows = schedule_check.load_assignment_rows(db, schedule_version_id)
     context = schedule_check.load_check_context(db, schedule_version.semester_id, schedule_version_id)
@@ -310,6 +283,7 @@ def _prepare(
         )
     ).all()
     return _Prepared(
+        school_id=school_id,
         lesson=lesson,
         requirement=requirement,
         teacher_id=resolved_teacher_id,
@@ -401,7 +375,9 @@ def list_place_candidates(
         return None
     in_block = prepared.layout.is_lesson_in_block(lesson_id)
     time_slots = db.scalars(
-        select(TimeSlot).order_by(TimeSlot.weekday, TimeSlot.period, TimeSlot.id)
+        select(TimeSlot)
+        .where(in_school(TimeSlot, prepared.school_id))
+        .order_by(TimeSlot.weekday, TimeSlot.period, TimeSlot.id)
     ).all()
 
     candidates: list[PlaceCandidate] = []
@@ -493,7 +469,7 @@ def place_lesson(
     prepared = _prepare(db, schedule_version_id, lesson_id, teacher_id, room_id)
     if prepared is None:
         return None
-    if db.get(TimeSlot, time_slot_id) is None:
+    if get_in_school(db, TimeSlot, time_slot_id, prepared.school_id) is None:
         raise AdjustmentTargetNotFoundError("TimeSlot not found")
     placement = _plan(prepared, time_slot_id)
     if placement.refusal is not None:

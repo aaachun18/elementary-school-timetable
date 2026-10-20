@@ -2,13 +2,13 @@ from fastapi.testclient import TestClient
 
 from app.models.user import User
 
-# Task 59: account management endpoints (ADMIN only). The `client` fixture
+# Task 59: account management endpoints (ADMIN only). The `admin_client` fixture
 # is the ADMIN (admin_user); `teacher_user` / `teacher_client` is a second,
 # TEACHER account in the same database.
 
 
-def _login(client: TestClient, username: str, password: str) -> int:
-    response = client.post(
+def _login(admin_client: TestClient, username: str, password: str) -> int:
+    response = admin_client.post(
         "/api/v1/auth/login", data={"username": username, "password": password}
     )
     return response.status_code
@@ -17,15 +17,23 @@ def _login(client: TestClient, username: str, password: str) -> int:
 # --- GET /api/v1/users ---
 
 
-def test_list_users_as_admin(client: TestClient, teacher_user: User) -> None:
-    response = client.get("/api/v1/users/")
+def test_list_users_as_admin(admin_client: TestClient, teacher_user: User) -> None:
+    response = admin_client.get("/api/v1/users/")
 
     assert response.status_code == 200
     data = response.json()
     assert [item["username"] for item in data] == ["admin_test", "teacher_test"]
     assert [item["role"] for item in data] == ["ADMIN", "TEACHER"]
     for item in data:
-        assert set(item.keys()) == {"id", "username", "role"}
+        # Task 98 added is_active, school_id and teacher_name.
+        assert set(item.keys()) == {
+            "id",
+            "username",
+            "role",
+            "is_active",
+            "school_id",
+            "teacher_name",
+        }
         assert "hashed_password" not in item
 
 
@@ -46,19 +54,19 @@ def test_list_users_as_teacher_returns_403(teacher_client: TestClient) -> None:
 # --- PATCH /api/v1/users/{id}/password ---
 
 
-def test_reset_password_as_admin(client: TestClient, teacher_user: User) -> None:
-    response = client.patch(
+def test_reset_password_as_admin(admin_client: TestClient, teacher_user: User) -> None:
+    response = admin_client.patch(
         f"/api/v1/users/{teacher_user.id}/password",
         json={"password": "brand-new-pass"},
     )
 
     assert response.status_code == 204
-    assert _login(client, "teacher_test", "brand-new-pass") == 200
-    assert _login(client, "teacher_test", "teacher-test-password") == 401
+    assert _login(admin_client, "teacher_test", "brand-new-pass") == 200
+    assert _login(admin_client, "teacher_test", "teacher-test-password") == 401
 
 
-def test_reset_password_not_found(client: TestClient) -> None:
-    response = client.patch(
+def test_reset_password_not_found(admin_client: TestClient) -> None:
+    response = admin_client.patch(
         "/api/v1/users/999999/password", json={"password": "brand-new-pass"}
     )
 
@@ -77,46 +85,46 @@ def test_reset_password_as_teacher_returns_403(
 
 
 def test_reset_password_invalid_body_returns_422(
-    client: TestClient, teacher_user: User
+    admin_client: TestClient, teacher_user: User
 ) -> None:
     # Same rule as register's password field: a required string.
-    missing_response = client.patch(
+    missing_response = admin_client.patch(
         f"/api/v1/users/{teacher_user.id}/password", json={}
     )
-    wrong_type_response = client.patch(
+    wrong_type_response = admin_client.patch(
         f"/api/v1/users/{teacher_user.id}/password", json={"password": 12345}
     )
 
     assert missing_response.status_code == 422
     assert wrong_type_response.status_code == 422
     # Neither rejected request may have changed the password.
-    assert _login(client, "teacher_test", "teacher-test-password") == 200
+    assert _login(admin_client, "teacher_test", "teacher-test-password") == 200
 
 
 # --- DELETE /api/v1/users/{id} ---
 
 
-def test_delete_user_as_admin(client: TestClient, teacher_user: User) -> None:
-    response = client.delete(f"/api/v1/users/{teacher_user.id}")
+def test_delete_user_as_admin(admin_client: TestClient, teacher_user: User) -> None:
+    response = admin_client.delete(f"/api/v1/users/{teacher_user.id}")
 
     assert response.status_code == 204
-    assert _login(client, "teacher_test", "teacher-test-password") == 401
-    usernames = [item["username"] for item in client.get("/api/v1/users/").json()]
+    assert _login(admin_client, "teacher_test", "teacher-test-password") == 401
+    usernames = [item["username"] for item in admin_client.get("/api/v1/users/").json()]
     assert "teacher_test" not in usernames
 
 
-def test_delete_user_not_found(client: TestClient) -> None:
-    response = client.delete("/api/v1/users/999999")
+def test_delete_user_not_found(admin_client: TestClient) -> None:
+    response = admin_client.delete("/api/v1/users/999999")
 
     assert response.status_code == 404
 
 
-def test_delete_self_returns_409(client: TestClient, admin_user: User) -> None:
-    response = client.delete(f"/api/v1/users/{admin_user.id}")
+def test_delete_self_returns_409(admin_client: TestClient, admin_user: User) -> None:
+    response = admin_client.delete(f"/api/v1/users/{admin_user.id}")
 
     assert response.status_code == 409
     assert response.json()["detail"] == "不能刪除目前登入中的帳號"
-    usernames = [item["username"] for item in client.get("/api/v1/users/").json()]
+    usernames = [item["username"] for item in admin_client.get("/api/v1/users/").json()]
     assert "admin_test" in usernames
 
 
@@ -129,12 +137,12 @@ def test_delete_user_as_teacher_returns_403(
 
 
 def test_deleted_users_token_is_rejected(
-    client: TestClient, teacher_client: TestClient, teacher_user: User
+    admin_client: TestClient, teacher_client: TestClient, teacher_user: User
 ) -> None:
     # The teacher's token works before the account is deleted...
     assert teacher_client.get("/api/v1/schools/").status_code == 200
 
-    delete_response = client.delete(f"/api/v1/users/{teacher_user.id}")
+    delete_response = admin_client.delete(f"/api/v1/users/{teacher_user.id}")
     assert delete_response.status_code == 204
 
     # ...and is rejected immediately afterwards, well before it expires:
@@ -155,9 +163,9 @@ def _validation_messages(response_json: dict) -> list[str]:
 
 
 def test_reset_password_too_short_rejected(
-    client: TestClient, teacher_user: User
+    admin_client: TestClient, teacher_user: User
 ) -> None:
-    response = client.patch(
+    response = admin_client.patch(
         f"/api/v1/users/{teacher_user.id}/password", json={"password": "7chars!"}
     )
 
@@ -166,13 +174,13 @@ def test_reset_password_too_short_rejected(
         PASSWORD_TOO_SHORT_MESSAGE in msg
         for msg in _validation_messages(response.json())
     )
-    assert _login(client, "teacher_test", "teacher-test-password") == 200
+    assert _login(admin_client, "teacher_test", "teacher-test-password") == 200
 
 
 def test_reset_password_too_long_rejected(
-    client: TestClient, teacher_user: User
+    admin_client: TestClient, teacher_user: User
 ) -> None:
-    response = client.patch(
+    response = admin_client.patch(
         f"/api/v1/users/{teacher_user.id}/password", json={"password": "a" * 73}
     )
 
@@ -181,28 +189,28 @@ def test_reset_password_too_long_rejected(
         PASSWORD_TOO_LONG_MESSAGE in msg
         for msg in _validation_messages(response.json())
     )
-    assert _login(client, "teacher_test", "teacher-test-password") == 200
+    assert _login(admin_client, "teacher_test", "teacher-test-password") == 200
 
 
 def test_reset_password_40_ascii_characters_accepted(
-    client: TestClient, teacher_user: User
+    admin_client: TestClient, teacher_user: User
 ) -> None:
     # Regression guard: a 40-character ASCII password is well inside the
     # rule (40 characters, 40 bytes) and must never be reported as too long.
-    response = client.patch(
+    response = admin_client.patch(
         f"/api/v1/users/{teacher_user.id}/password", json={"password": "a" * 40}
     )
 
     assert response.status_code == 204
-    assert _login(client, "teacher_test", "a" * 40) == 200
+    assert _login(admin_client, "teacher_test", "a" * 40) == 200
 
 
 def test_reset_password_over_72_bytes_rejected(
-    client: TestClient, teacher_user: User
+    admin_client: TestClient, teacher_user: User
 ) -> None:
     # 25 Chinese characters = 75 UTF-8 bytes: within 72 characters, but
     # over bcrypt's 72-byte input limit -- same rule as register.
-    response = client.patch(
+    response = admin_client.patch(
         f"/api/v1/users/{teacher_user.id}/password", json={"password": "密" * 25}
     )
 
@@ -211,15 +219,15 @@ def test_reset_password_over_72_bytes_rejected(
         PASSWORD_TOO_LONG_MESSAGE in msg
         for msg in _validation_messages(response.json())
     )
-    assert _login(client, "teacher_test", "teacher-test-password") == 200
+    assert _login(admin_client, "teacher_test", "teacher-test-password") == 200
 
 
 def test_reset_password_exactly_8_characters_accepted(
-    client: TestClient, teacher_user: User
+    admin_client: TestClient, teacher_user: User
 ) -> None:
-    response = client.patch(
+    response = admin_client.patch(
         f"/api/v1/users/{teacher_user.id}/password", json={"password": "8chars!!"}
     )
 
     assert response.status_code == 204
-    assert _login(client, "teacher_test", "8chars!!") == 200
+    assert _login(admin_client, "teacher_test", "8chars!!") == 200

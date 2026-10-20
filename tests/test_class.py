@@ -1,9 +1,11 @@
 from fastapi.testclient import TestClient
+from tests.conftest import next_free_grade_level_via_api
 
 
 def _create_grade(client: TestClient, level: int) -> int:
     response = client.post(
-        "/api/v1/grades/", json={"name": f"Grade {level}", "level": level}
+        "/api/v1/grades/",
+        json={"name": f"Grade {level}", "level": next_free_grade_level_via_api(client)},
     )
     grade_id: int = response.json()["id"]
     return grade_id
@@ -120,7 +122,7 @@ def test_create_class_invalid_grade_id(client: TestClient) -> None:
 def test_create_class_with_homeroom_room(client: TestClient) -> None:
     grade_id = _create_grade(client, level=8)
     room_response = client.post(
-        "/api/v1/rooms/", json={"name": "Homeroom Room", "room_type": "普通教室"}
+        "/api/v1/rooms/", json={"name": "Homeroom Room"}
     )
     room_id = room_response.json()["id"]
 

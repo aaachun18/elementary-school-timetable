@@ -13,22 +13,21 @@ export const ROOM_CHANGE_SCOPE_LABELS: Record<RoomChangeScope, string> = {
 export interface RoomChoice {
   id: number;
   label: string;
-  // The room's type is exactly the requirement's room type.
-  matchesType: boolean;
+  // Task 98: the requirement's own special room.
+  isRequired: boolean;
 }
 
 function byName(a: Room, b: Room): number {
   return a.name < b.name ? -1 : a.name > b.name ? 1 : a.id - b.id;
 }
 
-// Active rooms only, those of exactly the requirement's room type first
-// (by name), then the rest (by name). Labels carry the type, so a room
-// NAMED like a type can't be mistaken for one of that type.
-export function roomChoices(rooms: readonly Room[], requiredRoomType: string | null): RoomChoice[] {
+// Active rooms only, the requirement's own special room first, then the
+// rest by name (Task 98: rooms have no types any more).
+export function roomChoices(rooms: readonly Room[], requiredRoomId: number | null): RoomChoice[] {
   const active = rooms.filter((room) => room.is_active);
-  const matches = (room: Room): boolean => requiredRoomType !== null && room.room_type === requiredRoomType;
-  return [...active.filter(matches).sort(byName), ...active.filter((room) => !matches(room)).sort(byName)].map(
-    (room) => ({ id: room.id, label: `${room.name}（${room.room_type}）`, matchesType: matches(room) }),
+  const isRequired = (room: Room): boolean => room.id === requiredRoomId;
+  return [...active.filter(isRequired), ...active.filter((room) => !isRequired(room)).sort(byName)].map(
+    (room) => ({ id: room.id, label: room.name, isRequired: isRequired(room) }),
   );
 }
 

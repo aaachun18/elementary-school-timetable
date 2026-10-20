@@ -1,4 +1,6 @@
 from fastapi.testclient import TestClient
+from tests.api_helpers import create_teacher, enroll_teacher
+from tests.conftest import next_free_grade_level_via_api
 
 
 def _time_slot_payload(**overrides: object) -> dict[str, object]:
@@ -157,20 +159,47 @@ def test_update_time_slot_label(client: TestClient) -> None:
     assert response.json()["label"] == "午餐/午休"
 
 
-# --- Task 50: deleting a TimeSlot must also clear its own
-# TeacherAvailability rows (owned join-entity, no independent meaning once
-# the slot itself is gone), but still be blocked by a REAL reference --
-# Lesson.fixed_time_slot_id or Schedule.time_slot_id -- and when blocked,
-# no teacher's unavailable-slot records must be touched. ---
+# --- Task 50 / 98: deleting a TimeSlot also clears the rows that only
+# describe it -- a teacher's unavailable slot and a grade's open slot in a
+# semester (owned settings, no meaning once the slot is gone) -- but is
+# still blocked by a REAL reference: Lesson.fixed_time_slot_id or
+# Schedule.time_slot_id. When blocked, no setting is touched. ---
 
 
-def _create_teacher(client: TestClient, name: str) -> int:
-    response = client.post(
-        "/api/v1/teachers/",
-        json={"name": name, "min_weekly_periods": 1, "max_weekly_periods": 20},
+def _settings_on_slot(client: TestClient, time_slot_id: int, year: int) -> tuple[int, int, int]:
+    """A semester where one teacher is unavailable at the slot and one grade
+    is open at it. Returns (semester_id, teacher_id, grade_id)."""
+    academic_year_id = client.post(
+        "/api/v1/academic-years/", json={"year": year}
+    ).json()["id"]
+    semester_id = client.post(
+        "/api/v1/semesters/",
+        json={"academic_year_id": academic_year_id, "number": 1},
+    ).json()["id"]
+    teacher_id = create_teacher(client, f"Unavailable Teacher {year}")
+    enroll_teacher(client, semester_id, teacher_id, unavailable_time_slot_ids=[time_slot_id])
+    grade_id = client.post(
+        "/api/v1/grades/", json={"name": f"Open Grade {year}", "level": next_free_grade_level_via_api(client)}
+    ).json()["id"]
+    response = client.put(
+        f"/api/v1/semesters/{semester_id}/grades/{grade_id}/time-slots",
+        json={"time_slot_ids": [time_slot_id]},
     )
-    teacher_id: int = response.json()["id"]
-    return teacher_id
+    assert response.status_code == 200
+    return semester_id, teacher_id, grade_id
+
+
+def _unavailable(client: TestClient, semester_id: int) -> list[int]:
+    [teacher] = client.get(f"/api/v1/semesters/{semester_id}/teachers").json()
+    slot_ids: list[int] = teacher["unavailable_time_slot_ids"]
+    return slot_ids
+
+
+def _open_slots(client: TestClient, semester_id: int) -> list[list[int]]:
+    return [
+        item["time_slot_ids"]
+        for item in client.get(f"/api/v1/semesters/{semester_id}/grade-time-slots").json()
+    ]
 
 
 def _create_lesson(client: TestClient, year: int) -> tuple[int, int]:
@@ -185,7 +214,7 @@ def _create_lesson(client: TestClient, year: int) -> tuple[int, int]:
         json={"academic_year_id": academic_year_id, "number": 1},
     ).json()["id"]
     grade_id = client.post(
-        "/api/v1/grades/", json={"name": f"Grade {year}", "level": year % 1000}
+        "/api/v1/grades/", json={"name": f"Grade {year}", "level": next_free_grade_level_via_api(client)}
     ).json()["id"]
     class_id = client.post(
         "/api/v1/classes/", json={"grade_id": grade_id, "name": f"Class {year}"}
@@ -213,41 +242,31 @@ def _create_lesson(client: TestClient, year: int) -> tuple[int, int]:
     return lesson_id, version_id
 
 
-def test_delete_time_slot_with_teacher_unavailability_succeeds(
+def test_delete_time_slot_clears_the_semester_settings_on_it(
     client: TestClient,
 ) -> None:
     time_slot_id = client.post(
         "/api/v1/time-slots/", json=_time_slot_payload(period=9)
     ).json()["id"]
-    teacher_id = _create_teacher(client, "Unavailable Teacher 50a")
-    add_response = client.post(
-        f"/api/v1/teachers/{teacher_id}/unavailable-slots",
-        json={"time_slot_id": time_slot_id},
-    )
-    assert add_response.status_code == 201
+    semester_id, teacher_id, _ = _settings_on_slot(client, time_slot_id, year=2109)
 
     response = client.delete(f"/api/v1/time-slots/{time_slot_id}")
 
     assert response.status_code == 204
-    # The TeacherAvailability row is genuinely gone, not just the slot --
-    # the teacher's own unavailable-slots list is now empty.
-    slots_response = client.get(f"/api/v1/teachers/{teacher_id}/unavailable-slots")
-    assert slots_response.status_code == 200
-    assert slots_response.json() == []
+    # The setting rows are genuinely gone, not just the slot; the teacher
+    # still takes part in the semester.
+    assert _unavailable(client, semester_id) == []
+    assert _open_slots(client, semester_id) == []
     assert client.get(f"/api/v1/teachers/{teacher_id}").status_code == 200
 
 
-def test_delete_time_slot_blocked_by_fixed_lesson_keeps_availability(
+def test_delete_time_slot_blocked_by_fixed_lesson_keeps_settings(
     client: TestClient,
 ) -> None:
     time_slot_id = client.post(
         "/api/v1/time-slots/", json=_time_slot_payload(period=10)
     ).json()["id"]
-    teacher_id = _create_teacher(client, "Unavailable Teacher 50b")
-    client.post(
-        f"/api/v1/teachers/{teacher_id}/unavailable-slots",
-        json={"time_slot_id": time_slot_id},
-    )
+    semester_id, _, _ = _settings_on_slot(client, time_slot_id, year=2112)
     lesson_id, _ = _create_lesson(client, year=2110)
     fix_response = client.patch(
         f"/api/v1/lessons/{lesson_id}/fix-time-slot",
@@ -259,29 +278,23 @@ def test_delete_time_slot_blocked_by_fixed_lesson_keeps_availability(
 
     assert response.status_code == 409
     assert response.json()["detail"] == "此資料仍被其他資料參照，無法刪除"
-    # TimeSlot AND the teacher's unavailable-slot record both survived --
-    # the transaction was fully rolled back, not partially applied.
-    get_response = client.get(f"/api/v1/time-slots/{time_slot_id}")
-    assert get_response.status_code == 200
-    slots_response = client.get(f"/api/v1/teachers/{teacher_id}/unavailable-slots")
-    assert [s["id"] for s in slots_response.json()] == [time_slot_id]
-    # The fixed Lesson itself is untouched too.
+    # TimeSlot AND the settings on it all survived -- the transaction was
+    # fully rolled back, not partially applied.
+    assert client.get(f"/api/v1/time-slots/{time_slot_id}").status_code == 200
+    assert _unavailable(client, semester_id) == [time_slot_id]
+    assert _open_slots(client, semester_id) == [[time_slot_id]]
     assert client.get(f"/api/v1/lessons/{lesson_id}").json()["fixed_time_slot_id"] == (
         time_slot_id
     )
 
 
-def test_delete_time_slot_blocked_by_schedule_keeps_availability(
+def test_delete_time_slot_blocked_by_schedule_keeps_settings(
     client: TestClient,
 ) -> None:
     time_slot_id = client.post(
         "/api/v1/time-slots/", json=_time_slot_payload(period=11)
     ).json()["id"]
-    teacher_id = _create_teacher(client, "Unavailable Teacher 50c")
-    client.post(
-        f"/api/v1/teachers/{teacher_id}/unavailable-slots",
-        json={"time_slot_id": time_slot_id},
-    )
+    semester_id, _, _ = _settings_on_slot(client, time_slot_id, year=2113)
     lesson_id, version_id = _create_lesson(client, year=2111)
     create_schedule_response = client.post(
         "/api/v1/schedules/",
@@ -297,7 +310,5 @@ def test_delete_time_slot_blocked_by_schedule_keeps_availability(
 
     assert response.status_code == 409
     assert response.json()["detail"] == "此資料仍被其他資料參照，無法刪除"
-    get_response = client.get(f"/api/v1/time-slots/{time_slot_id}")
-    assert get_response.status_code == 200
-    slots_response = client.get(f"/api/v1/teachers/{teacher_id}/unavailable-slots")
-    assert [s["id"] for s in slots_response.json()] == [time_slot_id]
+    assert client.get(f"/api/v1/time-slots/{time_slot_id}").status_code == 200
+    assert _unavailable(client, semester_id) == [time_slot_id]

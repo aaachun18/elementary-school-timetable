@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from app.models.school import School
 from app.models.user import User
 
 
@@ -18,15 +19,24 @@ def test_register_creates_user(unauthenticated_client: TestClient) -> None:
     assert "password" not in data
 
 
-def test_register_duplicate_username_conflict(client: TestClient) -> None:
+def test_register_duplicate_username_conflict(
+    admin_client: TestClient, account_school: School
+) -> None:
     # Task 57: once any user exists, register needs an ADMIN token -- the
-    # `client` fixture's ADMIN, so the second call reaches the same
-    # duplicate-username 409 as before.
-    payload = {"username": "dupuser", "password": "s3cret-pass", "role": "TEACHER"}
-    first_response = client.post("/api/v1/auth/register", json=payload)
+    # `admin_client` fixture's ADMIN, so the second call reaches the same
+    # duplicate-username 409 as before. (Task 98: a TEACHER account needs
+    # a school and a teacher name.)
+    payload = {
+        "username": "dupuser",
+        "password": "s3cret-pass",
+        "role": "TEACHER",
+        "school_id": account_school.id,
+        "teacher_name": "王老師",
+    }
+    first_response = admin_client.post("/api/v1/auth/register", json=payload)
     assert first_response.status_code == 201
 
-    response = client.post("/api/v1/auth/register", json=payload)
+    response = admin_client.post("/api/v1/auth/register", json=payload)
 
     assert response.status_code == 409
 
@@ -110,11 +120,17 @@ def test_register_first_user_is_always_admin(
 ) -> None:
     response = unauthenticated_client.post(
         "/api/v1/auth/register",
-        json={"username": "firstuser", "password": "s3cret-pass", "role": "TEACHER"},
+        json={
+            "username": "firstuser",
+            "password": "s3cret-pass",
+            "role": "TEACHER",
+            "teacher_name": "王老師",
+        },
     )
 
     assert response.status_code == 201
     assert response.json()["role"] == "ADMIN"
+    assert response.json()["school_id"] is None
 
 
 def test_register_anonymous_rejected_when_users_exist(
@@ -149,18 +165,27 @@ def test_register_teacher_token_forbidden(teacher_client: TestClient) -> None:
     assert response.status_code == 403
 
 
-def test_register_admin_creates_teacher(client: TestClient) -> None:
-    response = client.post(
+def test_register_admin_creates_teacher(
+    admin_client: TestClient, account_school: School
+) -> None:
+    response = admin_client.post(
         "/api/v1/auth/register",
-        json={"username": "newteacher", "password": "s3cret-pass", "role": "TEACHER"},
+        json={
+            "username": "newteacher",
+            "password": "s3cret-pass",
+            "role": "TEACHER",
+            "school_id": account_school.id,
+            "teacher_name": "王老師",
+        },
     )
 
     assert response.status_code == 201
     assert response.json()["role"] == "TEACHER"
+    assert response.json()["school_id"] == account_school.id
 
 
-def test_register_admin_creates_admin(client: TestClient) -> None:
-    response = client.post(
+def test_register_admin_creates_admin(admin_client: TestClient) -> None:
+    response = admin_client.post(
         "/api/v1/auth/register",
         json={"username": "secondadmin", "password": "s3cret-pass", "role": "ADMIN"},
     )

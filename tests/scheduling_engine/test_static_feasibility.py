@@ -9,9 +9,6 @@ from scheduling_engine.models.domain import (
     LessonAssignment,
     RequiredTeacherRule,
     RequirementPeriods,
-    RoomInfo,
-    RoomTypeRequirement,
-    TeacherQualification,
     TeacherUnavailability,
     TeacherWorkloadLimit,
     TimeSlotInfo,
@@ -39,11 +36,10 @@ def _pending_lesson(
 def _empty_resources(**overrides: object) -> SchedulingResources:
     base = dict(
         time_slot_ids=[],
-        teacher_qualifications=[],
+        teacher_ids=[],
         teacher_unavailability=[],
         required_teacher_rules=[],
-        room_type_requirements=[],
-        rooms=[],
+        required_room_rules=[],
         time_slots=[],
         active_statuses=[],
         requirement_periods=[],
@@ -68,7 +64,7 @@ def test_static_feasibility_passes_with_ample_resources() -> None:
         required_teacher_rules=[
             RequiredTeacherRule(class_subject_requirement_id=1, required_teacher_id=6)
         ],
-        teacher_qualifications=[TeacherQualification(teacher_id=6, subject_id=10)],
+        teacher_ids=[6],
         teacher_workload_limits=[
             TeacherWorkloadLimit(teacher_id=6, max_weekly_periods=10)
         ],
@@ -109,7 +105,7 @@ def test_static_feasibility_detects_teacher_workload_exceeded() -> None:
             RequiredTeacherRule(class_subject_requirement_id=1, required_teacher_id=6),
             RequiredTeacherRule(class_subject_requirement_id=2, required_teacher_id=6),
         ],
-        teacher_qualifications=[TeacherQualification(teacher_id=6, subject_id=8)],
+        teacher_ids=[6],
         # 6 lessons required of teacher 6, but their cap is 5.
         teacher_workload_limits=[
             TeacherWorkloadLimit(teacher_id=6, max_weekly_periods=5)
@@ -141,7 +137,7 @@ def test_static_feasibility_teacher_workload_ok_when_within_cap() -> None:
         required_teacher_rules=[
             RequiredTeacherRule(class_subject_requirement_id=1, required_teacher_id=6)
         ],
-        teacher_qualifications=[TeacherQualification(teacher_id=6, subject_id=8)],
+        teacher_ids=[6],
         teacher_workload_limits=[
             TeacherWorkloadLimit(teacher_id=6, max_weekly_periods=2)
         ],
@@ -167,7 +163,7 @@ def test_static_feasibility_detects_teacher_availability_insufficient() -> None:
         required_teacher_rules=[
             RequiredTeacherRule(class_subject_requirement_id=1, required_teacher_id=6)
         ],
-        teacher_qualifications=[TeacherQualification(teacher_id=6, subject_id=8)],
+        teacher_ids=[6],
         # ...but teacher 6 is unavailable for 2 of them, leaving only 1
         # available slot for 3 required lessons.
         teacher_unavailability=[
@@ -205,7 +201,7 @@ def test_static_feasibility_teacher_availability_ok_when_sufficient() -> None:
         required_teacher_rules=[
             RequiredTeacherRule(class_subject_requirement_id=1, required_teacher_id=6)
         ],
-        teacher_qualifications=[TeacherQualification(teacher_id=6, subject_id=8)],
+        teacher_ids=[6],
         teacher_unavailability=[
             TeacherUnavailability(teacher_id=6, time_slot_id=200),
         ],
@@ -274,7 +270,7 @@ def test_static_feasibility_detects_inactive_required_teacher() -> None:
         required_teacher_rules=[
             RequiredTeacherRule(class_subject_requirement_id=1, required_teacher_id=6)
         ],
-        teacher_qualifications=[TeacherQualification(teacher_id=6, subject_id=8)],
+        teacher_ids=[6],
         teacher_workload_limits=[
             TeacherWorkloadLimit(teacher_id=6, max_weekly_periods=10)
         ],
@@ -336,16 +332,12 @@ def test_static_feasibility_reports_all_three_kinds_independently() -> None:
             RequiredTeacherRule(class_subject_requirement_id=1, required_teacher_id=6),
             RequiredTeacherRule(class_subject_requirement_id=2, required_teacher_id=7),
         ],
-        teacher_qualifications=[
-            TeacherQualification(teacher_id=6, subject_id=8),
-            TeacherQualification(teacher_id=7, subject_id=9),
-            # Requirement 3's lesson has no required_teacher_id, so it just
-            # needs SOME qualified teacher to avoid also tripping the 4th
-            # (zero-candidate-teacher) check this test isn't about --
-            # see test_static_feasibility_reports_workload_and_zero_
-            # candidate_together below for that combination specifically.
-            TeacherQualification(teacher_id=50, subject_id=10),
-        ],
+        # Requirement 3's lesson has no required_teacher_id, so it just
+        # needs SOME teacher taking part to avoid also tripping the 4th
+        # (zero-candidate-teacher) check this test isn't about -- see
+        # test_static_feasibility_reports_workload_and_zero_candidate_together
+        # below for that combination specifically.
+        teacher_ids=[6, 7, 50],
         teacher_workload_limits=[
             TeacherWorkloadLimit(teacher_id=6, max_weekly_periods=1),  # too low
             TeacherWorkloadLimit(teacher_id=7, max_weekly_periods=10),  # fine
@@ -392,9 +384,10 @@ def test_static_feasibility_detects_zero_candidate_teacher_lesson() -> None:
     assert failure.reasons[0].type == "NO_CANDIDATE_TEACHER"
 
 
-def test_static_feasibility_detects_required_teacher_not_qualified_lesson() -> None:
-    """Same H6-not-H5-qualified distinction as
-    test_backtracking_reports_required_teacher_not_qualified -- must be
+def test_static_feasibility_detects_required_teacher_not_participating_lesson() -> None:
+    """Same required-teacher-not-taking-part distinction as
+    test_backtracking_reports_required_teacher_not_participating (Task 98;
+    it was "not qualified" before qualifications were removed) -- must be
     caught here too, not just inside schedule_backtracking()'s own
     pre-flight, since this check now runs INSTEAD of ever reaching that
     pre-flight whenever check_static_feasibility() is what run_scheduler()
@@ -407,8 +400,8 @@ def test_static_feasibility_detects_required_teacher_not_qualified_lesson() -> N
         required_teacher_rules=[
             RequiredTeacherRule(class_subject_requirement_id=1, required_teacher_id=6)
         ],
-        # Teacher 6 exists and is qualified for OTHER subjects, but not 8.
-        teacher_qualifications=[TeacherQualification(teacher_id=6, subject_id=9)],
+        # Teacher 7 takes part in the semester, the required teacher 6 doesn't.
+        teacher_ids=[7],
     )
 
     result = check_static_feasibility(lessons, resources)
@@ -416,15 +409,16 @@ def test_static_feasibility_detects_required_teacher_not_qualified_lesson() -> N
     assert result.feasible is False
     assert len(result.lesson_failures) == 1
     reason = result.lesson_failures[0].reasons[0]
-    assert reason.type == "H6_REQUIRED_TEACHER_NOT_QUALIFIED"
+    assert reason.type == "H6_REQUIRED_TEACHER_NOT_PARTICIPATING"
     assert reason.teacher_id == 6
 
 
 def test_static_feasibility_reports_workload_and_zero_candidate_together() -> None:
     """Task 38 regression: the exact bug a real user hit. A workload
     problem (requirement 1, teacher 6) and a completely separate
-    zero-candidate-teacher problem (requirement 2, no one qualified for
-    subject 99) in the SAME run used to only ever report the workload one
+    zero-candidate-teacher problem (requirement 2 -- Task 98: its required
+    teacher doesn't take part in the semester) in the SAME run used to only
+    ever report the workload one
     -- run_scheduler() returned as soon as check_static_feasibility() found
     ANYTHING, before schedule_backtracking()'s own pre-flight (the only
     place that used to catch zero-candidate lessons) ever got a chance to
@@ -434,15 +428,16 @@ def test_static_feasibility_reports_workload_and_zero_candidate_together() -> No
         # requirement 2's problem.
         _pending_lesson(1, class_subject_requirement_id=1, class_id=1, subject_id=8),
         _pending_lesson(2, class_subject_requirement_id=1, class_id=1, subject_id=8),
-        # Requirement 2: nobody at all is qualified for subject 99.
+        # Requirement 2: its required teacher 9 doesn't take part.
         _pending_lesson(3, class_subject_requirement_id=2, class_id=2, subject_id=99),
     ]
     resources = _empty_resources(
         time_slot_ids=[100, 200],
         required_teacher_rules=[
             RequiredTeacherRule(class_subject_requirement_id=1, required_teacher_id=6),
+            RequiredTeacherRule(class_subject_requirement_id=2, required_teacher_id=9),
         ],
-        teacher_qualifications=[TeacherQualification(teacher_id=6, subject_id=8)],
+        teacher_ids=[6],
         teacher_workload_limits=[
             TeacherWorkloadLimit(teacher_id=6, max_weekly_periods=1),  # too low
         ],
@@ -459,4 +454,6 @@ def test_static_feasibility_reports_workload_and_zero_candidate_together() -> No
     assert len(result.lesson_failures) == 1
     assert result.lesson_failures[0].lesson_id == 3
     assert result.lesson_failures[0].class_subject_requirement_id == 2
-    assert result.lesson_failures[0].reasons[0].type == "NO_CANDIDATE_TEACHER"
+    assert (
+        result.lesson_failures[0].reasons[0].type == "H6_REQUIRED_TEACHER_NOT_PARTICIPATING"
+    )

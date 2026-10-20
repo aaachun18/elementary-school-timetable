@@ -25,6 +25,7 @@ from dataclasses import dataclass, replace
 from scheduling_engine.algorithms.resources import (
     LookupTables,
     SchedulingResources,
+    allowed_time_slots_of_class,
     candidate_room_ids,
     candidate_teacher_ids,
     candidate_time_slot_ids,
@@ -119,8 +120,13 @@ def build_units(
 
 def unit_windows(unit: SchedulingUnit, resources: SchedulingResources) -> list[tuple[int, ...]]:
     """A block's start windows, keeping only those that put every fixed
-    lesson (pending time_slot_id already set, Task 28) in its fixed slot."""
+    lesson (pending time_slot_id already set, Task 28) in its fixed slot.
+    Task 98 (H13): and only windows entirely inside the time slots the
+    class's grade is open for."""
     windows = block_windows(len(unit.lessons), resources)
+    allowed = allowed_time_slots_of_class(unit.lessons[0].class_id, resources)
+    if allowed is not None:
+        windows = [window for window in windows if all(slot_id in allowed for slot_id in window)]
     for index, lesson in enumerate(unit.lessons):
         if lesson.time_slot_id is not None:
             windows = [window for window in windows if window[index] == lesson.time_slot_id]

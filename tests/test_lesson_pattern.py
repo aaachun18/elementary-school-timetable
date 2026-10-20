@@ -18,13 +18,12 @@ from app.services.lesson_pattern import (
     normalize_lesson_pattern,
 )
 from tests.test_requirement_edit_lock import _build_world, _set_status
+from tests.api_helpers import create_enrolled_teacher
 from tests.test_scheduler import (
-    _add_teacher_subject,
     _create_class,
     _create_schedule_version,
     _create_semester,
     _create_subject,
-    _create_teacher,
     _create_time_slot,
 )
 
@@ -109,8 +108,7 @@ def _setup(client: TestClient, year: int) -> Setup:
     semester_id = _create_semester(client, year)
     class_id = _create_class(client, level=year)
     subject_id = _create_subject(client, name=f"Subject {year}")
-    teacher_id = _create_teacher(client, name=f"Teacher {year}")
-    _add_teacher_subject(client, teacher_id, subject_id)
+    teacher_id = create_enrolled_teacher(client, semester_id, f"Teacher {year}")
     return Setup(semester_id, class_id, subject_id, teacher_id)
 
 

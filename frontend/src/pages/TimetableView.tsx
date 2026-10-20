@@ -24,7 +24,7 @@ import { useResource } from "../hooks/useResource";
 import { useScheduleCheck } from "../hooks/useScheduleCheck";
 import { useTimetableData, type EnrichedSchedule } from "../hooks/useTimetableData";
 import { useUnscheduledLessons } from "../hooks/useUnscheduledLessons";
-import { isCurrentUserAdmin } from "../utils/auth";
+import { isCurrentUserCoordinator } from "../utils/auth";
 import { getViolationSentence, resolveTimeSlotLabel } from "../utils/failureDiagnostics";
 import { blockGroupMemberIds } from "../utils/lessonBlocks";
 import { lessonTargetId } from "../utils/lessonDrop";
@@ -40,7 +40,7 @@ import {
   cardsForView,
   firstPlacedSlot,
   lessonCount,
-  missingRoomTypeHint,
+  requiredRoomHint,
   roomForCard,
   teacherForCard,
   type PlacementCard,
@@ -120,7 +120,9 @@ export default function TimetableView(): ReactElement {
 
   // --- Task 68: 檢查衝突 (ADMIN only; the backend would also let a TEACHER
   // check a PUBLISHED version, this is a UI scoping choice). ---
-  const isAdmin = isCurrentUserAdmin();
+  // Task 98: "isAdmin" here means whoever may edit scheduling data -- a
+  // 教學組長 (backend require_coordinator).
+  const isAdmin = isCurrentUserCoordinator();
   const scheduleCheck = useScheduleCheck(selectedVersionId);
   // The TimeSlot whose cell 「在課表中查看」 (or, Task 69, a saved move/swap)
   // marked. Cleared by any other change of what the grid shows (view,
@@ -654,6 +656,10 @@ export default function TimetableView(): ReactElement {
     });
   }
 
+  function roomNameOf(roomId: number | null): string | null {
+    return (roomsResource.data ?? []).find((room) => room.id === roomId)?.name ?? null;
+  }
+
   const isLoadingLookups =
     versionsResource.isLoading ||
     semesters.isLoading ||
@@ -741,7 +747,19 @@ export default function TimetableView(): ReactElement {
 
   return (
     <div className={PAGE}>
-      <h1 className={PAGE_TITLE}>課表檢視</h1>
+      <h1 className={PAGE_TITLE}>課表</h1>
+      {/* Task 98: a timetable is opened from its 排課紀錄; managing it
+          (publish, copy, schedule again) is back there. */}
+      {isAdmin && (
+        <p className="mb-3 text-sm">
+          <Link
+            to={selectedVersionId === null ? "/records" : `/records?scheduleVersionId=${selectedVersionId}`}
+            className="font-medium text-blue-600 hover:underline"
+          >
+            ← 回到排課紀錄
+          </Link>
+        </p>
+      )}
       {/* Task 67: only ADMIN can ever pick an ARCHIVED version here (a
           TEACHER's version list is PUBLISHED-only, enforced by the
           backend). */}
@@ -938,14 +956,10 @@ export default function TimetableView(): ReactElement {
                   >
                     取消
                   </button>
-                  {/* Task 94: the required room type matches no active room. */}
-                  {missingRoomTypeHint(selectedCard) !== null && (
-                    <span className="w-full text-amber-800" role="status">
-                      {missingRoomTypeHint(selectedCard)}（
-                      <Link to="/data?tab=rooms" className="text-blue-600 hover:underline">
-                        到教室資料確認類型
-                      </Link>
-                      ）
+                  {/* Task 98: the requirement's special room. */}
+                  {requiredRoomHint(selectedCard, roomNameOf) !== null && (
+                    <span className="w-full text-gray-700" role="status">
+                      {requiredRoomHint(selectedCard, roomNameOf)}
                     </span>
                   )}
                 </div>
@@ -986,9 +1000,9 @@ export default function TimetableView(): ReactElement {
                       key={selectedLesson.scheduleId}
                       lesson={selectedLesson}
                       rooms={roomsResource.data}
-                      requiredRoomType={
+                      requiredRoomId={
                         timetable.data?.lookups.requirementById.get(selectedLesson.requirementId)
-                          ?.required_room_type ?? null
+                          ?.required_room_id ?? null
                       }
                       disabled={isBusy || timetable.isLoading}
                       onPreview={handleRoomChangePreview}

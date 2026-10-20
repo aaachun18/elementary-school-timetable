@@ -8,12 +8,18 @@ from app.services.exceptions import (
     DependentRecordsExistError,
     raise_for_integrity_error,
 )
+from app.services.school_scope import get_in_school, in_school
 
 
 def create_academic_year(
-    db: Session, academic_year_data: AcademicYearCreate
+    db: Session,
+    academic_year_data: AcademicYearCreate,
+    *,
+    school_id: int,
 ) -> AcademicYear:
-    academic_year = AcademicYear(year=academic_year_data.year, is_active=True)
+    academic_year = AcademicYear(
+        school_id=school_id, year=academic_year_data.year, is_active=True
+    )
     db.add(academic_year)
     try:
         db.commit()
@@ -24,21 +30,28 @@ def create_academic_year(
     return academic_year
 
 
-def get_academic_year(db: Session, academic_year_id: int) -> AcademicYear | None:
-    return db.get(AcademicYear, academic_year_id)
+def get_academic_year(
+    db: Session,
+    academic_year_id: int,
+    *,
+    school_id: int,
+) -> AcademicYear | None:
+    return get_in_school(db, AcademicYear, academic_year_id, school_id)
 
 
 def get_academic_years(
-    db: Session, skip: int = 0, limit: int = 100
+    db: Session, skip: int = 0, limit: int = 100, *, school_id: int
 ) -> list[AcademicYear]:
-    stmt = select(AcademicYear).offset(skip).limit(limit)
+    stmt = select(
+        AcademicYear
+    ).where(in_school(AcademicYear, school_id)).offset(skip).limit(limit)
     return list(db.scalars(stmt).all())
 
 
 def update_academic_year(
-    db: Session, academic_year_id: int, academic_year_data: AcademicYearUpdate
+    db: Session, academic_year_id: int, academic_year_data: AcademicYearUpdate, *, school_id: int
 ) -> AcademicYear | None:
-    academic_year = db.get(AcademicYear, academic_year_id)
+    academic_year = get_in_school(db, AcademicYear, academic_year_id, school_id)
     if academic_year is None:
         return None
 
@@ -54,8 +67,8 @@ def update_academic_year(
     return academic_year
 
 
-def delete_academic_year(db: Session, academic_year_id: int) -> bool:
-    academic_year = db.get(AcademicYear, academic_year_id)
+def delete_academic_year(db: Session, academic_year_id: int, *, school_id: int) -> bool:
+    academic_year = get_in_school(db, AcademicYear, academic_year_id, school_id)
     if academic_year is None:
         return False
 

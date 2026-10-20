@@ -1,8 +1,8 @@
 from fastapi.testclient import TestClient
 
 
-def test_create_school(client: TestClient) -> None:
-    response = client.post("/api/v1/schools/", json={"name": "Test School"})
+def test_create_school(admin_client: TestClient) -> None:
+    response = admin_client.post("/api/v1/schools/", json={"name": "Test School"})
 
     assert response.status_code == 201
     data = response.json()
@@ -13,8 +13,8 @@ def test_create_school(client: TestClient) -> None:
     assert "updated_at" in data
 
 
-def test_create_school_cannot_set_is_active(client: TestClient) -> None:
-    response = client.post(
+def test_create_school_cannot_set_is_active(admin_client: TestClient) -> None:
+    response = admin_client.post(
         "/api/v1/schools/", json={"name": "Test School", "is_active": False}
     )
 
@@ -22,39 +22,39 @@ def test_create_school_cannot_set_is_active(client: TestClient) -> None:
     assert response.json()["is_active"] is True
 
 
-def test_get_school_list(client: TestClient) -> None:
-    client.post("/api/v1/schools/", json={"name": "List Test School"})
+def test_get_school_list(admin_client: TestClient) -> None:
+    admin_client.post("/api/v1/schools/", json={"name": "List Test School"})
 
-    response = client.get("/api/v1/schools/")
+    response = admin_client.get("/api/v1/schools/")
 
     assert response.status_code == 200
     names = [item["name"] for item in response.json()]
     assert "List Test School" in names
 
 
-def test_get_school_by_id(client: TestClient) -> None:
-    create_response = client.post(
+def test_get_school_by_id(admin_client: TestClient) -> None:
+    create_response = admin_client.post(
         "/api/v1/schools/", json={"name": "Get Test School"}
     )
     school_id = create_response.json()["id"]
 
-    response = client.get(f"/api/v1/schools/{school_id}")
+    response = admin_client.get(f"/api/v1/schools/{school_id}")
 
     assert response.status_code == 200
     assert response.json()["name"] == "Get Test School"
 
 
-def test_get_school_not_found(client: TestClient) -> None:
-    response = client.get("/api/v1/schools/999999")
+def test_get_school_not_found(admin_client: TestClient) -> None:
+    response = admin_client.get("/api/v1/schools/999999")
 
     assert response.status_code == 404
 
 
-def test_update_school(client: TestClient) -> None:
-    create_response = client.post("/api/v1/schools/", json={"name": "Old Name"})
+def test_update_school(admin_client: TestClient) -> None:
+    create_response = admin_client.post("/api/v1/schools/", json={"name": "Old Name"})
     school_id = create_response.json()["id"]
 
-    response = client.patch(
+    response = admin_client.patch(
         f"/api/v1/schools/{school_id}", json={"name": "New Name"}
     )
 
@@ -62,22 +62,22 @@ def test_update_school(client: TestClient) -> None:
     assert response.json()["name"] == "New Name"
 
 
-def test_update_school_not_found(client: TestClient) -> None:
-    response = client.patch("/api/v1/schools/999999", json={"name": "Nope"})
+def test_update_school_not_found(admin_client: TestClient) -> None:
+    response = admin_client.patch("/api/v1/schools/999999", json={"name": "Nope"})
 
     assert response.status_code == 404
 
 
-def test_delete_school(client: TestClient) -> None:
-    create_response = client.post("/api/v1/schools/", json={"name": "Delete Me"})
+def test_delete_school(admin_client: TestClient) -> None:
+    create_response = admin_client.post("/api/v1/schools/", json={"name": "Delete Me"})
     school_id = create_response.json()["id"]
 
-    response = client.delete(f"/api/v1/schools/{school_id}")
+    response = admin_client.delete(f"/api/v1/schools/{school_id}")
 
     assert response.status_code == 204
 
 
-def test_delete_school_not_found(client: TestClient) -> None:
-    response = client.delete("/api/v1/schools/999999")
+def test_delete_school_not_found(admin_client: TestClient) -> None:
+    response = admin_client.delete("/api/v1/schools/999999")
 
     assert response.status_code == 404

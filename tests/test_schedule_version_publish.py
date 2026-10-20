@@ -12,6 +12,7 @@ from app.models.schedule import Schedule
 from app.models.schedule_version import ScheduleVersion
 from app.schemas.schedule_version import ScheduleVersionUpdate
 from app.services import schedule_version as schedule_version_service
+from tests.conftest import get_test_school_id
 from tests.test_reassign_teacher import Builder, World, _build_world, _rows_of
 
 # Task 64: publishing switches the semester's live version -- exactly one
@@ -334,7 +335,10 @@ def test_failed_publish_rolls_back_the_archive(
 
     with pytest.raises(RuntimeError):
         schedule_version_service.update_schedule_version(
-            db_session, v2.id, ScheduleVersionUpdate(status="PUBLISHED")
+            db_session,
+            v2.id,
+            ScheduleVersionUpdate(status="PUBLISHED"),
+            school_id=get_test_school_id(db_session),
         )
 
     assert _statuses(db_session, v1, v2) == ["PUBLISHED", "DRAFT"]

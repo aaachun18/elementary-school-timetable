@@ -1,55 +1,38 @@
-"""Seed a complete, deliberately generous test dataset for exercising the
-scheduler end-to-end (generate-lessons -> run-scheduler) without having to
-click through Swagger UI by hand.
+"""Seed a demo school for the scheduling wizard (Task 98 rewrite).
 
-Design choice: Service layer, not the HTTP API
-------------------------------------------------
-This script calls app.services.* functions directly against a real Session
-(the exact same functions the routers call), rather than going through
-FastAPI/TestClient/requests. Reasoning:
-- It reuses every bit of the routers' underlying validation (FK existence,
-  UNIQUE/CHECK violations -> the same DuplicateValueError/
-  InvalidReferenceError the API would raise) for free, since that logic
-  lives in the service layer, not in the routers themselves.
-- It's much faster to iterate with (no HTTP roundtrips, no JWT/auth setup
-  needed for a trusted local script).
-- It deliberately does NOT import app.main -- nothing here constructs the
-  FastAPI app object or touches routers, so there is no FastAPI-related
-  side effect at all from running this script (see the impact-assessment
-  notes in the Task 24 report).
+Creates, in the dev database (DATABASE_URL), one complete, schedulable
+school -- the same data a 教學組長 would enter through 開始排課:
 
-Impact assessment (Task 24) -- summary, see the full report for detail:
-1. No side-effect-triggering imports: only app.config / app.database /
-   app.models / app.schemas / app.services.* are imported. app.main (and
-   therefore every app.routers.* module) is never imported.
-2. Dev vs test database: app.config.Settings only declares `database_url`
-   (from DATABASE_URL) as a field -- TEST_DATABASE_URL isn't a recognized
-   field at all (see SettingsConfigDict(extra="ignore")), so there is no
-   code path by which this script could end up reading TEST_DATABASE_URL.
-   The resolved URL is also printed (password redacted) before anything is
-   written, as a final human sanity check.
-3. Not pytest-collectible: this file's name starts with "seed_", matching
-   neither of pytest's default collection patterns (test_*.py / *_test.py),
-   and it lives under scripts/, outside the `tests/` path that this
-   project's test invocations always pass explicitly.
-4. tests/ uses a completely separate database (TEST_DATABASE_URL) and its
-   own engine (tests/conftest.py) -- this script never imports anything
-   from tests/, so it cannot affect it, and running `pytest tests/ -v`
-   cannot import this script either (see point 3).
+- the school 示範國小 and its accounts: a 系統管理員 (only when the
+  database has none yet), a 教學組長 and eight 一般老師 (each account
+  creates its Teacher);
+- 115 學年度第 1 學期; Monday-Friday periods 0-8 as teaching periods;
+- subjects, special rooms (自然教室, 音樂教室) and one homeroom per class;
+- 一年級 to 六年級 with one class each (一年甲班 ...);
+- the semester's settings: every teacher takes part (8-20 periods a week,
+  a few unavailable slots), every grade open for its band's default slots;
+- each class's requirements (國語 taught by the class's own teacher,
+  science and music in their special rooms, a few lesson patterns);
+- a DRAFT schedule version with its lessons generated -- and, with --run,
+  the scheduler run on it.
+
+Like before, the script calls app.services.* directly (the same functions
+the routers call, so the same validation) and never imports app.main.
+
+It refuses to run twice: if 示範國小 already exists it stops. Dev data is
+disposable (Task 98 decision) -- reset the database to start over, e.g.
+`alembic downgrade base && alembic upgrade head`.
 
 Usage:
-    python scripts/seed_test_data.py             # first run / clean slate
-    python scripts/seed_test_data.py --confirm    # wipe a PREVIOUS run of
-                                                   # this exact script first
-                                                   # (see manifest notes
-                                                   # below), then reseed
+    python scripts/seed_test_data.py          # seed
+    python scripts/seed_test_data.py --run    # seed, then run the scheduler
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 # scripts/seed_test_data.py -> parent.parent is the repo root, which holds
@@ -60,354 +43,246 @@ BACKEND_DIR = REPO_ROOT / "backend"
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from sqlalchemy import delete, select  # noqa: E402
+from sqlalchemy import select  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
 from app.config import get_settings  # noqa: E402
 from app.database import get_session_local  # noqa: E402
-from app.models.academic_year import AcademicYear, Semester  # noqa: E402
-from app.models.class_subject_requirement import ClassSubjectRequirement  # noqa: E402
-from app.models.grade_class import Class, Grade  # noqa: E402
-from app.models.lesson import Lesson  # noqa: E402
-from app.models.schedule import Schedule  # noqa: E402
-from app.models.schedule_version import ScheduleVersion  # noqa: E402
 from app.models.school import School  # noqa: E402
-from app.models.subject import Subject  # noqa: E402
-from app.models.teacher import Teacher, TeacherAvailability, TeacherSubject  # noqa: E402
-from app.models.time_slot import TimeSlot  # noqa: E402
+from app.models.teacher import Teacher  # noqa: E402
+from app.models.user import ADMIN, User  # noqa: E402
 from app.schemas.academic_year import AcademicYearCreate  # noqa: E402
 from app.schemas.class_ import ClassCreate  # noqa: E402
-from app.schemas.class_subject_requirement import (  # noqa: E402
-    ClassSubjectRequirementCreate,
-)
+from app.schemas.class_subject_requirement import ClassSubjectRequirementCreate  # noqa: E402
 from app.schemas.grade import GradeCreate  # noqa: E402
+from app.schemas.room import RoomCreate  # noqa: E402
 from app.schemas.schedule_version import ScheduleVersionCreate  # noqa: E402
 from app.schemas.school import SchoolCreate  # noqa: E402
 from app.schemas.semester import SemesterCreate  # noqa: E402
+from app.schemas.semester_settings import SemesterTeacherEntry, SemesterTeachersUpdate  # noqa: E402
 from app.schemas.subject import SubjectCreate  # noqa: E402
-from app.schemas.teacher import TeacherCreate  # noqa: E402
 from app.schemas.time_slot import TimeSlotCreate  # noqa: E402
+from app.schemas.user import UserCreate  # noqa: E402
 from app.services import academic_year as academic_year_service  # noqa: E402
 from app.services import class_ as class_service  # noqa: E402
-from app.services import class_subject_requirement as csr_service  # noqa: E402
+from app.services import class_subject_requirement as requirement_service  # noqa: E402
 from app.services import grade as grade_service  # noqa: E402
+from app.services import room as room_service  # noqa: E402
 from app.services import schedule_version as schedule_version_service  # noqa: E402
+from app.services import scheduler as scheduler_service  # noqa: E402
 from app.services import school as school_service  # noqa: E402
 from app.services import semester as semester_service  # noqa: E402
+from app.services import semester_settings as settings_service  # noqa: E402
 from app.services import subject as subject_service  # noqa: E402
-from app.services import teacher as teacher_service  # noqa: E402
 from app.services import time_slot as time_slot_service  # noqa: E402
+from app.services import user as user_service  # noqa: E402
+from app.services.grade_levels import grade_band  # noqa: E402
 
-# Distinctive, unrealistic marker values -- chosen specifically so they can
-# never collide with genuine dev data (a real academic year is never 9999;
-# a real elementary grade level is never 901-903), used both for human
-# readability in Swagger UI and as the "does seed data already exist"
-# detection anchor.
-SEED_YEAR = 9999
-SEED_TAG = "[SEED]"
-GRADE_LEVELS = [901, 902, 903]
-CLASSES_PER_GRADE = 2
-SUBJECT_NAMES = ["國語", "數學", "英語", "自然", "藝術"]
+SCHOOL_NAME = "示範國小"
+PASSWORD = "demo-pass-123"
+ADMIN_USERNAME = "admin"
+COORDINATOR_USERNAME = "coordinator"
+ACADEMIC_YEAR = 115
+SEMESTER_NUMBER = 1
 WEEKDAYS = [1, 2, 3, 4, 5]
-PERIODS_PER_DAY = [1, 2, 3, 4, 5, 6]
-TEACHER_NAMES = ["王老師", "林老師", "陳老師", "李老師", "楊老師"]
-# teacher index -> subject names they're qualified for. Every subject has
-# >= 2 qualified teachers, so no single teacher is a bottleneck.
-TEACHER_QUALIFICATIONS = [
-    ["國語", "數學"],
-    ["國語", "英語"],
-    ["數學", "自然"],
-    ["英語", "藝術"],
-    ["自然", "藝術"],
+PERIODS = list(range(0, 9))  # 第 0 節 (早自習時段) to 第 8 節
+
+GRADE_NAMES = ["一年級", "二年級", "三年級", "四年級", "五年級", "六年級"]
+CLASS_NAMES = ["一年甲班", "二年甲班", "三年甲班", "四年甲班", "五年甲班", "六年甲班"]
+# The class's own teacher (導師) teaches its 國語: teacher index per class.
+TEACHER_NAMES = ["王老師", "林老師", "陳老師", "李老師", "張老師", "吳老師", "黃老師", "劉老師"]
+SUBJECT_NAMES = ["國語", "數學", "英語", "自然", "社會", "體育", "美勞", "音樂"]
+SPECIAL_ROOMS = ["自然教室", "音樂教室"]
+MIN_WEEKLY_PERIODS = 8
+MAX_WEEKLY_PERIODS = 20
+
+
+@dataclass(frozen=True)
+class RequirementSpec:
+    subject: str
+    weekly_periods: int
+    lesson_pattern: str | None = None
+    special_room: str | None = None
+    homeroom_teacher: bool = False
+
+
+LOWER_REQUIREMENTS = [
+    RequirementSpec("國語", 6, "2+1+1+1+1", homeroom_teacher=True),
+    RequirementSpec("數學", 4),
+    RequirementSpec("體育", 2),
+    RequirementSpec("美勞", 2, "2"),
+    RequirementSpec("音樂", 2, special_room="音樂教室"),
+]
+UPPER_REQUIREMENTS = [
+    RequirementSpec("國語", 5, homeroom_teacher=True),
+    RequirementSpec("數學", 4),
+    RequirementSpec("英語", 2),
+    RequirementSpec("自然", 3, "2+1", special_room="自然教室"),
+    RequirementSpec("社會", 2),
+    RequirementSpec("體育", 2),
+    RequirementSpec("美勞", 2, "2"),
+    RequirementSpec("音樂", 1, special_room="音樂教室"),
 ]
 
-MANIFEST_PATH = Path(__file__).resolve().parent / ".seed_manifest.json"
 
-
-def _redact_db_url(url: str) -> str:
-    """Hide the password portion of a SQLAlchemy URL for safe printing."""
+def _redacted_url() -> str:
+    url = get_settings().database_url
     if "@" not in url or "://" not in url:
         return url
-    scheme_and_creds, host_part = url.rsplit("@", 1)
-    scheme, creds = scheme_and_creds.split("://", 1)
-    user = creds.split(":", 1)[0]
-    return f"{scheme}://{user}:***@{host_part}"
+    scheme, rest = url.split("://", 1)
+    credentials, host = rest.split("@", 1)
+    user = credentials.split(":", 1)[0]
+    return f"{scheme}://{user}:***@{host}"
 
 
-def _load_manifest() -> dict | None:
-    if not MANIFEST_PATH.exists():
-        return None
-    return json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
-
-
-def _save_manifest(manifest: dict) -> None:
-    MANIFEST_PATH.write_text(
-        json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
-
-
-def _wipe_previous_seed(db: Session, manifest: dict) -> None:
-    """Delete EXACTLY the rows recorded in a previous run's manifest, in
-    dependency order (children before parents). Using the manifest's exact
-    IDs -- rather than guessing from names/markers -- means this can never
-    touch a row it didn't itself create, even if unrelated dev data happens
-    to share a naming convention.
-
-    Exception: ScheduleVersion. Lesson is version-independent (it belongs
-    to a ClassSubjectRequirement, shared across every ScheduleVersion of a
-    semester -- see app/models/lesson.py), but the manifest only recorded
-    the ONE ScheduleVersion id that existed at seed time. If the user later
-    creates another ScheduleVersion for this same seeded semester (e.g. via
-    the frontend 排課控制台's "建立新版本" flow) and runs generate-lessons/
-    run-scheduler on it, that produces Schedule rows tied to a
-    schedule_version_id the manifest never recorded, referencing the same
-    (manifest-tracked) Lesson rows -- deleting those Lessons would then hit
-    a FK violation from the untracked version's Schedule rows. So instead
-    of trusting the manifest's single recorded id, every ScheduleVersion
-    currently belonging to the seeded semester_id is looked up fresh here,
-    right before deleting.
-    """
-    semester_id = manifest["semester_id"]
-    academic_year_id = manifest["academic_year_id"]
-    school_id = manifest["school_id"]
-    requirement_ids = manifest["requirement_ids"]
-    teacher_ids = manifest["teacher_ids"]
-    class_ids = manifest["class_ids"]
-    grade_ids = manifest["grade_ids"]
-    subject_ids = manifest["subject_ids"]
-    time_slot_ids = manifest["time_slot_ids"]
-
-    schedule_version_ids = list(
-        db.scalars(
-            select(ScheduleVersion.id).where(
-                ScheduleVersion.semester_id == semester_id
-            )
+def _accounts(db: Session, school_id: int) -> tuple[User, list[Teacher]]:
+    admin = db.scalars(select(User).where(User.role == ADMIN)).first()
+    if admin is None:
+        admin = user_service.create_user(
+            db, UserCreate(username=ADMIN_USERNAME, password=PASSWORD, role="ADMIN")
         )
+        print(f"系統管理員：{ADMIN_USERNAME} / {PASSWORD}")
+    coordinator = user_service.create_user(
+        db,
+        UserCreate(
+            username=COORDINATOR_USERNAME, password=PASSWORD, role="COORDINATOR", school_id=school_id
+        ),
+        admin,
     )
-
-    db.execute(
-        delete(Schedule).where(Schedule.schedule_version_id.in_(schedule_version_ids))
-    )
-    db.execute(
-        delete(Lesson).where(Lesson.class_subject_requirement_id.in_(requirement_ids))
-    )
-    db.execute(
-        delete(ClassSubjectRequirement).where(
-            ClassSubjectRequirement.id.in_(requirement_ids)
+    teachers: list[Teacher] = []
+    for index, name in enumerate(TEACHER_NAMES, start=1):
+        account = user_service.create_user(
+            db,
+            UserCreate(
+                username=f"teacher{index:02d}",
+                password=PASSWORD,
+                role="TEACHER",
+                teacher_name=name,
+            ),
+            coordinator,
         )
-    )
-    db.execute(
-        delete(ScheduleVersion).where(ScheduleVersion.id.in_(schedule_version_ids))
-    )
-    db.execute(delete(Semester).where(Semester.id == semester_id))
-    db.execute(delete(AcademicYear).where(AcademicYear.id == academic_year_id))
-    db.execute(
-        delete(TeacherAvailability).where(
-            TeacherAvailability.teacher_id.in_(teacher_ids)
-            | TeacherAvailability.time_slot_id.in_(time_slot_ids)
-        )
-    )
-    db.execute(delete(TeacherSubject).where(TeacherSubject.teacher_id.in_(teacher_ids)))
-    db.execute(delete(Teacher).where(Teacher.id.in_(teacher_ids)))
-    db.execute(delete(Class).where(Class.id.in_(class_ids)))
-    db.execute(delete(Grade).where(Grade.id.in_(grade_ids)))
-    db.execute(delete(Subject).where(Subject.id.in_(subject_ids)))
-    db.execute(delete(TimeSlot).where(TimeSlot.id.in_(time_slot_ids)))
-    db.execute(delete(School).where(School.id == school_id))
-    db.commit()
+        teacher = db.scalars(select(Teacher).where(Teacher.user_id == account.id)).one()
+        teachers.append(teacher)
+    print(f"教學組長：{COORDINATOR_USERNAME} / {PASSWORD}；一般老師：teacher01-teacher{len(TEACHER_NAMES):02d} / {PASSWORD}")
+    return coordinator, teachers
 
 
-def _seed(db: Session) -> dict:
-    school = school_service.create_school(
-        db, SchoolCreate(name=f"{SEED_TAG} 測試國小")
-    )
-    academic_year = academic_year_service.create_academic_year(
-        db, AcademicYearCreate(year=SEED_YEAR)
+def seed(db: Session, *, run: bool) -> None:
+    if db.scalars(select(School).where(School.name == SCHOOL_NAME)).first() is not None:
+        raise SystemExit(f"「{SCHOOL_NAME}」已經存在，不重複建立。要重來請先重設開發資料庫。")
+
+    school = school_service.create_school(db, SchoolCreate(name=SCHOOL_NAME))
+    school_id = school.id
+    _, teachers = _accounts(db, school_id)
+
+    year = academic_year_service.create_academic_year(
+        db, AcademicYearCreate(year=ACADEMIC_YEAR), school_id=school_id
     )
     semester = semester_service.create_semester(
-        db, SemesterCreate(academic_year_id=academic_year.id, number=1)
+        db, SemesterCreate(academic_year_id=year.id, number=SEMESTER_NUMBER), school_id=school_id
     )
-
-    grades = [
-        grade_service.create_grade(
-            db, GradeCreate(name=f"{SEED_TAG} 第{i + 1}級", level=level)
+    slots = {
+        (weekday, period): time_slot_service.create_time_slot(
+            db, TimeSlotCreate(weekday=weekday, period=period), school_id=school_id
         )
-        for i, level in enumerate(GRADE_LEVELS)
-    ]
-
-    classes: list[Class] = []
-    for grade in grades:
-        for section in range(CLASSES_PER_GRADE):
-            label = chr(ord("A") + section)
-            classes.append(
-                class_service.create_class(
-                    db,
-                    ClassCreate(
-                        grade_id=grade.id, name=f"{SEED_TAG} {grade.level}班{label}"
-                    ),
-                )
-            )
-
+        for weekday in WEEKDAYS
+        for period in PERIODS
+    }
     subjects = {
-        name: subject_service.create_subject(
-            db, SubjectCreate(name=f"{SEED_TAG} {name}")
-        )
+        name: subject_service.create_subject(db, SubjectCreate(name=name), school_id=school_id)
         for name in SUBJECT_NAMES
     }
+    special_rooms = {
+        name: room_service.create_room(db, RoomCreate(name=name), school_id=school_id)
+        for name in SPECIAL_ROOMS
+    }
 
-    time_slots: list[TimeSlot] = []
-    for weekday in WEEKDAYS:
-        for period in PERIODS_PER_DAY:
-            time_slots.append(
-                time_slot_service.create_time_slot(
-                    db, TimeSlotCreate(weekday=weekday, period=period)
-                )
+    classes = []
+    for level, (grade_name, class_name) in enumerate(zip(GRADE_NAMES, CLASS_NAMES), start=1):
+        grade = grade_service.create_grade(db, GradeCreate(name=grade_name, level=level), school_id=school_id)
+        homeroom = room_service.create_room(db, RoomCreate(name=f"{class_name}教室"), school_id=school_id)
+        classes.append(
+            class_service.create_class(
+                db,
+                ClassCreate(grade_id=grade.id, name=class_name, homeroom_room_id=homeroom.id),
+                school_id=school_id,
             )
-
-    teachers: list[Teacher] = []
-    for name, qualified_subjects in zip(
-        TEACHER_NAMES, TEACHER_QUALIFICATIONS, strict=True
-    ):
-        teacher = teacher_service.create_teacher(
-            db,
-            TeacherCreate(
-                name=f"{SEED_TAG} {name}",
-                min_weekly_periods=0,
-                # Generous on purpose: with only 30 time slots and no
-                # requirement needing more than 4 weekly periods, nothing
-                # here is meant to be a tight constraint.
-                max_weekly_periods=20,
-            ),
         )
-        for subject_name in qualified_subjects:
-            teacher_service.add_teacher_subject(
-                db, teacher.id, subjects[subject_name].id
-            )
-        teachers.append(teacher)
+        defaults = settings_service.default_grade_time_slots(db, grade.id, school_id=school_id)
+        assert defaults is not None
+        settings_service.replace_grade_time_slots(db, semester.id, grade.id, defaults, school_id=school_id)
 
-    # 8 requirements across the 6 classes. Only two pin a required_teacher
-    # (per the Task 24 spec: "大部分不指定...只留 1-2 筆示範"), and both
-    # pinned teachers are: (a) actually qualified for that subject, and (b)
-    # nowhere near their max_weekly_periods or availability limits -- see
-    # scheduling_engine/static_feasibility.py (Task 23), which would reject
-    # this dataset outright if either weren't true.
-    teacher_by_name = {t.name.removeprefix(f"{SEED_TAG} "): t for t in teachers}
-    requirement_specs = [
-        (classes[0], "國語", 4, None),
-        (classes[0], "數學", 4, teacher_by_name["王老師"].id),
-        (classes[1], "英語", 3, None),
-        (classes[2], "自然", 3, None),
-        (classes[3], "藝術", 2, None),
-        (classes[4], "國語", 4, None),
-        (classes[5], "數學", 4, teacher_by_name["陳老師"].id),
-        (classes[4], "英語", 2, None),
-    ]
-    requirements: list[ClassSubjectRequirement] = []
-    for class_obj, subject_name, weekly_periods, required_teacher_id in requirement_specs:
-        requirements.append(
-            csr_service.create_class_subject_requirement(
+    # Every teacher takes part; two of them can't teach on Monday morning.
+    monday_morning = [slots[(1, period)].id for period in (0, 1, 2)]
+    settings_service.replace_semester_teachers(
+        db,
+        semester.id,
+        SemesterTeachersUpdate(
+            teachers=[
+                SemesterTeacherEntry(
+                    teacher_id=teacher.id,
+                    min_weekly_periods=MIN_WEEKLY_PERIODS,
+                    max_weekly_periods=MAX_WEEKLY_PERIODS,
+                    unavailable_time_slot_ids=monday_morning if index in (6, 7) else [],
+                )
+                for index, teacher in enumerate(teachers)
+            ]
+        ),
+        school_id=school_id,
+    )
+
+    lesson_count = 0
+    for level, (class_, homeroom_teacher) in enumerate(zip(classes, teachers), start=1):
+        specs = LOWER_REQUIREMENTS if grade_band(level).value == "LOWER" else UPPER_REQUIREMENTS
+        for spec in specs:
+            requirement_service.create_class_subject_requirement(
                 db,
                 ClassSubjectRequirementCreate(
                     semester_id=semester.id,
-                    class_id=class_obj.id,
-                    subject_id=subjects[subject_name].id,
-                    weekly_periods=weekly_periods,
-                    required_teacher_id=required_teacher_id,
+                    class_id=class_.id,
+                    subject_id=subjects[spec.subject].id,
+                    weekly_periods=spec.weekly_periods,
+                    lesson_pattern=spec.lesson_pattern,
+                    required_teacher_id=homeroom_teacher.id if spec.homeroom_teacher else None,
+                    required_room_id=(
+                        special_rooms[spec.special_room].id if spec.special_room is not None else None
+                    ),
                 ),
+                school_id=school_id,
             )
-        )
+            lesson_count += spec.weekly_periods
 
-    schedule_version = schedule_version_service.create_schedule_version(
+    version = schedule_version_service.create_schedule_version(
         db,
-        ScheduleVersionCreate(
-            semester_id=semester.id, version_number=1, status="DRAFT"
-        ),
+        ScheduleVersionCreate(semester_id=semester.id, version_number=1),
+        school_id=school_id,
+    )
+    schedule_version_service.generate_lessons(db, version.id)
+    print(
+        f"{SCHOOL_NAME}：{ACADEMIC_YEAR} 學年度第 {SEMESTER_NUMBER} 學期，"
+        f"{len(classes)} 個班級、{len(teachers)} 位老師、{lesson_count} 堂課，草稿紀錄 v1 已建立。"
     )
 
-    manifest = {
-        "school_id": school.id,
-        "academic_year_id": academic_year.id,
-        "semester_id": semester.id,
-        "schedule_version_id": schedule_version.id,
-        "grade_ids": [g.id for g in grades],
-        "class_ids": [c.id for c in classes],
-        "subject_ids": [s.id for s in subjects.values()],
-        "time_slot_ids": [t.id for t in time_slots],
-        "teacher_ids": [t.id for t in teachers],
-        "requirement_ids": [r.id for r in requirements],
-    }
-
-    print(f"School: 1 ({school.name}, id={school.id})")
-    print(f"AcademicYear/Semester: year={academic_year.year}, semester_id={semester.id}")
-    print(f"Grades: {len(grades)}, Classes: {len(classes)}")
-    print(f"Subjects: {len(subjects)} ({', '.join(subjects)})")
-    print(f"TimeSlots: {len(time_slots)} ({len(WEEKDAYS)} days x {len(PERIODS_PER_DAY)} periods)")
-    print(f"Teachers: {len(teachers)}")
-    print(f"ClassSubjectRequirements: {len(requirements)} "
-          f"({sum(1 for *_, rt in requirement_specs if rt is not None)} with required_teacher_id)")
-    print(f"ScheduleVersion: id={schedule_version.id} (status=DRAFT, version_number=1)")
-    print()
-    print("Next step -- copy/paste ready:")
-    print(f"  POST /api/v1/schedule-versions/{schedule_version.id}/generate-lessons")
-    print(f"  POST /api/v1/schedule-versions/{schedule_version.id}/run-scheduler")
-
-    return manifest
+    if run:
+        outcome = scheduler_service.run_scheduler(db, version.id)
+        assert outcome is not None
+        if outcome.search_result is not None and outcome.search_result.success:
+            print("自動排課成功，可以用教學組長帳號到「排課紀錄」查看。")
+        else:
+            print("自動排課沒有成功，請用教學組長帳號到「開始排課」的最後一步重新排課查看原因。")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--confirm",
-        action="store_true",
-        help="Wipe a previous run of this script (tracked in "
-        f"{MANIFEST_PATH.name}) before reseeding. Required whenever "
-        "previously-seeded data is detected; refused otherwise to avoid "
-        "accidental data loss.",
-    )
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--run", action="store_true", help="seed, then run the scheduler")
     args = parser.parse_args()
 
-    settings = get_settings()
-    print(f"Connecting to: {_redact_db_url(settings.database_url)}")
-
-    SessionLocal = get_session_local()
-    db = SessionLocal()
+    print(f"資料庫：{_redacted_url()}")
+    session = get_session_local()()
     try:
-        manifest = _load_manifest()
-        existing_marker = db.scalars(
-            select(AcademicYear).where(AcademicYear.year == SEED_YEAR)
-        ).first()
-
-        if manifest is not None:
-            if not args.confirm:
-                print(
-                    f"\nSeed data from a previous run was found (tracked in "
-                    f"{MANIFEST_PATH}).\n"
-                    "Re-run with --confirm to wipe it and reseed:\n"
-                    "  python scripts/seed_test_data.py --confirm"
-                )
-                sys.exit(1)
-            print("Wiping previous seed data...")
-            _wipe_previous_seed(db, manifest)
-            MANIFEST_PATH.unlink(missing_ok=True)
-        elif existing_marker is not None:
-            # Orphaned data: an AcademicYear(year=9999) exists, but we have
-            # no manifest recording what else belongs to it -- deleting
-            # blind here risks touching rows this script didn't create.
-            print(
-                f"\nAn AcademicYear with year={SEED_YEAR} already exists "
-                f"(id={existing_marker.id}), but {MANIFEST_PATH.name} is "
-                "missing, so this script doesn't know what else it is "
-                "safe to delete. Refusing to proceed -- please clean this "
-                "up manually (or restore the manifest file) before "
-                "re-running."
-            )
-            sys.exit(1)
-
-        print("Seeding test data...\n")
-        new_manifest = _seed(db)
-        _save_manifest(new_manifest)
+        seed(session, run=args.run)
     finally:
-        db.close()
+        session.close()
 
 
 if __name__ == "__main__":

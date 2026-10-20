@@ -15,6 +15,7 @@ from tests.test_schedule_check import (
     _violations_of_type,
 )
 from tests.test_schedule_copy import _build_copy_setup, _copy_cross
+from tests.conftest import get_test_school_id
 
 # Task 66: GET /api/v1/schedule-versions/{id}/check reports a Schedule row
 # whose Lesson is pinned (Lesson.fixed_time_slot_id) but sits in another
@@ -24,7 +25,7 @@ FIXED = "FIXED_TIME_SLOT_MISMATCH"
 
 
 def _add_extra_slot(db: Session) -> int:
-    slot = TimeSlot(weekday=2, period=1, is_teaching_period=True)
+    slot = TimeSlot(school_id=get_test_school_id(db), weekday=2, period=1, is_teaching_period=True)
     db.add(slot)
     db.commit()
     return slot.id

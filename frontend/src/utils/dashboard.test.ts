@@ -116,7 +116,7 @@ describe("summarizeDraftHealth", () => {
         violation({ lesson_id: 1 }),
         violation({ lesson_id: 2 }),
         violation({ type: "FIXED_TIME_SLOT_MISMATCH", lesson_id: 3 }),
-        violation({ type: "ROOM_MISSING_FOR_TYPE", severity: "WARNING", lesson_id: 4, identity_key: "ROOM_MISSING_FOR_TYPE:4" }),
+        violation({ type: "REQUIRED_ROOM_MISSING", severity: "WARNING", lesson_id: 4, identity_key: "REQUIRED_ROOM_MISSING:4" }),
       ],
       2,
     );
@@ -138,7 +138,7 @@ describe("summarizeDataHealth", () => {
   const klass = (id: number, homeroom: number | null, active = true): Class =>
     ({ id, name: `${id}班`, is_active: active, homeroom_room_id: homeroom }) as Class;
   const subject = (id: number): Subject => ({ id, name: `S${id}`, is_active: true }) as Subject;
-  const room = (id: number, active = true): Room => ({ id, name: `R${id}`, room_type: "普通教室", is_active: active }) as Room;
+  const room = (id: number, active = true): Room => ({ id, name: `R${id}`, is_active: active }) as Room;
 
   it("counts active records and lists classes without a homeroom", () => {
     const health = summarizeDataHealth({
@@ -167,7 +167,7 @@ describe("summarizeDataHealth", () => {
     const health = summarizeDataHealth({ teachers: [], classes: [], subjects: [], rooms: [] });
     expect([health.teacherCount, health.classCount, health.subjectCount, health.roomCount]).toEqual([0, 0, 0, 0]);
     expect(health.issues.map((issue) => issue.path)).toEqual([
-      "/data?tab=teachers",
+      "/users",
       "/data?tab=classes",
       "/data?tab=subjects",
       "/data?tab=rooms",

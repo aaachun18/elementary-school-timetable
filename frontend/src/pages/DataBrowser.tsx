@@ -1,11 +1,5 @@
-import { Fragment, useEffect, useState, type ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { useSearchParams } from "react-router-dom";
-import {
-  list as listTeachers,
-  create as createTeacher,
-  update as updateTeacher,
-  remove as removeTeacher,
-} from "../api/teachers";
 import {
   list as listClasses,
   create as createClass,
@@ -54,23 +48,11 @@ import {
   update as updateGrade,
   remove as removeGrade,
 } from "../api/grades";
-import {
-  listByTeacher as listTeacherSubjects,
-  create as createTeacherSubject,
-  remove as removeTeacherSubject,
-} from "../api/teacherSubjects";
-import {
-  listByTeacher as listTeacherUnavailableSlots,
-  create as createTeacherAvailability,
-  remove as removeTeacherAvailability,
-} from "../api/teacherAvailability";
 import { useResource } from "../hooks/useResource";
 import { useCrudList } from "../hooks/useCrudList";
-import { useMembershipList } from "../hooks/useMembershipList";
 import { buildPeriodDisplay } from "../utils/periodDisplay";
 import { formatTimeSlotLabel, formatWeekday } from "../utils/timeSlotFormat";
-import { isCurrentUserAdmin } from "../utils/auth";
-import { roomTypeOptions } from "../utils/roomTypes";
+import { isCurrentUserCoordinator } from "../utils/auth";
 import type { School, SchoolCreate, SchoolUpdate } from "../types/school";
 import type { Subject, SubjectCreate, SubjectUpdate } from "../types/subject";
 import type { Room, RoomCreate, RoomUpdate } from "../types/room";
@@ -82,20 +64,16 @@ import type {
 import type { Semester, SemesterCreate, SemesterUpdate } from "../types/semester";
 import type { Class, ClassCreate, ClassUpdate } from "../types/class";
 import type { Grade, GradeCreate, GradeUpdate } from "../types/grade";
-import type { Teacher, TeacherCreate, TeacherUpdate } from "../types/teacher";
 import type { TimeSlot, TimeSlotCreate, TimeSlotUpdate } from "../types/timeSlot";
 import {
-  SUBSECTION_TITLE,
   BUTTON_DANGER_SM,
   BUTTON_PRIMARY,
   BUTTON_PRIMARY_SM,
   BUTTON_SECONDARY_SM,
   ERROR_TEXT,
   HELP_TEXT,
-  FIELD_HELP,
   INPUT,
   LOADING_TEXT,
-  MUTED_TEXT,
   PAGE,
   PAGE_TITLE,
   SELECT,
@@ -109,23 +87,20 @@ import {
   TR_HOVER,
 } from "../styles/ui";
 
+// Task 98: schools moved to their own 系統管理員 page (SchoolManagement.tsx).
 type TabKey =
-  | "schools"
   | "academicYears"
   | "semesters"
   | "grades"
-  | "teachers"
   | "classes"
   | "subjects"
   | "rooms"
   | "timeSlots";
 
 const TABS: { key: TabKey; label: string }[] = [
-  { key: "schools", label: "學校" },
   { key: "academicYears", label: "學年度" },
   { key: "semesters", label: "學期" },
   { key: "grades", label: "年級" },
-  { key: "teachers", label: "老師" },
   { key: "classes", label: "班級" },
   { key: "subjects", label: "科目" },
   { key: "rooms", label: "教室" },
@@ -156,635 +131,6 @@ function LoadingOrError({
     );
   }
   return null;
-}
-
-// Task 30's specific requirement: a teacher's row expands to show their
-// qualifications (H5) and unavailable slots (H4) -- exactly the two pieces
-// of data needed to check a "楊老師工作量超標"-style scheduling failure by
-// hand, without needing Swagger UI.
-// Task 46: 任教資格(TeacherSubject)/不可用時段(TeacherAvailability) are
-// semantic sub-resources of Teacher (Task 5's existing decision -- see
-// backend/app/routers/teacher.py's own comment on why these are NOT
-// standalone /teacher-subjects, /teacher-availabilities CRUD tables).
-// This stays a section INSIDE TeacherDetail -- the already-expanded area
-// under a Teacher row -- never a new top-level tab, deliberately mirroring
-// that same "not a standalone resource" stance in the UI's own structure.
-function TeacherDetail({
-  teacherId,
-  isAdmin,
-}: {
-  teacherId: number;
-  isAdmin: boolean;
-}): ReactElement {
-  const subjectsResource = useResource(() => listTeacherSubjects(teacherId), [teacherId]);
-  const unavailableSlotsResource = useResource(
-    () => listTeacherUnavailableSlots(teacherId),
-    [teacherId],
-  );
-  // The "everything that could be added" lists -- only actually needed by
-  // ADMIN (to populate the add-dropdowns), but fetched unconditionally
-  // for the same reason every other hook call in this file is
-  // unconditional: React requires every hook call site to run every
-  // render regardless of what the JSX ends up using it for.
-  const allSubjectsResource = useResource(() => listSubjects(), []);
-  const allTimeSlotsResource = useResource(() => listTimeSlots(), []);
-
-  const subjectsCrud = useMembershipList<Subject>(subjectsResource.data, {
-    add: (subjectId) => createTeacherSubject(teacherId, subjectId),
-    remove: (subjectId) => removeTeacherSubject(teacherId, subjectId),
-  });
-  const slotsCrud = useMembershipList<TimeSlot>(unavailableSlotsResource.data, {
-    add: (timeSlotId) => createTeacherAvailability(teacherId, timeSlotId),
-    remove: (timeSlotId) => removeTeacherAvailability(teacherId, timeSlotId),
-  });
-
-  const [selectedSubjectId, setSelectedSubjectId] = useState<number | "">("");
-  const [selectedTimeSlotId, setSelectedTimeSlotId] = useState<number | "">("");
-
-  async function handleAddSubject(): Promise<void> {
-    if (selectedSubjectId === "") {
-      return;
-    }
-    const succeeded = await subjectsCrud.submitAdd(selectedSubjectId);
-    if (succeeded) {
-      setSelectedSubjectId("");
-    }
-  }
-
-  async function handleAddTimeSlot(): Promise<void> {
-    if (selectedTimeSlotId === "") {
-      return;
-    }
-    const succeeded = await slotsCrud.submitAdd(selectedTimeSlotId);
-    if (succeeded) {
-      setSelectedTimeSlotId("");
-    }
-  }
-
-  function handleRemoveSubject(subjectId: number, name: string): void {
-    if (window.confirm(`確定要移除「${name}」這項任教資格嗎？`)) {
-      void subjectsCrud.submitRemove(subjectId);
-    }
-  }
-
-  function handleRemoveTimeSlot(timeSlotId: number, label: string): void {
-    if (window.confirm(`確定要移除「${label}」這個不可用時段嗎？`)) {
-      void slotsCrud.submitRemove(timeSlotId);
-    }
-  }
-
-  // Dropdown options exclude whatever this teacher already has -- a
-  // teacher can't gain a SECOND qualification in the same subject (that's
-  // what uq_teacher_subject means), so offering an already-qualified
-  // subject again would just be a guaranteed 409 waiting to happen.
-  const qualifiedSubjectIds = new Set(subjectsCrud.items.map((subject) => subject.id));
-  const availableSubjectOptions = (allSubjectsResource.data ?? []).filter(
-    (subject) => !qualifiedSubjectIds.has(subject.id),
-  );
-
-  // Only is_teaching_period slots are even offered -- marking a
-  // non-teaching slot (早自習/午休 etc.) "unavailable" would be meaningless,
-  // the scheduler never considers placing a Lesson there regardless.
-  const unavailableSlotIds = new Set(slotsCrud.items.map((slot) => slot.id));
-  const availableTimeSlotOptions = (allTimeSlotsResource.data ?? []).filter(
-    (timeSlot) => timeSlot.is_teaching_period && !unavailableSlotIds.has(timeSlot.id),
-  );
-  // Task 78: teaching-period numbering from every time slot (already
-  // fetched for the add dropdown). Until it loads, labels show the raw period.
-  const periodDisplay = buildPeriodDisplay(allTimeSlotsResource.data ?? []);
-
-  return (
-    <div className="flex flex-col gap-4">
-      <section>
-        <h3 className={SUBSECTION_TITLE}>任教資格</h3>
-      <LoadingOrError
-        isLoading={subjectsResource.isLoading}
-        errorMessage={subjectsResource.errorMessage}
-      />
-      {subjectsResource.data !== null &&
-        (subjectsCrud.items.length === 0 ? (
-          <p className={MUTED_TEXT}>無</p>
-        ) : (
-          <ul className="flex flex-col gap-1 pl-0 list-none">
-            {subjectsCrud.items.map((subject) => (
-              <li key={subject.id} className="flex flex-wrap items-center gap-1 text-sm text-gray-700">
-                {subject.name}
-                {isAdmin && (
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveSubject(subject.id, subject.name)}
-                    disabled={subjectsCrud.pendingKey === subject.id}
-                    className={`${BUTTON_DANGER_SM} ml-2`}
-                  >
-                    移除
-                  </button>
-                )}
-                {subjectsCrud.rowErrors.get(subject.id) !== undefined && (
-                  <p role="alert" className={ERROR_TEXT}>
-                    {subjectsCrud.rowErrors.get(subject.id)}
-                  </p>
-                )}
-              </li>
-            ))}
-          </ul>
-        ))}
-      {isAdmin && (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <LoadingOrError
-            isLoading={allSubjectsResource.isLoading}
-            errorMessage={allSubjectsResource.errorMessage}
-          />
-          {allSubjectsResource.data !== null && (
-            <>
-              <select
-                value={selectedSubjectId}
-                onChange={(event) =>
-                  setSelectedSubjectId(
-                    event.target.value === "" ? "" : Number(event.target.value),
-                  )
-                }
-                disabled={
-                  subjectsCrud.pendingKey === "new" || availableSubjectOptions.length === 0
-                }
-                aria-label="新增任教資格的科目"
-              className={SELECT}
-              >
-                {availableSubjectOptions.length > 0 ? (
-                  <>
-                    <option value="">請選擇…</option>
-                    {availableSubjectOptions.map((subject) => (
-                      <option key={subject.id} value={subject.id}>
-                        {subject.name}
-                      </option>
-                    ))}
-                  </>
-                ) : (
-                  <option value="">尚無可選項目</option>
-                )}
-              </select>
-              <button
-                type="button"
-                onClick={() => void handleAddSubject()}
-                disabled={subjectsCrud.pendingKey === "new" || selectedSubjectId === ""}
-                className={BUTTON_PRIMARY_SM}
-              >
-                新增資格
-              </button>
-              {subjectsCrud.rowErrors.get("new") !== undefined && (
-                <p role="alert" className={ERROR_TEXT}>
-                  {subjectsCrud.rowErrors.get("new")}
-                </p>
-              )}
-            </>
-          )}
-        </div>
-      )}
-
-      </section>
-      <section>
-        <h3 className={SUBSECTION_TITLE}>不可用時段</h3>
-      <LoadingOrError
-        isLoading={unavailableSlotsResource.isLoading}
-        errorMessage={unavailableSlotsResource.errorMessage}
-      />
-      {unavailableSlotsResource.data !== null &&
-        (slotsCrud.items.length === 0 ? (
-          <p className={MUTED_TEXT}>無</p>
-        ) : (
-          <ul className="flex flex-col gap-1 pl-0 list-none">
-            {slotsCrud.items.map((slot) => (
-              <li key={slot.id} className="flex flex-wrap items-center gap-1 text-sm text-gray-700">
-                {formatTimeSlotLabel(slot, periodDisplay)}
-                {isAdmin && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleRemoveTimeSlot(slot.id, formatTimeSlotLabel(slot, periodDisplay))
-                    }
-                    disabled={slotsCrud.pendingKey === slot.id}
-                    className={`${BUTTON_DANGER_SM} ml-2`}
-                  >
-                    移除
-                  </button>
-                )}
-                {slotsCrud.rowErrors.get(slot.id) !== undefined && (
-                  <p role="alert" className={ERROR_TEXT}>
-                    {slotsCrud.rowErrors.get(slot.id)}
-                  </p>
-                )}
-              </li>
-            ))}
-          </ul>
-        ))}
-      {isAdmin && (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <LoadingOrError
-            isLoading={allTimeSlotsResource.isLoading}
-            errorMessage={allTimeSlotsResource.errorMessage}
-          />
-          {allTimeSlotsResource.data !== null && (
-            <>
-              <select
-                value={selectedTimeSlotId}
-                onChange={(event) =>
-                  setSelectedTimeSlotId(
-                    event.target.value === "" ? "" : Number(event.target.value),
-                  )
-                }
-                disabled={
-                  slotsCrud.pendingKey === "new" || availableTimeSlotOptions.length === 0
-                }
-                aria-label="新增不可用時段"
-              className={SELECT}
-              >
-                {availableTimeSlotOptions.length > 0 ? (
-                  <>
-                    <option value="">請選擇…</option>
-                    {availableTimeSlotOptions.map((timeSlot) => (
-                      <option key={timeSlot.id} value={timeSlot.id}>
-                        {formatTimeSlotLabel(timeSlot, periodDisplay)}
-                      </option>
-                    ))}
-                  </>
-                ) : (
-                  <option value="">尚無可選項目</option>
-                )}
-              </select>
-              <button
-                type="button"
-                onClick={() => void handleAddTimeSlot()}
-                disabled={slotsCrud.pendingKey === "new" || selectedTimeSlotId === ""}
-                className={BUTTON_PRIMARY_SM}
-              >
-                新增不可用時段
-              </button>
-              {slotsCrud.rowErrors.get("new") !== undefined && (
-                <p role="alert" className={ERROR_TEXT}>
-                  {slotsCrud.rowErrors.get("new")}
-                </p>
-              )}
-            </>
-          )}
-        </div>
-      )}
-      </section>
-    </div>
-  );
-}
-
-// Task 45: min_weekly_periods <= max_weekly_periods is a backend CHECK
-// constraint (ck_teachers_weekly_periods_range), but there's no reason to
-// make the user wait for a 409 to find out -- both TeacherNewRow and
-// TeacherRow compute this from their own draft state on every render and
-// disable 確認 (plus show the same message inline) the moment it's
-// violated, before any request is ever sent.
-const TEACHER_PERIODS_RANGE_ERROR = "最低每週節數不能大於最高每週節數，請修正後再送出";
-
-function TeacherNewRow({
-  isPending,
-  errorMessage,
-  onConfirm,
-  onCancel,
-}: {
-  isPending: boolean;
-  errorMessage: string | null;
-  onConfirm: (data: TeacherCreate) => void;
-  onCancel: () => void;
-}): ReactElement {
-  const [name, setName] = useState("");
-  const [minText, setMinText] = useState("");
-  const [maxText, setMaxText] = useState("");
-  const min = minText === "" ? null : Number(minText);
-  const max = maxText === "" ? null : Number(maxText);
-  const isRangeInvalid = min !== null && max !== null && min > max;
-
-  function handleConfirm(): void {
-    if (name.trim() === "" || min === null || max === null || isRangeInvalid) {
-      return;
-    }
-    onConfirm({ name, min_weekly_periods: min, max_weekly_periods: max });
-  }
-
-  return (
-    <tr data-row-key="new" className={TR_HOVER}>
-      <td className={TD}>
-        <input
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          disabled={isPending}
-          aria-label="教師姓名"
-        className={INPUT}
-        />
-      </td>
-      <td className={`${TD} text-gray-400`}>啟用中（新增時固定）</td>
-      <td className={TD}>
-        <input
-          type="number"
-          value={minText}
-          onChange={(event) => setMinText(event.target.value)}
-          disabled={isPending}
-          aria-label="最低每週節數"
-        className={INPUT}
-        />
-      </td>
-      <td className={TD}>
-        <input
-          type="number"
-          value={maxText}
-          onChange={(event) => setMaxText(event.target.value)}
-          disabled={isPending}
-          aria-label="最高每週節數"
-        className={INPUT}
-        />
-      </td>
-      <td className={TD}>
-        <button
-          type="button"
-          onClick={handleConfirm}
-          disabled={isPending || name.trim() === "" || min === null || max === null || isRangeInvalid}
-          className={BUTTON_PRIMARY_SM}
-        >
-          {isPending ? "送出中…" : "確認"}
-        </button>
-        <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
-          取消
-        </button>
-        {isRangeInvalid && (
-          <p role="alert" className={ERROR_TEXT}>{TEACHER_PERIODS_RANGE_ERROR}</p>
-        )}
-        {errorMessage !== null && <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>}
-      </td>
-    </tr>
-  );
-}
-
-function TeacherRow({
-  teacher,
-  isAdmin,
-  isEditing,
-  isPending,
-  errorMessage,
-  isExpanded,
-  onToggleExpand,
-  onStartEdit,
-  onCancelEdit,
-  onConfirmEdit,
-  onDelete,
-}: {
-  teacher: Teacher;
-  isAdmin: boolean;
-  isEditing: boolean;
-  isPending: boolean;
-  errorMessage: string | undefined;
-  isExpanded: boolean;
-  onToggleExpand: () => void;
-  onStartEdit: () => void;
-  onCancelEdit: () => void;
-  onConfirmEdit: (data: TeacherUpdate) => void;
-  onDelete: () => void;
-}): ReactElement {
-  const [draftName, setDraftName] = useState(teacher.name);
-  const [draftMinText, setDraftMinText] = useState(String(teacher.min_weekly_periods));
-  const [draftMaxText, setDraftMaxText] = useState(String(teacher.max_weekly_periods));
-  const [draftIsActive, setDraftIsActive] = useState(teacher.is_active);
-
-  useEffect(() => {
-    if (isEditing) {
-      setDraftName(teacher.name);
-      setDraftMinText(String(teacher.min_weekly_periods));
-      setDraftMaxText(String(teacher.max_weekly_periods));
-      setDraftIsActive(teacher.is_active);
-    }
-  }, [isEditing, teacher]);
-
-  const draftMin = draftMinText === "" ? null : Number(draftMinText);
-  const draftMax = draftMaxText === "" ? null : Number(draftMaxText);
-  const isRangeInvalid = draftMin !== null && draftMax !== null && draftMin > draftMax;
-
-  function handleConfirmEdit(): void {
-    if (draftName.trim() === "" || draftMin === null || draftMax === null || isRangeInvalid) {
-      return;
-    }
-    onConfirmEdit({
-      name: draftName,
-      min_weekly_periods: draftMin,
-      max_weekly_periods: draftMax,
-      is_active: draftIsActive,
-    });
-  }
-
-  if (isEditing) {
-    return (
-      <tr className="bg-blue-50/40" data-row-key={teacher.id}>
-        <td className={TD}>
-          <input
-            value={draftName}
-            onChange={(event) => setDraftName(event.target.value)}
-            disabled={isPending}
-            aria-label="教師姓名"
-          className={INPUT}
-          />
-        </td>
-        <td className={TD}>
-          <label>
-            <input
-              type="checkbox"
-              checked={draftIsActive}
-              onChange={(event) => setDraftIsActive(event.target.checked)}
-              disabled={isPending}
-            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
-            啟用中
-          </label>
-        </td>
-        <td className={TD}>
-          <input
-            type="number"
-            value={draftMinText}
-            onChange={(event) => setDraftMinText(event.target.value)}
-            disabled={isPending}
-            aria-label="最低每週節數"
-          className={INPUT}
-          />
-        </td>
-        <td className={TD}>
-          <input
-            type="number"
-            value={draftMaxText}
-            onChange={(event) => setDraftMaxText(event.target.value)}
-            disabled={isPending}
-            aria-label="最高每週節數"
-          className={INPUT}
-          />
-        </td>
-        <td className={TD}>
-          <button
-            type="button"
-            onClick={handleConfirmEdit}
-            disabled={
-              isPending ||
-              draftName.trim() === "" ||
-              draftMin === null ||
-              draftMax === null ||
-              isRangeInvalid
-            }
-            className={BUTTON_PRIMARY_SM}
-          >
-            {isPending ? "送出中…" : "確認"}
-          </button>
-          <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
-            取消
-          </button>
-          {isRangeInvalid && (
-            <p role="alert" className={ERROR_TEXT}>{TEACHER_PERIODS_RANGE_ERROR}</p>
-          )}
-          {errorMessage !== undefined && (
-            <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
-          )}
-        </td>
-      </tr>
-    );
-  }
-
-  return (
-    <Fragment>
-      {/* Task 32.6's expand/collapse (教師資格/不可用時段) -- the click
-          target is now just the name cell, not the whole row, since the
-          row also has Edit/Delete buttons in its own cell now (Task 45);
-          scoping the click target this way means those buttons never
-          need stopPropagation(). */}
-      <tr className={isExpanded ? "bg-blue-50" : TR_HOVER}>
-        <td
-          onClick={onToggleExpand}
-          aria-expanded={isExpanded}
-          className={`${TD} cursor-pointer`}
-        >
-          <span
-            aria-hidden="true"
-            className="mr-2 inline-block transition-transform"
-            style={{ transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}
-          >
-            ▶
-          </span>
-          {teacher.name}
-        </td>
-        <td className={TD}>{teacher.is_active ? "是" : "否"}</td>
-        <td className={TD}>{teacher.min_weekly_periods}</td>
-        <td className={TD}>{teacher.max_weekly_periods}</td>
-        <td className={TD}>
-          {isAdmin && (
-            <>
-              <button type="button" onClick={onStartEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
-                編輯
-              </button>
-              <button type="button" onClick={onDelete} disabled={isPending} className={BUTTON_DANGER_SM}>
-                刪除
-              </button>
-            </>
-          )}
-          {errorMessage !== undefined && (
-            <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
-          )}
-        </td>
-      </tr>
-      {isExpanded && (
-        <tr className="bg-blue-50">
-          <td colSpan={isAdmin ? 5 : 4} className={`${TD} align-top`}>
-            <TeacherDetail teacherId={teacher.id} isAdmin={isAdmin} />
-          </td>
-        </tr>
-      )}
-    </Fragment>
-  );
-}
-
-function TeachersTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
-  const { data, isLoading, errorMessage } = useResource(() => listTeachers(), []);
-  const [expandedId, setExpandedId] = useState<number | null>(null);
-  const crud = useCrudList<Teacher, TeacherCreate, TeacherUpdate>(data, {
-    create: createTeacher,
-    update: updateTeacher,
-    remove: removeTeacher,
-  });
-
-  function handleDelete(id: number, name: string): void {
-    if (window.confirm(`確定要刪除「${name}」嗎？此操作無法復原。`)) {
-      void crud.submitDelete(id);
-    }
-  }
-
-  // Editing and "展開顯示任教資格/不可用時段" are two different things to
-  // look at in the same row -- starting an edit collapses that row's own
-  // expanded detail (if open) so the edit inputs aren't sitting right
-  // above a now-stale qualifications/unavailable-slots view of the same
-  // teacher. Any OTHER row's expanded state is left alone.
-  function handleStartEdit(id: number): void {
-    setExpandedId((previous) => (previous === id ? null : previous));
-    crud.startEditing(id);
-  }
-
-  return (
-    <div>
-      <LoadingOrError isLoading={isLoading} errorMessage={errorMessage} />
-      {data !== null && (
-        <>
-          {isAdmin && (
-            <p className="mb-3">
-              <button
-                type="button"
-                onClick={crud.startAdding}
-                disabled={crud.isAdding || crud.pendingKey !== null}
-              className={BUTTON_PRIMARY}
-              >
-                新增
-              </button>
-            </p>
-          )}
-          <div className={TABLE_WRAPPER}>
-          <table className={TABLE}>
-            <thead>
-              <tr className={TABLE_HEAD_ROW}>
-                <th className={TH}>姓名</th>
-                <th className={TH}>啟用中</th>
-                <th className={TH}>最低每週節數</th>
-                <th className={TH}>最高每週節數</th>
-                {isAdmin && <th className={TH}>操作</th>}
-              </tr>
-            </thead>
-            <tbody onChange={crud.handleRowChange}>
-              {crud.isAdding && (
-                <TeacherNewRow
-                  isPending={crud.pendingKey === "new"}
-                  errorMessage={crud.rowErrors.get("new") ?? null}
-                  onConfirm={(data) => void crud.submitCreate(data)}
-                  onCancel={crud.cancelAdding}
-                />
-              )}
-              {crud.items.map((teacher) => (
-                <TeacherRow
-                  key={teacher.id}
-                  teacher={teacher}
-                  isAdmin={isAdmin}
-                  isEditing={crud.editingId === teacher.id}
-                  isPending={crud.pendingKey === teacher.id}
-                  errorMessage={crud.rowErrors.get(teacher.id)}
-                  isExpanded={expandedId === teacher.id}
-                  onToggleExpand={() =>
-                    setExpandedId((previous) => (previous === teacher.id ? null : teacher.id))
-                  }
-                  onStartEdit={() => handleStartEdit(teacher.id)}
-                  onCancelEdit={crud.cancelEditing}
-                  onConfirmEdit={(data) => void crud.submitUpdate(teacher.id, data)}
-                  onDelete={() => handleDelete(teacher.id, teacher.name)}
-                />
-              ))}
-            </tbody>
-          </table>
-          </div>
-        </>
-      )}
-    </div>
-  );
 }
 
 // --- Phase B (Task 42): School/Subject/Room's CRUD tabs. This is the
@@ -1189,7 +535,8 @@ function SchoolRow({
   );
 }
 
-function SchoolsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
+// Task 98: exported for the 系統管理員's SchoolManagement page.
+export function SchoolsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
   const { data, isLoading, errorMessage } = useResource(() => listSchools(), []);
   const crud = useCrudList<School, SchoolCreate, SchoolUpdate>(data, {
     create: createSchool,
@@ -2402,7 +1749,6 @@ function RoomNewRow({
   onCancel: () => void;
 }): ReactElement {
   const [name, setName] = useState("");
-  const [roomType, setRoomType] = useState("");
   // "" means "留空即可" (capacity left blank) -- kept as its own string
   // state rather than `number | null` so an in-progress empty input never
   // gets coerced to 0 while typing.
@@ -2411,7 +1757,6 @@ function RoomNewRow({
   function handleConfirm(): void {
     onConfirm({
       name,
-      room_type: roomType,
       capacity: capacityText === "" ? null : Number(capacityText),
     });
   }
@@ -2430,18 +1775,6 @@ function RoomNewRow({
       </td>
       <td className={TD}>
         <input
-          value={roomType}
-          onChange={(event) => setRoomType(event.target.value)}
-          disabled={isPending}
-          aria-label="教室類型"
-          placeholder="例如：普通教室"
-          list={ROOM_TYPE_LIST_ID}
-        className={INPUT}
-        />
-        <p className={FIELD_HELP}>{ROOM_TYPE_HELP}</p>
-      </td>
-      <td className={TD}>
-        <input
           type="number"
           min={0}
           value={capacityText}
@@ -2457,7 +1790,7 @@ function RoomNewRow({
         <button
           type="button"
           onClick={handleConfirm}
-          disabled={isPending || name.trim() === "" || roomType.trim() === ""}
+          disabled={isPending || name.trim() === ""}
           className={BUTTON_PRIMARY_SM}
         >
           {isPending ? "送出中…" : "確認"}
@@ -2493,7 +1826,6 @@ function RoomRow({
   onDelete: () => void;
 }): ReactElement {
   const [draftName, setDraftName] = useState(room.name);
-  const [draftRoomType, setDraftRoomType] = useState(room.room_type);
   const [draftCapacityText, setDraftCapacityText] = useState(
     room.capacity === null ? "" : String(room.capacity),
   );
@@ -2502,7 +1834,6 @@ function RoomRow({
   useEffect(() => {
     if (isEditing) {
       setDraftName(room.name);
-      setDraftRoomType(room.room_type);
       setDraftCapacityText(room.capacity === null ? "" : String(room.capacity));
       setDraftIsActive(room.is_active);
     }
@@ -2519,17 +1850,6 @@ function RoomRow({
             aria-label="教室名稱"
           className={INPUT}
           />
-        </td>
-        <td className={TD}>
-          <input
-            value={draftRoomType}
-            onChange={(event) => setDraftRoomType(event.target.value)}
-            disabled={isPending}
-            aria-label="教室類型"
-            list={ROOM_TYPE_LIST_ID}
-          className={INPUT}
-          />
-          <p className={FIELD_HELP}>{ROOM_TYPE_HELP}</p>
         </td>
         <td className={TD}>
           <input
@@ -2561,12 +1881,11 @@ function RoomRow({
             onClick={() =>
               onConfirmEdit({
                 name: draftName,
-                room_type: draftRoomType,
                 capacity: draftCapacityText === "" ? null : Number(draftCapacityText),
                 is_active: draftIsActive,
               })
             }
-            disabled={isPending || draftName.trim() === "" || draftRoomType.trim() === ""}
+            disabled={isPending || draftName.trim() === ""}
             className={BUTTON_PRIMARY_SM}
           >
             {isPending ? "送出中…" : "確認"}
@@ -2585,7 +1904,6 @@ function RoomRow({
   return (
     <tr className={TR_HOVER}>
       <td className={TD}>{room.name}</td>
-      <td className={TD}>{room.room_type}</td>
       <td className={TD}>{room.capacity ?? "未設定"}</td>
       <td className={TD}>{room.is_active ? "是" : "否"}</td>
       <td className={TD}>
@@ -2607,10 +1925,8 @@ function RoomRow({
   );
 }
 
-// Task 94: a room's type is what a requirement's 指定教室類型 is matched
-// against (exactly, as text); its name is only its own label.
-const ROOM_TYPE_LIST_ID = "room-type-options";
-const ROOM_TYPE_HELP = "用來配對排課需求的教室類型，例如：自然教室、音樂教室（要與需求填的完全相同）";
+// Task 98: a room is just its name (and capacity) -- a requirement names
+// the one special room it needs, so rooms have no types any more.
 
 function RoomsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
   const { data, isLoading, errorMessage } = useResource(() => listRooms(), []);
@@ -2643,18 +1959,11 @@ function RoomsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
               </button>
             </p>
           )}
-          {/* Task 94: the types already in use, as suggestions. */}
-          <datalist id={ROOM_TYPE_LIST_ID}>
-            {roomTypeOptions(crud.items).map((roomType) => (
-              <option key={roomType} value={roomType} />
-            ))}
-          </datalist>
           <div className={TABLE_WRAPPER}>
           <table className={TABLE}>
             <thead>
               <tr className={TABLE_HEAD_ROW}>
                 <th className={TH}>名稱</th>
-                <th className={TH}>類型</th>
                 <th className={TH}>容量</th>
                 <th className={TH}>啟用中</th>
                 {isAdmin && <th className={TH}>操作</th>}
@@ -3050,18 +2359,23 @@ export default function DataBrowser(): ReactElement {
   const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<TabKey>(() => {
     const requestedTab = searchParams.get("tab");
-    return isTabKey(requestedTab) ? requestedTab : "teachers";
+    return isTabKey(requestedTab) ? requestedTab : "subjects";
   });
 
   // Task 42: read once per mount, same as the token itself -- a role
   // doesn't change without a fresh login, which always re-mounts this page
   // (ProtectedRoute/Layout sit above it in the route tree), so there is no
   // "role changed mid-session" case this needs to react to.
-  const isAdmin = isCurrentUserAdmin();
+  // Task 98: "isAdmin" here means whoever may edit scheduling data -- a
+  // 教學組長 (backend require_coordinator).
+  const isAdmin = isCurrentUserCoordinator();
 
   return (
     <div className={PAGE}>
-      <h1 className={PAGE_TITLE}>基礎資料瀏覽</h1>
+      <h1 className={PAGE_TITLE}>學校資料</h1>
+      <p className={HELP_TEXT}>
+        維護學校的科目、教室與時段等資料；教師請到「帳號管理」建立一般老師帳號，每學期的教師設定、年級可排節次與科目需求在「開始排課」設定。
+      </p>
       <nav className="mb-4 flex flex-wrap gap-1">
         {TABS.map((tab) => (
           <button
@@ -3075,11 +2389,9 @@ export default function DataBrowser(): ReactElement {
           </button>
         ))}
       </nav>
-      {activeTab === "schools" && <SchoolsTab isAdmin={isAdmin} />}
       {activeTab === "academicYears" && <AcademicYearsTab isAdmin={isAdmin} />}
       {activeTab === "semesters" && <SemestersTab isAdmin={isAdmin} />}
       {activeTab === "grades" && <GradesTab isAdmin={isAdmin} />}
-      {activeTab === "teachers" && <TeachersTab isAdmin={isAdmin} />}
       {activeTab === "classes" && <ClassesTab isAdmin={isAdmin} />}
       {activeTab === "subjects" && <SubjectsTab isAdmin={isAdmin} />}
       {activeTab === "rooms" && <RoomsTab isAdmin={isAdmin} />}

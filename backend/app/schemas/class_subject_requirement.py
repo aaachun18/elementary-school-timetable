@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.services.lesson_pattern import check_pattern_total, normalize_lesson_pattern
+from app.services.requirement_rules import check_weekly_periods
 
 CONSECUTIVE_LIMIT_DESCRIPTION = "已停用：不再被任何排課規則使用，請改用 lesson_pattern（連堂樣式）"
 LESSON_PATTERN_DESCRIPTION = (
@@ -18,7 +19,10 @@ class ClassSubjectRequirementBase(BaseModel):
     subject_id: int
     weekly_periods: int
     required_teacher_id: int | None = None
-    required_room_type: str | None = None
+    # Task 98: the one special room (None: 原班教室). Replaces
+    # required_room_type, which the API no longer takes -- rooms have no
+    # types any more.
+    required_room_id: int | None = None
     # Deprecated since Task 87 (kept for compatibility; nothing reads it).
     consecutive_limit: int | None = Field(
         default=None, deprecated=True, description=CONSECUTIVE_LIMIT_DESCRIPTION
@@ -31,8 +35,14 @@ def _normalize(value: str | None) -> str | None:
     return normalize_lesson_pattern(value)
 
 
+def _weekly_periods(value: int | None) -> int | None:
+    # Task 98: 1-6 periods a week (ValueError -> 422, Chinese message).
+    return check_weekly_periods(value)
+
+
 class ClassSubjectRequirementCreate(ClassSubjectRequirementBase):
     _normalize_pattern = field_validator("lesson_pattern")(_normalize)
+    _check_weekly_periods = field_validator("weekly_periods")(_weekly_periods)
 
     @model_validator(mode="after")
     def _pattern_matches_weekly_periods(self) -> "ClassSubjectRequirementCreate":
@@ -59,7 +69,10 @@ class ClassSubjectRequirementUpdate(BaseModel):
     subject_id: int | None = None
     weekly_periods: int | None = None
     required_teacher_id: int | None = None
-    required_room_type: str | None = None
+    # Task 98: the one special room (None: 原班教室). Replaces
+    # required_room_type, which the API no longer takes -- rooms have no
+    # types any more.
+    required_room_id: int | None = None
     consecutive_limit: int | None = Field(
         default=None, deprecated=True, description=CONSECUTIVE_LIMIT_DESCRIPTION
     )
@@ -68,3 +81,4 @@ class ClassSubjectRequirementUpdate(BaseModel):
     lesson_pattern: str | None = Field(default=None, description=LESSON_PATTERN_DESCRIPTION)
 
     _normalize_pattern = field_validator("lesson_pattern")(_normalize)
+    _check_weekly_periods = field_validator("weekly_periods")(_weekly_periods)

@@ -32,6 +32,10 @@ export interface EnrichedSchedule {
   teacherName: string | null;
   roomId: number | null;
   roomName: string | null;
+  // Task 98: the room's name when the lesson is NOT in its class's own
+  // classroom (a required special room, or one changed by hand) -- the
+  // timetable notes it; 原班教室 is never shown. null otherwise.
+  specialRoomName: string | null;
   // Task 90: the lesson's requirement and lesson block (連堂) -- blockNo /
   // blockSeq from the Lesson (null = no block), blockSize = how many
   // lessons that block has in this semester (0 for no block). See
@@ -225,6 +229,10 @@ async function buildTimetableData(scheduleVersionId: number): Promise<TimetableD
       roomId: schedule.room_id,
       roomName:
         schedule.room_id === null ? null : (room?.name ?? `教室 ID ${schedule.room_id}`),
+      specialRoomName:
+        schedule.room_id === null || schedule.room_id === classItem?.homeroom_room_id
+          ? null
+          : (room?.name ?? `教室 ID ${schedule.room_id}`),
       requirementId: lesson.class_subject_requirement_id,
       blockNo: lesson.block_no ?? null,
       blockSeq: lesson.block_seq ?? null,

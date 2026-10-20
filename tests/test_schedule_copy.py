@@ -21,6 +21,7 @@ from tests.test_schedule_check import (
     _build_setup,
     _place_both_lessons_in_same_slot,
 )
+from tests.conftest import get_test_school_id
 
 # Task 62: POST /api/v1/schedule-versions/{id}/copy. The source timetable
 # comes from test_schedule_check.py's _build_setup() (two classes, one
@@ -45,7 +46,7 @@ def _build_copy_setup(db: Session) -> CopySetup:
     target_semester = Semester(
         academic_year_id=source_semester.academic_year_id, number=2, is_active=True
     )
-    room = Room(name="Room A", room_type="一般教室", is_active=True)
+    room = Room(school_id=get_test_school_id(db), name="Room A", is_active=True)
     db.add_all([target_semester, room])
     db.flush()
 
@@ -81,7 +82,7 @@ def _build_copy_setup_without_schedules(db: Session) -> CopySetup:
     target_semester = Semester(
         academic_year_id=source_semester.academic_year_id, number=2, is_active=True
     )
-    room = Room(name="Room A", room_type="一般教室", is_active=True)
+    room = Room(school_id=get_test_school_id(db), name="Room A", is_active=True)
     db.add_all([target_semester, room])
     db.commit()
     return CopySetup(source=source, target_semester_id=target_semester.id, room_id=room.id)
@@ -378,7 +379,7 @@ def test_copy_to_other_academic_year_returns_409(
     client: TestClient, db_session: Session
 ) -> None:
     setup = _build_copy_setup(db_session)
-    other_year = AcademicYear(year=9001, is_active=True)
+    other_year = AcademicYear(school_id=get_test_school_id(db_session), year=9001, is_active=True)
     db_session.add(other_year)
     db_session.flush()
     other_semester = Semester(academic_year_id=other_year.id, number=1, is_active=True)
@@ -521,6 +522,7 @@ def test_editing_copy_does_not_affect_source(
 ) -> None:
     setup = _build_copy_setup(db_session)
     other_teacher = Teacher(
+        school_id=get_test_school_id(db_session),
         name="Other teacher", is_active=True, min_weekly_periods=0, max_weekly_periods=20
     )
     db_session.add(other_teacher)
@@ -563,3 +565,38 @@ def test_copy_as_teacher_returns_403(teacher_client: TestClient, db_session: Ses
 
     assert response.status_code == 403
     assert _row_counts(db_session) == before
+
+
+# --- Task 98: the semester's scheduling settings travel with the copy ---
+
+
+def test_copy_cross_semester_copies_the_semester_settings(
+    client: TestClient, db_session: Session
+) -> None:
+    setup = _build_copy_setup(db_session)
+    source_teachers = client.get(f"/api/v1/semesters/{setup.source.semester_id}/teachers").json()
+    assert source_teachers != []
+
+    _copy_cross(client, setup)
+
+    copied = client.get(f"/api/v1/semesters/{setup.target_semester_id}/teachers").json()
+    assert copied == source_teachers
+
+
+def test_copy_cross_semester_keeps_the_targets_own_settings(
+    client: TestClient, db_session: Session
+) -> None:
+    setup = _build_copy_setup(db_session)
+    [source_teacher] = client.get(f"/api/v1/semesters/{setup.source.semester_id}/teachers").json()
+    own = {
+        "teacher_id": source_teacher["teacher_id"],
+        "min_weekly_periods": 3,
+        "max_weekly_periods": 9,
+        "unavailable_time_slot_ids": [],
+    }
+    client.put(f"/api/v1/semesters/{setup.target_semester_id}/teachers", json={"teachers": [own]})
+
+    _copy_cross(client, setup)
+
+    [kept] = client.get(f"/api/v1/semesters/{setup.target_semester_id}/teachers").json()
+    assert (kept["min_weekly_periods"], kept["max_weekly_periods"]) == (3, 9)

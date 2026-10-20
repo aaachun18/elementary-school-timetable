@@ -24,7 +24,10 @@ from app.models.academic_year import Semester
 from app.models.class_subject_requirement import ClassSubjectRequirement
 from app.models.lesson import Lesson
 from app.models.schedule import Schedule
+from app.models.semester_grade_time_slot import SemesterGradeTimeSlot
+from app.models.semester_teacher import SemesterTeacher, SemesterTeacherUnavailability
 from app.models.schedule_version import DRAFT, ScheduleVersion
+from app.services.school_scope import get_in_school, school_id_of_semester
 from app.services.exceptions import (
     CopyAcrossAcademicYearsError,
     CopySourceInconsistentError,
@@ -50,6 +53,8 @@ COPIED_REQUIREMENT_FIELDS = (
     # Task 87: the pattern travels with the requirement; the copied
     # lessons keep their block fields (below), so blocks stay intact.
     "lesson_pattern",
+    # Task 98: the special room is part of the requirement too.
+    "required_room_id",
 )
 NOT_COPIED_REQUIREMENT_FIELDS = ("id", "semester_id", "created_at", "updated_at")
 
@@ -73,7 +78,10 @@ def _resolve_target_semester_id(
     if target_semester_id is None or target_semester_id == source_semester_id:
         return source_semester_id
 
-    target_semester = db.get(Semester, target_semester_id)
+    # Task 98: another school's semester is "does not exist" from here.
+    target_semester = get_in_school(
+        db, Semester, target_semester_id, school_id_of_semester(db, source_semester_id)
+    )
     if target_semester is None:
         raise TargetSemesterNotFoundError(
             f"Semester {target_semester_id} does not exist."
@@ -147,6 +155,60 @@ def _stage_requirement_and_lesson_copies(
     return {old_id: new_lesson.id for old_id, new_lesson in new_lesson_by_old_id.items()}
 
 
+def _stage_semester_settings_copies(
+    db: Session, source_semester_id: int, target_semester_id: int
+) -> None:
+    """Task 98: the source semester's scheduling settings travel with a
+    cross-semester copy -- the teachers taking part (with their weekly
+    range and unavailable slots) and the grades' open slots -- so the
+    copied timetable is judged against the same rules it was made under.
+    Each kind is only copied when the target has none of its own yet; a
+    target the wizard already set up keeps its settings."""
+    target_has_teachers = db.scalar(
+        select(SemesterTeacher.id).where(SemesterTeacher.semester_id == target_semester_id).limit(1)
+    )
+    if target_has_teachers is None:
+        for semester_teacher in db.scalars(
+            select(SemesterTeacher)
+            .where(SemesterTeacher.semester_id == source_semester_id)
+            .order_by(SemesterTeacher.id)
+        ).all():
+            copied = SemesterTeacher(
+                semester_id=target_semester_id,
+                teacher_id=semester_teacher.teacher_id,
+                min_weekly_periods=semester_teacher.min_weekly_periods,
+                max_weekly_periods=semester_teacher.max_weekly_periods,
+            )
+            db.add(copied)
+            db.flush()
+            db.add_all(
+                SemesterTeacherUnavailability(
+                    semester_teacher_id=copied.id, time_slot_id=row.time_slot_id
+                )
+                for row in semester_teacher.unavailabilities
+            )
+
+    target_has_grade_slots = db.scalar(
+        select(SemesterGradeTimeSlot.id)
+        .where(SemesterGradeTimeSlot.semester_id == target_semester_id)
+        .limit(1)
+    )
+    if target_has_grade_slots is None:
+        db.add_all(
+            SemesterGradeTimeSlot(
+                semester_id=target_semester_id,
+                grade_id=row.grade_id,
+                time_slot_id=row.time_slot_id,
+            )
+            for row in db.scalars(
+                select(SemesterGradeTimeSlot)
+                .where(SemesterGradeTimeSlot.semester_id == source_semester_id)
+                .order_by(SemesterGradeTimeSlot.id)
+            ).all()
+        )
+    db.flush()
+
+
 def _stage_schedule_copies(
     db: Session,
     source_version_id: int,
@@ -202,6 +264,8 @@ def _stage_copy(
             db, source.semester_id, target_semester_id
         )
     )
+    if target_semester_id != source.semester_id:
+        _stage_semester_settings_copies(db, source.semester_id, target_semester_id)
     _stage_schedule_copies(db, source.id, new_version.id, lesson_id_map)
     return new_version
 

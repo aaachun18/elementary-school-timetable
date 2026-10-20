@@ -24,10 +24,11 @@ from app.models.lesson import Lesson
 from app.models.schedule import Schedule
 from app.models.schedule_version import ScheduleVersion
 from app.models.subject import Subject
-from app.models.teacher import Teacher, TeacherSubject
+from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
 from tests.test_move_candidates import _by_slot, _candidates
 from tests.test_move_swap_lessons import _move, _ok, _swap
+from tests.conftest import enroll_in_semester, get_test_school_id, next_free_grade_level
 
 URL = "/api/v1/schedule-versions"
 BLOCK_TYPES = {"BLOCK_NOT_CONSECUTIVE", "BLOCK_SAME_DAY"}
@@ -78,35 +79,31 @@ class World:
 
 
 def _world(db: Session) -> World:
-    year = AcademicYear(year=8801, is_active=True)
+    year = AcademicYear(school_id=get_test_school_id(db), year=8801, is_active=True)
     db.add(year)
     db.flush()
     semester = Semester(academic_year_id=year.id, number=1, is_active=True)
-    grade = Grade(name="Grade 8801", level=8801)
+    grade = Grade(school_id=get_test_school_id(db), name="Grade 8801", level=next_free_grade_level(db))
     db.add_all([semester, grade])
     db.flush()
     slots = {
         (weekday, period): TimeSlot(
+            school_id=get_test_school_id(db),
             weekday=weekday, period=period, is_teaching_period=period != LUNCH
         )
         for weekday in (1, 2, 3)
         for period in (1, 2, 3, 4, 5)
     }
     db.add_all(slots.values())
-    science = Subject(name="自然", is_active=True)
-    english = Subject(name="英文", is_active=True)
+    science = Subject(school_id=get_test_school_id(db), name="自然", is_active=True)
+    english = Subject(school_id=get_test_school_id(db), name="英文", is_active=True)
     c1 = Class(grade_id=grade.id, name="四年甲班", is_active=True)
-    t1 = Teacher(name="一號老師", is_active=True, min_weekly_periods=0, max_weekly_periods=20)
-    t2 = Teacher(name="二號老師", is_active=True, min_weekly_periods=0, max_weekly_periods=20)
+    t1 = Teacher(school_id=get_test_school_id(db), name="一號老師", is_active=True, min_weekly_periods=0, max_weekly_periods=20)
+    t2 = Teacher(school_id=get_test_school_id(db), name="二號老師", is_active=True, min_weekly_periods=0, max_weekly_periods=20)
     db.add_all([science, english, c1, t1, t2])
     db.flush()
-    db.add_all(
-        [
-            TeacherSubject(teacher_id=teacher.id, subject_id=subject.id)
-            for teacher in (t1, t2)
-            for subject in (science, english)
-        ]
-    )
+    for teacher in (t1, t2):
+        enroll_in_semester(db, semester.id, teacher)
     science_requirement = ClassSubjectRequirement(
         semester_id=semester.id,
         class_id=c1.id,

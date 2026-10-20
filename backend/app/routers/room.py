@@ -1,7 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_user, require_admin
+from app.core.dependencies import (
+    coordinator_school_id,
+    member_school_id,
+    require_school_member,
+)
 from app.database import get_db
 from app.models.room import Room
 from app.schemas.room import RoomCreate, RoomRead, RoomUpdate
@@ -10,44 +14,36 @@ from app.services import room as room_service
 router = APIRouter(
     prefix="/api/v1/rooms",
     tags=["rooms"],
-    dependencies=[Depends(get_current_user)],
+    dependencies=[Depends(require_school_member)],
 )
 
 
-@router.post(
-    "/",
-    response_model=RoomRead,
-    status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_admin)],
-)
-def create_room(room_data: RoomCreate, db: Session = Depends(get_db)) -> Room:
-    return room_service.create_room(db, room_data)
+@router.post("/", response_model=RoomRead, status_code=status.HTTP_201_CREATED)
+def create_room(
+    room_data: RoomCreate,
+    db: Session = Depends(get_db),
+    school_id: int = Depends(coordinator_school_id),
+) -> Room:
+    return room_service.create_room(db, room_data, school_id=school_id)
 
 
 @router.get("/", response_model=list[RoomRead])
 def list_rooms(
-    skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    school_id: int = Depends(member_school_id),
 ) -> list[Room]:
-    return room_service.get_rooms(db, skip=skip, limit=limit)
+    return room_service.get_rooms(db, skip=skip, limit=limit, school_id=school_id)
 
 
 @router.get("/{room_id}", response_model=RoomRead)
-def get_room(room_id: int, db: Session = Depends(get_db)) -> Room:
-    room = room_service.get_room(db, room_id)
-    if room is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Room not found"
-        )
-    return room
-
-
-@router.patch(
-    "/{room_id}", response_model=RoomRead, dependencies=[Depends(require_admin)]
-)
-def update_room(
-    room_id: int, room_data: RoomUpdate, db: Session = Depends(get_db)
+def get_room(
+    room_id: int,
+    db: Session = Depends(get_db),
+    school_id: int = Depends(member_school_id),
 ) -> Room:
-    room = room_service.update_room(db, room_id, room_data)
+    room = room_service.get_room(db, room_id, school_id=school_id)
     if room is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Room not found"
@@ -55,13 +51,28 @@ def update_room(
     return room
 
 
-@router.delete(
-    "/{room_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_admin)],
-)
-def delete_room(room_id: int, db: Session = Depends(get_db)) -> None:
-    deleted = room_service.delete_room(db, room_id)
+@router.patch("/{room_id}", response_model=RoomRead)
+def update_room(
+    room_id: int,
+    room_data: RoomUpdate,
+    db: Session = Depends(get_db),
+    school_id: int = Depends(coordinator_school_id),
+) -> Room:
+    room = room_service.update_room(db, room_id, room_data, school_id=school_id)
+    if room is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Room not found"
+        )
+    return room
+
+
+@router.delete("/{room_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_room(
+    room_id: int,
+    db: Session = Depends(get_db),
+    school_id: int = Depends(coordinator_school_id),
+) -> None:
+    deleted = room_service.delete_room(db, room_id, school_id=school_id)
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Room not found"

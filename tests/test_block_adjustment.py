@@ -20,11 +20,12 @@ from app.models.lesson import Lesson
 from app.models.schedule import Schedule
 from app.models.schedule_version import ScheduleVersion
 from app.models.subject import Subject
-from app.models.teacher import Teacher, TeacherSubject
+from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
 from app.services import schedule_adjustment
 from tests.test_move_candidates import _by_slot, _candidates
 from tests.test_move_swap_lessons import _move, _ok, _swap
+from tests.conftest import enroll_in_semester, get_test_school_id, next_free_grade_level
 
 URL = "/api/v1/schedule-versions"
 LUNCH = 4
@@ -71,33 +72,31 @@ PLACEMENT = {
 
 
 def _world(db: Session, *, skip_rows: tuple[str, ...] = ()) -> World:
-    year = AcademicYear(year=8901, is_active=True)
+    year = AcademicYear(school_id=get_test_school_id(db), year=8901, is_active=True)
     db.add(year)
     db.flush()
     semester = Semester(academic_year_id=year.id, number=1, is_active=True)
-    grade = Grade(name="Grade 8901", level=8901)
+    grade = Grade(school_id=get_test_school_id(db), name="Grade 8901", level=next_free_grade_level(db))
     db.add_all([semester, grade])
     db.flush()
     slots = {
-        (weekday, period): TimeSlot(weekday=weekday, period=period, is_teaching_period=period != LUNCH)
+        (weekday, period): TimeSlot(school_id=get_test_school_id(db), weekday=weekday, period=period, is_teaching_period=period != LUNCH)
         for weekday in (1, 2, 3)
         for period in (1, 2, 3, 4, 5, 6)
     }
     db.add_all(slots.values())
-    subjects = {name: Subject(name=name, is_active=True) for name in ("自然", "數學", "英文", "美勞")}
+    subjects = {name: Subject(school_id=get_test_school_id(db), name=name, is_active=True) for name in ("自然", "數學", "英文", "美勞")}
     c1 = Class(grade_id=grade.id, name="四年甲班", is_active=True)
     teachers = [
-        Teacher(name=name, is_active=True, min_weekly_periods=0, max_weekly_periods=20)
+        Teacher(school_id=get_test_school_id(db), name=name, is_active=True, min_weekly_periods=0, max_weekly_periods=20)
         for name in ("一號老師", "二號老師", "三號老師")
     ]
     t1, t2, t3 = teachers
     db.add_all([*subjects.values(), c1, *teachers])
     db.flush()
-    db.add_all(
-        [TeacherSubject(teacher_id=t1.id, subject_id=subjects[name].id) for name in ("自然", "數學")]
-        + [TeacherSubject(teacher_id=t2.id, subject_id=subjects[name].id) for name in ("英文", "美勞")]
-        + [TeacherSubject(teacher_id=t3.id, subject_id=subjects["自然"].id)]
-    )
+    # Task 98: all three teachers take part in the semester.
+    for teacher in teachers:
+        enroll_in_semester(db, semester.id, teacher)
     requirements = {
         "S": ClassSubjectRequirement(semester_id=semester.id, class_id=c1.id, subject_id=subjects["自然"].id, weekly_periods=3, lesson_pattern="2+1"),
         "M": ClassSubjectRequirement(semester_id=semester.id, class_id=c1.id, subject_id=subjects["數學"].id, weekly_periods=2, lesson_pattern="2"),
@@ -182,7 +181,7 @@ def test_move_with_target_room_puts_the_whole_block_there(
     from app.models.room import Room
 
     world = _world(db_session)
-    room = Room(name="自然教室", room_type="自然教室", is_active=True)
+    room = Room(school_id=get_test_school_id(db_session), name="自然教室", is_active=True)
     db_session.add(room)
     db_session.commit()
 

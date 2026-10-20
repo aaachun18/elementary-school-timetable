@@ -2,15 +2,26 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.grade_class import Class
+from app.models.grade_class import Class, Grade
+from app.models.room import Room
 from app.schemas.class_ import ClassCreate, ClassUpdate
 from app.services.exceptions import (
     DependentRecordsExistError,
     raise_for_integrity_error,
 )
+from app.services.school_scope import (
+    ensure_references_in_school,
+    get_in_school,
+    in_school,
+)
 
 
-def create_class(db: Session, class_data: ClassCreate) -> Class:
+def create_class(db: Session, class_data: ClassCreate, *, school_id: int) -> Class:
+    ensure_references_in_school(
+        db,
+        school_id,
+        [(Grade, class_data.grade_id), (Room, class_data.homeroom_room_id)],
+    )
     class_obj = Class(
         grade_id=class_data.grade_id,
         name=class_data.name,
@@ -27,21 +38,31 @@ def create_class(db: Session, class_data: ClassCreate) -> Class:
     return class_obj
 
 
-def get_class(db: Session, class_id: int) -> Class | None:
-    return db.get(Class, class_id)
+def get_class(db: Session, class_id: int, *, school_id: int) -> Class | None:
+    return get_in_school(db, Class, class_id, school_id)
 
 
-def get_classes(db: Session, skip: int = 0, limit: int = 100) -> list[Class]:
-    stmt = select(Class).offset(skip).limit(limit)
+def get_classes(
+    db: Session, skip: int = 0, limit: int = 100, *, school_id: int
+) -> list[Class]:
+    stmt = select(Class).where(in_school(Class, school_id)).offset(skip).limit(limit)
     return list(db.scalars(stmt).all())
 
 
-def update_class(db: Session, class_id: int, class_data: ClassUpdate) -> Class | None:
-    class_obj = db.get(Class, class_id)
+def update_class(
+    db: Session, class_id: int, class_data: ClassUpdate, *, school_id: int
+) -> Class | None:
+    class_obj = get_in_school(db, Class, class_id, school_id)
     if class_obj is None:
         return None
 
-    for field, value in class_data.model_dump(exclude_unset=True).items():
+    changes = class_data.model_dump(exclude_unset=True)
+    ensure_references_in_school(
+        db,
+        school_id,
+        [(Grade, changes.get("grade_id")), (Room, changes.get("homeroom_room_id"))],
+    )
+    for field, value in changes.items():
         setattr(class_obj, field, value)
 
     try:
@@ -53,8 +74,8 @@ def update_class(db: Session, class_id: int, class_data: ClassUpdate) -> Class |
     return class_obj
 
 
-def delete_class(db: Session, class_id: int) -> bool:
-    class_obj = db.get(Class, class_id)
+def delete_class(db: Session, class_id: int, *, school_id: int) -> bool:
+    class_obj = get_in_school(db, Class, class_id, school_id)
     if class_obj is None:
         return False
 

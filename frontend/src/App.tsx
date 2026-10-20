@@ -1,15 +1,23 @@
 import type { ReactElement } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import AdminOnlyRoute from "./components/AdminOnlyRoute";
 import Layout from "./components/Layout";
 import ProtectedRoute from "./components/ProtectedRoute";
+import RoleRoute from "./components/RoleRoute";
 import DataBrowser from "./pages/DataBrowser";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
-import RequirementsOverview from "./pages/RequirementsOverview";
-import SchedulerConsole from "./pages/SchedulerConsole";
+import ScheduleRecords from "./pages/ScheduleRecords";
+import SchedulingWizard from "./pages/SchedulingWizard";
+import SchoolManagement from "./pages/SchoolManagement";
 import TimetableView from "./pages/TimetableView";
 import UserManagement from "./pages/UserManagement";
+import type { UserRole } from "./utils/auth";
+
+// Task 98: who may open which page (RoleRoute redirects everyone else).
+const SCHOOL_MEMBERS: readonly UserRole[] = ["COORDINATOR", "TEACHER"];
+const COORDINATOR_ONLY: readonly UserRole[] = ["COORDINATOR"];
+const ACCOUNT_MANAGERS: readonly UserRole[] = ["ADMIN", "COORDINATOR"];
+const ADMIN_ONLY: readonly UserRole[] = ["ADMIN"];
 
 export default function App(): ReactElement {
   return (
@@ -27,48 +35,74 @@ export default function App(): ReactElement {
             </ProtectedRoute>
           }
         >
-          {/* Task 43: everything except / and /timetable is additionally
-              wrapped in AdminOnlyRoute -- a TEACHER hitting any of these
-              URLs directly (not just missing the nav link) bounces to
-              /timetable instead of rendering. Task 97: the home page is a
-              dashboard by role, so a TEACHER gets its simplified version
-              (decision 33). */}
-          <Route path="/" element={<Home />} />
+          {/* Task 43 / 98: each page is wrapped in RoleRoute -- a role
+              hitting a URL it may not open (not just missing the nav
+              link) is redirected instead of rendering. The 系統管理員
+              only has 學校管理 and 帳號管理; a TEACHER only 首頁 (a
+              simplified dashboard, Task 97) and 課表. */}
+          <Route
+            path="/"
+            element={
+              <RoleRoute allow={SCHOOL_MEMBERS}>
+                <Home />
+              </RoleRoute>
+            }
+          />
           <Route
             path="/data"
             element={
-              <AdminOnlyRoute>
+              <RoleRoute allow={COORDINATOR_ONLY}>
                 <DataBrowser />
-              </AdminOnlyRoute>
+              </RoleRoute>
+            }
+          />
+          {/* Task 98: 開始排課 and 排課紀錄 replace 排課需求總覽 /
+              排課控制台 (their old addresses still lead to them). */}
+          <Route
+            path="/wizard"
+            element={
+              <RoleRoute allow={COORDINATOR_ONLY}>
+                <SchedulingWizard />
+              </RoleRoute>
             }
           />
           <Route
-            path="/requirements"
+            path="/records"
             element={
-              <AdminOnlyRoute>
-                <RequirementsOverview />
-              </AdminOnlyRoute>
+              <RoleRoute allow={COORDINATOR_ONLY}>
+                <ScheduleRecords />
+              </RoleRoute>
             }
           />
-          <Route
-            path="/scheduler"
-            element={
-              <AdminOnlyRoute>
-                <SchedulerConsole />
-              </AdminOnlyRoute>
-            }
-          />
-          {/* Task 59: account management -- ADMIN only, same wrapper as the
-              pages above; the backend's require_admin is the real lock. */}
+          <Route path="/requirements" element={<Navigate to="/wizard?step=requirements" replace />} />
+          <Route path="/scheduler" element={<Navigate to="/records" replace />} />
+          {/* Task 59 / 98: account management -- the 系統管理員 and the
+              教學組長; the backend's require_manager and per-school scope
+              are the real lock. */}
           <Route
             path="/users"
             element={
-              <AdminOnlyRoute>
+              <RoleRoute allow={ACCOUNT_MANAGERS}>
                 <UserManagement />
-              </AdminOnlyRoute>
+              </RoleRoute>
             }
           />
-          <Route path="/timetable" element={<TimetableView />} />
+          <Route
+            path="/schools"
+            element={
+              <RoleRoute allow={ADMIN_ONLY}>
+                <SchoolManagement />
+              </RoleRoute>
+            }
+          />
+          <Route
+            path="/timetable"
+            element={
+              <RoleRoute allow={SCHOOL_MEMBERS}>
+                <TimetableView />
+              </RoleRoute>
+            }
+          />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

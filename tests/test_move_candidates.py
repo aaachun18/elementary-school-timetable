@@ -14,9 +14,11 @@ from app.models.room import Room
 from app.models.schedule import Schedule
 from app.models.schedule_version import ScheduleVersion
 from app.models.subject import Subject
-from app.models.teacher import Teacher, TeacherAvailability, TeacherSubject
+from app.models.semester_teacher import SemesterTeacher, SemesterTeacherUnavailability
+from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
 from tests.test_move_swap_lessons import Timetable, _build_timetable, _move, _ok, _swap
+from tests.conftest import enroll_in_semester, get_test_school_id, next_free_grade_level
 
 # Task 83: GET /api/v1/schedule-versions/{id}/move-candidates/{schedule_id}
 # -- for one lesson, the version's check after moving it to every time slot
@@ -52,9 +54,9 @@ def _rich_timetable(db: Session) -> tuple[Timetable, TimeSlot]:
     in room r1 -- so moves and swaps can hit H1/H2/H3/H4/H11 and the fixed
     slot check."""
     timetable = _build_timetable(db)
-    lunch = TimeSlot(weekday=1, period=99, is_teaching_period=False, label="午休")
+    lunch = TimeSlot(school_id=get_test_school_id(db), weekday=1, period=99, is_teaching_period=False, label="午休")
     db.add(lunch)
-    db.add(TeacherAvailability(teacher_id=timetable.t2.id, time_slot_id=timetable.slot(4)))
+    timetable.builder.make_unavailable(timetable.t2, timetable.slot(4))
     lesson = db.get(Lesson, timetable.c1_english[1].lesson_id)
     assert lesson is not None
     lesson.fixed_time_slot_id = timetable.slot(1)
@@ -83,8 +85,8 @@ def _snapshot(db: Session) -> list[tuple[object, ...]]:
         TimeSlot,
         Room,
         Teacher,
-        TeacherAvailability,
-        TeacherSubject,
+        SemesterTeacher,
+        SemesterTeacherUnavailability,
         Class,
     ):
         columns = list(model.__table__.columns.keys())
@@ -285,30 +287,29 @@ def _build_scaled_version(db: Session, *, classes: int, lessons_per_class: int) 
     """A DRAFT version with classes x lessons_per_class rows over a 5-day,
     10-period week (period 0 and 5 non-teaching, like the demo data).
     Returns (version id, one schedule id)."""
-    year = AcademicYear(year=7000 + classes, is_active=True)
+    year = AcademicYear(school_id=get_test_school_id(db), year=7000 + classes, is_active=True)
     db.add(year)
     db.flush()
     semester = Semester(academic_year_id=year.id, number=1, is_active=True)
-    grade = Grade(name=f"Grade scale {classes}", level=7000 + classes)
+    grade = Grade(school_id=get_test_school_id(db), name=f"Grade scale {classes}", level=next_free_grade_level(db))
     db.add_all([semester, grade])
     db.flush()
     slots = [
-        TimeSlot(weekday=weekday, period=period, is_teaching_period=period not in (0, 5))
+        TimeSlot(school_id=get_test_school_id(db), weekday=weekday, period=period, is_teaching_period=period not in (0, 5))
         for weekday in range(1, 6)
         for period in range(0, 10)
     ]
     db.add_all(slots)
     teaching = [slot for slot in slots if slot.is_teaching_period]
-    subjects = [Subject(name=f"Scale subject {i}", is_active=True) for i in range(lessons_per_class)]
+    subjects = [Subject(school_id=get_test_school_id(db), name=f"Scale subject {i}", is_active=True) for i in range(lessons_per_class)]
     teachers = [
-        Teacher(name=f"Scale teacher {i}", is_active=True, min_weekly_periods=0, max_weekly_periods=40)
+        Teacher(school_id=get_test_school_id(db), name=f"Scale teacher {i}", is_active=True, min_weekly_periods=0, max_weekly_periods=40)
         for i in range(lessons_per_class)
     ]
     db.add_all([*subjects, *teachers])
     db.flush()
-    db.add_all(
-        [TeacherSubject(teacher_id=t.id, subject_id=s.id) for t, s in zip(teachers, subjects)]
-    )
+    for teacher in teachers:
+        enroll_in_semester(db, semester.id, teacher)
     version = ScheduleVersion(semester_id=semester.id, version_number=1, status="DRAFT")
     db.add(version)
     db.flush()

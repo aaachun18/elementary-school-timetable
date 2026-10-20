@@ -26,9 +26,7 @@ from scheduling_engine.models.domain import (
     LessonBlock,
     RequiredTeacherRule,
     RequirementPeriods,
-    RoomInfo,
-    RoomTypeRequirement,
-    TeacherQualification,
+    RequiredRoomRule,
     TeacherUnavailability,
     TimeSlotInfo,
     TimeSlotPosition,
@@ -79,15 +77,10 @@ def resources(
         counts[item.class_subject_requirement_id] = counts.get(item.class_subject_requirement_id, 0) + 1
     base: dict[str, object] = dict(
         time_slot_ids=[info.time_slot_id for info in infos],
-        teacher_qualifications=[
-            TeacherQualification(teacher_id=1, subject_id=10),
-            TeacherQualification(teacher_id=2, subject_id=20),
-            TeacherQualification(teacher_id=3, subject_id=30),
-        ],
+        teacher_ids=[1, 2, 3],
         teacher_unavailability=[],
         required_teacher_rules=[],
-        room_type_requirements=[],
-        rooms=[],
+        required_room_rules=[],
         time_slots=infos,
         active_statuses=[],
         requirement_periods=[RequirementPeriods(class_subject_requirement_id=r, weekly_periods=n) for r, n in counts.items()],
@@ -201,11 +194,10 @@ def test_several_requirements_with_blocks_respect_every_hard_constraint(algorith
         items,
         [*a_blocks, *b_blocks],
         days=3,
-        room_type_requirements=[
-            RoomTypeRequirement(class_subject_requirement_id=1, required_room_type="LAB"),
-            RoomTypeRequirement(class_subject_requirement_id=2, required_room_type="LAB"),
+        required_room_rules=[
+            RequiredRoomRule(class_subject_requirement_id=1, room_id=7),
+            RequiredRoomRule(class_subject_requirement_id=2, room_id=7),
         ],
-        rooms=[RoomInfo(room_id=7, room_type="LAB")],
         teacher_unavailability=[TeacherUnavailability(teacher_id=1, time_slot_id=slot(1, 1))],
     )
     assert check_static_feasibility(items, res).feasible is True

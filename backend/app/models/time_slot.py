@@ -1,7 +1,7 @@
 from datetime import time
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, String, Time
+from sqlalchemy import CheckConstraint, ForeignKey, String, Time
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -18,6 +18,9 @@ class TimeSlot(TimestampMixin, Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Task 98: the school this row belongs to. Every query a 教學組長 or
+    # 一般老師 makes is limited to their own school (app/services/school_scope.py).
+    school_id: Mapped[int] = mapped_column(ForeignKey("schools.id"))
     # Weekday convention: 1=Monday, 2=Tuesday, 3=Wednesday, 4=Thursday, 5=Friday.
     weekday: Mapped[int] = mapped_column()
     period: Mapped[int] = mapped_column()

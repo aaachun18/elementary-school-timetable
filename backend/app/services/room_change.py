@@ -33,6 +33,7 @@ from app.models.room import Room
 from app.models.schedule import Schedule
 from app.models.schedule_version import ScheduleVersion
 from app.services import block_adjustment, schedule_check
+from app.services.school_scope import get_in_school, school_id_of_version
 from app.services.exceptions import (
     AdjustmentTargetNotFoundError,
     InactiveRoomAssignmentError,
@@ -124,7 +125,7 @@ def change_room(
             f"{schedule.schedule_version_id}, not {schedule_version_id}."
         )
     if room_id is not None:
-        room = db.get(Room, room_id)
+        room = get_in_school(db, Room, room_id, school_id_of_version(db, schedule_version))
         if room is None:
             raise AdjustmentTargetNotFoundError("Room not found")
         if not room.is_active:

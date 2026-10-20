@@ -20,19 +20,20 @@ export interface LocateTarget {
 const VIEW_BY_TYPE: Record<string, TimetableViewMode> = {
   H1_TEACHER_CONFLICT: "teacher",
   H4_TEACHER_AVAILABILITY: "teacher",
-  H5_TEACHER_QUALIFICATION: "teacher",
+  H5_TEACHER_NOT_PARTICIPATING: "teacher",
   H6_REQUIRED_TEACHER: "teacher",
   H8_TEACHER_MAX_WORKLOAD: "teacher",
   H2_CLASS_CONFLICT: "class",
   H11_NON_TEACHING_PERIOD: "class",
   H3_ROOM_CONFLICT: "room",
-  H9_ROOM_TYPE: "room",
+  H9_REQUIRED_ROOM: "room",
+  H13_CLASS_TIME_SLOT: "class",
   // Task 90: a lesson block is the class's; a minimum workload the teacher's.
   BLOCK_NOT_CONSECUTIVE: "class",
   BLOCK_SAME_DAY: "class",
   TEACHER_MIN_WORKLOAD: "teacher",
-  // Task 94: the lesson has no room, so it shows in its class's timetable.
-  ROOM_MISSING_FOR_TYPE: "class",
+  // Task 94 / 98: the lesson has no room, so it shows in its class's timetable.
+  REQUIRED_ROOM_MISSING: "class",
 };
 
 // H12 names a lesson involving SOMETHING inactive -- the view follows

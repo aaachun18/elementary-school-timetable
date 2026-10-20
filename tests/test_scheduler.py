@@ -1,4 +1,6 @@
 from fastapi.testclient import TestClient
+from tests.api_helpers import create_enrolled_teacher, create_teacher, enroll_teacher
+from tests.conftest import next_free_grade_level_via_api
 
 
 def _create_academic_year(client: TestClient, year: int) -> int:
@@ -19,7 +21,8 @@ def _create_semester(client: TestClient, year: int) -> int:
 
 def _create_grade(client: TestClient, level: int) -> int:
     response = client.post(
-        "/api/v1/grades/", json={"name": f"Grade {level}", "level": level}
+        "/api/v1/grades/",
+        json={"name": f"Grade {level}", "level": next_free_grade_level_via_api(client)},
     )
     grade_id: int = response.json()["id"]
     return grade_id
@@ -38,28 +41,6 @@ def _create_subject(client: TestClient, name: str) -> int:
     response = client.post("/api/v1/subjects/", json={"name": name})
     subject_id: int = response.json()["id"]
     return subject_id
-
-
-def _create_teacher(
-    client: TestClient, name: str, min_weekly_periods: int = 0, max_weekly_periods: int = 20
-) -> int:
-    response = client.post(
-        "/api/v1/teachers/",
-        json={
-            "name": name,
-            "min_weekly_periods": min_weekly_periods,
-            "max_weekly_periods": max_weekly_periods,
-        },
-    )
-    teacher_id: int = response.json()["id"]
-    return teacher_id
-
-
-def _add_teacher_subject(client: TestClient, teacher_id: int, subject_id: int) -> None:
-    response = client.post(
-        f"/api/v1/teachers/{teacher_id}/subjects", json={"subject_id": subject_id}
-    )
-    assert response.status_code == 201
 
 
 def _create_time_slot(client: TestClient, weekday: int, period: int) -> int:
@@ -102,8 +83,9 @@ def _create_schedule_version(client: TestClient, semester_id: int) -> int:
 def _build_schedulable_semester(
     client: TestClient, year: int, weekly_periods: int = 1
 ) -> tuple[int, int]:
-    """Builds one class/subject/requirement, a qualified teacher, and enough
-    time slots to actually place `weekly_periods` lessons. Returns
+    """Builds one class/subject/requirement, a teacher taking part in the
+    semester, and enough time slots to actually place `weekly_periods`
+    lessons. Returns
     (semester_id, schedule_version_id) with generate-lessons already run.
     """
     semester_id = _create_semester(client, year)
@@ -111,8 +93,7 @@ def _build_schedulable_semester(
     subject_id = _create_subject(client, name=f"Subject {year}")
     _create_requirement(client, semester_id, class_id, subject_id, weekly_periods)
 
-    teacher_id = _create_teacher(client, name=f"Teacher {year}")
-    _add_teacher_subject(client, teacher_id, subject_id)
+    create_enrolled_teacher(client, semester_id, f"Teacher {year}")
 
     for period in range(1, weekly_periods + 1):
         _create_time_slot(client, weekday=1, period=period)
@@ -188,17 +169,17 @@ def test_run_scheduler_infeasible_returns_422_and_writes_nothing(
 # unexplained DEFINITELY_INFEASIBLE with lesson_failures == []. ---
 
 
-def test_run_scheduler_required_teacher_not_qualified_returns_explained_422(
+def test_run_scheduler_required_teacher_not_participating_returns_explained_422(
     client: TestClient,
 ) -> None:
     semester_id = _create_semester(client, year=3005)
     class_id = _create_class(client, level=3005)
     subject_id = _create_subject(client, name="Subject 3005")
-    other_subject_id = _create_subject(client, name="Other Subject 3005")
 
-    teacher_id = _create_teacher(client, name="Teacher 3005")
-    # Qualified for a DIFFERENT subject, not the one required below.
-    _add_teacher_subject(client, teacher_id, other_subject_id)
+    # Task 98 (was: qualified for a different subject): another teacher
+    # takes part in the semester, the required one doesn't.
+    teacher_id = create_teacher(client, "Teacher 3005")
+    create_enrolled_teacher(client, semester_id, "Other Teacher 3005")
 
     requirement_response = client.post(
         "/api/v1/class-subject-requirements/",
@@ -234,7 +215,7 @@ def test_run_scheduler_required_teacher_not_qualified_returns_explained_422(
     # per-Lesson reason it can never be placed.
     assert len(data["lesson_failures"]) == 1
     reason = data["lesson_failures"][0]["reasons"][0]
-    assert reason["type"] == "H6_REQUIRED_TEACHER_NOT_QUALIFIED"
+    assert reason["type"] == "H6_REQUIRED_TEACHER_NOT_PARTICIPATING"
     assert reason["teacher_id"] == teacher_id
 
     schedules_response = client.get("/api/v1/schedules/")
@@ -261,10 +242,9 @@ def test_run_scheduler_static_check_teacher_workload_exceeded(
     semester_id = _create_semester(client, year=3006)
     subject_id = _create_subject(client, name="Subject 3006")
 
-    teacher_id = _create_teacher(
-        client, name="楊老師 3006", min_weekly_periods=0, max_weekly_periods=2
+    teacher_id = create_enrolled_teacher(
+        client, semester_id, "楊老師 3006", min_weekly_periods=0, max_weekly_periods=2
     )
-    _add_teacher_subject(client, teacher_id, subject_id)
 
     class_a = _create_class(client, level=30061)
     class_b = _create_class(client, level=30062)
@@ -320,10 +300,9 @@ def test_run_scheduler_static_check_teacher_availability_insufficient(
     class_id = _create_class(client, level=3007)
     subject_id = _create_subject(client, name="Subject 3007")
 
-    teacher_id = _create_teacher(
-        client, name="Teacher 3007", min_weekly_periods=0, max_weekly_periods=20
+    teacher_id = create_enrolled_teacher(
+        client, semester_id, "Teacher 3007", min_weekly_periods=0, max_weekly_periods=20
     )
-    _add_teacher_subject(client, teacher_id, subject_id)
 
     client.post(
         "/api/v1/class-subject-requirements/",
@@ -338,14 +317,9 @@ def test_run_scheduler_static_check_teacher_availability_insufficient(
 
     # Only 3 school time slots total...
     slot_ids = [_create_time_slot(client, weekday=1, period=p) for p in range(1, 4)]
-    # ...but the teacher is unavailable for 2 of them, leaving only 1
-    # available slot for 3 required lessons.
-    for slot_id in slot_ids[1:]:
-        response = client.post(
-            f"/api/v1/teachers/{teacher_id}/unavailable-slots",
-            json={"time_slot_id": slot_id},
-        )
-        assert response.status_code == 201
+    # ...but the teacher is unavailable for 2 of them this semester,
+    # leaving only 1 available slot for 3 required lessons.
+    enroll_teacher(client, semester_id, teacher_id, unavailable_time_slot_ids=slot_ids[1:])
 
     version_id = _create_schedule_version(client, semester_id)
     generate_response = client.post(
@@ -412,10 +386,9 @@ def test_run_scheduler_static_checks_do_not_interfere_with_each_other(
     subject_id = _create_subject(client, name="Subject 3009")
 
     # Overloaded teacher (workload).
-    overloaded_teacher = _create_teacher(
-        client, name="Overloaded 3009", max_weekly_periods=1
+    overloaded_teacher = create_enrolled_teacher(
+        client, semester_id, "Overloaded 3009", max_weekly_periods=1
     )
-    _add_teacher_subject(client, overloaded_teacher, subject_id)
     class_a = _create_class(client, level=30091)
     client.post(
         "/api/v1/class-subject-requirements/",
@@ -429,10 +402,9 @@ def test_run_scheduler_static_checks_do_not_interfere_with_each_other(
     )
 
     # Unavailable teacher (availability).
-    unavailable_teacher = _create_teacher(
-        client, name="Unavailable 3009", max_weekly_periods=20
+    unavailable_teacher = create_enrolled_teacher(
+        client, semester_id, "Unavailable 3009", max_weekly_periods=20
     )
-    _add_teacher_subject(client, unavailable_teacher, subject_id)
     class_b = _create_class(client, level=30092)
     client.post(
         "/api/v1/class-subject-requirements/",
@@ -446,11 +418,9 @@ def test_run_scheduler_static_checks_do_not_interfere_with_each_other(
     )
 
     slot_ids = [_create_time_slot(client, weekday=1, period=p) for p in range(1, 3)]
-    for slot_id in slot_ids:
-        client.post(
-            f"/api/v1/teachers/{unavailable_teacher}/unavailable-slots",
-            json={"time_slot_id": slot_id},
-        )
+    enroll_teacher(
+        client, semester_id, unavailable_teacher, unavailable_time_slot_ids=slot_ids
+    )
 
     # Inactive class (unrelated third requirement).
     class_c = _create_class(client, level=30093)
@@ -486,9 +456,10 @@ def test_run_scheduler_static_check_and_zero_candidate_teacher_together(
     client: TestClient,
 ) -> None:
     """Task 38 regression: reproduces the exact bug a real user hit --
-    STATIC_TEACHER_WORKLOAD_EXCEEDED (a whole-batch static check) and
-    NO_CANDIDATE_TEACHER (a per-Lesson problem, for a completely unrelated
-    requirement with no qualified teacher at all) firing in the SAME run.
+    STATIC_TEACHER_WORKLOAD_EXCEEDED (a whole-batch static check) and a
+    zero-candidate-teacher problem (a per-Lesson problem, for a completely
+    unrelated requirement -- Task 98: its required teacher doesn't take
+    part in the semester) firing in the SAME run.
     Before the fix, run_scheduler() returned as soon as
     check_static_feasibility() found the workload problem, WITHOUT ever
     calling schedule_backtracking() -- the only place that used to catch
@@ -501,10 +472,9 @@ def test_run_scheduler_static_check_and_zero_candidate_teacher_together(
     # Requirement 1: overloaded teacher (workload) -- same shape as
     # test_run_scheduler_static_check_teacher_workload_exceeded.
     workload_subject_id = _create_subject(client, name="Workload Subject 3010")
-    overloaded_teacher = _create_teacher(
-        client, name="Overloaded 3010", max_weekly_periods=1
+    overloaded_teacher = create_enrolled_teacher(
+        client, semester_id, "Overloaded 3010", max_weekly_periods=1
     )
-    _add_teacher_subject(client, overloaded_teacher, workload_subject_id)
     class_a = _create_class(client, level=30101)
     client.post(
         "/api/v1/class-subject-requirements/",
@@ -517,10 +487,10 @@ def test_run_scheduler_static_check_and_zero_candidate_teacher_together(
         },
     )
 
-    # Requirement 2: a completely unrelated subject nobody is qualified to
-    # teach -- no required_teacher_id, so this is the NO_CANDIDATE_TEACHER
-    # shape, not H6_REQUIRED_TEACHER_NOT_QUALIFIED.
+    # Requirement 2: a completely unrelated subject whose required teacher
+    # doesn't take part in the semester.
     unteachable_subject_id = _create_subject(client, name="Unteachable Subject 3010")
+    absent_teacher = create_teacher(client, "Absent 3010")
     class_b = _create_class(client, level=30102)
     client.post(
         "/api/v1/class-subject-requirements/",
@@ -529,6 +499,7 @@ def test_run_scheduler_static_check_and_zero_candidate_teacher_together(
             "class_id": class_b,
             "subject_id": unteachable_subject_id,
             "weekly_periods": 1,
+            "required_teacher_id": absent_teacher,
         },
     )
 
@@ -560,7 +531,7 @@ def test_run_scheduler_static_check_and_zero_candidate_teacher_together(
     # silently dropped.
     assert len(data["lesson_failures"]) == 1
     lesson_failure = data["lesson_failures"][0]
-    assert lesson_failure["reasons"][0]["type"] == "NO_CANDIDATE_TEACHER"
+    assert lesson_failure["reasons"][0]["type"] == "H6_REQUIRED_TEACHER_NOT_PARTICIPATING"
     assert lesson_failure["reasons"][0]["subject_id"] == unteachable_subject_id
 
     schedules_response = client.get("/api/v1/schedules/")

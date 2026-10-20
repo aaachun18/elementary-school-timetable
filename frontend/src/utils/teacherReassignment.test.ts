@@ -10,7 +10,7 @@ function requirement(id: number, requiredTeacherId: number | null): ClassSubject
     subject_id: 20,
     weekly_periods: 3,
     required_teacher_id: requiredTeacherId,
-    required_room_type: null,
+    required_room_id: null,
     consecutive_limit: null,
     created_at: "",
     updated_at: "",

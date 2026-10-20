@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { TOKEN_KEY } from "../api/client";
-import { getCurrentUserRole, isCurrentUserAdmin } from "../utils/auth";
+import { getCurrentUserRole, isCurrentUserManager } from "../utils/auth";
 import { BUTTON_SECONDARY_SM, NAV_BAR, NAV_LINK, NAV_LINK_ACTIVE } from "../styles/ui";
 
 // Shared shell for every protected page (see App.tsx: this is combined
@@ -10,14 +10,18 @@ import { BUTTON_SECONDARY_SM, NAV_BAR, NAV_LINK, NAV_LINK_ACTIVE } from "../styl
 // once, here, instead of duplicated per page.
 export default function Layout(): ReactElement {
   const navigate = useNavigate();
-  // Task 43: a confirmed TEACHER only gets the 課表檢視 link + 登出 (Task 97:
-  // and 首頁, a simplified dashboard) -- every
-  // other link (which also bounces back via AdminOnlyRoute, see App.tsx,
-  // if typed directly) is left out of the nav entirely rather than shown
-  // disabled. An unknown role (null) sees the full nav, same "only block a
-  // CONFIRMED TEACHER" stance AdminOnlyRoute takes.
-  const isRestrictedToTimetable = getCurrentUserRole() === "TEACHER";
-  const isAdmin = isCurrentUserAdmin();
+  // Task 43 / 98: each role only gets the links to pages it may open (the
+  // rest also bounce back via RoleRoute, see App.tsx, if typed directly)
+  // -- left out of the nav entirely rather than shown disabled:
+  // - 系統管理員: 學校管理, 帳號管理;
+  // - 一般老師: 首頁 (a simplified dashboard, Task 97), 課表;
+  // - 教學組長: 首頁, 開始排課, 排課紀錄, 學校資料, 帳號管理. An unknown
+  //   role (null) sees this nav too, same "only block a CONFIRMED role"
+  //   stance RoleRoute takes.
+  const role = getCurrentUserRole();
+  const isAdmin = role === "ADMIN";
+  const isTeacher = role === "TEACHER";
+  const canManageAccounts = isCurrentUserManager();
 
   function handleLogout(): void {
     sessionStorage.removeItem(TOKEN_KEY);
@@ -27,7 +31,7 @@ export default function Layout(): ReactElement {
   // Task 48: NavLink (not plain Link) only to pick up its automatic
   // isActive -> styling -- purely presentational (which page is
   // highlighted), no change to where any link actually goes or what
-  // AdminOnlyRoute/ProtectedRoute decide.
+  // RoleRoute/ProtectedRoute decide.
   function navLinkClassName({ isActive }: { isActive: boolean }): string {
     return isActive ? NAV_LINK_ACTIVE : NAV_LINK;
   }
@@ -35,35 +39,44 @@ export default function Layout(): ReactElement {
   return (
     <div className="min-h-screen bg-gray-50">
       <nav className={NAV_BAR}>
-        {/* Task 97: everyone has a home page (a TEACHER's is simplified). */}
-        <NavLink to="/" end className={navLinkClassName}>
-          首頁
-        </NavLink>
-        {!isRestrictedToTimetable && (
+        {isAdmin ? (
+          <NavLink to="/schools" className={navLinkClassName}>
+            學校管理
+          </NavLink>
+        ) : (
+          <NavLink to="/" end className={navLinkClassName}>
+            首頁
+          </NavLink>
+        )}
+        {!isAdmin && !isTeacher && (
           <>
+            <NavLink to="/wizard" className={navLinkClassName}>
+              開始排課
+            </NavLink>
+            <NavLink to="/records" className={navLinkClassName}>
+              排課紀錄
+            </NavLink>
             <NavLink to="/data" className={navLinkClassName}>
-              基礎資料
-            </NavLink>
-            <NavLink to="/requirements" className={navLinkClassName}>
-              排課需求總覽
-            </NavLink>
-            <NavLink to="/scheduler" className={navLinkClassName}>
-              排課控制台
+              學校資料
             </NavLink>
           </>
         )}
         {/* Task 59: unlike the links above, 帳號管理 is shown only to a
-            CONFIRMED ADMIN -- an unknown role (null) does not see it. Kept
-            last among the admin links: an administrative page, not part of
-            the scheduling flow. */}
-        {isAdmin && (
+            CONFIRMED manager (Task 98: 系統管理員 or 教學組長) -- an unknown
+            role (null) does not see it. Kept after the scheduling links: an
+            administrative page, not part of the scheduling flow. */}
+        {canManageAccounts && (
           <NavLink to="/users" className={navLinkClassName}>
             帳號管理
           </NavLink>
         )}
-        <NavLink to="/timetable" className={navLinkClassName}>
-          課表檢視
-        </NavLink>
+        {/* Task 98: a 教學組長 opens timetables from 排課紀錄; a 一般老師
+            goes straight to the published one. */}
+        {isTeacher && (
+          <NavLink to="/timetable" className={navLinkClassName}>
+            課表
+          </NavLink>
+        )}
         <button type="button" onClick={handleLogout} className={`${BUTTON_SECONDARY_SM} ml-auto`}>
           登出
         </button>

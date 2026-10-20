@@ -1,50 +1,20 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict
 
-from app.services.teacher_periods import (
-    NEGATIVE_MAX_MESSAGE,
-    NEGATIVE_MIN_MESSAGE,
-    check_not_negative,
-    check_periods_range,
-)
-
-
-class TeacherBase(BaseModel):
-    name: str
-    is_active: bool = True
-    min_weekly_periods: int
-    max_weekly_periods: int
+# Task 98: a teacher is created (and 停用 / 啟用) together with its 一般老師
+# account (app/services/user.py); its weekly periods range and unavailable
+# slots are set per semester (app/schemas/semester_settings.py), and there
+# are no teaching qualifications any more. What is left here is reading
+# the school's teachers and renaming one.
 
 
-class TeacherCreate(BaseModel):
-    name: str
-    min_weekly_periods: int
-    max_weekly_periods: int
-
-    # Task 88: 422 with a Chinese message instead of the database CHECK's
-    # 409 (min <= max) -- and neither may be negative, which nothing
-    # checked before.
-    @field_validator("min_weekly_periods")
-    @classmethod
-    def _min_not_negative(cls, value: int) -> int:
-        check_not_negative(value, NEGATIVE_MIN_MESSAGE)
-        return value
-
-    @field_validator("max_weekly_periods")
-    @classmethod
-    def _max_not_negative(cls, value: int) -> int:
-        check_not_negative(value, NEGATIVE_MAX_MESSAGE)
-        return value
-
-    @model_validator(mode="after")
-    def _min_not_above_max(self) -> "TeacherCreate":
-        check_periods_range(self.min_weekly_periods, self.max_weekly_periods)
-        return self
-
-
-class TeacherRead(TeacherBase):
+class TeacherRead(BaseModel):
     id: int
+    name: str
+    is_active: bool
+    # The teacher's 一般老師 account, if it has one.
+    user_id: int | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -53,29 +23,3 @@ class TeacherRead(TeacherBase):
 
 class TeacherUpdate(BaseModel):
     name: str | None = None
-    is_active: bool | None = None
-    min_weekly_periods: int | None = None
-    max_weekly_periods: int | None = None
-
-    # Task 88: min <= max is checked by the service against the values the
-    # update leaves behind (one of them may come from the stored row).
-    @field_validator("min_weekly_periods")
-    @classmethod
-    def _min_not_negative(cls, value: int | None) -> int | None:
-        return check_not_negative(value, NEGATIVE_MIN_MESSAGE)
-
-    @field_validator("max_weekly_periods")
-    @classmethod
-    def _max_not_negative(cls, value: int | None) -> int | None:
-        return check_not_negative(value, NEGATIVE_MAX_MESSAGE)
-
-
-# --- Semantic sub-resource request bodies (not standalone CRUD schemas) ---
-
-
-class TeacherSubjectCreate(BaseModel):
-    subject_id: int
-
-
-class TeacherAvailabilityCreate(BaseModel):
-    time_slot_id: int

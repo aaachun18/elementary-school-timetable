@@ -9,10 +9,16 @@ from app.services.exceptions import (
     DependentRecordsExistError,
     raise_for_integrity_error,
 )
+from app.services.school_scope import get_in_school, in_school
 
 
-def create_subject(db: Session, subject_data: SubjectCreate) -> Subject:
-    subject = Subject(name=subject_data.name, is_active=True)
+def create_subject(
+    db: Session,
+    subject_data: SubjectCreate,
+    *,
+    school_id: int,
+) -> Subject:
+    subject = Subject(school_id=school_id, name=subject_data.name, is_active=True)
     db.add(subject)
     try:
         db.commit()
@@ -23,19 +29,23 @@ def create_subject(db: Session, subject_data: SubjectCreate) -> Subject:
     return subject
 
 
-def get_subject(db: Session, subject_id: int) -> Subject | None:
-    return db.get(Subject, subject_id)
+def get_subject(db: Session, subject_id: int, *, school_id: int) -> Subject | None:
+    return get_in_school(db, Subject, subject_id, school_id)
 
 
-def get_subjects(db: Session, skip: int = 0, limit: int = 100) -> list[Subject]:
-    stmt = select(Subject).offset(skip).limit(limit)
+def get_subjects(
+    db: Session, skip: int = 0, limit: int = 100, *, school_id: int
+) -> list[Subject]:
+    stmt = select(
+        Subject
+    ).where(in_school(Subject, school_id)).offset(skip).limit(limit)
     return list(db.scalars(stmt).all())
 
 
 def update_subject(
-    db: Session, subject_id: int, subject_data: SubjectUpdate
+    db: Session, subject_id: int, subject_data: SubjectUpdate, *, school_id: int
 ) -> Subject | None:
-    subject = db.get(Subject, subject_id)
+    subject = get_in_school(db, Subject, subject_id, school_id)
     if subject is None:
         return None
 
@@ -51,8 +61,8 @@ def update_subject(
     return subject
 
 
-def delete_subject(db: Session, subject_id: int) -> bool:
-    subject = db.get(Subject, subject_id)
+def delete_subject(db: Session, subject_id: int, *, school_id: int) -> bool:
+    subject = get_in_school(db, Subject, subject_id, school_id)
     if subject is None:
         return False
 

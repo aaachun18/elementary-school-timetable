@@ -15,6 +15,7 @@ from app.routers.schedule import router as schedule_router
 from app.routers.schedule_version import router as schedule_version_router
 from app.routers.school import router as school_router
 from app.routers.semester import router as semester_router
+from app.routers.semester_settings import router as semester_settings_router
 from app.routers.subject import router as subject_router
 from app.routers.teacher import router as teacher_router
 from app.routers.time_slot import router as time_slot_router
@@ -22,6 +23,7 @@ from app.routers.users import router as users_router
 from app.services.block_adjustment import REFUSAL_MESSAGES
 from app.services.lesson_placement import PLACEMENT_REFUSAL_MESSAGES
 from app.services.exceptions import (
+    AccountPermissionError,
     ArchivedVersionImmutableError,
     CannotDeleteSelfError,
     BlockAdjustmentRefusedError,
@@ -77,6 +79,7 @@ app.include_router(time_slot_router)
 app.include_router(class_router)
 app.include_router(academic_year_router)
 app.include_router(semester_router)
+app.include_router(semester_settings_router)
 app.include_router(teacher_router)
 app.include_router(class_subject_requirement_router)
 app.include_router(lesson_router)
@@ -178,6 +181,13 @@ def handle_requirement_edit_blocked_by_published_schedule(
         status_code=409,
         content={"detail": "此排課需求已被已發布或已封存的課表使用，無法修改"},
     )
+
+
+@app.exception_handler(AccountPermissionError)
+def handle_account_permission(
+    request: Request, exc: AccountPermissionError
+) -> JSONResponse:
+    return JSONResponse(status_code=403, content={"detail": str(exc)})
 
 
 @app.exception_handler(CannotDeleteSelfError)

@@ -12,8 +12,10 @@ from app.models.lesson import Lesson
 from app.models.schedule import Schedule
 from app.models.schedule_version import ScheduleVersion
 from app.models.subject import Subject
-from app.models.teacher import Teacher, TeacherAvailability, TeacherSubject
+from app.models.semester_teacher import SemesterTeacher, SemesterTeacherUnavailability
+from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
+from tests.conftest import enroll_in_semester, get_test_school_id, next_free_grade_level
 
 # Task 61: GET /api/v1/schedule-versions/{id}/check -- read-only Hard
 # Constraint check of a version's CURRENT Schedule rows. Test data is
@@ -27,7 +29,7 @@ class CheckSetup:
     """Two classes, each with one 1-period requirement of the same subject
     (so two Lessons that do NOT share a class -- putting both in one slot
     is an H1 teacher conflict without also being an H2 class conflict),
-    one qualified teacher, and two teaching time slots."""
+    one teacher taking part in the semester, and two teaching time slots."""
 
     semester_id: int
     version_id: int
@@ -38,13 +40,14 @@ class CheckSetup:
 
 
 def _build_setup(db: Session, year: int = 4001) -> CheckSetup:
-    academic_year = AcademicYear(year=year, is_active=True)
+    academic_year = AcademicYear(school_id=get_test_school_id(db), year=year, is_active=True)
     db.add(academic_year)
     db.flush()
     semester = Semester(academic_year_id=academic_year.id, number=1, is_active=True)
-    grade = Grade(name=f"Grade {year}", level=year)
-    subject = Subject(name=f"Subject {year}", is_active=True)
+    grade = Grade(school_id=get_test_school_id(db), name=f"Grade {year}", level=next_free_grade_level(db))
+    subject = Subject(school_id=get_test_school_id(db), name=f"Subject {year}", is_active=True)
     teacher = Teacher(
+        school_id=get_test_school_id(db),
         name=f"Teacher {year}", is_active=True, min_weekly_periods=0, max_weekly_periods=20
     )
     db.add_all([semester, grade, subject, teacher])
@@ -55,10 +58,11 @@ def _build_setup(db: Session, year: int = 4001) -> CheckSetup:
         for index in (1, 2)
     ]
     time_slots = [
-        TimeSlot(weekday=1, period=period, is_teaching_period=True) for period in (1, 2)
+        TimeSlot(school_id=get_test_school_id(db), weekday=1, period=period, is_teaching_period=True) for period in (1, 2)
     ]
-    db.add_all([*classes, *time_slots, TeacherSubject(teacher_id=teacher.id, subject_id=subject.id)])
+    db.add_all([*classes, *time_slots])
     db.flush()
+    enroll_in_semester(db, semester.id, teacher)
 
     requirements = [
         ClassSubjectRequirement(
@@ -221,8 +225,13 @@ def test_check_reports_teacher_unavailable_slot(
     setup = _build_setup(db_session)
     _place_both_lessons_validly(db_session, setup)
     unavailable_slot_id = setup.time_slot_ids[1]
+    semester_teacher = db_session.scalars(
+        select(SemesterTeacher).where(SemesterTeacher.teacher_id == setup.teacher_id)
+    ).one()
     db_session.add(
-        TeacherAvailability(teacher_id=setup.teacher_id, time_slot_id=unavailable_slot_id)
+        SemesterTeacherUnavailability(
+            semester_teacher_id=semester_teacher.id, time_slot_id=unavailable_slot_id
+        )
     )
     db_session.commit()
 
@@ -405,7 +414,8 @@ def test_check_is_admin_only(
     response = teacher_client.get(f"/api/v1/schedule-versions/{setup.version_id}/check")
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "This action requires ADMIN role"
+    # Task 98: only the 教學組長 may check.
+    assert response.json()["detail"] == "This action requires COORDINATOR role"
 
 
 def test_check_missing_version_is_403_for_teacher(teacher_client: TestClient) -> None:

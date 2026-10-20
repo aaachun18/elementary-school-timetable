@@ -17,6 +17,7 @@ from app.models.schedule import Schedule
 from app.services import room_change
 from tests.test_block_adjustment import World, _check, _world
 from tests.test_move_swap_lessons import _ok, _schedule_snapshot
+from tests.conftest import get_test_school_id
 
 URL = "/api/v1/schedule-versions"
 
@@ -38,8 +39,8 @@ def _change(
     return client.post(f"{URL}/{version_id}/change-room", json=body)
 
 
-def _room(db: Session, name: str = "自然教室一", room_type: str = "自然教室", active: bool = True) -> Room:
-    room = Room(name=name, room_type=room_type, is_active=active)
+def _room(db: Session, name: str = "自然教室一", active: bool = True) -> Room:
+    room = Room(school_id=get_test_school_id(db), name=name, is_active=active)
     db.add(room)
     db.commit()
     return room
@@ -63,7 +64,7 @@ def _types(check: dict) -> set[str]:
 
 def test_single_lesson_changes_only_its_room(client: TestClient, db_session: Session) -> None:
     world = _world(db_session)
-    room = _room(db_session, "美勞教室", "美勞教室")
+    room = _room(db_session, "美勞教室")
 
     data = _ok(_change(client, world.version.id, world.row("A1"), room.id))
 
@@ -268,28 +269,29 @@ def test_failure_halfway_changes_nothing(db_session: Session, monkeypatch: pytes
     assert _schedule_snapshot(db_session) == before
 
 
-def test_a_room_of_another_type_is_reported_by_h9_not_refused(
+def test_a_room_other_than_the_required_one_is_reported_by_h9_not_refused(
     client: TestClient, db_session: Session
 ) -> None:
     world = _world(db_session)
-    world.science.required_room_type = "自然教室"
+    lab = _room(db_session)
+    world.science.required_room_id = lab.id
     db_session.commit()
-    hall = _room(db_session, "自然教室", "專科教室")  # named like the type, typed otherwise
+    hall = _room(db_session, "禮堂")
 
     data = _ok(_change(client, world.version.id, world.row("S3"), hall.id))
 
-    assert [v["lesson_id"] for v in data["check"]["violations"] if v["type"] == "H9_ROOM_TYPE"] == [world.lessons["S3"].id]
+    assert [v["lesson_id"] for v in data["check"]["violations"] if v["type"] == "H9_REQUIRED_ROOM"] == [world.lessons["S3"].id]
 
 
 def test_giving_a_room_clears_the_missing_room_warning(client: TestClient, db_session: Session) -> None:
     world = _world(db_session)
-    world.science.required_room_type = "自然教室"
+    lab = _room(db_session)
+    world.science.required_room_id = lab.id  # required after scheduling
     db_session.commit()
     before = _check(client, world)
-    assert [v["lesson_id"] for v in before["violations"] if v["type"] == "ROOM_MISSING_FOR_TYPE"] == [
+    assert [v["lesson_id"] for v in before["violations"] if v["type"] == "REQUIRED_ROOM_MISSING"] == [
         world.lessons[n].id for n in ("S1", "S2", "S3")
     ]
-    lab = _room(db_session)  # created after scheduling
 
     data = _ok(_change(client, world.version.id, world.row("S1"), lab.id, scope="requirement"))
 

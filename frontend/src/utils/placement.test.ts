@@ -10,7 +10,7 @@ import {
   firstPlacedSlot,
   groupCardsByClass,
   lessonCount,
-  missingRoomTypeHint,
+  requiredRoomHint,
   needsTeacherChoice,
   placeCandidateCacheKey,
   placeRefusalMessage,
@@ -172,26 +172,25 @@ describe("teacher and room", () => {
   it("offers 「不指定教室」 only where the backend's default is no room", () => {
     const [withHomeroom] = buildPlacementCards([lesson({ default_room_id: 50 })]); // 原班上課 with a homeroom
     const [noHomeroom] = buildPlacementCards([lesson({ default_room_id: null, suggested_room_id: null })]);
-    const [typed] = buildPlacementCards([lesson({ room_type: "自然教室", default_room_id: null, has_matching_room: true })]);
+    const [required] = buildPlacementCards([lesson({ required_room_id: 70, default_room_id: 70 })]);
     expect(canChooseNoRoom(withHomeroom)).toBe(false);
     expect(canChooseNoRoom(noHomeroom)).toBe(true);
-    expect(canChooseNoRoom(typed)).toBe(true);
+    expect(canChooseNoRoom(required)).toBe(false);
   });
 
   it("reads the room fields, missing ones as null (an older backend)", () => {
-    const [card] = buildPlacementCards([lesson({ room_type: "自然教室", default_room_id: null, has_matching_room: false })]);
-    expect([card.roomType, card.defaultRoomId, card.hasMatchingRoom]).toEqual(["自然教室", null, false]);
+    const [card] = buildPlacementCards([lesson({ required_room_id: 70, default_room_id: 70 })]);
+    expect([card.requiredRoomId, card.defaultRoomId]).toEqual([70, 70]);
     const [older] = buildPlacementCards([lesson({})]);
-    expect([older.roomType, older.defaultRoomId, older.hasMatchingRoom]).toEqual([null, null, null]);
+    expect([older.requiredRoomId, older.defaultRoomId]).toEqual([null, null]);
   });
 
-  it("warns on selection when no room has the required type", () => {
-    const [missing] = buildPlacementCards([lesson({ room_type: "自然教室", has_matching_room: false })]);
-    const [found] = buildPlacementCards([lesson({ room_type: "自然教室", has_matching_room: true })]);
-    const [untyped] = buildPlacementCards([lesson({ room_type: null, has_matching_room: null })]);
-    expect(missingRoomTypeHint(missing)).toBe("找不到類型「自然教室」的教室，放入後這堂課沒有教室");
-    expect(missingRoomTypeHint(found)).toBeNull();
-    expect(missingRoomTypeHint(untyped)).toBeNull();
+  it("names the required room on selection (Task 98)", () => {
+    const [required] = buildPlacementCards([lesson({ required_room_id: 70 })]);
+    const [plain] = buildPlacementCards([lesson({ required_room_id: null })]);
+    const roomName = (id: number | null): string | null => (id === 70 ? "自然教室一" : null);
+    expect(requiredRoomHint(required, roomName)).toBe("這門課指定在「自然教室一」上課");
+    expect(requiredRoomHint(plain, roomName)).toBeNull();
   });
 });
 

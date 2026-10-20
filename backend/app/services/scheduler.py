@@ -44,23 +44,22 @@ from scheduling_engine.algorithms.resources import (  # noqa: E402
 from scheduling_engine.constraints.base import ConstraintViolation  # noqa: E402
 from scheduling_engine.models.domain import (  # noqa: E402
     ActiveStatusInfo,
+    ClassAllowedTimeSlots,
     DefaultRoom,
     LessonAssignment,
     LessonBlock,
+    RequiredRoomRule,
     RequiredTeacherRule,
     RequirementPeriods,
-    RoomInfo,
-    RoomTypeRequirement,
-    TeacherQualification,
     TeacherUnavailability,
     TeacherWorkloadLimit,
     TimeSlotInfo,
     TimeSlotPosition,
 )
 from scheduling_engine.static_feasibility import (  # noqa: E402
-    FIXED_SLOT_HOMEROOM_CLASH,
-    HOMEROOM_OVERBOOKED,
-    ROOM_TYPE_NOT_FOUND,
+    CLASS_SLOTS_INSUFFICIENT,
+    FIXED_SLOT_ROOM_CLASH,
+    ROOM_OVERBOOKED,
     check_static_feasibility,
 )
 
@@ -70,9 +69,12 @@ from app.models.lesson import Lesson
 from app.models.room import Room
 from app.models.schedule import Schedule
 from app.models.schedule_version import ScheduleVersion
+from app.models.semester_grade_time_slot import SemesterGradeTimeSlot
+from app.models.semester_teacher import SemesterTeacher, SemesterTeacherUnavailability
 from app.models.subject import Subject
-from app.models.teacher import Teacher, TeacherAvailability, TeacherSubject
+from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
+from app.services.school_scope import in_school, school_id_of_version
 from app.services.exceptions import (
     ScheduleVersionAlreadyScheduledError,
     raise_for_integrity_error,
@@ -171,36 +173,90 @@ def _build_lessons_and_resources(
     # before.
     lesson_blocks = build_lesson_blocks(lessons_orm)
 
-    resources = build_scheduling_resources(db, requirements)
+    resources = build_scheduling_resources(
+        db,
+        requirements,
+        semester_id=schedule_version.semester_id,
+        school_id=school_id_of_version(db, schedule_version),
+    )
     if lesson_blocks:
         resources = replace(resources, lesson_blocks=lesson_blocks)
     return lessons, resources
 
 
+def load_semester_teachers(
+    db: Session, semester_id: int, school_id: int
+) -> list[SemesterTeacher]:
+    """Task 98: the teachers taking part in the semester's scheduling, in
+    teacher id order (the order the search tries them in). Only the
+    school's own teachers, even if a row ever named another school's."""
+    return list(
+        db.scalars(
+            select(SemesterTeacher)
+            .join(Teacher, SemesterTeacher.teacher_id == Teacher.id)
+            .where(
+                SemesterTeacher.semester_id == semester_id,
+                in_school(Teacher, school_id),
+            )
+            .order_by(SemesterTeacher.teacher_id)
+        ).all()
+    )
+
+
+def _class_allowed_time_slots(
+    db: Session, semester_id: int, classes: list[Class]
+) -> list[ClassAllowedTimeSlots]:
+    """H13: each class gets its grade's open slots for the semester. A
+    grade with no SemesterGradeTimeSlot row at all for the semester has no
+    restriction (no entry) -- the wizard always saves at least one slot."""
+    slots_by_grade: dict[int, set[int]] = {}
+    for grade_id, time_slot_id in db.execute(
+        select(SemesterGradeTimeSlot.grade_id, SemesterGradeTimeSlot.time_slot_id).where(
+            SemesterGradeTimeSlot.semester_id == semester_id
+        )
+    ).all():
+        slots_by_grade.setdefault(grade_id, set()).add(time_slot_id)
+    return [
+        ClassAllowedTimeSlots(
+            class_id=class_.id, time_slot_ids=frozenset(slots_by_grade[class_.grade_id])
+        )
+        for class_ in classes
+        if class_.grade_id in slots_by_grade
+    ]
+
+
 def build_scheduling_resources(
-    db: Session, requirements: list[ClassSubjectRequirement]
+    db: Session,
+    requirements: list[ClassSubjectRequirement],
+    *,
+    semester_id: int,
+    school_id: int,
 ) -> SchedulingResources:
     """Converts the DB's reference data into the engine's
     SchedulingResources. Task 61: pulled out of
-    _build_lessons_and_resources() (logic unchanged) so the read-only
-    schedule check (services/schedule_check.py) validates against exactly
-    the same resources the scheduler searches with.
+    _build_lessons_and_resources() so the read-only schedule check
+    (services/schedule_check.py) validates against exactly the same
+    resources the scheduler searches with.
 
-    Per-requirement rules (required teacher, room type, weekly periods)
+    Per-requirement rules (required teacher, required room, weekly periods)
     come from `requirements` -- one semester's ClassSubjectRequirements.
-    Reference data (teacher qualifications/availability, room/time-slot
-    info, active status, workload limits) is queried globally rather than
-    scoped down to "only what's relevant" -- any teacher/room in the
-    system could in principle be a candidate, and at this project's scale
-    there's no benefit to a narrower query, only more code.
+    Task 98: the teachers, their weekly maximum and unavailable slots, and
+    the slots each grade is open for are the semester's own settings
+    (SemesterTeacher / SemesterTeacherUnavailability /
+    SemesterGradeTimeSlot); rooms, time slots and active statuses are the
+    school's. Never another school's teachers, rooms or time slots.
     """
-    teacher_qualifications = [
-        TeacherQualification(teacher_id=row.teacher_id, subject_id=row.subject_id)
-        for row in db.scalars(select(TeacherSubject)).all()
-    ]
+    semester_teachers = load_semester_teachers(db, semester_id, school_id)
     teacher_unavailability = [
-        TeacherUnavailability(teacher_id=row.teacher_id, time_slot_id=row.time_slot_id)
-        for row in db.scalars(select(TeacherAvailability)).all()
+        TeacherUnavailability(
+            teacher_id=semester_teacher.teacher_id, time_slot_id=row.time_slot_id
+        )
+        for semester_teacher in semester_teachers
+        for row in db.scalars(
+            select(SemesterTeacherUnavailability)
+            .where(SemesterTeacherUnavailability.semester_teacher_id == semester_teacher.id)
+            .order_by(SemesterTeacherUnavailability.time_slot_id)
+        ).all()
     ]
     required_teacher_rules = [
         RequiredTeacherRule(
@@ -210,19 +266,19 @@ def build_scheduling_resources(
         for requirement in requirements
         if requirement.required_teacher_id is not None
     ]
-    room_type_requirements = [
-        RoomTypeRequirement(
+    required_room_rules = [
+        RequiredRoomRule(
             class_subject_requirement_id=requirement.id,
-            required_room_type=requirement.required_room_type,
+            room_id=requirement.required_room_id,
         )
         for requirement in requirements
-        if requirement.required_room_type is not None
+        if requirement.required_room_id is not None
     ]
 
-    all_rooms = list(db.scalars(select(Room)).all())
-    rooms = [RoomInfo(room_id=room.id, room_type=room.room_type) for room in all_rooms]
-
-    all_time_slots = list(db.scalars(select(TimeSlot)).all())
+    all_rooms = list(db.scalars(select(Room).where(in_school(Room, school_id))).all())
+    all_time_slots = list(
+        db.scalars(select(TimeSlot).where(in_school(TimeSlot, school_id))).all()
+    )
     time_slots = [
         TimeSlotInfo(
             time_slot_id=time_slot.id,
@@ -242,14 +298,17 @@ def build_scheduling_resources(
         for time_slot in all_time_slots
     ]
 
-    all_teachers = list(db.scalars(select(Teacher)).all())
-    all_classes = list(db.scalars(select(Class)).all())
-    all_subjects = list(db.scalars(select(Subject)).all())
+    all_teachers = list(
+        db.scalars(select(Teacher).where(in_school(Teacher, school_id))).all()
+    )
+    all_classes = list(db.scalars(select(Class).where(in_school(Class, school_id))).all())
+    all_subjects = list(
+        db.scalars(select(Subject).where(in_school(Subject, school_id))).all()
+    )
 
-    # Task 92B: a requirement with no room type (原班上課) is held in its
-    # class's homeroom, when the class has one -- the engine's only room
-    # candidate for it (decision 29). No homeroom: no entry, room None as
-    # before. A requirement with a room type never gets one.
+    # Task 92B: a requirement with no special room (原班上課) is held in its
+    # class's homeroom, when the class has one (decision 29). A required
+    # room wins over it inside the engine (room_by_requirement()).
     homeroom_by_class = {class_.id: class_.homeroom_room_id for class_ in all_classes}
     default_rooms = [
         DefaultRoom(
@@ -257,7 +316,7 @@ def build_scheduling_resources(
             room_id=homeroom_by_class[requirement.class_id],  # type: ignore[arg-type]
         )
         for requirement in requirements
-        if requirement.required_room_type is None
+        if requirement.required_room_id is None
         and homeroom_by_class.get(requirement.class_id) is not None
     ]
 
@@ -301,34 +360,35 @@ def build_scheduling_resources(
 
     teacher_workload_limits = [
         TeacherWorkloadLimit(
-            teacher_id=teacher.id, max_weekly_periods=teacher.max_weekly_periods
+            teacher_id=semester_teacher.teacher_id,
+            max_weekly_periods=semester_teacher.max_weekly_periods,
         )
-        for teacher in all_teachers
+        for semester_teacher in semester_teachers
     ]
 
     return SchedulingResources(
         time_slot_ids=time_slot_ids,
-        teacher_qualifications=teacher_qualifications,
+        teacher_ids=[semester_teacher.teacher_id for semester_teacher in semester_teachers],
         teacher_unavailability=teacher_unavailability,
         required_teacher_rules=required_teacher_rules,
-        room_type_requirements=room_type_requirements,
-        rooms=rooms,
+        required_room_rules=required_room_rules,
         time_slots=time_slots,
         time_slot_positions=time_slot_positions,
         active_statuses=active_statuses,
         requirement_periods=requirement_periods,
         teacher_workload_limits=teacher_workload_limits,
         default_rooms=default_rooms,
+        class_allowed_time_slots=_class_allowed_time_slots(db, semester_id, all_classes),
     )
 
 
 def _name_room_violations(
     db: Session, violations: list[ConstraintViolation]
 ) -> list[ConstraintViolation]:
-    """Task 92B: the engine's room pre-checks can only name ids; the
-    frontend has no sentence of its own for them yet, so their message is
-    what the user reads. Rewritten here with the class, subject and room
-    names (every other violation is returned as is)."""
+    """Task 92B / 98: the engine's room and grade-slot pre-checks can only
+    name ids; the frontend has no sentence of its own for them yet, so
+    their message is what the user reads. Rewritten here with the class and
+    room names (every other violation is returned as is)."""
     def class_name(class_id: int | None) -> str:
         class_ = db.get(Class, class_id) if class_id is not None else None
         return class_.name if class_ is not None else f"班級 {class_id}"
@@ -337,37 +397,26 @@ def _name_room_violations(
         room = db.get(Room, room_id) if room_id is not None else None
         return room.name if room is not None else f"教室 {room_id}"
 
-    def sharing_classes(room_id: int | None) -> str:
-        classes = db.scalars(
-            select(Class).where(Class.homeroom_room_id == room_id).order_by(Class.id)
-        ).all()
-        return "、".join(class_.name for class_ in classes)
-
     named: list[ConstraintViolation] = []
     for violation in violations:
         message = violation.message
-        if violation.type == ROOM_TYPE_NOT_FOUND:
-            requirement = db.get(ClassSubjectRequirement, violation.class_subject_requirement_id)
-            subject = db.get(Subject, violation.subject_id)
-            if requirement is not None and subject is not None:
-                message = (
-                    f"{class_name(violation.class_id)}的{subject.name}指定的教室類型"
-                    f"「{requirement.required_room_type}」找不到任何可用的教室"
-                )
-        elif violation.type == HOMEROOM_OVERBOOKED:
-            # The engine's text is "導師教室 {room_id} 要上…（班級 {ids}）"
-            # (static_feasibility._check_rooms()): the room and the classes
-            # are renamed, the counts in between kept.
-            counts = violation.message.removeprefix(f"導師教室 {violation.room_id}")
+        if violation.type == ROOM_OVERBOOKED:
+            # The engine's text is "教室 {room_id} 要上…（班級 {ids}）"
+            # (static_feasibility._check_rooms()): the room is renamed and
+            # the counts in between kept.
+            counts = violation.message.removeprefix(f"教室 {violation.room_id}")
             counts = counts.rsplit("（班級 ", 1)[0].strip()
+            message = f"教室「{room_name(violation.room_id)}」{counts}"
+        elif violation.type == FIXED_SLOT_ROOM_CLASH:
             message = (
-                f"導師教室「{room_name(violation.room_id)}」"
-                f"（{sharing_classes(violation.room_id)}）{counts}"
-            )
-        elif violation.type == FIXED_SLOT_HOMEROOM_CLASH:
-            message = (
-                f"{sharing_classes(violation.room_id)}共用導師教室「{room_name(violation.room_id)}」，"
+                f"多個班級都在「{room_name(violation.room_id)}」上課，"
                 "而且都有課固定在同一個時段，這間教室同一時段只能上一堂課"
+            )
+        elif violation.type == CLASS_SLOTS_INSUFFICIENT:
+            # The engine's text starts "班級 {class_id} 每週要上…"
+            # (static_feasibility._check_class_time_slots()).
+            message = violation.message.replace(
+                f"班級 {violation.class_id} ", class_name(violation.class_id), 1
             )
         named.append(replace(violation, message=message))
     return named

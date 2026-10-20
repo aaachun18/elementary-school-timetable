@@ -42,7 +42,6 @@ const KNOWN_ERROR_MESSAGES: Record<string, string> = {
   // Task 46's teacher sub-resources (任教資格/不可用時段) -- the DELETE
   // endpoint's 404 when the record was already removed (e.g. by someone
   // else, concurrently).
-  "Qualification record not found": "此任教資格已不存在，請重新整理頁面",
   "Unavailable-slot record not found": "此不可用時段已不存在，請重新整理頁面",
   // Task 47's CRUD table (ClassSubjectRequirement) -- same "deleted
   // concurrently by someone else" 404 case as above.
@@ -62,7 +61,13 @@ const KNOWN_ERROR_MESSAGES: Record<string, string> = {
   // /login (api/client.ts), but the message is still translated in case
   // it is ever shown first.
   "User not found": "此帳號已不存在，請重新整理頁面",
-  "This action requires ADMIN role": "此操作需要管理員權限",
+  "This action requires ADMIN role": "此操作需要系統管理員權限",
+  // Task 98: require_manager's 403 (系統管理員 or 教學組長),
+  // require_coordinator's (教學組長 only) and require_school_member's (a
+  // school account -- the 系統管理員 has no scheduling data).
+  "This action requires ADMIN or COORDINATOR role": "此操作需要系統管理員或教學組長權限",
+  "This action requires COORDINATOR role": "此操作需要教學組長權限",
+  "This action requires a school account": "此操作需要學校帳號（教學組長或一般老師）",
   "Not authenticated": "尚未登入，請重新登入",
   "Could not validate credentials": "登入狀態已失效，請重新登入",
   // Task 53 originally added entries here for
@@ -239,15 +244,15 @@ export function translateFailureType(failureType: string): string {
 // literal text "null").
 //
 // Exhaustive list, one entry per VIOLATION_TYPE constant found by scanning:
-// - scheduling_engine/constraints/*.py: H1/H2/H3/H4/H5/H6/H7/H8/H9/H11/H12
+// - scheduling_engine/constraints/*.py: H1/H2/H3/H4/H5/H6/H7/H8/H9/H11/H12/H13
 //   (no H10 constraint exists in this codebase)
 // - scheduling_engine/algorithms/resources.py's no_candidate_teacher_violation():
-//   NO_CANDIDATE_TEACHER, H6_REQUIRED_TEACHER_NOT_QUALIFIED
+//   NO_CANDIDATE_TEACHER, H6_REQUIRED_TEACHER_NOT_PARTICIPATING
 // - scheduling_engine/static_feasibility.py's checks:
 //   STATIC_TEACHER_WORKLOAD_EXCEEDED, STATIC_TEACHER_AVAILABILITY_INSUFFICIENT,
 //   STATIC_INACTIVE_ENTITY_CONFLICT, and (Task 81) the fixed-time-slot ones,
 //   STATIC_FIXED_SLOT_UNKNOWN / _NON_TEACHING / _TEACHER_UNAVAILABLE /
-//   _CLASS_CLASH / _TEACHER_CLASH / _ROOM_SHORTAGE (each names its lesson's
+//   _CLASS_CLASH / _TEACHER_CLASH / _ROOM_CLASH / _CLASS_CLOSED (each names its lesson's
 //   class, subject and fixed slot)
 // - backend/app/services/schedule_check.py's own two (Task 68; only ever in
 //   GET /schedule-versions/{id}/check, never in a run-scheduler failure):
@@ -270,18 +275,19 @@ export const VIOLATION_TYPE_TEMPLATES: Record<string, string> = {
   H3_ROOM_CONFLICT: "{roomName}在{timeSlotLabel}被同時排定兩堂課！",
   H4_TEACHER_AVAILABILITY:
     "{teacherName}在{timeSlotLabel}已標記為不可排課，但仍被排入該時段！",
-  H5_TEACHER_QUALIFICATION: "{teacherName}未具備教授{subjectName}的資格！",
+  H5_TEACHER_NOT_PARTICIPATING: "{teacherName}沒有參與本學期排課，卻被排入{className}的{subjectName}！",
   H6_REQUIRED_TEACHER:
     "{className}的{subjectName}指定了特定教師，但實際排定的教師（{teacherName}）與指定教師不符！",
   H7_WEEKLY_PERIODS: "{requirementLabel}的每週排課節數，與需求設定的節數不符！",
   H8_TEACHER_MAX_WORKLOAD: "{teacherName}的排課總節數超過每週授課節數上限！",
-  H9_ROOM_TYPE:
-    "{className}的{subjectName}指定了教室類型，但實際排定的教室（{roomName}）類型不符！",
+  H9_REQUIRED_ROOM:
+    "{className}的{subjectName}指定了上課教室，但實際排定的教室（{roomName}）不是指定的教室！",
+  H13_CLASS_TIME_SLOT: "{className}的{subjectName}被排入所屬年級沒有開放的節次（{timeSlotLabel}）！",
   H11_NON_TEACHING_PERIOD: "{className}的{subjectName}被排入非教學時段（{timeSlotLabel}）！",
   H12_ACTIVE_STATUS: "{className}的{subjectName}課程涉及已停用的項目：{inactiveEntities}！",
-  NO_CANDIDATE_TEACHER: "找不到可教授{subjectName}的教師，{className}的這堂課無法排定！",
-  H6_REQUIRED_TEACHER_NOT_QUALIFIED:
-    "指定教師{teacherName}不具備教授{subjectName}的資格，{className}的這堂課無法排定！",
+  NO_CANDIDATE_TEACHER: "本學期沒有參與排課的教師，{className}的{subjectName}無法排定！",
+  H6_REQUIRED_TEACHER_NOT_PARTICIPATING:
+    "指定教師{teacherName}沒有參與本學期排課，{className}的{subjectName}無法排定！",
   STATIC_TEACHER_WORKLOAD_EXCEEDED: "{teacherName}被指定的課程總節數超過每週授課節數上限！",
   STATIC_TEACHER_AVAILABILITY_INSUFFICIENT:
     "{teacherName}被指定的課程數超過其可用時段數量，無法排入課表！",
@@ -295,8 +301,10 @@ export const VIOLATION_TYPE_TEMPLATES: Record<string, string> = {
     "{className}的{subjectName}被固定在{timeSlotLabel}，但{className}在同一時段還有其他固定的課！",
   STATIC_FIXED_SLOT_TEACHER_CLASH:
     "{className}的{subjectName}被固定在{timeSlotLabel}，但只能由{teacherName}授課，而{teacherName}在同一時段還有其他固定的課！",
-  STATIC_FIXED_SLOT_ROOM_SHORTAGE:
-    "{className}的{subjectName}被固定在{timeSlotLabel}，但同一時段需要相同類型教室的固定課程多於教室數量！",
+  STATIC_FIXED_SLOT_ROOM_CLASH:
+    "{className}的{subjectName}被固定在{timeSlotLabel}，但在同一間教室（{roomName}）上課的另一班同一時段也有固定的課！",
+  STATIC_FIXED_SLOT_CLASS_CLOSED:
+    "{className}的{subjectName}被固定在{timeSlotLabel}，但所屬年級沒有開放這個節次！",
   INCOMPLETE_SCHEDULE_ROW: "{className}的{subjectName}有一筆排課資料缺少{missingFields}！",
   FIXED_TIME_SLOT_MISMATCH:
     "{className}的{subjectName}被固定在{fixedTimeSlotLabel}，但目前排在{timeSlotLabel}！",
@@ -307,9 +315,9 @@ export const VIOLATION_TYPE_TEMPLATES: Record<string, string> = {
   BLOCK_NOT_CONSECUTIVE: "{className}的{subjectName}{blockLabel}連堂沒有排在同一天相鄰的節次！",
   BLOCK_SAME_DAY: "{className}的{subjectName}有不同組的連堂排在同一天（{weekdayLabel}）！",
   TEACHER_MIN_WORKLOAD: "{teacherName}的排課總節數低於每週最低授課節數！",
-  // Task 94: a WARNING -- a room type is required but the lesson has no room.
-  ROOM_MISSING_FOR_TYPE:
-    "{className}的{subjectName}指定了教室類型「{requiredRoomType}」，但{timeSlotLabel}這堂課沒有教室！",
+  // Task 98: a WARNING -- a special room is required but the lesson has no room.
+  REQUIRED_ROOM_MISSING:
+    "{className}的{subjectName}指定了上課教室，但{timeSlotLabel}這堂課沒有教室！",
   BLOCK_NO_WINDOW: "{className}的{subjectName}的連堂找不到同一天足夠的連續教學節次！",
   STATIC_BLOCK_TOO_LONG:
     "{className}的{subjectName}的連堂樣式中，有一組的節數超過任何一天可連續上課的節數！",
@@ -321,12 +329,9 @@ export const VIOLATION_TYPE_TEMPLATES: Record<string, string> = {
   STATIC_BLOCK_FIXED_SAME_DAY: "{className}的{subjectName}有不同組的連堂被固定在同一天！",
   STATIC_BLOCK_TEACHER_UNAVAILABLE:
     "{className}的{subjectName}的連堂排不進去：{teacherName}在每一段可用的連續節次中都有不可排課的時段！",
-  // Task 93: the room pre-checks of backend Task 92B.
-  STATIC_ROOM_TYPE_NOT_FOUND:
-    "{className}的{subjectName}指定的教室類型「{requiredRoomType}」找不到任何可用的教室！",
-  STATIC_HOMEROOM_OVERBOOKED: "導師教室{roomName}要上的課多於一週的教學時段，共用這間教室的班級排不下！",
-  STATIC_FIXED_SLOT_HOMEROOM_CLASH:
-    "{className}的{subjectName}被固定在{timeSlotLabel}，但共用導師教室{roomName}的另一班同一時段也有固定的課！",
+  // Task 93 / 98: the room and grade-slot pre-checks.
+  STATIC_ROOM_OVERBOOKED: "教室{roomName}要上的課多於一週的教學時段，在這間教室上課的班級排不下！",
+  STATIC_CLASS_SLOTS_INSUFFICIENT: "{className}每週要上的課多於所屬年級開放的可排節次！",
 };
 
 // Task 90: STATIC_BLOCK_TEACHER_UNAVAILABLE without a teacher_id -- every
@@ -342,7 +347,7 @@ export const FIXED_TIME_SLOT_MISMATCH_UNKNOWN_SLOT_TEMPLATE =
   "{className}的{subjectName}設有固定時段，但目前排在{timeSlotLabel}，不在固定時段內！";
 
 // Task 81: STATIC_FIXED_SLOT_TEACHER_UNAVAILABLE without a teacher_id --
-// no required teacher, and EVERY qualified teacher is unavailable then.
+// no required teacher, and EVERY teacher taking part is unavailable then.
 export const FIXED_SLOT_ALL_TEACHERS_UNAVAILABLE_TEMPLATE =
   "{className}的{subjectName}被固定在{timeSlotLabel}，但所有可教授{subjectName}的教師在這個時段都不可排課！";
 
@@ -356,11 +361,12 @@ export const VIOLATION_TYPE_HEADINGS: Record<string, string> = {
   H2_CLASS_CONFLICT: "班級衝堂",
   H3_ROOM_CONFLICT: "教室衝堂",
   H4_TEACHER_AVAILABILITY: "排在老師不可排課的時段",
-  H5_TEACHER_QUALIFICATION: "老師不具任教資格",
+  H5_TEACHER_NOT_PARTICIPATING: "老師沒有參與本學期排課",
   H6_REQUIRED_TEACHER: "與指定教師不符",
   H7_WEEKLY_PERIODS: "每週節數不符",
   H8_TEACHER_MAX_WORKLOAD: "超過每週授課節數上限",
-  H9_ROOM_TYPE: "教室類型不符",
+  H9_REQUIRED_ROOM: "不在指定的教室",
+  H13_CLASS_TIME_SLOT: "排入年級沒有開放的節次",
   H11_NON_TEACHING_PERIOD: "排入非教學時段",
   H12_ACTIVE_STATUS: "涉及已停用的項目",
   INCOMPLETE_SCHEDULE_ROW: "排課資料不完整",
@@ -370,7 +376,7 @@ export const VIOLATION_TYPE_HEADINGS: Record<string, string> = {
   // Task 90: the only WARNING type -- listed last.
   TEACHER_MIN_WORKLOAD: "教師授課節數低於最低要求（警告）",
   // Task 94: the other WARNING type.
-  ROOM_MISSING_FOR_TYPE: "指定了教室類型卻沒有教室（警告）",
+  REQUIRED_ROOM_MISSING: "指定了教室卻沒有教室（警告）",
 };
 
 export const UNKNOWN_VIOLATION_TYPE_HEADING = "其他問題";
@@ -384,22 +390,22 @@ export const VIOLATION_TYPE_SUGGESTIONS: Record<string, string> = {
   H2_CLASS_CONFLICT: "把其中一堂課移到這個班級沒有課的節次。",
   H3_ROOM_CONFLICT: "把其中一堂課移到其他節次，或改用其他教室。",
   H4_TEACHER_AVAILABILITY:
-    "把這堂課移到老師可排課的節次，或到基礎資料調整老師的不可排課時段。",
-  H5_TEACHER_QUALIFICATION:
-    "改由具備這個科目任教資格的老師授課，或到基礎資料為老師加上任教資格。",
-  H6_REQUIRED_TEACHER: "改回需求指定的教師，或到排課需求總覽修改指定教師。",
+    "把這堂課移到老師可排課的節次，或到開始排課的教師設定調整不可排課時段。",
+  H5_TEACHER_NOT_PARTICIPATING:
+    "改由參與本學期排課的老師授課，或到開始排課的教師設定把這位老師加入本學期。",
+  H6_REQUIRED_TEACHER: "改回需求指定的教師，或到開始排課的科目需求修改指定教師。",
   H7_WEEKLY_PERIODS: "補排或移除這門課的節次，讓排定堂數與需求的每週節數一致。",
   H8_TEACHER_MAX_WORKLOAD: "把這位老師的部分課改由其他老師授課，或調整老師的每週授課節數上限。",
-  H9_ROOM_TYPE: "改用符合需求教室類型的教室。",
+  H9_REQUIRED_ROOM: "把這堂課改回需求指定的教室。",
+  H13_CLASS_TIME_SLOT: "把這堂課移到所屬年級開放的節次，或到開始排課的年級可排節次開放這個節次。",
   H11_NON_TEACHING_PERIOD: "把這堂課移到教學時段。",
-  H12_ACTIVE_STATUS: "改用啟用中的項目，或到基礎資料重新啟用相關項目。",
+  H12_ACTIVE_STATUS: "改用啟用中的項目，或到學校資料、帳號管理重新啟用相關項目。",
   INCOMPLETE_SCHEDULE_ROW: "為這筆排課資料補上缺少的時段或老師。",
-  FIXED_TIME_SLOT_MISMATCH: "把這堂課移回固定時段，或到排課控制台修改這堂課的固定時段。",
+  FIXED_TIME_SLOT_MISMATCH: "把這堂課移回固定時段，或到排課紀錄修改這堂課的固定時段。",
   BLOCK_NOT_CONSECUTIVE: "把這組連堂整組移到同一天相鄰的教學節次（拖曳其中一節即可整組移動）。",
   BLOCK_SAME_DAY: "把其中一組移到另一天。",
-  TEACHER_MIN_WORKLOAD: "可為這位老師多安排課程，或到基礎資料調整最低每週節數；這是提醒，不影響課表是否合法。",
-  ROOM_MISSING_FOR_TYPE:
-    "到基礎資料確認教室的「類型」與需求指定的教室類型完全相同，再為這堂課選教室；這是提醒，不影響課表是否合法。",
+  TEACHER_MIN_WORKLOAD: "可為這位老師多安排課程，或到開始排課的教師設定調整最低每週節數；這是提醒，不影響課表是否合法。",
+  REQUIRED_ROOM_MISSING: "在編輯模式為這堂課選回指定的教室；這是提醒，不影響課表是否合法。",
 };
 
 // Task 90 (backend Task 89): why a lesson block can't go where it was
@@ -430,7 +436,7 @@ export function getBlockRefusalReason(error: unknown): string | null {
 // "！", and (unlike VIOLATION_TYPE_TEMPLATES above) no restatement of
 // {className}/{subjectName} where the original template's ending was
 // SPECIFICALLY "..., {className}的這堂課無法排定！" (NO_CANDIDATE_TEACHER /
-// H6_REQUIRED_TEACHER_NOT_QUALIFIED) or where {className}/{subjectName}
+// H6_REQUIRED_TEACHER_NOT_PARTICIPATING) or where {className}/{subjectName}
 // opened the sentence right before a fact that doesn't need them repeated
 // (H2/H6_REQUIRED_TEACHER/H9/H11/H12). Used by
 // utils/failureDiagnostics.ts's getGroupedLessonFailureSentence() to build
@@ -451,12 +457,13 @@ export const LESSON_FAILURE_REASON_TEMPLATES: Record<string, string> = {
   H2_CLASS_CONFLICT: "在{timeSlotLabel}被同時排定兩堂課",
   H3_ROOM_CONFLICT: "{roomName}在{timeSlotLabel}被同時排定兩堂課",
   H4_TEACHER_AVAILABILITY: "{teacherName}在{timeSlotLabel}已標記為不可排課，但仍被排入該時段",
-  H5_TEACHER_QUALIFICATION: "{teacherName}未具備教授{subjectName}的資格",
+  H5_TEACHER_NOT_PARTICIPATING: "{teacherName}沒有參與本學期排課",
   H6_REQUIRED_TEACHER: "指定了特定教師，但實際排定的教師（{teacherName}）與指定教師不符",
-  H9_ROOM_TYPE: "指定了教室類型，但實際排定的教室（{roomName}）類型不符",
+  H9_REQUIRED_ROOM: "指定了上課教室，但實際排定的教室（{roomName}）不是指定的教室",
+  H13_CLASS_TIME_SLOT: "被排入所屬年級沒有開放的節次（{timeSlotLabel}）",
   H11_NON_TEACHING_PERIOD: "被排入非教學時段（{timeSlotLabel}）",
   H12_ACTIVE_STATUS: "涉及已停用的項目：{inactiveEntities}",
-  NO_CANDIDATE_TEACHER: "找不到可教授{subjectName}的教師",
-  H6_REQUIRED_TEACHER_NOT_QUALIFIED: "指定教師{teacherName}不具備教授{subjectName}的資格",
+  NO_CANDIDATE_TEACHER: "本學期沒有參與排課的教師",
+  H6_REQUIRED_TEACHER_NOT_PARTICIPATING: "指定教師{teacherName}沒有參與本學期排課",
   BLOCK_NO_WINDOW: "連堂找不到同一天足夠的連續教學節次",
 };

@@ -1,5 +1,6 @@
 """Task 88: TEACHER_MIN_WORKLOAD -- a teacher scheduled for fewer periods
-than their min_weekly_periods is reported by the schedule check as a
+than their min_weekly_periods (Task 98: the semester's own,
+SemesterTeacher) is reported by the schedule check as a
 WARNING. It never blocks anything: the timetable stays is_valid, and
 run-scheduler, publishing and moving all go through.
 
@@ -11,7 +12,6 @@ from sqlalchemy.orm import Session
 
 from app.models.class_subject_requirement import ClassSubjectRequirement
 from app.models.lesson import Lesson
-from app.models.teacher import Teacher
 from tests.test_move_swap_lessons import _build_timetable, _move, _ok
 from tests.test_reassign_teacher import Builder
 
@@ -30,7 +30,7 @@ def _min_violations(check: dict) -> list[dict]:
 def test_teacher_below_minimum_gets_a_warning(client: TestClient, db_session: Session) -> None:
     # t1 teaches 3 lessons (c1 English x2, c2 English), t2 one (c1 Science).
     timetable = _build_timetable(db_session)
-    timetable.t1.min_weekly_periods = 4
+    timetable.builder.semester_teacher(timetable.t1).min_weekly_periods = 4
     db_session.commit()
 
     check = _check(client, timetable.version.id)
@@ -48,8 +48,8 @@ def test_teacher_below_minimum_gets_a_warning(client: TestClient, db_session: Se
 
 def test_teacher_at_minimum_is_not_reported(client: TestClient, db_session: Session) -> None:
     timetable = _build_timetable(db_session)
-    timetable.t1.min_weekly_periods = 3
-    timetable.t2.min_weekly_periods = 1
+    timetable.builder.semester_teacher(timetable.t1).min_weekly_periods = 3
+    timetable.builder.semester_teacher(timetable.t2).min_weekly_periods = 1
     db_session.commit()
 
     assert _check(client, timetable.version.id)["violations"] == []
@@ -57,8 +57,8 @@ def test_teacher_at_minimum_is_not_reported(client: TestClient, db_session: Sess
 
 def test_teacher_with_no_lessons_counts_as_zero(client: TestClient, db_session: Session) -> None:
     timetable = _build_timetable(db_session)
-    idle = timetable.builder.teacher("三號老師", [timetable.english])
-    idle.min_weekly_periods = 2
+    idle = timetable.builder.teacher("三號老師")
+    timetable.builder.semester_teacher(idle).min_weekly_periods = 2
     db_session.commit()
 
     [violation] = _min_violations(_check(client, timetable.version.id))
@@ -68,8 +68,8 @@ def test_teacher_with_no_lessons_counts_as_zero(client: TestClient, db_session: 
 
 def test_inactive_teacher_is_not_reported(client: TestClient, db_session: Session) -> None:
     timetable = _build_timetable(db_session)
-    idle = timetable.builder.teacher("停用老師", [timetable.english])
-    idle.min_weekly_periods = 2
+    idle = timetable.builder.teacher("停用老師")
+    timetable.builder.semester_teacher(idle).min_weekly_periods = 2
     idle.is_active = False
     db_session.commit()
 
@@ -79,7 +79,7 @@ def test_inactive_teacher_is_not_reported(client: TestClient, db_session: Sessio
 def test_warning_alongside_errors_keeps_both(client: TestClient, db_session: Session) -> None:
     """is_valid is decided by the ERRORs alone."""
     timetable = _build_timetable(db_session)
-    timetable.t2.min_weekly_periods = 5
+    timetable.builder.semester_teacher(timetable.t2).min_weekly_periods = 5
     db_session.commit()
     # c2 English (t1) into c1 English's slot 0: H1 teacher conflict.
     preview = _ok(
@@ -92,7 +92,7 @@ def test_warning_alongside_errors_keeps_both(client: TestClient, db_session: Ses
 
 def test_moving_is_not_blocked_by_the_warning(client: TestClient, db_session: Session) -> None:
     timetable = _build_timetable(db_session)
-    timetable.t2.min_weekly_periods = 5
+    timetable.builder.semester_teacher(timetable.t2).min_weekly_periods = 5
     db_session.commit()
 
     result = _ok(_move(client, timetable.version.id, timetable.c1_science.id, timetable.slot(4)))
@@ -107,8 +107,8 @@ def test_run_scheduler_and_publish_are_not_blocked(
 ) -> None:
     builder = Builder(db_session, year=8802)
     english = builder.subject("英文")
-    teacher = builder.teacher("一號老師", [english])
-    teacher.min_weekly_periods = 10  # far more than the 2 periods below
+    teacher = builder.teacher("一號老師")
+    builder.semester_teacher(teacher).min_weekly_periods = 10  # far more than the 2 periods below
     class_ = builder.class_("四年甲班")
     version = builder.version()
     requirement = ClassSubjectRequirement(
@@ -133,4 +133,4 @@ def test_run_scheduler_and_publish_are_not_blocked(
     assert published.status_code == 200, published.json()
     assert published.json()["status"] == "PUBLISHED"
     db_session.expire_all()
-    assert db_session.get(Teacher, teacher.id).min_weekly_periods == 10  # type: ignore[union-attr]
+    assert builder.semester_teacher(teacher).min_weekly_periods == 10

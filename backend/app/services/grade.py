@@ -8,10 +8,12 @@ from app.services.exceptions import (
     DependentRecordsExistError,
     raise_for_integrity_error,
 )
+from app.services.school_scope import get_in_school, in_school
+from app.services.semester_settings import delete_settings_of_grade
 
 
-def create_grade(db: Session, grade_data: GradeCreate) -> Grade:
-    grade = Grade(name=grade_data.name, level=grade_data.level)
+def create_grade(db: Session, grade_data: GradeCreate, *, school_id: int) -> Grade:
+    grade = Grade(school_id=school_id, name=grade_data.name, level=grade_data.level)
     db.add(grade)
     try:
         db.commit()
@@ -22,19 +24,21 @@ def create_grade(db: Session, grade_data: GradeCreate) -> Grade:
     return grade
 
 
-def get_grade(db: Session, grade_id: int) -> Grade | None:
-    return db.get(Grade, grade_id)
+def get_grade(db: Session, grade_id: int, *, school_id: int) -> Grade | None:
+    return get_in_school(db, Grade, grade_id, school_id)
 
 
-def get_grades(db: Session, skip: int = 0, limit: int = 100) -> list[Grade]:
-    stmt = select(Grade).offset(skip).limit(limit)
+def get_grades(
+    db: Session, skip: int = 0, limit: int = 100, *, school_id: int
+) -> list[Grade]:
+    stmt = select(Grade).where(in_school(Grade, school_id)).offset(skip).limit(limit)
     return list(db.scalars(stmt).all())
 
 
 def update_grade(
-    db: Session, grade_id: int, grade_data: GradeUpdate
+    db: Session, grade_id: int, grade_data: GradeUpdate, *, school_id: int
 ) -> Grade | None:
-    grade = db.get(Grade, grade_id)
+    grade = get_in_school(db, Grade, grade_id, school_id)
     if grade is None:
         return None
 
@@ -50,12 +54,14 @@ def update_grade(
     return grade
 
 
-def delete_grade(db: Session, grade_id: int) -> bool:
-    grade = db.get(Grade, grade_id)
+def delete_grade(db: Session, grade_id: int, *, school_id: int) -> bool:
+    grade = get_in_school(db, Grade, grade_id, school_id)
     if grade is None:
         return False
 
     try:
+        # Task 98: its semesters' open slots are owned by it.
+        delete_settings_of_grade(db, grade_id)
         db.delete(grade)
         db.commit()
     except IntegrityError as exc:

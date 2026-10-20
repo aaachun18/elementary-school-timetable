@@ -61,13 +61,14 @@ describe("resolveLocateTarget: view chosen by type", () => {
   it.each([
     ["H1_TEACHER_CONFLICT", "teacher", TEACHER],
     ["H4_TEACHER_AVAILABILITY", "teacher", TEACHER],
-    ["H5_TEACHER_QUALIFICATION", "teacher", TEACHER],
+    ["H5_TEACHER_NOT_PARTICIPATING", "teacher", TEACHER],
     ["H6_REQUIRED_TEACHER", "teacher", TEACHER],
     ["H8_TEACHER_MAX_WORKLOAD", "teacher", TEACHER],
     ["H2_CLASS_CONFLICT", "class", CLASS],
     ["H11_NON_TEACHING_PERIOD", "class", CLASS],
     ["H3_ROOM_CONFLICT", "room", ROOM],
-    ["H9_ROOM_TYPE", "room", ROOM],
+    ["H9_REQUIRED_ROOM", "room", ROOM],
+    ["H13_CLASS_TIME_SLOT", "class", CLASS],
   ])("%s -> %s view", (type, viewMode, targetId) => {
     expect(resolveLocateTarget(violation({ ...full, type }), lookups)).toEqual({ viewMode, targetId });
   });

@@ -18,13 +18,21 @@ class Teacher(TimestampMixin, Base):
             "min_weekly_periods <= max_weekly_periods",
             name="ck_teachers_weekly_periods_range",
         ),
+        UniqueConstraint("user_id", name="uq_teachers_user_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Task 98: the school this row belongs to. Every query a 教學組長 or
+    # 一般老師 makes is limited to their own school (app/services/school_scope.py).
+    school_id: Mapped[int] = mapped_column(ForeignKey("schools.id"))
     name: Mapped[str] = mapped_column(String(100))
     is_active: Mapped[bool] = mapped_column(default=True)
     min_weekly_periods: Mapped[int] = mapped_column()
     max_weekly_periods: Mapped[int] = mapped_column()
+    # Task 98: the TEACHER account this teacher logs in with -- one to one,
+    # created together by the account service. Nullable for now: teachers
+    # created through the older /teachers CRUD have no account yet.
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
     # Read-only convenience views onto the association tables below. Writes
     # go through TeacherSubject / TeacherAvailability directly (they are the

@@ -5,21 +5,22 @@ from scheduling_engine.constraints.base import (
     Severity,
 )
 from scheduling_engine.constraints.class_conflict import ClassConflictConstraint
+from scheduling_engine.constraints.class_time_slot import ClassTimeSlotConstraint
 from scheduling_engine.constraints.non_teaching_period import (
     NonTeachingPeriodConstraint,
 )
 from scheduling_engine.constraints.required_teacher import RequiredTeacherConstraint
 from scheduling_engine.constraints.room_conflict import RoomConflictConstraint
-from scheduling_engine.constraints.room_type import RoomTypeConstraint
+from scheduling_engine.constraints.required_room import RequiredRoomConstraint
 from scheduling_engine.constraints.teacher_availability import (
     TeacherAvailabilityConstraint,
 )
 from scheduling_engine.constraints.teacher_conflict import TeacherConflictConstraint
+from scheduling_engine.constraints.teacher_participation import (
+    TeacherParticipationConstraint,
+)
 from scheduling_engine.constraints.teacher_min_workload import (
     TeacherMinWorkloadConstraint,
-)
-from scheduling_engine.constraints.teacher_qualification import (
-    TeacherQualificationConstraint,
 )
 from scheduling_engine.constraints.teacher_workload import TeacherWorkloadConstraint
 from scheduling_engine.constraints.weekly_periods import WeeklyPeriodsConstraint
@@ -32,9 +33,10 @@ __all__ = [
     "ClassConflictConstraint",
     "RoomConflictConstraint",
     "TeacherAvailabilityConstraint",
-    "TeacherQualificationConstraint",
+    "TeacherParticipationConstraint",
     "RequiredTeacherConstraint",
-    "RoomTypeConstraint",
+    "RequiredRoomConstraint",
+    "ClassTimeSlotConstraint",
     "NonTeachingPeriodConstraint",
     "ActiveStatusConstraint",
     "WeeklyPeriodsConstraint",

@@ -28,6 +28,7 @@ from app.models.schedule import Schedule
 from app.models.schedule_version import ScheduleVersion
 from app.models.teacher import Teacher
 from app.services import schedule_check
+from app.services.school_scope import get_in_school, school_id_of_version
 from app.services.exceptions import (
     InactiveTeacherAssignmentError,
     ReassignmentTargetNotFoundError,
@@ -53,8 +54,9 @@ def _validate(
 ) -> ClassSubjectRequirement:
     """Every refusal happens here, before anything is changed."""
     raise_if_version_locked(schedule_version)
+    school_id = school_id_of_version(db, schedule_version)
 
-    requirement = db.get(ClassSubjectRequirement, requirement_id)
+    requirement = get_in_school(db, ClassSubjectRequirement, requirement_id, school_id)
     if requirement is None:
         raise ReassignmentTargetNotFoundError("ClassSubjectRequirement not found")
     if requirement.semester_id != schedule_version.semester_id:
@@ -64,7 +66,7 @@ def _validate(
             f"{schedule_version.id}'s semester {schedule_version.semester_id}."
         )
 
-    new_teacher = db.get(Teacher, new_teacher_id)
+    new_teacher = get_in_school(db, Teacher, new_teacher_id, school_id)
     if new_teacher is None:
         raise ReassignmentTargetNotFoundError("Teacher not found")
     if not new_teacher.is_active:

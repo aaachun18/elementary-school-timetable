@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+from tests.conftest import next_free_grade_level_via_api
 
 
 def _create_academic_year(client: TestClient, year: int) -> int:
@@ -19,7 +20,8 @@ def _create_semester(client: TestClient, year: int) -> int:
 
 def _create_grade(client: TestClient, level: int) -> int:
     response = client.post(
-        "/api/v1/grades/", json={"name": f"Grade {level}", "level": level}
+        "/api/v1/grades/",
+        json={"name": f"Grade {level}", "level": next_free_grade_level_via_api(client)},
     )
     grade_id: int = response.json()["id"]
     return grade_id
@@ -62,7 +64,9 @@ def test_create_class_subject_requirement(client: TestClient) -> None:
     assert data["subject_id"] == subject_id
     assert data["weekly_periods"] == 4
     assert data["required_teacher_id"] is None
-    assert data["required_room_type"] is None
+    assert data["required_room_id"] is None
+    # Task 98: rooms have no types; the API no longer has the field.
+    assert "required_room_type" not in data
     assert data["consecutive_limit"] is None
     assert "id" in data
     assert "created_at" in data

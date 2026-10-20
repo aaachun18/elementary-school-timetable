@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.models.academic_year import Semester
 from app.models.class_subject_requirement import ClassSubjectRequirement
 from app.models.grade_class import Class
+from app.models.room import Room
 from app.models.schedule import Schedule
 from app.models.schedule_version import ScheduleVersion
 from app.models.subject import Subject
@@ -33,6 +34,7 @@ class EditWorld:
     other_subject: Subject
     other_teacher: Teacher
     other_semester_id: int
+    room: Room
 
 
 def _build_world(db: Session, *, placed: bool = True) -> EditWorld:
@@ -40,11 +42,14 @@ def _build_world(db: Session, *, placed: bool = True) -> EditWorld:
     other_semester = builder.semester_in_year(number=2)
     english = builder.subject("英文")
     science = builder.subject("自然")
-    teacher = builder.teacher("一號老師", [english, science])
-    other_teacher = builder.teacher("二號老師", [english, science])
+    teacher = builder.teacher("一號老師")
+    other_teacher = builder.teacher("二號老師")
     class_ = builder.class_("一班")
     other_class = builder.class_("二班")
     version = builder.version()
+    room = Room(school_id=class_.grade.school_id, name="專科教室", is_active=True)
+    db.add(room)
+    db.commit()
     requirement = builder.course(
         version,
         class_,
@@ -62,6 +67,7 @@ def _build_world(db: Session, *, placed: bool = True) -> EditWorld:
         other_subject=science,
         other_teacher=other_teacher,
         other_semester_id=other_semester.id,
+        room=room,
     )
 
 
@@ -78,7 +84,7 @@ def _changes(world: EditWorld) -> dict[str, Any]:
         "semester_id": world.other_semester_id,
         "weekly_periods": world.requirement.weekly_periods + 1,
         "required_teacher_id": world.other_teacher.id,
-        "required_room_type": "專科教室",
+        "required_room_id": world.room.id,
         "consecutive_limit": 2,
     }
 
@@ -89,7 +95,7 @@ FIELDS = [
     "semester_id",
     "weekly_periods",
     "required_teacher_id",
-    "required_room_type",
+    "required_room_id",
     "consecutive_limit",
 ]
 

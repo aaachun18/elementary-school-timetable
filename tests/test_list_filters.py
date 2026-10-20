@@ -41,7 +41,7 @@ def _build_world(db: Session) -> ListWorld:
     english = builder.subject("英文")
     science = builder.subject("自然")
     math = builder.subject("數學")
-    teacher = builder.teacher("老師", [english, science, math])
+    teacher = builder.teacher("老師")
     c1, c2, c3 = (builder.class_(name) for name in ("一班", "二班", "三班"))
 
     version_a = builder.version()
