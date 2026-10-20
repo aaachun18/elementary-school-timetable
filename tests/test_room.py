@@ -1,10 +1,12 @@
 from fastapi.testclient import TestClient
 
+from tests.api_helpers import create_grade
+
 
 def test_create_room(client: TestClient) -> None:
     response = client.post(
         "/api/v1/rooms/",
-        json={"name": "101教室", "capacity": 30},
+        json={"name": "101教室"},
     )
 
     assert response.status_code == 201
@@ -12,22 +14,12 @@ def test_create_room(client: TestClient) -> None:
     assert data["name"] == "101教室"
     # Task 98: rooms have no type any more.
     assert "room_type" not in data
-    assert data["capacity"] == 30
+    # Rooms have no capacity any more either.
+    assert "capacity" not in data
     assert data["is_active"] is True
     assert "id" in data
     assert "created_at" in data
     assert "updated_at" in data
-
-
-def test_create_room_without_capacity(client: TestClient) -> None:
-    response = client.post(
-        "/api/v1/rooms/",
-        json={"name": "No Capacity Room"},
-    )
-
-    assert response.status_code == 201
-    data = response.json()
-    assert data["capacity"] is None
 
 
 def test_create_room_cannot_set_is_active(client: TestClient) -> None:
@@ -35,7 +27,6 @@ def test_create_room_cannot_set_is_active(client: TestClient) -> None:
         "/api/v1/rooms/",
         json={
             "name": "101教室",
-            "capacity": 30,
             "is_active": False,
         },
     )
@@ -47,7 +38,7 @@ def test_create_room_cannot_set_is_active(client: TestClient) -> None:
 def test_get_room_list(client: TestClient) -> None:
     client.post(
         "/api/v1/rooms/",
-        json={"name": "List Room", "capacity": 20},
+        json={"name": "List Room"},
     )
 
     response = client.get("/api/v1/rooms/")
@@ -60,7 +51,7 @@ def test_get_room_list(client: TestClient) -> None:
 def test_get_room_by_id(client: TestClient) -> None:
     create_response = client.post(
         "/api/v1/rooms/",
-        json={"name": "Get Room", "capacity": 20},
+        json={"name": "Get Room"},
     )
     room_id = create_response.json()["id"]
 
@@ -79,18 +70,18 @@ def test_get_room_not_found(client: TestClient) -> None:
 def test_update_room(client: TestClient) -> None:
     create_response = client.post(
         "/api/v1/rooms/",
-        json={"name": "Old Room", "capacity": 20},
+        json={"name": "Old Room"},
     )
     room_id = create_response.json()["id"]
 
-    response = client.patch(f"/api/v1/rooms/{room_id}", json={"capacity": 35})
+    response = client.patch(f"/api/v1/rooms/{room_id}", json={"name": "New Room"})
 
     assert response.status_code == 200
-    assert response.json()["capacity"] == 35
+    assert response.json()["name"] == "New Room"
 
 
 def test_update_room_not_found(client: TestClient) -> None:
-    response = client.patch("/api/v1/rooms/999999", json={"capacity": 10})
+    response = client.patch("/api/v1/rooms/999999", json={"name": "Nope"})
 
     assert response.status_code == 404
 
@@ -98,7 +89,7 @@ def test_update_room_not_found(client: TestClient) -> None:
 def test_delete_room(client: TestClient) -> None:
     create_response = client.post(
         "/api/v1/rooms/",
-        json={"name": "Delete Room", "capacity": 20},
+        json={"name": "Delete Room"},
     )
     room_id = create_response.json()["id"]
 
@@ -120,8 +111,11 @@ def test_delete_room_still_required_by_a_requirement_returns_409(client: TestCli
     semester_id = client.post(
         "/api/v1/semesters/", json={"academic_year_id": year_id, "number": 1}
     ).json()["id"]
-    grade_id = client.post("/api/v1/grades/", json={"name": "四年級", "level": 4}).json()["id"]
-    class_id = client.post("/api/v1/classes/", json={"grade_id": grade_id, "name": "四甲"}).json()["id"]
+    grade_id = create_grade(client, "四年級", level=4)
+    class_id = client.post(
+        "/api/v1/classes/",
+        json={"grade_id": grade_id, "name_style": "HEAVENLY_STEM", "name": "四年甲班"},
+    ).json()["id"]
     subject_id = client.post("/api/v1/subjects/", json={"name": "自然"}).json()["id"]
     created = client.post(
         "/api/v1/class-subject-requirements/",

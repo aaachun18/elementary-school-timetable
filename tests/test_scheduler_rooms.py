@@ -1,7 +1,9 @@
-"""Task 92B: run-scheduler holds a lesson with no special room (原班上課) in
-its class's homeroom -- fixed, the only room candidate (decision 29) -- and
-the pre-checks report the room problems no search could solve. Task 98: a
-requirement's required special room is held the same way.
+"""Which room run-scheduler gives each lesson. A lesson with no special
+room is taught in the class's own room (原班上課), which is no school room
+at all: it gets no room and takes part in no room conflict (classes have
+no homeroom room). A requirement's required special room is held fixed --
+its only room candidate -- and the pre-checks report the room problems no
+search could solve.
 
 Test data is written straight to the database through db_session; the
 lessons come from the real generate-lessons endpoint (lesson blocks
@@ -24,16 +26,17 @@ from app.models.schedule_version import ScheduleVersion
 from app.models.subject import Subject
 from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
-from tests.conftest import enroll_in_semester, get_test_school_id, next_free_grade_level
+from tests.conftest import enroll_in_semester, get_test_school_id, next_free_grade_level, time_slot_at
 
 URL = "/api/v1/schedule-versions"
 
 
 @dataclass
 class World:
-    """Two classes, c1 with homeroom r1 and c2 with none, each needing
-    國語 2, 數學 2 (one block of 2) and 自然 1 in the required room lab
-    (Task 98). Teachers tA and tB take part in the semester."""
+    """Two classes c1, c2, each needing 國語 2, 數學 2 (one block of 2) and
+    自然 (science_periods, default 1) in the required room lab. The school
+    also has rooms r1, r2 nobody requires. Teachers tA and tB take part in
+    the semester."""
 
     db: Session
     version: ScheduleVersion
@@ -83,7 +86,9 @@ class World:
         )
 
 
-def _world(db: Session, *, days: int = 3, periods: int = 4) -> World:
+def _world(
+    db: Session, *, days: int = 3, periods: int = 4, science_periods: int = 1
+) -> World:
     year = AcademicYear(school_id=get_test_school_id(db), year=9201, is_active=True)
     db.add(year)
     db.flush()
@@ -92,7 +97,7 @@ def _world(db: Session, *, days: int = 3, periods: int = 4) -> World:
     db.add_all([semester, grade])
     db.flush()
     slots = {
-        (weekday, period): TimeSlot(school_id=get_test_school_id(db), weekday=weekday, period=period, is_teaching_period=True)
+        (weekday, period): time_slot_at(db, weekday, period, is_teaching_period=True)
         for weekday in range(1, days + 1)
         for period in range(1, periods + 1)
     }
@@ -104,8 +109,8 @@ def _world(db: Session, *, days: int = 3, periods: int = 4) -> World:
     t_b = Teacher(school_id=get_test_school_id(db), name="乙老師", is_active=True, min_weekly_periods=0, max_weekly_periods=30)
     db.add_all([*slots.values(), r1, r2, lab, *subjects.values(), t_a, t_b])
     db.flush()
-    c1 = Class(grade_id=grade.id, name="四年甲班", is_active=True, homeroom_room_id=r1.id)
-    c2 = Class(grade_id=grade.id, name="四年乙班", is_active=True)
+    c1 = Class(grade_id=grade.id, name="四年甲班")
+    c2 = Class(grade_id=grade.id, name="四年乙班")
     db.add_all([c1, c2])
     db.flush()
     for teacher in (t_a, t_b):
@@ -115,7 +120,7 @@ def _world(db: Session, *, days: int = 3, periods: int = 4) -> World:
         for name, periods_, pattern, room_id in (
             ("國語", 2, None, None),
             ("數學", 2, "2", None),
-            ("自然", 1, None, lab.id),
+            ("自然", science_periods, None, lab.id),
         ):
             requirements[(class_.name, name)] = ClassSubjectRequirement(
                 semester_id=semester.id,
@@ -149,37 +154,38 @@ def _static(data: dict, violation_type: str) -> list[dict]:
 # --- Which room each lesson gets ---
 
 
-def test_homeroom_class_gets_its_homeroom_and_others_stay_empty(
+def test_lessons_without_a_special_room_get_no_room(
     client: TestClient, db_session: Session
 ) -> None:
+    """原班上課: no room, even though the school has unused rooms."""
     world = _world(db_session)
 
     data = world.run(client)
 
     assert data["status_code"] == 200, data
-    for subject in ("國語", "數學"):
-        assert {row.room_id for row in world.rows(world.c1, subject)} == {world.r1.id}
-        # No homeroom: exactly as before Task 92B.
-        assert {row.room_id for row in world.rows(world.c2, subject)} == {None}
-    # A required room: that room, never the homeroom.
     for class_ in (world.c1, world.c2):
+        for subject in ("國語", "數學"):
+            assert {row.room_id for row in world.rows(class_, subject)} == {None}
+        # A required room: that room.
         assert {row.room_id for row in world.rows(class_, "自然")} == {world.lab.id}
     assert _check(client, world)["violations"] == []
 
 
-def test_lesson_block_is_held_in_one_homeroom(client: TestClient, db_session: Session) -> None:
+def test_lesson_block_without_a_room_is_still_consecutive(
+    client: TestClient, db_session: Session
+) -> None:
     world = _world(db_session)
 
     assert world.run(client)["status_code"] == 200
 
     first, second = world.rows(world.c1, "數學")
-    assert first.room_id == second.room_id == world.r1.id
+    assert first.room_id is None and second.room_id is None
     position = {slot.id: (slot.weekday, slot.period) for slot in world.slots.values()}
     (day1, period1), (day2, period2) = position[first.time_slot_id], position[second.time_slot_id]  # type: ignore[index]
     assert (day1, period1 + 1) == (day2, period2)
 
 
-def test_fixed_lesson_is_held_in_the_homeroom_at_its_fixed_slot(
+def test_fixed_lesson_without_a_room_stays_at_its_fixed_slot(
     client: TestClient, db_session: Session
 ) -> None:
     world = _world(db_session)
@@ -193,53 +199,65 @@ def test_fixed_lesson_is_held_in_the_homeroom_at_its_fixed_slot(
 
     assert response.status_code == 200, response.json()
     row = next(row for row in world.rows(world.c1, "國語") if row.lesson_id == lesson.id)
-    assert (row.time_slot_id, row.room_id) == (fixed_slot, world.r1.id)
+    assert (row.time_slot_id, row.room_id) == (fixed_slot, None)
     assert _check(client, world)["violations"] == []  # no FIXED_TIME_SLOT_MISMATCH
 
 
-# --- Two classes sharing one homeroom: H3 keeps them apart ---
+# --- Rooms and room conflicts ---
 
 
-def test_shared_homeroom_never_holds_two_lessons_at_once(
+def test_shared_required_room_never_holds_two_lessons_at_once(
     client: TestClient, db_session: Session
 ) -> None:
-    world = _world(db_session)
-    world.c2.homeroom_room_id = world.r1.id
-    db_session.commit()
+    world = _world(db_session, science_periods=3)
 
     assert world.run(client)["status_code"] == 200
 
-    rows = [row for c in (world.c1, world.c2) for s in ("國語", "數學") for row in world.rows(c, s)]
-    assert {row.room_id for row in rows} == {world.r1.id}
-    assert len({row.time_slot_id for row in rows}) == len(rows) == 8
+    rows = [row for c in (world.c1, world.c2) for row in world.rows(c, "自然")]
+    assert {row.room_id for row in rows} == {world.lab.id}
+    assert len({row.time_slot_id for row in rows}) == len(rows) == 6
     assert _check(client, world)["violations"] == []
 
 
-def test_shared_homeroom_with_too_many_lessons_is_reported_before_searching(
+def test_classes_without_rooms_can_be_at_the_same_time(
     client: TestClient, db_session: Session
 ) -> None:
-    """8 lessons only the shared homeroom can hold, 6 teaching periods."""
-    world = _world(db_session, days=2, periods=3)
-    world.c2.homeroom_room_id = world.r1.id
+    """No room means no room conflict: both classes' 國語 fixed to one
+    slot is fine."""
+    world = _world(db_session)
+    world.generate(client)
+    slot = world.slots[(1, 1)].id
+    for class_ in (world.c1, world.c2):
+        world.lessons(class_, "國語")[0].fixed_time_slot_id = slot
     db_session.commit()
+
+    response = client.post(f"{URL}/{world.version.id}/run-scheduler")
+
+    assert response.status_code == 200, response.json()
+    assert _check(client, world)["violations"] == []
+
+
+def test_shared_required_room_with_too_many_lessons_is_reported_before_searching(
+    client: TestClient, db_session: Session
+) -> None:
+    """8 lessons only the lab can hold, 6 teaching periods."""
+    world = _world(db_session, days=2, periods=3, science_periods=4)
 
     data = world.run(client)
 
     [violation] = _static(data, "STATIC_ROOM_OVERBOOKED")
-    assert violation["room_id"] == world.r1.id
-    assert violation["message"] == "教室「四甲教室」要上 8 堂課，但一週只有 6 個教學時段"
+    assert violation["room_id"] == world.lab.id
+    assert violation["message"] == "教室「自然教室一」要上 8 堂課，但一週只有 6 個教學時段"
     assert violation["suggested_action"]
 
 
-def test_shared_homeroom_with_lessons_fixed_to_one_slot_is_reported(
+def test_shared_required_room_with_lessons_fixed_to_one_slot_is_reported(
     client: TestClient, db_session: Session
 ) -> None:
     world = _world(db_session)
-    world.c2.homeroom_room_id = world.r1.id
-    db_session.commit()
     world.generate(client)
     slot = world.slots[(1, 1)].id
-    fixed = [world.lessons(world.c1, "國語")[0], world.lessons(world.c2, "國語")[0]]
+    fixed = [world.lessons(world.c1, "自然")[0], world.lessons(world.c2, "自然")[0]]
     for lesson in fixed:
         lesson.fixed_time_slot_id = slot
     db_session.commit()
@@ -249,17 +267,15 @@ def test_shared_homeroom_with_lessons_fixed_to_one_slot_is_reported(
 
     clashes = _static(data, "STATIC_FIXED_SLOT_ROOM_CLASH")
     assert sorted(v["lesson_id"] for v in clashes) == sorted(lesson.id for lesson in fixed)
-    assert {(v["room_id"], v["time_slot_id"]) for v in clashes} == {(world.r1.id, slot)}
+    assert {(v["room_id"], v["time_slot_id"]) for v in clashes} == {(world.lab.id, slot)}
     assert clashes[0]["message"] == (
-        "多個班級都在「四甲教室」上課，而且都有課固定在同一個時段，這間教室同一時段只能上一堂課"
+        "多個班級都在「自然教室一」上課，而且都有課固定在同一個時段，這間教室同一時段只能上一堂課"
     )
 
 
-def test_one_class_alone_with_its_homeroom_is_no_homeroom_clash(
+def test_one_class_with_two_lessons_fixed_to_one_slot_is_a_class_clash_only(
     client: TestClient, db_session: Session
 ) -> None:
-    """Two lessons of one class fixed to one slot are a class clash, not
-    also a homeroom one."""
     world = _world(db_session)
     world.generate(client)
     for lesson in world.lessons(world.c1, "國語"):
@@ -273,24 +289,14 @@ def test_one_class_alone_with_its_homeroom_is_no_homeroom_clash(
     assert len(_static(data, "STATIC_FIXED_SLOT_CLASS_CLASH")) == 2
 
 
-def test_inactive_homeroom_is_reported_before_searching(
+def test_inactive_unrequired_room_changes_nothing(
     client: TestClient, db_session: Session
 ) -> None:
     world = _world(db_session)
     world.r1.is_active = False
     db_session.commit()
 
-    data = world.run(client)
-
-    inactive = _static(data, "STATIC_INACTIVE_ENTITY_CONFLICT")
-    assert {v["class_subject_requirement_id"] for v in inactive} == {
-        world.requirements[("四年甲班", "國語")].id,
-        world.requirements[("四年甲班", "數學")].id,
-    }
-    assert {v["room_id"] for v in inactive} == {world.r1.id}
-
-
-# --- Task 98: the required special room ---
+    assert world.run(client)["status_code"] == 200
 
 
 def test_inactive_required_room_is_reported_before_searching(
@@ -308,15 +314,3 @@ def test_inactive_required_room_is_reported_before_searching(
         world.science["四年乙班"].id,
     }
     assert {v["room_id"] for v in inactive} == {world.lab.id}
-
-
-def test_required_room_is_used_even_by_a_class_with_a_homeroom(
-    client: TestClient, db_session: Session
-) -> None:
-    world = _world(db_session)
-
-    data = world.run(client)
-
-    assert data["status_code"] == 200
-    assert {row.room_id for row in world.rows(world.c1, "自然")} == {world.lab.id}
-    assert {row.room_id for row in world.rows(world.c2, "自然")} == {world.lab.id}

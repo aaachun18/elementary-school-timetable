@@ -47,7 +47,7 @@ class ClassSubjectRequirement(TimestampMixin, Base):
     # independent, exactly as before.
     lesson_pattern: Mapped[str | None] = mapped_column(String(20))
     # Task 98: the one special room this subject is taught in (wizard step
-    # 13). None = the class's own homeroom (課表上不顯示). Replaces
+    # 13). None = 原班上課, no school room (課表上不顯示). Replaces
     # required_room_type, which stays (column and data) but the engine stops
     # reading in a later Task -- rooms no longer have types.
     required_room_id: Mapped[int | None] = mapped_column(ForeignKey("rooms.id"))

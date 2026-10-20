@@ -15,7 +15,7 @@ from app.models.subject import Subject
 from app.models.semester_teacher import SemesterTeacher, SemesterTeacherUnavailability
 from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
-from tests.conftest import enroll_in_semester, get_test_school_id, next_free_grade_level
+from tests.conftest import enroll_in_semester, get_test_school_id, next_free_grade_level, time_slot_at
 
 # Task 61: GET /api/v1/schedule-versions/{id}/check -- read-only Hard
 # Constraint check of a version's CURRENT Schedule rows. Test data is
@@ -54,11 +54,11 @@ def _build_setup(db: Session, year: int = 4001) -> CheckSetup:
     db.flush()
 
     classes = [
-        Class(grade_id=grade.id, name=f"Class {year}-{index}", is_active=True)
+        Class(grade_id=grade.id, name=f"Class {year}-{index}")
         for index in (1, 2)
     ]
     time_slots = [
-        TimeSlot(school_id=get_test_school_id(db), weekday=1, period=period, is_teaching_period=True) for period in (1, 2)
+        time_slot_at(db, 1, period, is_teaching_period=True) for period in (1, 2)
     ]
     db.add_all([*classes, *time_slots])
     db.flush()

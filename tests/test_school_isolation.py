@@ -17,7 +17,7 @@ from app.models.subject import Subject
 from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
 from app.models.user import User
-from tests.conftest import _make_client, enroll_in_semester, get_test_school_id
+from tests.conftest import _make_client, enroll_in_semester, get_test_school_id, time_slot_at
 
 # Task 98: every school's scheduling data is its own. The `client` fixture
 # is the 教學組長 of the test school ("school A" below); `other_client` is
@@ -81,13 +81,13 @@ def _school_world(db: Session, school_id: int, teacher_name: str = "甲老師") 
         max_weekly_periods=10,
     )
     slots = [
-        TimeSlot(school_id=school_id, weekday=1, period=period, is_teaching_period=True)
+        time_slot_at(db, 1, period, is_teaching_period=True, school_id=school_id)
         for period in (1, 2)
     ]
     db.add_all([year, grade, subject, teacher, *slots])
     db.flush()
     semester = Semester(academic_year_id=year.id, number=1, is_active=True)
-    class_ = Class(grade_id=grade.id, name="四年甲班", is_active=True)
+    class_ = Class(grade_id=grade.id, name="四年甲班")
     db.add_all([semester, class_])
     db.flush()
     enroll_in_semester(db, semester.id, teacher)
@@ -165,7 +165,6 @@ def test_same_names_allowed_in_different_schools(
     for c in (client, other_client):
         assert c.post("/api/v1/subjects/", json={"name": "國語"}).status_code == 201
         assert c.post("/api/v1/academic-years/", json={"year": 115}).status_code == 201
-        assert c.post("/api/v1/grades/", json={"name": "一年級", "level": 1}).status_code == 201
 
 
 def test_same_name_still_unique_within_a_school(client: TestClient) -> None:
@@ -175,13 +174,16 @@ def test_same_name_still_unique_within_a_school(client: TestClient) -> None:
 
 
 def test_cannot_reference_other_schools_record(
-    client: TestClient, other_client: TestClient
+    client: TestClient, db_session: Session, other_school: School
 ) -> None:
-    other_grade_id = other_client.post(
-        "/api/v1/grades/", json={"name": "一年級", "level": 1}
-    ).json()["id"]
+    other_grade = Grade(school_id=other_school.id, name="一年級", level=1)
+    db_session.add(other_grade)
+    db_session.commit()
 
-    response = client.post("/api/v1/classes/", json={"grade_id": other_grade_id, "name": "一甲"})
+    response = client.post(
+        "/api/v1/classes/",
+        json={"grade_id": other_grade.id, "name_style": "HEAVENLY_STEM", "name": "一年甲班"},
+    )
 
     assert response.status_code == 422
 

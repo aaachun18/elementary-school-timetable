@@ -14,7 +14,6 @@ from sqlalchemy.orm import Session
 
 from app.models.academic_year import Semester
 from app.models.class_subject_requirement import ClassSubjectRequirement
-from app.models.grade_class import Class
 from app.models.lesson import Lesson
 from app.models.room import Room
 from app.models.schedule import Schedule
@@ -183,23 +182,22 @@ def test_no_teacher_taking_part_means_no_eligible_teachers(
     assert art["eligible_teachers"] == []
 
 
-def test_suggested_room_is_the_required_room_else_the_homeroom(
+def test_suggested_room_is_the_required_room_else_none(
     client: TestClient, db_session: Session
 ) -> None:
     world = _world(db_session, skip_rows=("S3", "A1"))
     lab = Room(school_id=get_test_school_id(db_session), name="自然教室一", is_active=True)
-    homeroom = Room(school_id=get_test_school_id(db_session), name="四甲教室", is_active=True)
-    db_session.add_all([lab, homeroom])
+    unused = Room(school_id=get_test_school_id(db_session), name="四甲教室", is_active=True)
+    db_session.add_all([lab, unused])
     db_session.flush()
     world.science.required_room_id = lab.id
-    db_session.get(Class, world.science.class_id).homeroom_room_id = homeroom.id  # type: ignore[union-attr]
     db_session.commit()
 
     science, art = _ok(_unscheduled(client, world.version.id))["lessons"]
 
     assert science["suggested_room_id"] == lab.id
-    # Task 92B: no special room -> the class's homeroom.
-    assert art["suggested_room_id"] == homeroom.id
+    # No special room: 原班上課, no school room.
+    assert art["suggested_room_id"] is None
 
 
 def test_suggested_room_without_type_or_homeroom_is_none(
@@ -445,12 +443,11 @@ def test_missing_or_inactive_teacher_is_refused(client: TestClient, db_session: 
 
 
 @pytest.mark.parametrize(
-    ("name", "teacher", "homeroom", "named_room", "expected", "why"),
+    ("name", "teacher", "named_room", "expected", "why"),
     [
-        ("A1", "t2", True, False, "homeroom", "no special room, the class has a homeroom"),
-        ("A1", "t2", False, False, None, "no special room, no homeroom: empty as before"),
-        ("S3", "t1", True, False, "lab", "a required room wins over the homeroom"),
-        ("A1", "t2", True, True, "named", "the request's room wins"),
+        ("A1", "t2", False, None, "no special room: 原班上課, no room"),
+        ("S3", "t1", False, "lab", "the required room"),
+        ("A1", "t2", True, "named", "the request's room wins"),
     ],
 )
 def test_room_default_follows_run_scheduler(
@@ -458,7 +455,6 @@ def test_room_default_follows_run_scheduler(
     db_session: Session,
     name: str,
     teacher: str,
-    homeroom: bool,
     named_room: bool,
     expected: str | None,
     why: str,
@@ -471,11 +467,9 @@ def test_room_default_follows_run_scheduler(
     db_session.add_all([room, other, lab])
     db_session.flush()
     world.science.required_room_id = lab.id
-    if homeroom:
-        db_session.get(Class, world.science.class_id).homeroom_room_id = room.id  # type: ignore[union-attr]
     db_session.commit()
     room_id = other.id if named_room else None
-    want = {"homeroom": room.id, "named": other.id, "lab": lab.id, None: None}[expected]
+    want = {"named": other.id, "lab": lab.id, None: None}[expected]
 
     candidates = _ok(_place_candidates(
         client, world.version.id, _lesson(world, name), teacher_id=getattr(world, teacher).id,

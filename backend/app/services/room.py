@@ -15,7 +15,6 @@ def create_room(db: Session, room_data: RoomCreate, *, school_id: int) -> Room:
     room = Room(
         school_id=school_id,
         name=room_data.name,
-        capacity=room_data.capacity,
         is_active=True,
     )
     db.add(room)

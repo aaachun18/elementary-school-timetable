@@ -26,6 +26,7 @@ from app.schemas.semester_settings import (
 )
 from app.services.exceptions import (
     InactiveTeacherAssignmentError,
+    SchoolStructureViolationError,
     raise_for_integrity_error,
 )
 from app.services.grade_levels import SlotPosition, default_open_slot_ids
@@ -34,6 +35,8 @@ from app.services.school_scope import (
     get_in_school,
     in_school,
 )
+
+NOT_SCHEDULABLE_SLOT_MESSAGE = "不可排課的時段不能設為年級可排節次"
 
 # --- teachers (steps 4-6) ---
 
@@ -179,7 +182,8 @@ def replace_grade_time_slots(
     """The grade's open slots for the semester become exactly
     `time_slot_ids` (at least one -- the schema refuses an empty list).
     None if the semester or the grade doesn't exist in the school; a time
-    slot of another school -> 422."""
+    slot of another school, or one the school marked not schedulable
+    (學校資料 > 時段) -> 422."""
     if (
         get_in_school(db, Semester, semester_id, school_id) is None
         or get_in_school(db, Grade, grade_id, school_id) is None
@@ -188,6 +192,13 @@ def replace_grade_time_slots(
     ensure_references_in_school(
         db, school_id, [(TimeSlot, time_slot_id) for time_slot_id in time_slot_ids]
     )
+    closed = db.scalars(
+        select(TimeSlot.id).where(
+            TimeSlot.id.in_(time_slot_ids), TimeSlot.is_teaching_period.is_(False)
+        )
+    ).first()
+    if closed is not None:
+        raise SchoolStructureViolationError(NOT_SCHEDULABLE_SLOT_MESSAGE)
     try:
         db.execute(
             delete(SemesterGradeTimeSlot).where(
@@ -239,21 +250,3 @@ def delete_settings_of_semester(db: Session, semester_id: int) -> None:
     db.execute(
         delete(SemesterGradeTimeSlot).where(SemesterGradeTimeSlot.semester_id == semester_id)
     )
-
-
-def delete_settings_of_time_slot(db: Session, time_slot_id: int) -> None:
-    """Staged, not committed: a deleted time slot stops being anyone's
-    unavailable slot or any grade's open slot."""
-    db.execute(
-        delete(SemesterTeacherUnavailability).where(
-            SemesterTeacherUnavailability.time_slot_id == time_slot_id
-        )
-    )
-    db.execute(
-        delete(SemesterGradeTimeSlot).where(SemesterGradeTimeSlot.time_slot_id == time_slot_id)
-    )
-
-
-def delete_settings_of_grade(db: Session, grade_id: int) -> None:
-    """Staged, not committed: a deleted grade's open slots go with it."""
-    db.execute(delete(SemesterGradeTimeSlot).where(SemesterGradeTimeSlot.grade_id == grade_id))

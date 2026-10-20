@@ -1,19 +1,52 @@
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.models.grade_class import Grade
 from app.models.school import School
+from app.models.time_slot import TimeSlot
 from app.schemas.school import SchoolCreate, SchoolUpdate
 from app.services.exceptions import (
     DependentRecordsExistError,
     raise_for_integrity_error,
 )
+from app.services.school_structure import (
+    GRADE_LEVELS,
+    SchoolType,
+    default_time_slots,
+    grade_name,
+)
+
+
+def _add_fixed_structure(db: Session, school: School, school_type: SchoolType) -> None:
+    """Staged, not committed: the grades and the weekly time slot grid a
+    school of this type always has (app/services/school_structure.py)."""
+    db.add_all(
+        Grade(school_id=school.id, name=grade_name(level), level=level)
+        for level in GRADE_LEVELS[school_type]
+    )
+    db.add_all(
+        TimeSlot(
+            school_id=school.id,
+            weekday=slot.weekday,
+            period=slot.period,
+            is_teaching_period=slot.is_teaching_period,
+            label=slot.label,
+        )
+        for slot in default_time_slots(school_type)
+    )
 
 
 def create_school(db: Session, school_data: SchoolCreate) -> School:
-    school = School(name=school_data.name, is_active=True)
+    """The school together with its grades and time slots, in one
+    transaction."""
+    school = School(
+        name=school_data.name, is_active=True, school_type=school_data.school_type.value
+    )
     db.add(school)
     try:
+        db.flush()
+        _add_fixed_structure(db, school, school_data.school_type)
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -56,6 +89,11 @@ def delete_school(db: Session, school_id: int) -> bool:
         return False
 
     try:
+        # Its fixed grades and time slots were built with it and go with
+        # it; anything else still referencing them (classes, schedules ...)
+        # blocks the delete like a direct reference would.
+        db.execute(delete(Grade).where(Grade.school_id == school_id))
+        db.execute(delete(TimeSlot).where(TimeSlot.school_id == school_id))
         db.delete(school)
         db.commit()
     except IntegrityError as exc:

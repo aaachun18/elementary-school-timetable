@@ -82,3 +82,19 @@ class ClassSubjectRequirementUpdate(BaseModel):
 
     _normalize_pattern = field_validator("lesson_pattern")(_normalize)
     _check_weekly_periods = field_validator("weekly_periods")(_weekly_periods)
+
+
+class RequirementSyncRequest(BaseModel):
+    semester_id: int
+
+
+class RequirementSyncResult(BaseModel):
+    """POST /class-subject-requirements/sync: what copying the school's
+    科目需求 into the semester changed. locked_requirement_ids: the
+    requirements a PUBLISHED or ARCHIVED version uses -- left as they were
+    even where the school's rule differs."""
+
+    created: int
+    updated: int
+    removed: int
+    locked_requirement_ids: list[int]

@@ -32,6 +32,13 @@ class InvalidLessonPatternError(Exception):
     text from app/services/lesson_pattern.py."""
 
 
+class SchoolStructureViolationError(Exception):
+    """A value the school's fixed structure doesn't allow (-> 422): a class
+    name that isn't one of its grade's options, a non-schedulable time slot
+    opened for a grade, a grade or subject of the requirement's own school
+    rules ... The message is Chinese text for the user."""
+
+
 class InvalidTeacherPeriodsError(Exception):
     """Task 88: a teacher update would leave min_weekly_periods above
     max_weekly_periods (-> 422). The message is the Chinese text from

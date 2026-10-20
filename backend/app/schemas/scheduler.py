@@ -248,10 +248,9 @@ class EligibleTeacherDetail(BaseModel):
 class UnscheduledLessonDetail(BaseModel):
     """A lesson of the version's semester with no Schedule row in the
     version. suggested_room_id (Task 92B / 98): the requirement's special
-    room, else the class's homeroom (what place-lesson uses by default;
-    null without one). eligible_teachers: the active teachers taking part
-    in the semester, by name -- returned even when required_teacher_id is
-    set."""
+    room (what place-lesson uses by default; null: 原班上課).
+    eligible_teachers: the active teachers taking part in the semester, by
+    name -- returned even when required_teacher_id is set."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -286,8 +285,7 @@ class UnscheduledLessonsResult(BaseModel):
 class PlaceLessonRequest(BaseModel):
     """POST /schedule-versions/{id}/place-lesson. teacher_id null: the
     requirement's required teacher (none -> 409 TEACHER_REQUIRED); room_id
-    null: the class's homeroom for a requirement with no room type (Task
-    92B), otherwise no room."""
+    null: the requirement's special room, else no room (原班上課)."""
 
     lesson_id: int
     time_slot_id: int

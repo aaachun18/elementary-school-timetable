@@ -13,6 +13,8 @@ from app.schemas.class_subject_requirement import (
     ClassSubjectRequirementCreate,
     ClassSubjectRequirementRead,
     ClassSubjectRequirementUpdate,
+    RequirementSyncRequest,
+    RequirementSyncResult,
 )
 from app.services import class_subject_requirement as requirement_service
 
@@ -61,6 +63,24 @@ def create_class_subject_requirement(
         db, requirement_data, school_id=school_id
     )
     return _to_read_one(db, requirement)
+
+
+@router.post("/sync", response_model=RequirementSyncResult)
+def sync_class_subject_requirements(
+    data: RequirementSyncRequest,
+    db: Session = Depends(get_db),
+    school_id: int = Depends(coordinator_school_id),
+) -> RequirementSyncResult:
+    """The wizard's 科目需求 step: the semester's requirements follow the
+    school's 科目需求 (學校資料) -- see sync_semester_requirements()."""
+    result = requirement_service.sync_semester_requirements(
+        db, data.semester_id, school_id=school_id
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Semester not found"
+        )
+    return result
 
 
 @router.get("/", response_model=list[ClassSubjectRequirementRead])

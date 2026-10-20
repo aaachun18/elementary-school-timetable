@@ -18,7 +18,13 @@ from app.services.teacher_periods import (
     NEGATIVE_MIN_MESSAGE,
     RANGE_MESSAGE,
 )
-from tests.api_helpers import create_enrolled_teacher, create_teacher
+from tests.api_helpers import (
+    create_class,
+    create_enrolled_teacher,
+    create_grade,
+    create_teacher,
+    create_time_slot,
+)
 
 # Task 98: one semester's scheduling settings -- the wizard's steps 4-6
 # (teachers taking part, their weekly periods range, unavailable slots) and
@@ -43,19 +49,11 @@ def _semester(client: TestClient, year: int = 115) -> int:
 
 
 def _slot(client: TestClient, weekday: int, period: int, *, teaching: bool = True) -> int:
-    response = client.post(
-        "/api/v1/time-slots/",
-        json={"weekday": weekday, "period": period, "is_teaching_period": teaching},
-    )
-    assert response.status_code == 201, response.json()
-    slot_id: int = response.json()["id"]
-    return slot_id
+    return create_time_slot(client, weekday, period, is_teaching_period=teaching)
 
 
 def _grade(client: TestClient, level: int) -> int:
-    response = client.post("/api/v1/grades/", json={"name": f"{level} 年級", "level": level})
-    grade_id: int = response.json()["id"]
-    return grade_id
+    return create_grade(client, f"{level} 年級", level=level)
 
 
 def _entry(teacher_id: int, minimum: int = 0, maximum: int = 20, unavailable: list[int] | None = None) -> dict[str, Any]:
@@ -234,13 +232,31 @@ def test_unknown_grade_or_slot(client: TestClient) -> None:
     assert unknown_slot.status_code == 422
 
 
+def test_a_grade_cannot_be_opened_for_a_non_schedulable_slot(client: TestClient) -> None:
+    """A slot the school marked not schedulable (早自習, 午休 ...) can't be
+    one of a grade's open slots -- the wizard greys it out, the backend
+    refuses it too. Nothing is saved."""
+    semester_id = _semester(client)
+    grade_id = _grade(client, 1)
+    teaching = _slot(client, 1, 1)
+    lunch = _slot(client, 1, 5, teaching=False)
+    url = f"{SEMESTERS}/{semester_id}/grades/{grade_id}/time-slots"
+
+    response = client.put(url, json={"time_slot_ids": [teaching, lunch]})
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "不可排課的時段不能設為年級可排節次"
+    assert client.get(f"{SEMESTERS}/{semester_id}/grade-time-slots").json() == []
+
+
 # --- default open slots per band ---
 
 
 @pytest.mark.parametrize(
     ("level", "band"),
     [(1, GradeBand.LOWER), (2, GradeBand.LOWER), (3, GradeBand.MIDDLE), (4, GradeBand.MIDDLE),
-     (5, GradeBand.UPPER), (6, GradeBand.UPPER), (7, GradeBand.JUNIOR_HIGH), (9, GradeBand.JUNIOR_HIGH)],
+     (5, GradeBand.UPPER), (6, GradeBand.UPPER), (7, GradeBand.JUNIOR_HIGH), (9, GradeBand.JUNIOR_HIGH),
+     (10, GradeBand.SENIOR_HIGH), (12, GradeBand.SENIOR_HIGH)],
 )
 def test_grade_bands(level: int, band: GradeBand) -> None:
     assert grade_band(level) is band
@@ -252,7 +268,8 @@ def test_grade_bands(level: int, band: GradeBand) -> None:
         (GradeBand.LOWER, {1: 5, 2: 8, 3: 5, 4: 5, 5: 5}),
         (GradeBand.MIDDLE, {1: 8, 2: 8, 3: 5, 4: 8, 5: 5}),
         (GradeBand.UPPER, {1: 8, 2: 8, 3: 5, 4: 8, 5: 8}),
-        (GradeBand.JUNIOR_HIGH, {1: 8, 2: 8, 3: 8, 4: 8, 5: 8}),
+        (GradeBand.JUNIOR_HIGH, {1: 10, 2: 10, 3: 10, 4: 10, 5: 10}),
+        (GradeBand.SENIOR_HIGH, {1: 10, 2: 10, 3: 10, 4: 10, 5: 10}),
     ],
 )
 def test_last_open_period_by_band(band: GradeBand, last_by_weekday: dict[int, int]) -> None:
@@ -270,10 +287,12 @@ def test_default_open_slots_skip_non_teaching_periods() -> None:
 
 
 def test_default_time_slots_endpoint(client: TestClient) -> None:
+    """On a 國中 grid (0-10): 0 / 5 / 10 not schedulable."""
+    closed = (0, 5, 10)
     by_position = {
-        (weekday, period): _slot(client, weekday, period)
+        (weekday, period): _slot(client, weekday, period, teaching=period not in closed)
         for weekday in (2, 3)
-        for period in range(0, 9)
+        for period in range(0, 11)
     }
     lower = _grade(client, 1)
     junior = _grade(client, 8)
@@ -281,11 +300,14 @@ def test_default_time_slots_endpoint(client: TestClient) -> None:
     lower_slots = client.get(f"/api/v1/grades/{lower}/default-time-slots").json()
     junior_slots = client.get(f"/api/v1/grades/{junior}/default-time-slots").json()
 
-    # 低年級: Tuesday 0-8, Wednesday 0-5.
-    assert lower_slots == [by_position[(2, p)] for p in range(0, 9)] + [
-        by_position[(3, p)] for p in range(0, 6)
+    # 低年級: Tuesday 0-8, Wednesday 0-5 -- schedulable periods only.
+    assert lower_slots == [by_position[(2, p)] for p in (1, 2, 3, 4, 6, 7, 8)] + [
+        by_position[(3, p)] for p in (1, 2, 3, 4)
     ]
-    assert junior_slots == [by_position[(w, p)] for w in (2, 3) for p in range(0, 9)]
+    # 國中 / 高中: every day 0-10.
+    assert junior_slots == [
+        by_position[(w, p)] for w in (2, 3) for p in range(0, 11) if p not in closed
+    ]
     assert client.get("/api/v1/grades/999999/default-time-slots").status_code == 404
 
 
@@ -298,7 +320,7 @@ def _schedulable(client: TestClient, weekly_periods: int) -> tuple[int, int, int
     version_id, grade_id, slot ids)."""
     semester_id = _semester(client)
     grade_id = _grade(client, 1)
-    class_id = client.post("/api/v1/classes/", json={"grade_id": grade_id, "name": "一甲"}).json()["id"]
+    class_id = create_class(client, grade_id, "一甲")
     subject_id = client.post("/api/v1/subjects/", json={"name": "國語"}).json()["id"]
     client.post(
         "/api/v1/class-subject-requirements/",

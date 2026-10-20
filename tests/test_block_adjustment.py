@@ -25,7 +25,7 @@ from app.models.time_slot import TimeSlot
 from app.services import schedule_adjustment
 from tests.test_move_candidates import _by_slot, _candidates
 from tests.test_move_swap_lessons import _move, _ok, _swap
-from tests.conftest import enroll_in_semester, get_test_school_id, next_free_grade_level
+from tests.conftest import enroll_in_semester, get_test_school_id, next_free_grade_level, time_slot_at
 
 URL = "/api/v1/schedule-versions"
 LUNCH = 4
@@ -80,13 +80,13 @@ def _world(db: Session, *, skip_rows: tuple[str, ...] = ()) -> World:
     db.add_all([semester, grade])
     db.flush()
     slots = {
-        (weekday, period): TimeSlot(school_id=get_test_school_id(db), weekday=weekday, period=period, is_teaching_period=period != LUNCH)
+        (weekday, period): time_slot_at(db, weekday, period, is_teaching_period=period != LUNCH)
         for weekday in (1, 2, 3)
         for period in (1, 2, 3, 4, 5, 6)
     }
     db.add_all(slots.values())
     subjects = {name: Subject(school_id=get_test_school_id(db), name=name, is_active=True) for name in ("自然", "數學", "英文", "美勞")}
-    c1 = Class(grade_id=grade.id, name="四年甲班", is_active=True)
+    c1 = Class(grade_id=grade.id, name="四年甲班")
     teachers = [
         Teacher(school_id=get_test_school_id(db), name=name, is_active=True, min_weekly_periods=0, max_weekly_periods=20)
         for name in ("一號老師", "二號老師", "三號老師")

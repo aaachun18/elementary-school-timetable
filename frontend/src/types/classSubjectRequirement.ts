@@ -49,3 +49,13 @@ export interface ClassSubjectRequirementUpdate {
 export interface ClassSubjectRequirementListFilters {
   semester_id?: number;
 }
+
+// POST /class-subject-requirements/sync: what copying the school's 科目需求
+// into the semester changed. locked_requirement_ids: requirements a
+// published or archived version uses -- left as they were.
+export interface RequirementSyncResult {
+  created: number;
+  updated: number;
+  removed: number;
+  locked_requirement_ids: number[];
+}

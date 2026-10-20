@@ -17,7 +17,4 @@ class Room(TimestampMixin, Base):
     # names its one room, ClassSubjectRequirement.required_room_id). Kept
     # (column and data) so nothing is lost; new rooms leave it empty.
     room_type: Mapped[str | None] = mapped_column(String(100))
-    # Optional per the initial spec review (H10 Room Capacity deferred):
-    # kept so the constraint can be enabled later without a schema change.
-    capacity: Mapped[int | None] = mapped_column()
     is_active: Mapped[bool] = mapped_column(default=True)

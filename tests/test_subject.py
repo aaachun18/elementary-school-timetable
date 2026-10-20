@@ -1,5 +1,5 @@
 from fastapi.testclient import TestClient
-from tests.conftest import next_free_grade_level_via_api
+from tests.api_helpers import create_class, create_grade
 
 
 def test_create_subject(client: TestClient) -> None:
@@ -106,12 +106,8 @@ def test_delete_subject_blocked_by_requirement(client: TestClient) -> None:
         "/api/v1/semesters/",
         json={"academic_year_id": academic_year_id, "number": 1},
     ).json()["id"]
-    grade_id = client.post(
-        "/api/v1/grades/", json={"name": "Grade 49b", "level": next_free_grade_level_via_api(client)}
-    ).json()["id"]
-    class_id = client.post(
-        "/api/v1/classes/", json={"grade_id": grade_id, "name": "Class 49b"}
-    ).json()["id"]
+    grade_id = create_grade(client, "Grade 49b")
+    class_id = create_class(client, grade_id, "Class 49b")
     client.post(
         "/api/v1/class-subject-requirements/",
         json={

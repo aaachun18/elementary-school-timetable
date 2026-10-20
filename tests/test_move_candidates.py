@@ -18,7 +18,7 @@ from app.models.semester_teacher import SemesterTeacher, SemesterTeacherUnavaila
 from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
 from tests.test_move_swap_lessons import Timetable, _build_timetable, _move, _ok, _swap
-from tests.conftest import enroll_in_semester, get_test_school_id, next_free_grade_level
+from tests.conftest import enroll_in_semester, get_test_school_id, next_free_grade_level, time_slot_at
 
 # Task 83: GET /api/v1/schedule-versions/{id}/move-candidates/{schedule_id}
 # -- for one lesson, the version's check after moving it to every time slot
@@ -54,7 +54,7 @@ def _rich_timetable(db: Session) -> tuple[Timetable, TimeSlot]:
     in room r1 -- so moves and swaps can hit H1/H2/H3/H4/H11 and the fixed
     slot check."""
     timetable = _build_timetable(db)
-    lunch = TimeSlot(school_id=get_test_school_id(db), weekday=1, period=99, is_teaching_period=False, label="午休")
+    lunch = time_slot_at(db, 1, 99, is_teaching_period=False, label="午休")
     db.add(lunch)
     timetable.builder.make_unavailable(timetable.t2, timetable.slot(4))
     lesson = db.get(Lesson, timetable.c1_english[1].lesson_id)
@@ -295,7 +295,7 @@ def _build_scaled_version(db: Session, *, classes: int, lessons_per_class: int) 
     db.add_all([semester, grade])
     db.flush()
     slots = [
-        TimeSlot(school_id=get_test_school_id(db), weekday=weekday, period=period, is_teaching_period=period not in (0, 5))
+        time_slot_at(db, weekday, period, is_teaching_period=period not in (0, 5))
         for weekday in range(1, 6)
         for period in range(0, 10)
     ]
@@ -315,7 +315,7 @@ def _build_scaled_version(db: Session, *, classes: int, lessons_per_class: int) 
     db.flush()
     rows: list[Schedule] = []
     for c in range(classes):
-        class_ = Class(name=f"Scale class {c}", grade_id=grade.id, is_active=True)
+        class_ = Class(name=f"Scale class {c}", grade_id=grade.id)
         db.add(class_)
         db.flush()
         for i in range(lessons_per_class):

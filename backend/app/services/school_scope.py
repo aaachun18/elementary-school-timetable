@@ -5,7 +5,7 @@ Room, AcademicYear, Grade, TimeSlot). Every other scheduling table reaches
 its school through them:
 
     Semester            -> AcademicYear
-    Class               -> Grade
+    Class, GradeSubjectRequirement -> Grade
     ClassSubjectRequirement, ScheduleVersion -> Semester
     Lesson              -> ClassSubjectRequirement
     Schedule            -> ScheduleVersion
@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 from app.models.academic_year import AcademicYear, Semester
 from app.models.class_subject_requirement import ClassSubjectRequirement
 from app.models.grade_class import Class, Grade
+from app.models.grade_subject_requirement import GradeSubjectRequirement
 from app.models.lesson import Lesson
 from app.models.room import Room
 from app.models.schedule import Schedule
@@ -53,8 +54,8 @@ def in_school(model: type[Any], school_id: int) -> ColumnElement[bool]:
         return Semester.academic_year_id.in_(
             select(AcademicYear.id).where(in_school(AcademicYear, school_id))
         )
-    if model is Class:
-        return Class.grade_id.in_(select(Grade.id).where(in_school(Grade, school_id)))
+    if model in (Class, GradeSubjectRequirement):
+        return model.grade_id.in_(select(Grade.id).where(in_school(Grade, school_id)))
     if model is ClassSubjectRequirement:
         return ClassSubjectRequirement.semester_id.in_(
             select(Semester.id).where(in_school(Semester, school_id))

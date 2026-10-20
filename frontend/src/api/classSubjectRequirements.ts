@@ -4,6 +4,7 @@ import type {
   ClassSubjectRequirementCreate,
   ClassSubjectRequirementListFilters,
   ClassSubjectRequirementUpdate,
+  RequirementSyncResult,
 } from "../types/classSubjectRequirement";
 
 // Mirrors backend/app/routers/class_subject_requirement.py's 5 endpoints --
@@ -54,4 +55,14 @@ export async function update(
 
 export async function remove(requirementId: number): Promise<void> {
   await apiClient.delete(`/api/v1/class-subject-requirements/${requirementId}`);
+}
+
+// The wizard's 科目需求 step: the semester's requirements follow the
+// school's 科目需求 (學校資料) -- created, resized or removed.
+export async function syncWithSchool(semesterId: number): Promise<RequirementSyncResult> {
+  const response = await apiClient.post<RequirementSyncResult>(
+    "/api/v1/class-subject-requirements/sync",
+    { semester_id: semesterId },
+  );
+  return response.data;
 }

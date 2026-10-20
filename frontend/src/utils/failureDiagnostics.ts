@@ -160,11 +160,11 @@ export function resolveInactiveEntities(
       entities.push({ tab: "teachers", label: teacher?.name ?? `ID ${violation.teacher_id}` });
     }
   }
-  if (violation.class_id !== null) {
+  // Classes are always active (they have no is_active), so a class is
+  // only listed when the violation isn't verified against is_active.
+  if (violation.class_id !== null && !verifyInactive) {
     const classItem = lookups.classById.get(violation.class_id);
-    if (!verifyInactive || classItem?.is_active === false) {
-      entities.push({ tab: "classes", label: classItem?.name ?? `ID ${violation.class_id}` });
-    }
+    entities.push({ tab: "classes", label: classItem?.name ?? `ID ${violation.class_id}` });
   }
   if (violation.subject_id !== null) {
     const subject = lookups.subjectById.get(violation.subject_id);

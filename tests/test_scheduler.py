@@ -1,6 +1,5 @@
 from fastapi.testclient import TestClient
-from tests.api_helpers import create_enrolled_teacher, create_teacher, enroll_teacher
-from tests.conftest import next_free_grade_level_via_api
+from tests.api_helpers import create_class, create_enrolled_teacher, create_grade, create_teacher, create_time_slot, enroll_teacher
 
 
 def _create_academic_year(client: TestClient, year: int) -> int:
@@ -20,21 +19,12 @@ def _create_semester(client: TestClient, year: int) -> int:
 
 
 def _create_grade(client: TestClient, level: int) -> int:
-    response = client.post(
-        "/api/v1/grades/",
-        json={"name": f"Grade {level}", "level": next_free_grade_level_via_api(client)},
-    )
-    grade_id: int = response.json()["id"]
-    return grade_id
+    return create_grade(client, f"Grade {level}")
 
 
 def _create_class(client: TestClient, level: int) -> int:
     grade_id = _create_grade(client, level)
-    response = client.post(
-        "/api/v1/classes/", json={"grade_id": grade_id, "name": f"Class {level}"}
-    )
-    class_id: int = response.json()["id"]
-    return class_id
+    return create_class(client, grade_id, f"Class {level}")
 
 
 def _create_subject(client: TestClient, name: str) -> int:
@@ -44,11 +34,7 @@ def _create_subject(client: TestClient, name: str) -> int:
 
 
 def _create_time_slot(client: TestClient, weekday: int, period: int) -> int:
-    response = client.post(
-        "/api/v1/time-slots/", json={"weekday": weekday, "period": period}
-    )
-    time_slot_id: int = response.json()["id"]
-    return time_slot_id
+    return create_time_slot(client, weekday, period)
 
 
 def _create_requirement(
@@ -342,12 +328,14 @@ def test_run_scheduler_static_check_teacher_availability_insufficient(
     assert schedules_response.json() == []
 
 
-def test_run_scheduler_static_check_inactive_class_conflict(
+def test_run_scheduler_static_check_inactive_subject_conflict(
     client: TestClient,
 ) -> None:
+    """Classes have no is_active any more (always active); H12's pre-check
+    is exercised through a deactivated subject instead."""
     _, version_id = _build_schedulable_semester(client, year=3008, weekly_periods=1)
 
-    # Deactivate the class AFTER lessons were already generated for it --
+    # Deactivate the subject AFTER lessons were already generated for it --
     # generate-lessons doesn't (and shouldn't) care about is_active, so this
     # is a legitimate, reachable state, not a contrived one.
     lessons_response = client.get("/api/v1/lessons/")
@@ -355,10 +343,10 @@ def test_run_scheduler_static_check_inactive_class_conflict(
     requirement_response = client.get(
         f"/api/v1/class-subject-requirements/{lesson['class_subject_requirement_id']}"
     )
-    class_id = requirement_response.json()["class_id"]
+    subject_id = requirement_response.json()["subject_id"]
 
     deactivate_response = client.patch(
-        f"/api/v1/classes/{class_id}", json={"is_active": False}
+        f"/api/v1/subjects/{subject_id}", json={"is_active": False}
     )
     assert deactivate_response.status_code == 200
 
@@ -371,7 +359,7 @@ def test_run_scheduler_static_check_inactive_class_conflict(
     violations = data["post_hoc_violations"]
     assert len(violations) == 1
     assert violations[0]["type"] == "STATIC_INACTIVE_ENTITY_CONFLICT"
-    assert violations[0]["class_id"] == class_id
+    assert violations[0]["subject_id"] == subject_id
 
     schedules_response = client.get("/api/v1/schedules/")
     assert schedules_response.json() == []
@@ -422,18 +410,19 @@ def test_run_scheduler_static_checks_do_not_interfere_with_each_other(
         client, semester_id, unavailable_teacher, unavailable_time_slot_ids=slot_ids
     )
 
-    # Inactive class (unrelated third requirement).
+    # Inactive subject (unrelated third requirement).
     class_c = _create_class(client, level=30093)
-    client.patch(f"/api/v1/classes/{class_c}", json={"is_active": False})
+    inactive_subject = _create_subject(client, name="Inactive Subject 3009")
     client.post(
         "/api/v1/class-subject-requirements/",
         json={
             "semester_id": semester_id,
             "class_id": class_c,
-            "subject_id": subject_id,
+            "subject_id": inactive_subject,
             "weekly_periods": 1,
         },
     )
+    client.patch(f"/api/v1/subjects/{inactive_subject}", json={"is_active": False})
 
     version_id = _create_schedule_version(client, semester_id)
     client.post(f"/api/v1/schedule-versions/{version_id}/generate-lessons")
@@ -639,10 +628,7 @@ def test_run_scheduler_fixed_to_non_teaching_slot_returns_static_422(
     client: TestClient,
 ) -> None:
     semester_id, version_id = _build_schedulable_semester(client, year=3020, weekly_periods=2)
-    lunch = client.post(
-        "/api/v1/time-slots/",
-        json={"weekday": 1, "period": 5, "is_teaching_period": False, "label": "午休"},
-    ).json()["id"]
+    lunch = create_time_slot(client, 1, 5, is_teaching_period=False, label="午休")
     lessons = client.get("/api/v1/lessons/", params={"semester_id": semester_id}).json()
     fixed_lesson = lessons[0]
     _fix(client, fixed_lesson["id"], lunch)

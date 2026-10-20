@@ -1,19 +1,14 @@
-from typing import TYPE_CHECKING
-
 from sqlalchemy import CheckConstraint, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 from app.models.mixins import TimestampMixin
 
-if TYPE_CHECKING:
-    from app.models.room import Room
-
-
-# Task 98: Grade.level values -- 國小 1-6, 國中 7-9 (the request-side
-# rule is app/services/grade_levels.py).
+# Grade.level values -- 國小 1-6, 國中 7-9, 高中 10-12 (shown as 一到三年級;
+# see app/services/school_structure.py). A school's grades are built with
+# the school and fixed by its type.
 MIN_GRADE_LEVEL = 1
-MAX_GRADE_LEVEL = 9
+MAX_GRADE_LEVEL = 12
 
 
 class Grade(TimestampMixin, Base):
@@ -38,12 +33,22 @@ class Grade(TimestampMixin, Base):
 
 class Class(TimestampMixin, Base):
     __tablename__ = "classes"
+    __table_args__ = (
+        UniqueConstraint("grade_id", "name", name="uq_classes_grade_name"),
+        CheckConstraint(
+            "name_style IN ('NUMBER', 'HEAVENLY_STEM', 'VIRTUE')",
+            name="ck_classes_name_style_valid",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     grade_id: Mapped[int] = mapped_column(ForeignKey("grades.id"))
+    # One of the names class_name_options(grade level, name_style) offers
+    # (app/services/school_structure.py), e.g. 一年甲班.
     name: Mapped[str] = mapped_column(String(100))
-    is_active: Mapped[bool] = mapped_column(default=True)
-    homeroom_room_id: Mapped[int | None] = mapped_column(ForeignKey("rooms.id"))
+    # Which list the name was picked from: 一二三… / 甲乙丙… / 忠孝仁愛….
+    name_style: Mapped[str] = mapped_column(
+        String(20), default="NUMBER", server_default="NUMBER"
+    )
 
     grade: Mapped["Grade"] = relationship(back_populates="classes")
-    homeroom_room: Mapped["Room | None"] = relationship()

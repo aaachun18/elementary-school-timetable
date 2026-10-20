@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.models.academic_year import Semester
 from app.models.class_subject_requirement import ClassSubjectRequirement
 from app.models.grade_class import Class
+from app.models.grade_subject_requirement import GradeSubjectRequirement
 from app.models.lesson import Lesson
 from app.models.room import Room
 from app.models.schedule import Schedule
@@ -14,6 +15,7 @@ from app.models.teacher import Teacher
 from app.schemas.class_subject_requirement import (
     ClassSubjectRequirementCreate,
     ClassSubjectRequirementUpdate,
+    RequirementSyncResult,
 )
 from app.services.exceptions import (
     DependentRecordsExistError,
@@ -230,6 +232,20 @@ def update_class_subject_requirement(
     return requirement
 
 
+def _stage_delete_lessons(db: Session, lesson_ids: list[int]) -> None:
+    """Staged, not committed: these lessons and their (DRAFT) Schedule rows,
+    flushed in that order -- child rows before the rows they reference.
+    The caller has made sure no locked version uses them."""
+    if not lesson_ids:
+        return
+    for schedule in db.scalars(select(Schedule).where(Schedule.lesson_id.in_(lesson_ids))).all():
+        db.delete(schedule)
+    db.flush()
+    for lesson in db.scalars(select(Lesson).where(Lesson.id.in_(lesson_ids))).all():
+        db.delete(lesson)
+    db.flush()
+
+
 def delete_class_subject_requirement(
     db: Session, requirement_id: int, *, school_id: int
 ) -> bool:
@@ -268,23 +284,9 @@ def delete_class_subject_requirement(
     # fails, the rollback() undoes the WHOLE transaction, so a lesson is
     # never lost while its requirement survives.
     try:
-        if lesson_ids:
-            # Only DRAFT rows can remain here (PUBLISHED/ARCHIVED was
-            # refused above).
-            draft_schedules = db.scalars(
-                select(Schedule).where(Schedule.lesson_id.in_(lesson_ids))
-            ).all()
-            for schedule in draft_schedules:
-                db.delete(schedule)
-            db.flush()
-
-            lessons = db.scalars(
-                select(Lesson).where(Lesson.id.in_(lesson_ids))
-            ).all()
-            for lesson in lessons:
-                db.delete(lesson)
-            db.flush()
-
+        # Only DRAFT rows can remain here (PUBLISHED/ARCHIVED was refused
+        # above).
+        _stage_delete_lessons(db, lesson_ids)
         db.delete(requirement)
         db.commit()
     except IntegrityError as exc:
@@ -295,3 +297,122 @@ def delete_class_subject_requirement(
         ) from exc
 
     return True
+
+
+# --- the school's 科目需求 -> a semester (wizard 科目需求 step) ---
+
+
+def _pattern_or_none(pattern: str | None, weekly_periods: int) -> str | None:
+    """The pattern, if it still adds up to weekly_periods; else none."""
+    try:
+        check_pattern_total(pattern, weekly_periods)
+    except ValueError:
+        return None
+    return pattern
+
+
+def sync_semester_requirements(
+    db: Session, semester_id: int, *, school_id: int
+) -> RequirementSyncResult | None:
+    """Makes the semester's requirements follow the school's 科目需求
+    (GradeSubjectRequirement), for every class of the school:
+    - a grade rule a class has no requirement for -> created (no pattern,
+      teacher or room yet);
+    - weekly_periods differing from the rule -> changed to it; a lesson
+      pattern that no longer adds up is cleared, and lessons beyond the new
+      count are deleted with their DRAFT schedules (missing ones are made
+      by generate-lessons when scheduling);
+    - a requirement with no rule any more -> deleted, lessons and DRAFT
+      schedules with it.
+    A requirement a PUBLISHED or ARCHIVED version uses is never touched
+    (listed in locked_requirement_ids). The lesson pattern, teacher and
+    room the wizard set are kept. All in one transaction. None if the
+    semester doesn't exist in the school."""
+    if get_in_school(db, Semester, semester_id, school_id) is None:
+        return None
+
+    rule_periods = {
+        (class_id, subject_id): weekly_periods
+        for class_id, subject_id, weekly_periods in db.execute(
+            select(
+                Class.id,
+                GradeSubjectRequirement.subject_id,
+                GradeSubjectRequirement.weekly_periods,
+            )
+            .join(GradeSubjectRequirement, GradeSubjectRequirement.grade_id == Class.grade_id)
+            .where(in_school(Class, school_id))
+        ).all()
+    }
+    existing = list(
+        db.scalars(
+            select(ClassSubjectRequirement).where(
+                ClassSubjectRequirement.semester_id == semester_id
+            )
+        ).all()
+    )
+    locked_ids = locked_requirement_ids(db, [requirement.id for requirement in existing])
+
+    created = updated = removed = 0
+    try:
+        for requirement in existing:
+            key = (requirement.class_id, requirement.subject_id)
+            if requirement.id in locked_ids:
+                continue
+            if key not in rule_periods:
+                _stage_delete_lessons(db, _lesson_ids(db, requirement.id))
+                db.delete(requirement)
+                removed += 1
+                continue
+            weekly_periods = rule_periods[key]
+            if requirement.weekly_periods != weekly_periods:
+                _resize(db, requirement, weekly_periods)
+                updated += 1
+
+        covered = {(requirement.class_id, requirement.subject_id) for requirement in existing}
+        for (class_id, subject_id), weekly_periods in sorted(rule_periods.items()):
+            if (class_id, subject_id) not in covered:
+                db.add(
+                    ClassSubjectRequirement(
+                        semester_id=semester_id,
+                        class_id=class_id,
+                        subject_id=subject_id,
+                        weekly_periods=weekly_periods,
+                    )
+                )
+                created += 1
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise_for_integrity_error(exc)
+
+    return RequirementSyncResult(
+        created=created,
+        updated=updated,
+        removed=removed,
+        locked_requirement_ids=sorted(locked_ids),
+    )
+
+
+def _lesson_ids(db: Session, requirement_id: int) -> list[int]:
+    return list(
+        db.scalars(
+            select(Lesson.id).where(Lesson.class_subject_requirement_id == requirement_id)
+        ).all()
+    )
+
+
+def _resize(db: Session, requirement: ClassSubjectRequirement, weekly_periods: int) -> None:
+    """Staged: the requirement's new weekly periods, its pattern cleared if
+    it no longer adds up, lessons beyond the new count deleted and the rest
+    regrouped by the (possibly cleared) pattern."""
+    requirement.weekly_periods = weekly_periods
+    requirement.lesson_pattern = _pattern_or_none(requirement.lesson_pattern, weekly_periods)
+    lessons = list(
+        db.scalars(
+            select(Lesson)
+            .where(Lesson.class_subject_requirement_id == requirement.id)
+            .order_by(Lesson.sequence_number)
+        ).all()
+    )
+    _stage_delete_lessons(db, [lesson.id for lesson in lessons[weekly_periods:]])
+    assign_block_fields(lessons[:weekly_periods], requirement.lesson_pattern)

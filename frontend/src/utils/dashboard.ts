@@ -125,8 +125,8 @@ export interface DataHealth {
   issues: DataIssue[];
 }
 
-// Counts are of active records. Issues: nothing of a kind yet, and active
-// classes without a homeroom (原班上課 then gets no room, decision 29).
+// Counts are of active records (classes are always active). Issues:
+// nothing of a kind yet.
 export function summarizeDataHealth(data: {
   teachers: readonly Teacher[];
   classes: readonly Class[];
@@ -135,7 +135,7 @@ export function summarizeDataHealth(data: {
 }): DataHealth {
   const active = <T extends { is_active: boolean }>(items: readonly T[]): T[] => items.filter((item) => item.is_active);
   const teachers = active(data.teachers);
-  const classes = active(data.classes);
+  const classes = data.classes;
   const subjects = active(data.subjects);
   const rooms = active(data.rooms);
   const issues: DataIssue[] = [];
@@ -151,15 +151,6 @@ export function summarizeDataHealth(data: {
     if (count === 0) {
       issues.push({ message: `還沒有任何啟用中的${label}`, path });
     }
-  }
-  const withoutHomeroom = classes.filter((item) => item.homeroom_room_id === null);
-  if (withoutHomeroom.length > 0) {
-    const names = withoutHomeroom.slice(0, 3).map((item) => item.name).join("、");
-    const more = withoutHomeroom.length > 3 ? ` 等 ${withoutHomeroom.length} 班` : "";
-    issues.push({
-      message: `${withoutHomeroom.length} 個班級沒有設定導師班教室（${names}${more}），原班上課的課會沒有教室`,
-      path: "/data?tab=classes",
-    });
   }
   return {
     teacherCount: teachers.length,

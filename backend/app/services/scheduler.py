@@ -45,7 +45,6 @@ from scheduling_engine.constraints.base import ConstraintViolation  # noqa: E402
 from scheduling_engine.models.domain import (  # noqa: E402
     ActiveStatusInfo,
     ClassAllowedTimeSlots,
-    DefaultRoom,
     LessonAssignment,
     LessonBlock,
     RequiredRoomRule,
@@ -306,35 +305,16 @@ def build_scheduling_resources(
         db.scalars(select(Subject).where(in_school(Subject, school_id))).all()
     )
 
-    # Task 92B: a requirement with no special room (原班上課) is held in its
-    # class's homeroom, when the class has one (decision 29). A required
-    # room wins over it inside the engine (room_by_requirement()).
-    homeroom_by_class = {class_.id: class_.homeroom_room_id for class_ in all_classes}
-    default_rooms = [
-        DefaultRoom(
-            class_subject_requirement_id=requirement.id,
-            room_id=homeroom_by_class[requirement.class_id],  # type: ignore[arg-type]
-        )
-        for requirement in requirements
-        if requirement.required_room_id is None
-        and homeroom_by_class.get(requirement.class_id) is not None
-    ]
-
     # H12 needs the REAL is_active value for every entity, active or not --
     # nothing is pre-filtered out here; ActiveStatusConstraint is what
-    # decides what to do with an inactive one.
+    # decides what to do with an inactive one. Classes are always active
+    # (they have no is_active any more), so none is listed.
     active_statuses = (
         [
             ActiveStatusInfo(
                 entity_type="teacher", entity_id=teacher.id, is_active=teacher.is_active
             )
             for teacher in all_teachers
-        ]
-        + [
-            ActiveStatusInfo(
-                entity_type="class", entity_id=class_.id, is_active=class_.is_active
-            )
-            for class_ in all_classes
         ]
         + [
             ActiveStatusInfo(
@@ -377,7 +357,9 @@ def build_scheduling_resources(
         active_statuses=active_statuses,
         requirement_periods=requirement_periods,
         teacher_workload_limits=teacher_workload_limits,
-        default_rooms=default_rooms,
+        # No default_rooms: a requirement with no special room is taught in
+        # the class's own room (原班上課), which isn't a school room -- no
+        # room and no room conflict (classes have no homeroom room).
         class_allowed_time_slots=_class_allowed_time_slots(db, semester_id, all_classes),
     )
 

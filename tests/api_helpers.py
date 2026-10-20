@@ -7,6 +7,12 @@ from collections.abc import Iterable
 from itertools import count
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app.main import app
+from app.models.grade_class import Class, Grade
+from tests.conftest import get_test_school_id, next_free_grade_level, time_slot_at
 
 _usernames = count(1)
 
@@ -81,3 +87,56 @@ def create_enrolled_teacher(
         max_weekly_periods=max_weekly_periods,
     )
     return teacher_id
+
+
+# --- The school's fixed structure ---
+#
+# Grades, time slots and class names come from the school's type in the
+# app: there is no POST for grades or time slots, and a class name must be
+# one of its grade's options. The test school is created bare, so tests
+# that build their data through the API add these few rows straight to the
+# test database -- the session behind `client` (conftest's get_db
+# override).
+
+
+def db_of(client: TestClient) -> Session:
+    override = app.dependency_overrides[get_db]
+    session: Session = next(override())
+    return session
+
+
+def create_grade(client: TestClient, name: str = "年級", *, level: int | None = None) -> int:
+    """A grade of the test school at `level`, else its lowest unused one."""
+    db = db_of(client)
+    level = next_free_grade_level(db) if level is None else level
+    grade = Grade(school_id=get_test_school_id(db), name=name, level=level)
+    db.add(grade)
+    db.commit()
+    return grade.id
+
+
+def create_time_slot(
+    client: TestClient,
+    weekday: int,
+    period: int,
+    *,
+    is_teaching_period: bool = True,
+    label: str | None = None,
+) -> int:
+    """The test school's slot at (weekday, period) -- see time_slot_at()."""
+    db = db_of(client)
+    slot = time_slot_at(
+        db, weekday, period, is_teaching_period=is_teaching_period, label=label
+    )
+    db.commit()
+    return slot.id
+
+
+def create_class(client: TestClient, grade_id: int, name: str) -> int:
+    """A class with a free-text name (the API only takes the grade's
+    options; tests not about naming keep their own names)."""
+    db = db_of(client)
+    class_ = Class(grade_id=grade_id, name=name)
+    db.add(class_)
+    db.commit()
+    return class_.id

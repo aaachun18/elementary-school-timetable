@@ -14,14 +14,13 @@ from app.models.subject import Subject
 from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
 from app.services.school_scope import get_in_school
-from tests.conftest import get_test_school_id
+from tests.conftest import get_test_school_id, time_slot_at
 
 # Task 98 (Task 3 of the wizard redesign): the per-semester scheduling
 # settings tables, the grade level range and the requirement's special
 # room. Only the schema and its rules -- the engine starts reading them in
 # the next Task.
 
-LEVEL_MESSAGE = "年級必須介於 1 到 9（國小 1–6、國中 7–9）"
 
 
 class World:
@@ -39,13 +38,13 @@ class World:
             min_weekly_periods=0,
             max_weekly_periods=0,
         )
-        self.slot = TimeSlot(school_id=school_id, weekday=1, period=1, is_teaching_period=True)
+        self.slot = time_slot_at(db, 1, 1, is_teaching_period=True, school_id=school_id)
         self.room = Room(school_id=school_id, name="自然教室", is_active=True)
         self.subject = Subject(school_id=school_id, name="自然", is_active=True)
         db.add_all([year, self.grade, self.teacher, self.slot, self.room, self.subject])
         db.flush()
         self.semester = Semester(academic_year_id=year.id, number=1, is_active=True)
-        self.class_ = Class(grade_id=self.grade.id, name="一年甲班", is_active=True)
+        self.class_ = Class(grade_id=self.grade.id, name="一年甲班")
         db.add_all([self.semester, self.class_])
         db.commit()
 
@@ -66,35 +65,19 @@ def world(db_session: Session) -> World:
     return World(db_session, get_test_school_id(db_session))
 
 
-# --- grade level 1-9 ---
+# --- grade level 1-12 (國小 1-6, 國中 7-9, 高中 10-12) ---
 
 
-@pytest.mark.parametrize("level", [1, 6, 7, 9])
-def test_grade_levels_1_to_9_accepted(client: TestClient, level: int) -> None:
-    response = client.post("/api/v1/grades/", json={"name": "年級", "level": level})
+@pytest.mark.parametrize("level", [1, 6, 7, 9, 10, 12])
+def test_database_accepts_grade_levels_1_to_12(db_session: Session, level: int) -> None:
+    db_session.add(Grade(school_id=get_test_school_id(db_session), name="年級", level=level))
 
-    assert response.status_code == 201
-
-
-@pytest.mark.parametrize("level", [0, 10, -1])
-def test_grade_level_outside_1_to_9_rejected(client: TestClient, level: int) -> None:
-    response = client.post("/api/v1/grades/", json={"name": "年級", "level": level})
-
-    assert response.status_code == 422
-    assert any(LEVEL_MESSAGE in item["msg"] for item in response.json()["detail"])
+    db_session.commit()
 
 
-def test_grade_level_update_outside_1_to_9_rejected(client: TestClient) -> None:
-    grade_id = client.post("/api/v1/grades/", json={"name": "一年級", "level": 1}).json()["id"]
-
-    response = client.patch(f"/api/v1/grades/{grade_id}", json={"level": 10})
-
-    assert response.status_code == 422
-    assert client.get(f"/api/v1/grades/{grade_id}").json()["level"] == 1
-
-
-def test_database_refuses_grade_level_outside_1_to_9(db_session: Session) -> None:
-    db_session.add(Grade(school_id=get_test_school_id(db_session), name="錯", level=10))
+@pytest.mark.parametrize("level", [0, 13, -1])
+def test_database_refuses_grade_level_outside_1_to_12(db_session: Session, level: int) -> None:
+    db_session.add(Grade(school_id=get_test_school_id(db_session), name="錯", level=level))
 
     with pytest.raises(IntegrityError):
         db_session.commit()

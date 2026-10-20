@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  WIZARD_STEPS,
   buildTimeSlotGrid,
-  classNameSuggestions,
-  gradeName,
   isWizardStep,
   nextVersionNumber,
   periodsRangeError,
   slotKey,
-  stageOfLevels,
 } from "./wizard";
 import type { ScheduleVersion } from "../types/scheduleVersion";
 import type { TimeSlot } from "../types/timeSlot";
@@ -19,31 +17,16 @@ describe("isWizardStep", () => {
     expect(isWizardStep("nope")).toBe(false);
     expect(isWizardStep(null)).toBe(false);
   });
-});
 
-describe("grades", () => {
-  it("names the grades in Chinese", () => {
-    expect([1, 6, 7, 9].map(gradeName)).toEqual(["一年級", "六年級", "七年級", "九年級"]);
-  });
-
-  it("is 國中 once any level is 7-9", () => {
-    expect(stageOfLevels([1, 2])).toBe("elementary");
-    expect(stageOfLevels([7])).toBe("juniorHigh");
-    expect(stageOfLevels([])).toBe("elementary");
-  });
-});
-
-describe("classNameSuggestions", () => {
-  it("offers numbers, 甲乙丙… and 忠孝仁愛… for the grade", () => {
-    const names = classNameSuggestions(1);
-    expect(names).toContain("一年1班");
-    expect(names).toContain("一年甲班");
-    expect(names).toContain("一年忠班");
-    expect(names.filter((name) => name.includes("甲"))).toEqual(["一年甲班"]);
-  });
-
-  it("uses the grade's own number", () => {
-    expect(classNameSuggestions(8)[0]).toBe("八年1班");
+  it("has no 班級 step: classes are kept on 學校資料", () => {
+    expect(isWizardStep("classes")).toBe(false);
+    expect(WIZARD_STEPS.map((step) => step.key)).toEqual([
+      "semester",
+      "teachers",
+      "grades",
+      "requirements",
+      "run",
+    ]);
   });
 });
 

@@ -8,11 +8,9 @@ english, art; rows written without rooms), with science given the required
 room 自然教室一.
 """
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models.grade_class import Class
 from app.models.room import Room
 from app.services.lesson_placement import default_room_id
 from tests.conftest import get_test_school_id
@@ -169,16 +167,8 @@ def _science_and_art(client: TestClient, world: World) -> tuple[dict, dict]:
     return lessons[_lesson(world, "S3")], lessons[_lesson(world, "A1")]
 
 
-def _set_homeroom(db: Session, world: World, room: Room | None) -> None:
-    class_ = db.get(Class, world.science.class_id)
-    assert class_ is not None
-    class_.homeroom_room_id = None if room is None else room.id
-    db.commit()
-
-
-def test_required_room_wins_over_the_homeroom(client: TestClient, db_session: Session) -> None:
+def test_required_room_is_the_default(client: TestClient, db_session: Session) -> None:
     world, lab = _lab_world(db_session, skip_rows=("S3", "A1"))
-    _set_homeroom(db_session, world, _room(db_session, "四甲教室"))
 
     science, _ = _science_and_art(client, world)
 
@@ -186,40 +176,34 @@ def test_required_room_wins_over_the_homeroom(client: TestClient, db_session: Se
     assert science["default_room_id"] == science["suggested_room_id"] == lab.id
 
 
-@pytest.mark.parametrize("with_homeroom", [True, False])
-def test_without_a_required_room_the_homeroom_is_used(
-    client: TestClient, db_session: Session, with_homeroom: bool
+def test_without_a_required_room_there_is_no_room(
+    client: TestClient, db_session: Session
 ) -> None:
+    """原班上課: the class's own room is no school room."""
     world, _ = _lab_world(db_session, skip_rows=("S3", "A1"))
-    homeroom = _room(db_session, "四甲教室")
-    _set_homeroom(db_session, world, homeroom if with_homeroom else None)
+    _room(db_session, "四甲教室")  # a room nobody requires stays unused
 
     _, art = _science_and_art(client, world)
 
-    expected_room = homeroom.id if with_homeroom else None
     assert art["required_room_id"] is None
-    assert art["default_room_id"] == expected_room
-    assert art["suggested_room_id"] == expected_room
+    assert art["default_room_id"] is None
+    assert art["suggested_room_id"] is None
 
 
 def test_default_room_id_is_what_place_lesson_uses(client: TestClient, db_session: Session) -> None:
     world, lab = _lab_world(db_session, skip_rows=("S3", "A1"))
-    homeroom = _room(db_session, "四甲教室")
-    _set_homeroom(db_session, world, homeroom)
     science, art = _science_and_art(client, world)
 
     placed_science = _ok(_place(client, world.version.id, science["lesson_id"], world.slot(3, 5), teacher_id=world.t1.id, dry_run=True))
     placed_art = _ok(_place(client, world.version.id, art["lesson_id"], world.slot(3, 6), teacher_id=world.t2.id, dry_run=True))
 
     assert placed_science["changes"][0]["new_room_id"] == science["default_room_id"] == lab.id
-    assert placed_art["changes"][0]["new_room_id"] == art["default_room_id"] == homeroom.id
+    assert placed_art["changes"][0]["new_room_id"] == art["default_room_id"] is None
 
 
 def test_default_room_id_function() -> None:
-    assert default_room_id(None, 5) == 5
-    assert default_room_id(None, None) is None
-    assert default_room_id(7, 5) == 7
-    assert default_room_id(7, None) == 7
+    assert default_room_id(None) is None
+    assert default_room_id(7) == 7
 
 
 def test_other_requirement_shapes_are_unchanged(client: TestClient, db_session: Session) -> None:

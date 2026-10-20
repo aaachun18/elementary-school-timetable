@@ -28,7 +28,7 @@ from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
 from tests.test_move_candidates import _by_slot, _candidates
 from tests.test_move_swap_lessons import _move, _ok, _swap
-from tests.conftest import enroll_in_semester, get_test_school_id, next_free_grade_level
+from tests.conftest import enroll_in_semester, get_test_school_id, next_free_grade_level, time_slot_at
 
 URL = "/api/v1/schedule-versions"
 BLOCK_TYPES = {"BLOCK_NOT_CONSECUTIVE", "BLOCK_SAME_DAY"}
@@ -87,17 +87,14 @@ def _world(db: Session) -> World:
     db.add_all([semester, grade])
     db.flush()
     slots = {
-        (weekday, period): TimeSlot(
-            school_id=get_test_school_id(db),
-            weekday=weekday, period=period, is_teaching_period=period != LUNCH
-        )
+        (weekday, period): time_slot_at(db, weekday, period, is_teaching_period=period != LUNCH)
         for weekday in (1, 2, 3)
         for period in (1, 2, 3, 4, 5)
     }
     db.add_all(slots.values())
     science = Subject(school_id=get_test_school_id(db), name="自然", is_active=True)
     english = Subject(school_id=get_test_school_id(db), name="英文", is_active=True)
-    c1 = Class(grade_id=grade.id, name="四年甲班", is_active=True)
+    c1 = Class(grade_id=grade.id, name="四年甲班")
     t1 = Teacher(school_id=get_test_school_id(db), name="一號老師", is_active=True, min_weekly_periods=0, max_weekly_periods=20)
     t2 = Teacher(school_id=get_test_school_id(db), name="二號老師", is_active=True, min_weekly_periods=0, max_weekly_periods=20)
     db.add_all([science, english, c1, t1, t2])

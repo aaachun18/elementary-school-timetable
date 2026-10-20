@@ -229,10 +229,9 @@ async function buildTimetableData(scheduleVersionId: number): Promise<TimetableD
       roomId: schedule.room_id,
       roomName:
         schedule.room_id === null ? null : (room?.name ?? `教室 ID ${schedule.room_id}`),
+      // Every school room is a special room: 原班上課 has no room at all.
       specialRoomName:
-        schedule.room_id === null || schedule.room_id === classItem?.homeroom_room_id
-          ? null
-          : (room?.name ?? `教室 ID ${schedule.room_id}`),
+        schedule.room_id === null ? null : (room?.name ?? `教室 ID ${schedule.room_id}`),
       requirementId: lesson.class_subject_requirement_id,
       blockNo: lesson.block_no ?? null,
       blockSeq: lesson.block_seq ?? null,

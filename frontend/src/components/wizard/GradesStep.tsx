@@ -1,5 +1,5 @@
 import { useState, type ReactElement } from "react";
-import { create as createGrade, list as listGrades } from "../../api/grades";
+import { list as listGrades } from "../../api/grades";
 import { list as listTimeSlots } from "../../api/timeSlots";
 import {
   defaultGradeTimeSlots,
@@ -11,20 +11,12 @@ import { useResource } from "../../hooks/useResource";
 import type { Grade } from "../../types/grade";
 import type { GradeTimeSlots } from "../../types/semesterSettings";
 import type { TimeSlot } from "../../types/timeSlot";
-import {
-  SCHOOL_STAGE_LABELS,
-  STAGE_LEVELS,
-  gradeName,
-  stageOfLevels,
-  type SchoolStage,
-} from "../../utils/wizard";
 import TimeSlotPickerDialog from "./TimeSlotPickerDialog";
 import {
   BUTTON_PRIMARY,
   BUTTON_SECONDARY,
   BUTTON_SECONDARY_SM,
   CARD,
-  CHECKBOX,
   ERROR_TEXT,
   HELP_TEXT,
   LOADING_TEXT,
@@ -33,13 +25,13 @@ import {
 } from "../../styles/ui";
 
 const DEFAULT_RULES =
-  "預設：低年級星期二 0–8 節、其他天 0–5 節；中年級星期三、五 0–5 節、其他天 0–8 節；高年級星期三 0–5 節、其他天 0–8 節；國中每天 0–8 節（午休等非教學時段不排課）。";
+  "預設：低年級星期二 0–8 節、其他天 0–5 節；中年級星期三、五 0–5 節、其他天 0–8 節；高年級星期三 0–5 節、其他天 0–8 節；國中、高中每天 0–10 節。學校資料設為不可排課的時段（早自習、午休、放學等）一律不能勾選。";
 
-// Task 98, wizard steps 7-8: the school's grades (國小 1-6 or 國中 7-9;
-// checking a level creates that grade) and, per grade, the slots its
-// classes may use this semester -- a timetable-shaped dialog starting from
-// the band's default. A grade nobody opened gets its default saved on
-// 「下一步」.
+// Task 98, wizard step 8: per grade of the school (fixed by its type:
+// 國小 一到六年級, 國中 七到九年級, 高中 一到三年級 -- nothing to create
+// here), the slots its classes may use this semester -- a timetable-shaped
+// dialog starting from the band's default. A grade nobody opened gets its
+// default saved on 「下一步」.
 export default function GradesStep({
   semesterId,
   onBack,
@@ -97,36 +89,15 @@ function GradesForm({
   onBack: () => void;
   onNext: () => void;
 }): ReactElement {
-  const [grades, setGrades] = useState<Grade[]>(() =>
-    [...initialGrades].sort((a, b) => a.level - b.level),
-  );
+  const grades = [...initialGrades].sort((a, b) => a.level - b.level);
   const [savedSlots, setSavedSlots] = useState<Map<number, number[]>>(
     () => new Map(initialSaved.map((item) => [item.grade_id, item.time_slot_ids])),
   );
-  const [stage, setStage] = useState<SchoolStage>(() =>
-    stageOfLevels(initialGrades.map((grade) => grade.level)),
-  );
-  const [creatingLevel, setCreatingLevel] = useState<number | null>(null);
   const [picker, setPicker] = useState<Picker | null>(null);
   const [isPickerSaving, setIsPickerSaving] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
   const [isFinishing, setIsFinishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const levels = new Set(grades.map((grade) => grade.level));
-
-  async function handleCreateGrade(level: number): Promise<void> {
-    setCreatingLevel(level);
-    setError(null);
-    try {
-      const created = await createGrade({ name: gradeName(level), level });
-      setGrades((previous) => [...previous, created].sort((a, b) => a.level - b.level));
-    } catch (caught) {
-      setError(extractApiErrorMessage(caught));
-    } finally {
-      setCreatingLevel(null);
-    }
-  }
 
   async function openPicker(grade: Grade): Promise<void> {
     setError(null);
@@ -166,7 +137,7 @@ function GradesForm({
         }
         const defaults = await defaultGradeTimeSlots(grade.id);
         if (defaults.length === 0) {
-          setError(`${grade.name}沒有任何預設可排節次，請先到學校資料建立時段，或手動設定。`);
+          setError(`${grade.name}沒有任何預設可排節次，請先到學校資料把時段設為可排課，或手動設定。`);
           return;
         }
         await replaceGradeTimeSlots(semesterId, grade.id, defaults);
@@ -181,41 +152,10 @@ function GradesForm({
 
   return (
     <div className={CARD}>
-      <h3 className={SUBSECTION_TITLE}>建立年級</h3>
-      <div className="mb-2 flex flex-wrap gap-4 text-sm">
-        {(Object.keys(SCHOOL_STAGE_LABELS) as SchoolStage[]).map((option) => (
-          <label key={option} className="inline-flex items-center gap-1">
-            <input
-              type="radio"
-              name="school-stage"
-              checked={stage === option}
-              onChange={() => setStage(option)}
-              className="accent-blue-600"
-            />
-            {SCHOOL_STAGE_LABELS[option]}
-          </label>
-        ))}
-      </div>
-      <div className="mb-1 flex flex-wrap gap-3 text-sm">
-        {STAGE_LEVELS[stage].map((level) => (
-          <label key={level} className="inline-flex items-center gap-1">
-            <input
-              type="checkbox"
-              checked={levels.has(level)}
-              disabled={levels.has(level) || creatingLevel !== null}
-              onChange={() => void handleCreateGrade(level)}
-              className={CHECKBOX}
-            />
-            {gradeName(level)}
-          </label>
-        ))}
-      </div>
-      <p className={MUTED_TEXT}>勾選即建立該年級；要刪除年級請到學校資料。</p>
-
-      <h3 className={`${SUBSECTION_TITLE} mt-4`}>每個年級每週可以排課的節次</h3>
+      <h3 className={SUBSECTION_TITLE}>每個年級每週可以排課的節次</h3>
       <p className={HELP_TEXT}>{DEFAULT_RULES}</p>
       {grades.length === 0 ? (
-        <p className={MUTED_TEXT}>請先勾選要建立的年級。</p>
+        <p className={MUTED_TEXT}>學校還沒有年級。</p>
       ) : (
         <ul className="flex flex-col gap-2">
           {grades.map((grade) => {

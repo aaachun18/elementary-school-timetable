@@ -9,6 +9,9 @@ from app.routers.class_subject_requirement import (
     router as class_subject_requirement_router,
 )
 from app.routers.grade import router as grade_router
+from app.routers.grade_subject_requirement import (
+    router as grade_subject_requirement_router,
+)
 from app.routers.lesson import router as lesson_router
 from app.routers.room import router as room_router
 from app.routers.schedule import router as schedule_router
@@ -49,6 +52,7 @@ from app.services.exceptions import (
     PlacementRefusedError,
     ScheduleNotInVersionError,
     ScheduleVersionAlreadyScheduledError,
+    SchoolStructureViolationError,
     TargetRecordNotFoundError,
     TargetSemesterHasRequirementsError,
     TargetSemesterNotFoundError,
@@ -81,6 +85,7 @@ app.include_router(academic_year_router)
 app.include_router(semester_router)
 app.include_router(semester_settings_router)
 app.include_router(teacher_router)
+app.include_router(grade_subject_requirement_router)
 app.include_router(class_subject_requirement_router)
 app.include_router(lesson_router)
 app.include_router(schedule_version_router)
@@ -116,6 +121,13 @@ def handle_invalid_lesson_pattern(
 @app.exception_handler(InvalidTeacherPeriodsError)
 def handle_invalid_teacher_periods(
     request: Request, exc: InvalidTeacherPeriodsError
+) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+
+@app.exception_handler(SchoolStructureViolationError)
+def handle_school_structure_violation(
+    request: Request, exc: SchoolStructureViolationError
 ) -> JSONResponse:
     return JSONResponse(status_code=422, content={"detail": str(exc)})
 

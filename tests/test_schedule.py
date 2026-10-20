@@ -1,6 +1,5 @@
 from fastapi.testclient import TestClient
-from tests.api_helpers import create_teacher
-from tests.conftest import next_free_grade_level_via_api
+from tests.api_helpers import create_class, create_grade, create_teacher, create_time_slot
 
 
 def _create_academic_year(client: TestClient, year: int) -> int:
@@ -20,21 +19,12 @@ def _create_semester(client: TestClient, year: int) -> int:
 
 
 def _create_grade(client: TestClient, level: int) -> int:
-    response = client.post(
-        "/api/v1/grades/",
-        json={"name": f"Grade {level}", "level": next_free_grade_level_via_api(client)},
-    )
-    grade_id: int = response.json()["id"]
-    return grade_id
+    return create_grade(client, f"Grade {level}")
 
 
 def _create_class(client: TestClient, level: int) -> int:
     grade_id = _create_grade(client, level)
-    response = client.post(
-        "/api/v1/classes/", json={"grade_id": grade_id, "name": f"Class {level}"}
-    )
-    class_id: int = response.json()["id"]
-    return class_id
+    return create_class(client, grade_id, f"Class {level}")
 
 
 def _create_subject(client: TestClient, name: str) -> int:
@@ -44,12 +34,7 @@ def _create_subject(client: TestClient, name: str) -> int:
 
 
 def _create_time_slot(client: TestClient, period: int) -> int:
-    response = client.post(
-        "/api/v1/time-slots/",
-        json={"weekday": 1, "period": period, "is_teaching_period": True},
-    )
-    time_slot_id: int = response.json()["id"]
-    return time_slot_id
+    return create_time_slot(client, 1, period)
 
 
 def _create_room(client: TestClient, name: str) -> int:

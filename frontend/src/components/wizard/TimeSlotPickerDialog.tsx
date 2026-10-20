@@ -8,8 +8,9 @@ import { BUTTON_SECONDARY_SM, CHECKBOX, ERROR_TEXT, HELP_TEXT } from "../../styl
 
 // Task 98: the wizard's 「用課表的方式勾選」 dialog -- a teacher's
 // unavailable slots (step 6) or a grade's open slots (step 8). The school's
-// time slots as a weekly grid, one checkbox per teaching period;
-// non-teaching periods (午休 ...) are shown but can't be checked. Mounted
+// time slots as a weekly grid, one checkbox per schedulable period; the
+// periods the school marked not schedulable (早自習, 午休, 放學 ...) are
+// shown but can't be checked. Mounted
 // only while open (keyed by the caller), so the checks start from
 // `initialSelected` every time.
 export default function TimeSlotPickerDialog({
@@ -41,6 +42,10 @@ export default function TimeSlotPickerDialog({
   const grid = buildTimeSlotGrid([...timeSlots]);
   const periodDisplay = buildPeriodDisplay(timeSlots);
   const teachingIds = timeSlots.filter((slot) => slot.is_teaching_period).map((slot) => slot.id);
+  // A slot the school has since marked not schedulable can't be checked
+  // (or seen as checked), so an old choice of it is dropped on save.
+  const teachingIdSet = new Set(teachingIds);
+  const checkedIds = [...selected].filter((id) => teachingIdSet.has(id)).sort((a, b) => a - b);
 
   function toggle(timeSlotId: number): void {
     setSelected((previous) => {
@@ -71,7 +76,7 @@ export default function TimeSlotPickerDialog({
     });
   }
 
-  const isEmptyRefused = requireOne && selected.size === 0;
+  const isEmptyRefused = requireOne && checkedIds.length === 0;
 
   return (
     <ConfirmDialog
@@ -82,7 +87,7 @@ export default function TimeSlotPickerDialog({
       busy={busy}
       busyLabel="儲存中…"
       confirmDisabled={isEmptyRefused}
-      onConfirm={() => onSave([...selected].sort((a, b) => a - b))}
+      onConfirm={() => onSave(checkedIds)}
       onCancel={onCancel}
     >
       <p className={HELP_TEXT}>{description}</p>
@@ -158,7 +163,7 @@ export default function TimeSlotPickerDialog({
         </table>
       </div>
       <p className="mt-2 text-sm text-gray-600">
-        已勾選 {selected.size} 個節次（勾選代表「{checkedLabel}」）
+        已勾選 {checkedIds.length} 個節次（勾選代表「{checkedLabel}」）
       </p>
       {isEmptyRefused && <p className={ERROR_TEXT}>至少要勾選一個節次。</p>}
       {errorMessage !== null && (

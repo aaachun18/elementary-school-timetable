@@ -21,11 +21,9 @@ the same pure function GET /check runs -- so the candidates, the preview
 and the check after placing can't disagree.
 
 Teacher: the request's teacher_id, else the requirement's required teacher,
-else refused (TEACHER_REQUIRED). Room (Task 92B, decision 29 -- the same
-rule as run-scheduler): the request's room_id; else, for a requirement
-with no room type (原班上課), the class's homeroom; else none. For a
-requirement with a room type nothing is picked: the user names the room
-(H9 only compares a room that is there, so an empty one is not reported).
+else refused (TEACHER_REQUIRED). Room (the same rule as run-scheduler):
+the request's room_id; else the requirement's special room; else none
+(原班上課 -- the class's own room, which isn't a school room).
 Qualification, availability, workload and double-booking never block a
 placement: the check reports them.
 """
@@ -97,8 +95,8 @@ class UnscheduledLesson:
     block_seq: int | None
     lesson_pattern: str | None
     fixed_time_slot_id: int | None
-    # Task 92B / 98: the required special room, else the class's homeroom
-    # (what placing uses by default, None when the class has none).
+    # Task 92B / 98: the required special room (what placing uses by
+    # default; None: 原班上課).
     suggested_room_id: int | None
     # Task 98: the active teachers taking part in the semester, by name.
     eligible_teachers: list[EligibleTeacher]
@@ -109,13 +107,12 @@ class UnscheduledLesson:
     default_room_id: int | None = None
 
 
-def default_room_id(required_room_id: int | None, homeroom_room_id: int | None) -> int | None:
+def default_room_id(required_room_id: int | None) -> int | None:
     """Task 92B / 94 / 98: the room a placement gets when the request names
-    none -- the requirement's required special room, else the class's
-    homeroom (原班上課, like run-scheduler), else none. Shared by
-    place-lesson / place-candidates and the unscheduled list's
-    default_room_id."""
-    return required_room_id if required_room_id is not None else homeroom_room_id
+    none -- the requirement's required special room, else none (原班上課,
+    like run-scheduler). Shared by place-lesson / place-candidates and the
+    unscheduled list's default_room_id."""
+    return required_room_id
 
 
 def _eligible_teachers(db: Session, semester_id: int) -> list[EligibleTeacher]:
@@ -177,14 +174,10 @@ def list_unscheduled_lessons(
             block_seq=lesson.block_seq,
             lesson_pattern=requirement.lesson_pattern,
             fixed_time_slot_id=lesson.fixed_time_slot_id,
-            suggested_room_id=default_room_id(
-                requirement.required_room_id, class_.homeroom_room_id
-            ),
+            suggested_room_id=default_room_id(requirement.required_room_id),
             eligible_teachers=list(teachers),
             required_room_id=requirement.required_room_id,
-            default_room_id=default_room_id(
-                requirement.required_room_id, class_.homeroom_room_id
-            ),
+            default_room_id=default_room_id(requirement.required_room_id),
         )
         for lesson, requirement, class_, subject_name in rows
     ]
@@ -269,10 +262,8 @@ def _prepare(
     if room_id is not None and get_in_school(db, Room, room_id, school_id) is None:
         raise AdjustmentTargetNotFoundError("Room not found")
     if room_id is None:
-        # Task 92B: 原班上課 -> the homeroom, exactly like run-scheduler.
-        class_ = db.get(Class, requirement.class_id)
-        assert class_ is not None  # foreign key
-        room_id = default_room_id(requirement.required_room_id, class_.homeroom_room_id)
+        # Exactly like run-scheduler: the special room, else 原班上課 (none).
+        room_id = default_room_id(requirement.required_room_id)
 
     rows = schedule_check.load_assignment_rows(db, schedule_version_id)
     context = schedule_check.load_check_context(db, schedule_version.semester_id, schedule_version_id)

@@ -8,9 +8,10 @@ from app.core.dependencies import (
 )
 from app.database import get_db
 from app.models.grade_class import Class
-from app.schemas.class_ import ClassCreate, ClassRead, ClassUpdate
+from app.schemas.class_ import ClassCreate, ClassRead
 from app.services import class_ as class_service
 
+# No PATCH: a class is only created and deleted.
 router = APIRouter(
     prefix="/api/v1/classes",
     tags=["classes"],
@@ -31,10 +32,13 @@ def create_class(
 def list_classes(
     skip: int = 0,
     limit: int = 100,
+    grade_id: int | None = None,
     db: Session = Depends(get_db),
     school_id: int = Depends(member_school_id),
 ) -> list[Class]:
-    return class_service.get_classes(db, skip=skip, limit=limit, school_id=school_id)
+    return class_service.get_classes(
+        db, skip=skip, limit=limit, school_id=school_id, grade_id=grade_id
+    )
 
 
 @router.get("/{class_id}", response_model=ClassRead)
@@ -44,23 +48,6 @@ def get_class(
     school_id: int = Depends(member_school_id),
 ) -> Class:
     class_obj = class_service.get_class(db, class_id, school_id=school_id)
-    if class_obj is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Class not found"
-        )
-    return class_obj
-
-
-@router.patch("/{class_id}", response_model=ClassRead)
-def update_class(
-    class_id: int,
-    class_data: ClassUpdate,
-    db: Session = Depends(get_db),
-    school_id: int = Depends(coordinator_school_id),
-) -> Class:
-    class_obj = class_service.update_class(
-        db, class_id, class_data, school_id=school_id
-    )
     if class_obj is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Class not found"

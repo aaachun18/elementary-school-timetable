@@ -15,7 +15,7 @@ export default function Layout(): ReactElement {
   // -- left out of the nav entirely rather than shown disabled:
   // - 系統管理員: 學校管理, 帳號管理;
   // - 一般老師: 首頁 (a simplified dashboard, Task 97), 課表;
-  // - 教學組長: 首頁, 開始排課, 排課紀錄, 學校資料, 帳號管理. An unknown
+  // - 教學組長: 首頁, 學校資料, 開始排課, 排課紀錄, 帳號管理. An unknown
   //   role (null) sees this nav too, same "only block a CONFIRMED role"
   //   stance RoleRoute takes.
   const role = getCurrentUserRole();
@@ -50,14 +50,14 @@ export default function Layout(): ReactElement {
         )}
         {!isAdmin && !isTeacher && (
           <>
+            <NavLink to="/data" className={navLinkClassName}>
+              學校資料
+            </NavLink>
             <NavLink to="/wizard" className={navLinkClassName}>
               開始排課
             </NavLink>
             <NavLink to="/records" className={navLinkClassName}>
               排課紀錄
-            </NavLink>
-            <NavLink to="/data" className={navLinkClassName}>
-              學校資料
             </NavLink>
           </>
         )}

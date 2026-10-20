@@ -31,7 +31,7 @@ function violation(fields: Partial<ConstraintViolationDetail>): ConstraintViolat
 
 // Task 78: the demo data's period layout -- raw period 0 早自習, 1-4
 // teaching, 5 午餐/午休, 6-8 teaching, 9 放學 (Monday only) -- so labels
-// use the teaching-period numbering (raw period 8 is "第 7 節").
+// use the period's own number (period 8 is "第 8 節").
 const NON_TEACHING_LABELS: Record<number, string> = { 0: "早自習", 5: "午餐/午休", 9: "放學" };
 
 function slotId(weekday: number, period: number): number {
@@ -85,7 +85,7 @@ const lookups: NameLookups = {
   roomById: new Map(),
   timeSlotById: new Map(demoTimeSlots().map((slot) => [slot.id, slot])),
   requirementById: new Map(),
-  // 901班A 國語 (lesson 50) is pinned to Friday raw period 8 (第 7 節).
+  // 901班A 國語 (lesson 50) is pinned to Friday period 8 (第 8 節).
   lessonById: new Map([[50, { id: 50, fixed_time_slot_id: FRIDAY_8 }]] as never),
 };
 
@@ -232,7 +232,7 @@ describe("diffViolations", () => {
     expect(diff.added).toEqual([]);
     expect(diff.resolved).toEqual([]);
     expect(diff.unchanged.map((item) => [item.sentence, item.descriptionChanged])).toEqual([
-      ["901班A的國語被固定在星期五第 7 節，但目前排在星期三第 1 節！", true],
+      ["901班A的國語被固定在星期五第 8 節，但目前排在星期三第 1 節！", true],
       ["林老師在星期一第 1 節已標記為不可排課，但仍被排入該時段！", false],
     ]);
   });
@@ -242,7 +242,7 @@ describe("diffViolations", () => {
 
     expect(diff.added).toEqual([]);
     expect(sentences(diff.resolved)).toEqual([
-      "901班A的國語被固定在星期五第 7 節，但目前排在星期一第 1 節！",
+      "901班A的國語被固定在星期五第 8 節，但目前排在星期一第 1 節！",
     ]);
     expect(diff.unchanged.map((item) => item.descriptionChanged)).toEqual([false]);
   });
@@ -251,7 +251,7 @@ describe("diffViolations", () => {
     const diff = diffViolations([linUnavailable], [fixedMismatchAt(MONDAY_1), linUnavailable], sentenceOf);
 
     expect(sentences(diff.added)).toEqual([
-      "901班A的國語被固定在星期五第 7 節，但目前排在星期一第 1 節！",
+      "901班A的國語被固定在星期五第 8 節，但目前排在星期一第 1 節！",
     ]);
     expect(diff.resolved).toEqual([]);
   });

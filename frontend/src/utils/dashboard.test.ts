@@ -135,32 +135,19 @@ describe("summarizeDraftHealth", () => {
 
 describe("summarizeDataHealth", () => {
   const teacher = (id: number, active = true): Teacher => ({ id, name: `T${id}`, is_active: active }) as Teacher;
-  const klass = (id: number, homeroom: number | null, active = true): Class =>
-    ({ id, name: `${id}班`, is_active: active, homeroom_room_id: homeroom }) as Class;
+  const klass = (id: number): Class => ({ id, name: `${id}班` }) as Class;
   const subject = (id: number): Subject => ({ id, name: `S${id}`, is_active: true }) as Subject;
   const room = (id: number, active = true): Room => ({ id, name: `R${id}`, is_active: active }) as Room;
 
-  it("counts active records and lists classes without a homeroom", () => {
+  it("counts active records (every class counts: classes are always active)", () => {
     const health = summarizeDataHealth({
       teachers: [teacher(1), teacher(2, false)],
-      classes: [klass(1, 10), klass(2, null), klass(3, null, false)],
+      classes: [klass(1), klass(2)],
       subjects: [subject(1)],
       rooms: [room(10), room(11, false)],
     });
     expect([health.teacherCount, health.classCount, health.subjectCount, health.roomCount]).toEqual([1, 2, 1, 1]);
-    expect(health.issues).toEqual([
-      { message: "1 個班級沒有設定導師班教室（2班），原班上課的課會沒有教室", path: "/data?tab=classes" },
-    ]);
-  });
-
-  it("names at most three classes", () => {
-    const health = summarizeDataHealth({
-      teachers: [teacher(1)],
-      classes: [1, 2, 3, 4, 5].map((id) => klass(id, null)),
-      subjects: [subject(1)],
-      rooms: [room(1)],
-    });
-    expect(health.issues[0].message).toBe("5 個班級沒有設定導師班教室（1班、2班、3班 等 5 班），原班上課的課會沒有教室");
+    expect(health.issues).toEqual([]);
   });
 
   it("says what is missing when there is nothing at all", () => {
@@ -176,7 +163,7 @@ describe("summarizeDataHealth", () => {
 
   it("has no issue when everything is set", () => {
     expect(
-      summarizeDataHealth({ teachers: [teacher(1)], classes: [klass(1, 10)], subjects: [subject(1)], rooms: [room(10)] }).issues,
+      summarizeDataHealth({ teachers: [teacher(1)], classes: [klass(1)], subjects: [subject(1)], rooms: [room(10)] }).issues,
     ).toEqual([]);
   });
 });

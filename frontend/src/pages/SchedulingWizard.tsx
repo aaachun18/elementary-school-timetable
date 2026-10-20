@@ -1,6 +1,5 @@
 import { useState, type ReactElement } from "react";
 import { useSearchParams } from "react-router-dom";
-import ClassesStep from "../components/wizard/ClassesStep";
 import GradesStep from "../components/wizard/GradesStep";
 import RequirementsStep from "../components/wizard/RequirementsStep";
 import RunStep from "../components/wizard/RunStep";
@@ -50,8 +49,9 @@ function remember(semester: RememberedSemester): void {
 
 // Task 98: 開始排課 -- the one place a 教學組長 sets up and runs a
 // semester's scheduling, replacing 基礎資料 / 排課需求總覽 / 排課控制台:
-// 學年度與學期 -> 教師設定 -> 年級與可排節次 -> 班級 -> 科目需求 ->
-// 確認並排課. Every step saves its own part, so it can be left and resumed.
+// 學年度與學期 -> 教師設定 -> 年級與可排節次 -> 科目需求 -> 確認並排課.
+// Classes and the school's 科目需求 are kept on 學校資料. Every step saves
+// its own part, so it can be left and resumed.
 export default function SchedulingWizard(): ReactElement {
   const [searchParams] = useSearchParams();
   const requestedStep = searchParams.get("step");
@@ -82,7 +82,7 @@ export default function SchedulingWizard(): ReactElement {
       {step === null ? (
         <div>
           <p className={HELP_TEXT}>
-            依序設定學年度與學期、參與的老師、年級可排節次、班級與科目需求，最後由系統自動排課。每一步都會先存起來，可以隨時離開再回來。
+            依序設定學年度與學期、參與的老師、年級可排節次與科目需求，最後由系統自動排課。班級與各年級的科目節數請先在「學校資料」維護。每一步都會先存起來，可以隨時離開再回來。
           </p>
           <button type="button" onClick={() => go("semester")} className={BUTTON_PRIMARY}>
             開始排課 →
@@ -126,15 +126,12 @@ export default function SchedulingWizard(): ReactElement {
             <TeachersStep semesterId={semester.id} onBack={() => go("semester")} onNext={() => go("grades")} />
           )}
           {semester !== null && step === "grades" && (
-            <GradesStep semesterId={semester.id} onBack={() => go("teachers")} onNext={() => go("classes")} />
-          )}
-          {semester !== null && step === "classes" && (
-            <ClassesStep onBack={() => go("grades")} onNext={() => go("requirements")} />
+            <GradesStep semesterId={semester.id} onBack={() => go("teachers")} onNext={() => go("requirements")} />
           )}
           {semester !== null && step === "requirements" && (
             <RequirementsStep
               semesterId={semester.id}
-              onBack={() => go("classes")}
+              onBack={() => go("grades")}
               onNext={() => go("run")}
             />
           )}

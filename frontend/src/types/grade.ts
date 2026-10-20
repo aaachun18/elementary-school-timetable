@@ -1,7 +1,5 @@
-// Mirrors backend/app/schemas/grade.py in full. Unlike every other lookup
-// table in this app, Grade has no is_active column at all (see
-// backend/app/models/grade_class.py) -- there is genuinely no field for a
-// create form to omit here.
+// Mirrors backend/app/schemas/grade.py. Read only: a school's grades are
+// built with the school from its type (國小 1-6, 國中 7-9, 高中 10-12).
 
 export interface Grade {
   id: number;
@@ -9,14 +7,4 @@ export interface Grade {
   level: number;
   created_at: string;
   updated_at: string;
-}
-
-export interface GradeCreate {
-  name: string;
-  level: number;
-}
-
-export interface GradeUpdate {
-  name?: string;
-  level?: number;
 }

@@ -17,7 +17,7 @@ from app.models.semester_teacher import SemesterTeacher, SemesterTeacherUnavaila
 from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
 from app.services import schedule_check, teacher_reassignment
-from tests.conftest import enroll_in_semester, get_test_school_id, next_free_grade_level
+from tests.conftest import enroll_in_semester, get_test_school_id, next_free_grade_level, time_slot_at
 
 # Task 63: POST /api/v1/schedule-versions/{id}/reassign-teacher. Test data
 # is written straight to the database through db_session (the same session
@@ -41,7 +41,7 @@ class Builder:
         db.add(self.grade)
         db.flush()
         self.slots = [
-            TimeSlot(school_id=get_test_school_id(db), weekday=1, period=period, is_teaching_period=True)
+            time_slot_at(db, 1, period, is_teaching_period=True)
             for period in range(1, 7)
         ]
         db.add_all(self.slots)
@@ -100,7 +100,7 @@ class Builder:
         self.db.commit()
 
     def class_(self, name: str) -> Class:
-        class_ = Class(grade_id=self.grade.id, name=name, is_active=True)
+        class_ = Class(grade_id=self.grade.id, name=name)
         self.db.add(class_)
         self.db.commit()
         return class_

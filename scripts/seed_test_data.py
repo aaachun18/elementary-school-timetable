@@ -6,13 +6,18 @@ school -- the same data a 教學組長 would enter through 開始排課:
 - the school 示範國小 and its accounts: a 系統管理員 (only when the
   database has none yet), a 教學組長 and eight 一般老師 (each account
   creates its Teacher);
-- 115 學年度第 1 學期; Monday-Friday periods 0-8 as teaching periods;
-- subjects, special rooms (自然教室, 音樂教室) and one homeroom per class;
-- 一年級 to 六年級 with one class each (一年甲班 ...);
+- 115 學年度第 1 學期; the 國小 time slots and grades (一年級 to 六年級)
+  the school is built with (Monday-Friday periods 0-9; 0 / 5 / 9 not
+  schedulable);
+- subjects and the two special rooms (音樂教室, 自然教室) -- every other
+  lesson is taught in the class's own room (原班上課, no room);
+- one class per grade (一年甲班 ...);
+- the school's 科目需求 per grade;
 - the semester's settings: every teacher takes part (8-20 periods a week,
   a few unavailable slots), every grade open for its band's default slots;
-- each class's requirements (國語 taught by the class's own teacher,
-  science and music in their special rooms, a few lesson patterns);
+- the semester's requirements, synced from the school's 科目需求 the way
+  the wizard does, then given their teacher (國語 by the class's own
+  teacher), special room and a few lesson patterns;
 - a DRAFT schedule version with its lessons generated -- and, with --run,
   the scheduler run on it.
 
@@ -53,20 +58,20 @@ from app.models.teacher import Teacher  # noqa: E402
 from app.models.user import ADMIN, User  # noqa: E402
 from app.schemas.academic_year import AcademicYearCreate  # noqa: E402
 from app.schemas.class_ import ClassCreate  # noqa: E402
-from app.schemas.class_subject_requirement import ClassSubjectRequirementCreate  # noqa: E402
-from app.schemas.grade import GradeCreate  # noqa: E402
+from app.schemas.class_subject_requirement import ClassSubjectRequirementUpdate  # noqa: E402
+from app.schemas.grade_subject_requirement import GradeSubjectRequirementCreate  # noqa: E402
 from app.schemas.room import RoomCreate  # noqa: E402
 from app.schemas.schedule_version import ScheduleVersionCreate  # noqa: E402
 from app.schemas.school import SchoolCreate  # noqa: E402
 from app.schemas.semester import SemesterCreate  # noqa: E402
 from app.schemas.semester_settings import SemesterTeacherEntry, SemesterTeachersUpdate  # noqa: E402
 from app.schemas.subject import SubjectCreate  # noqa: E402
-from app.schemas.time_slot import TimeSlotCreate  # noqa: E402
 from app.schemas.user import UserCreate  # noqa: E402
 from app.services import academic_year as academic_year_service  # noqa: E402
 from app.services import class_ as class_service  # noqa: E402
 from app.services import class_subject_requirement as requirement_service  # noqa: E402
 from app.services import grade as grade_service  # noqa: E402
+from app.services import grade_subject_requirement as grade_requirement_service  # noqa: E402
 from app.services import room as room_service  # noqa: E402
 from app.services import schedule_version as schedule_version_service  # noqa: E402
 from app.services import scheduler as scheduler_service  # noqa: E402
@@ -75,6 +80,7 @@ from app.services import semester as semester_service  # noqa: E402
 from app.services import semester_settings as settings_service  # noqa: E402
 from app.services import subject as subject_service  # noqa: E402
 from app.services import time_slot as time_slot_service  # noqa: E402
+from app.services.school_structure import ClassNameStyle, SchoolType, class_name_options  # noqa: E402
 from app.services import user as user_service  # noqa: E402
 from app.services.grade_levels import grade_band  # noqa: E402
 
@@ -84,15 +90,10 @@ ADMIN_USERNAME = "admin"
 COORDINATOR_USERNAME = "coordinator"
 ACADEMIC_YEAR = 115
 SEMESTER_NUMBER = 1
-WEEKDAYS = [1, 2, 3, 4, 5]
-PERIODS = list(range(0, 9))  # 第 0 節 (早自習時段) to 第 8 節
-
-GRADE_NAMES = ["一年級", "二年級", "三年級", "四年級", "五年級", "六年級"]
-CLASS_NAMES = ["一年甲班", "二年甲班", "三年甲班", "四年甲班", "五年甲班", "六年甲班"]
 # The class's own teacher (導師) teaches its 國語: teacher index per class.
 TEACHER_NAMES = ["王老師", "林老師", "陳老師", "李老師", "張老師", "吳老師", "黃老師", "劉老師"]
 SUBJECT_NAMES = ["國語", "數學", "英語", "自然", "社會", "體育", "美勞", "音樂"]
-SPECIAL_ROOMS = ["自然教室", "音樂教室"]
+SPECIAL_ROOMS = ["音樂教室", "自然教室"]
 MIN_WEEKLY_PERIODS = 8
 MAX_WEEKLY_PERIODS = 20
 
@@ -123,6 +124,10 @@ UPPER_REQUIREMENTS = [
     RequirementSpec("美勞", 2, "2"),
     RequirementSpec("音樂", 1, special_room="音樂教室"),
 ]
+
+
+def _specs(level: int) -> list[RequirementSpec]:
+    return LOWER_REQUIREMENTS if grade_band(level).value == "LOWER" else UPPER_REQUIREMENTS
 
 
 def _redacted_url() -> str:
@@ -171,7 +176,9 @@ def seed(db: Session, *, run: bool) -> None:
     if db.scalars(select(School).where(School.name == SCHOOL_NAME)).first() is not None:
         raise SystemExit(f"「{SCHOOL_NAME}」已經存在，不重複建立。要重來請先重設開發資料庫。")
 
-    school = school_service.create_school(db, SchoolCreate(name=SCHOOL_NAME))
+    school = school_service.create_school(
+        db, SchoolCreate(name=SCHOOL_NAME, school_type=SchoolType.ELEMENTARY)
+    )
     school_id = school.id
     _, teachers = _accounts(db, school_id)
 
@@ -182,11 +189,8 @@ def seed(db: Session, *, run: bool) -> None:
         db, SemesterCreate(academic_year_id=year.id, number=SEMESTER_NUMBER), school_id=school_id
     )
     slots = {
-        (weekday, period): time_slot_service.create_time_slot(
-            db, TimeSlotCreate(weekday=weekday, period=period), school_id=school_id
-        )
-        for weekday in WEEKDAYS
-        for period in PERIODS
+        (slot.weekday, slot.period): slot
+        for slot in time_slot_service.get_time_slots(db, limit=1000, school_id=school_id)
     }
     subjects = {
         name: subject_service.create_subject(db, SubjectCreate(name=name), school_id=school_id)
@@ -197,17 +201,30 @@ def seed(db: Session, *, run: bool) -> None:
         for name in SPECIAL_ROOMS
     }
 
+    grades = grade_service.get_grades(db, school_id=school_id)
     classes = []
-    for level, (grade_name, class_name) in enumerate(zip(GRADE_NAMES, CLASS_NAMES), start=1):
-        grade = grade_service.create_grade(db, GradeCreate(name=grade_name, level=level), school_id=school_id)
-        homeroom = room_service.create_room(db, RoomCreate(name=f"{class_name}教室"), school_id=school_id)
+    for grade in grades:
         classes.append(
             class_service.create_class(
                 db,
-                ClassCreate(grade_id=grade.id, name=class_name, homeroom_room_id=homeroom.id),
+                ClassCreate(
+                    grade_id=grade.id,
+                    name_style=ClassNameStyle.HEAVENLY_STEM,
+                    name=class_name_options(grade.level, ClassNameStyle.HEAVENLY_STEM)[0],
+                ),
                 school_id=school_id,
             )
         )
+        for spec in _specs(grade.level):
+            grade_requirement_service.create_grade_subject_requirement(
+                db,
+                GradeSubjectRequirementCreate(
+                    grade_id=grade.id,
+                    subject_id=subjects[spec.subject].id,
+                    weekly_periods=spec.weekly_periods,
+                ),
+                school_id=school_id,
+            )
         defaults = settings_service.default_grade_time_slots(db, grade.id, school_id=school_id)
         assert defaults is not None
         settings_service.replace_grade_time_slots(db, semester.id, grade.id, defaults, school_id=school_id)
@@ -231,26 +248,36 @@ def seed(db: Session, *, run: bool) -> None:
         school_id=school_id,
     )
 
+    requirement_service.sync_semester_requirements(db, semester.id, school_id=school_id)
+    level_of_class = {class_.id: grade.level for class_, grade in zip(classes, grades)}
+    homeroom_teacher_of_class = {class_.id: teacher for class_, teacher in zip(classes, teachers)}
+    subject_name_of = {subject.id: name for name, subject in subjects.items()}
     lesson_count = 0
-    for level, (class_, homeroom_teacher) in enumerate(zip(classes, teachers), start=1):
-        specs = LOWER_REQUIREMENTS if grade_band(level).value == "LOWER" else UPPER_REQUIREMENTS
-        for spec in specs:
-            requirement_service.create_class_subject_requirement(
-                db,
-                ClassSubjectRequirementCreate(
-                    semester_id=semester.id,
-                    class_id=class_.id,
-                    subject_id=subjects[spec.subject].id,
-                    weekly_periods=spec.weekly_periods,
-                    lesson_pattern=spec.lesson_pattern,
-                    required_teacher_id=homeroom_teacher.id if spec.homeroom_teacher else None,
-                    required_room_id=(
-                        special_rooms[spec.special_room].id if spec.special_room is not None else None
-                    ),
+    for requirement in requirement_service.get_class_subject_requirements(
+        db, limit=1000, school_id=school_id, semester_id=semester.id
+    ):
+        spec = next(
+            spec
+            for spec in _specs(level_of_class[requirement.class_id])
+            if spec.subject == subject_name_of[requirement.subject_id]
+        )
+        requirement_service.update_class_subject_requirement(
+            db,
+            requirement.id,
+            ClassSubjectRequirementUpdate(
+                lesson_pattern=spec.lesson_pattern,
+                required_teacher_id=(
+                    homeroom_teacher_of_class[requirement.class_id].id
+                    if spec.homeroom_teacher
+                    else None
                 ),
-                school_id=school_id,
-            )
-            lesson_count += spec.weekly_periods
+                required_room_id=(
+                    special_rooms[spec.special_room].id if spec.special_room is not None else None
+                ),
+            ),
+            school_id=school_id,
+        )
+        lesson_count += spec.weekly_periods
 
     version = schedule_version_service.create_schedule_version(
         db,

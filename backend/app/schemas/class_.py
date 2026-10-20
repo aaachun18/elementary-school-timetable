@@ -2,18 +2,19 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
+from app.services.school_structure import ClassNameStyle
+
 
 class ClassBase(BaseModel):
     grade_id: int
+    name_style: ClassNameStyle
     name: str
-    is_active: bool = True
-    homeroom_room_id: int | None = None
 
 
-class ClassCreate(BaseModel):
-    grade_id: int
-    name: str
-    homeroom_room_id: int | None = None
+# A class is only created and deleted, never edited: its name is one of
+# class_name_options(grade, name_style) (checked by services/class_.py).
+class ClassCreate(ClassBase):
+    pass
 
 
 class ClassRead(ClassBase):
@@ -22,10 +23,3 @@ class ClassRead(ClassBase):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
-
-
-class ClassUpdate(BaseModel):
-    grade_id: int | None = None
-    name: str | None = None
-    is_active: bool | None = None
-    homeroom_room_id: int | None = None

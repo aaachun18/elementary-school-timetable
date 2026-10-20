@@ -35,9 +35,9 @@ describe("formatWeekday", () => {
 });
 
 describe("formatTimeSlotLabel", () => {
-  it("uses the teaching number: raw period 8 on Friday is 第 7 節", () => {
-    expect(formatTimeSlotLabel(slot(5, 8, true), DISPLAY)).toBe("星期五第 7 節");
-    expect(formatTimeSlotLabel(slot(1, 6, true), DISPLAY)).toBe("星期一第 5 節");
+  it("uses the period's own number: period 8 on Friday is 第 8 節", () => {
+    expect(formatTimeSlotLabel(slot(5, 8, true), DISPLAY)).toBe("星期五第 8 節");
+    expect(formatTimeSlotLabel(slot(1, 6, true), DISPLAY)).toBe("星期一第 6 節");
   });
 
   it("keeps morning numbers unchanged", () => {

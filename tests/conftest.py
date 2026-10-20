@@ -32,6 +32,7 @@ from app.database import Base, get_db  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models.grade_class import MAX_GRADE_LEVEL, MIN_GRADE_LEVEL, Grade  # noqa: E402
 from app.models.school import School  # noqa: E402
+from app.models.time_slot import TimeSlot  # noqa: E402
 from app.models.semester_teacher import (  # noqa: E402
     SemesterTeacher,
     SemesterTeacherUnavailability,
@@ -113,7 +114,7 @@ def get_test_school_id(db_session: Session) -> int:
 
 
 def next_free_grade_level(db_session: Session) -> int:
-    """Task 98: grade levels are 1-9 and unique per school, but many test
+    """Task 98: grade levels are 1-12 and unique per school, but many test
     builders used to make up a distinct level per world (8901, 30061, ...)
     just to keep their grades apart. They now ask for the lowest level the
     test school hasn't used yet instead; a grade's name still carries the
@@ -124,17 +125,39 @@ def next_free_grade_level(db_session: Session) -> int:
         ).all()
     )
     free = [level for level in range(MIN_GRADE_LEVEL, MAX_GRADE_LEVEL + 1) if level not in used]
-    assert free, "the test school already has all nine grade levels"
+    assert free, "the test school already has every grade level"
     return free[0]
 
 
-def next_free_grade_level_via_api(client: TestClient) -> int:
-    """next_free_grade_level() for tests that build their data through the
-    API (GET /grades lists exactly the client's school)."""
-    used = {grade["level"] for grade in client.get("/api/v1/grades/").json()}
-    free = [level for level in range(MIN_GRADE_LEVEL, MAX_GRADE_LEVEL + 1) if level not in used]
-    assert free, "the school already has all nine grade levels"
-    return free[0]
+def time_slot_at(
+    db_session: Session,
+    weekday: int,
+    period: int,
+    *,
+    is_teaching_period: bool = True,
+    label: str | None = None,
+    school_id: int | None = None,
+) -> TimeSlot:
+    """A school's grid has one slot per (weekday, period) -- built with the
+    school in the app, unique in the database. The test school is created
+    bare (get_test_school_id), so builders add only the slots they need:
+    this returns the slot already at that position (setting its
+    is_teaching_period / label), or adds it. Flushed, not committed."""
+    school_id = get_test_school_id(db_session) if school_id is None else school_id
+    slot = db_session.scalars(
+        select(TimeSlot).where(
+            TimeSlot.school_id == school_id,
+            TimeSlot.weekday == weekday,
+            TimeSlot.period == period,
+        )
+    ).first()
+    if slot is None:
+        slot = TimeSlot(school_id=school_id, weekday=weekday, period=period)
+        db_session.add(slot)
+    slot.is_teaching_period = is_teaching_period
+    slot.label = label
+    db_session.flush()
+    return slot
 
 
 def enroll_in_semester(
