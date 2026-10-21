@@ -36,7 +36,7 @@ import { extractApiErrorMessage } from "../constants/errorMessages";
 import { isCurrentUserCoordinator } from "../utils/auth";
 import { getViolationSentence, resolveTimeSlotLabel } from "../utils/failureDiagnostics";
 import { blockGroupMemberIds } from "../utils/lessonBlocks";
-import { lessonTargetId } from "../utils/lessonDrop";
+import { homeroomTargetId, lessonTargetId } from "../utils/lessonDrop";
 import { buildCandidateMarks, swapMarkKey, type CandidateMark } from "../utils/moveCandidates";
 import type { PeriodDisplayMap } from "../utils/periodDisplay";
 import { canChangeRoom } from "../utils/roomChange";
@@ -179,6 +179,14 @@ export default function TimetableView(): ReactElement {
   // --- Task 69: 編輯 (v3: in the working copy) -- click a lesson, then
   // click 「移到這裡」 or another lesson; every change is previewed first. ---
   const isEditModeOn = isAdmin && editingId !== null;
+  // 檢查衝突 runs by itself as soon as a working copy is open; every saved
+  // change re-runs it (refreshAfterAdjustment).
+  const runScheduleCheck = scheduleCheck.run;
+  useEffect(() => {
+    if (isEditModeOn) {
+      runScheduleCheck();
+    }
+  }, [isEditModeOn, runScheduleCheck]);
   const adjustment = useLessonAdjustment(activeVersionId);
   const adjustmentFlash = useFlashMessage(4000);
   // Task 90: why a lesson block can't go where it was dropped -- shown
@@ -343,8 +351,8 @@ export default function TimetableView(): ReactElement {
       setRequestedVersionId(saved.id);
       recordFlash.showFlash(
         saved.id === selectedVersionId
-          ? `已儲存課表（編號 ${saved.version_number}，手動排課）`
-          : `已儲存為新的排課紀錄：編號 ${saved.version_number}（手動排課），原本的紀錄沒有改變`,
+          ? `已儲存課表（編號 ${saved.display_number}，手動排課）`
+          : `已儲存為新的排課紀錄：編號 ${saved.display_number}（手動排課），原本的紀錄沒有改變`,
       );
     } catch (caught) {
       setRecordError(extractApiErrorMessage(caught));
@@ -390,7 +398,7 @@ export default function TimetableView(): ReactElement {
       const published = await publishRecord(selectedVersionId);
       versionsResource.reload();
       setRecordAction(null);
-      recordFlash.showFlash(`已發布編號 ${published.version_number}，老師現在看得到這份課表`);
+      recordFlash.showFlash(`已發布編號 ${published.display_number}，老師現在看得到這份課表`);
     } catch (caught) {
       setRecordError(extractApiErrorMessage(caught));
     } finally {
@@ -412,18 +420,13 @@ export default function TimetableView(): ReactElement {
       setSelectedTargetId(null);
       resetEditingState();
       recordFlash.showFlash(
-        `已複製成新的排課紀錄：編號 ${created.version_number}（複製自編號 ${created.copied_from_number}），現在檢視的是這份複製的課表`,
+        `已複製成新的排課紀錄：編號 ${created.display_number}（複製自編號 ${created.copied_from_display_number}），現在檢視的是這份複製的課表`,
       );
     } catch (caught) {
       setRecordError(extractApiErrorMessage(caught));
     } finally {
       setIsRecordBusy(false);
     }
-  }
-
-  function handleRunCheck(): void {
-    setHighlightedTimeSlotId(null);
-    scheduleCheck.run();
   }
 
   // A violation without a time slot (H7/H8, an incomplete row) only
@@ -615,7 +618,7 @@ export default function TimetableView(): ReactElement {
   // Task 96: after ANY saved adjustment (move, swap, 換教師, placing, room
   // change) -- what to refresh is decided once, in planAdjustmentRefresh():
   // the timetable, the unscheduled panel in edit mode, and 檢查衝突 again
-  // exactly like 「重新檢查」 when a result is on screen. The old result
+  // (always on while editing). The old result
   // stays visible until the new one arrives (useScheduleCheck.run() never
   // clears it first), so nothing flashes.
   function refreshAfterAdjustment(): void {
@@ -623,7 +626,6 @@ export default function TimetableView(): ReactElement {
       isAdmin,
       versionStatus: isEditModeOn ? "EDITING" : null,
       isEditModeOn,
-      isCheckShown: scheduleCheck.result !== null || scheduleCheck.errorMessage !== null,
     });
     if (plan.reloadTimetable) {
       timetable.reload();
@@ -865,7 +867,15 @@ export default function TimetableView(): ReactElement {
       ? (classesResource.data ?? []).map((item) => ({ id: item.id, label: item.name }))
       : viewMode === "teacher"
         ? (teachersResource.data ?? []).map((item) => ({ id: item.id, label: item.name }))
-        : (roomsResource.data ?? []).map((item) => ({ id: item.id, label: item.name }));
+        : [
+            // Every class's own classroom first (原班上課, no Room record),
+            // then the school's rooms.
+            ...(classesResource.data ?? []).map((item) => ({
+              id: homeroomTargetId(item.id),
+              label: `${item.name}（原班教室）`,
+            })),
+            ...(roomsResource.data ?? []).map((item) => ({ id: item.id, label: item.name })),
+          ];
 
   // Task 35: the vertical axis now comes from the school's full, global
   // TimeSlot structure (useTimetableData's `periods`, already sorted)
@@ -910,7 +920,7 @@ export default function TimetableView(): ReactElement {
       <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className={PAGE_TITLE}>
-            {isAdmin && selectedVersion !== undefined ? `課表・編號 ${selectedVersion.version_number}` : "課表"}
+            {isAdmin && selectedVersion !== undefined ? `課表・編號 ${selectedVersion.display_number}` : "課表"}
           </h1>
           {isAdmin && selectedVersion !== undefined && (
             <p className="flex flex-wrap items-center gap-2 text-sm text-gray-700">
@@ -1034,26 +1044,17 @@ export default function TimetableView(): ReactElement {
       )}
 
       {/* Task 68: 檢查衝突 -- v3: while editing only (the view itself stays
-          clean). The result belongs to the working copy (useScheduleCheck
-          drops it when that changes). Waits for the timetable data, whose
-          lookups turn the violations into names. */}
+          clean). Runs by itself when the working copy opens and after every
+          saved change; the result belongs to the working copy
+          (useScheduleCheck drops it when that changes). Waits for the
+          timetable data, whose lookups turn the violations into names. */}
       {isEditing && (
         <section className={SECTION} aria-label="檢查衝突">
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={handleRunCheck}
-              disabled={scheduleCheck.isChecking || timetable.isLoading || timetable.data === null}
-              className={BUTTON_PRIMARY}
-            >
-              {scheduleCheck.isChecking
-                ? "檢查中…"
-                : scheduleCheck.result !== null
-                  ? "重新檢查"
-                  : "檢查衝突"}
-            </button>
-            <span className={MUTED_TEXT}>依目前儲存的課表檢查所有排課規則，不會修改任何資料。</span>
-          </div>
+          <p className={MUTED_TEXT} aria-live="polite">
+            {scheduleCheck.isChecking
+              ? "正在自動檢查衝突…"
+              : "每次調整後都會自動依目前的課表檢查所有排課規則，有衝突會立刻列在這裡。"}
+          </p>
           {scheduleCheck.errorMessage !== null && (
             <p role="alert" className={ERROR_TEXT}>
               檢查失敗：{scheduleCheck.errorMessage}
@@ -1444,7 +1445,7 @@ export default function TimetableView(): ReactElement {
           onCancel={() => setRecordAction(null)}
         >
           <p>
-            會複製這份課表與它的排課設定，產生一筆新的排課紀錄（複製自編號 {selectedVersion.version_number}
+            會複製這份課表與它的排課設定，產生一筆新的排課紀錄（複製自編號 {selectedVersion.display_number}
             ）。可以選擇同一學年度的另一個學期，例如下學期老師有異動時，複製後在手動編輯中換教師。
           </p>
           <label className="mt-3 flex flex-col gap-1">

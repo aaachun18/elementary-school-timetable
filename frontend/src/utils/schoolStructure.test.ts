@@ -61,10 +61,10 @@ describe("classNameOptions", () => {
 
 describe("defaultOpenPeriodsText", () => {
   it("describes each band's default open periods", () => {
-    expect(defaultOpenPeriodsText(1)).toBe("星期二第 1–7 節，其他天第 1–4 節");
-    expect(defaultOpenPeriodsText(4)).toBe("星期三、五第 1–4 節，其他天第 1–7 節");
-    expect(defaultOpenPeriodsText(6)).toBe("星期三第 1–4 節，其他天第 1–7 節");
-    expect(defaultOpenPeriodsText(8)).toBe("每天第 1–8 節");
-    expect(defaultOpenPeriodsText(11)).toBe("每天第 1–8 節");
+    expect(defaultOpenPeriodsText(1)).toBe("星期二全天，其餘半天");
+    expect(defaultOpenPeriodsText(4)).toBe("星期三、五半天，其餘全天");
+    expect(defaultOpenPeriodsText(6)).toBe("星期三半天，其餘全天");
+    expect(defaultOpenPeriodsText(8)).toBe("每天全天");
+    expect(defaultOpenPeriodsText(11)).toBe("每天全天");
   });
 });

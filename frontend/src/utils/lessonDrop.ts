@@ -7,9 +7,17 @@ import type { EnrichedSchedule } from "../hooks/useTimetableData";
 import type { TimeSlot } from "../types/timeSlot";
 import type { TimetableViewMode } from "./violationLocate";
 
+// A class's own classroom (原班教室) has no Room record -- 原班上課 is a
+// lesson with no room -- yet the room view lists one per class. Its id there
+// is the class id negated, which can never be a real room id.
+export function homeroomTargetId(classId: number): number {
+  return -classId;
+}
+
 // The id a lesson is listed under in each view: its class, teacher or room
 // (Task 84: moved here from TimetableGrid so the page can tell whether a
-// lesson is on the grid being shown).
+// lesson is on the grid being shown). A lesson without a room is in its
+// class's own classroom.
 export function lessonTargetId(lesson: EnrichedSchedule, viewMode: TimetableViewMode): number | null {
   if (viewMode === "class") {
     return lesson.classId;
@@ -17,7 +25,7 @@ export function lessonTargetId(lesson: EnrichedSchedule, viewMode: TimetableView
   if (viewMode === "teacher") {
     return lesson.teacherId;
   }
-  return lesson.roomId;
+  return lesson.roomId ?? homeroomTargetId(lesson.classId);
 }
 
 // A real teaching TimeSlot other than the lesson's current one. A cell with

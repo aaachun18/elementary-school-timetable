@@ -149,7 +149,7 @@ function SemesterCard({ data }: { data: ReturnType<typeof useSemesterData> }): R
           <p className="text-sm text-gray-700">目前學期：{semesterLabel}</p>
           {versions.published !== null ? (
             <p className="text-sm text-gray-700">
-              已發布：編號 {versions.published.version_number}（最後更新 {formatDateTime(versions.published.updated_at)}）
+              已發布：編號 {versions.published.display_number}（最後更新 {formatDateTime(versions.published.updated_at)}）
             </p>
           ) : (
             <p className={NOTICE}>這個學期還沒有已發布的課表，請到排課紀錄檢視課表後發布。</p>
@@ -195,7 +195,7 @@ function DraftHealthCard({ data }: { data: ReturnType<typeof useSemesterData> })
       ) : (
         <div className="flex flex-col gap-3">
           <p className="text-sm text-gray-700">
-            {data.labelOf(draft.semester_id)} 編號 {draft.version_number}
+            {data.labelOf(draft.semester_id)} 編號 {draft.display_number}
           </p>
           <div className={STAT_ROW}>
             <Stat value={summary.errorCount} label="錯誤" tone={summary.errorCount > 0 ? "problem" : "normal"} />
@@ -308,7 +308,7 @@ function TeacherHome(): ReactElement {
           {data.semester !== null && <p className="text-sm text-gray-700">目前學期：{data.semesterLabel}</p>}
           {published !== null ? (
             <p className="text-sm text-gray-700">
-              已發布：編號 {published.version_number}（最後更新 {formatDateTime(published.updated_at)}）
+              已發布：編號 {published.display_number}（最後更新 {formatDateTime(published.updated_at)}）
             </p>
           ) : (
             <p className={NOTICE}>目前學期還沒有已發布的課表，發布後就能在課表查看。</p>

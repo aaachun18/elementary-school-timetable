@@ -2,13 +2,20 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     CheckConstraint,
+    ColumnElement,
     ForeignKey,
     Index,
+    ScalarSelect,
     String,
     UniqueConstraint,
+    case,
+    exists,
+    func,
+    null,
+    select,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, column_property, mapped_column, relationship
 
 from app.database import Base
 from app.models.mixins import TimestampMixin
@@ -92,13 +99,15 @@ class ScheduleVersion(TimestampMixin, Base):
     # semester's own school.
     school_id: Mapped[int] = mapped_column(ForeignKey("schools.id"))
     semester_id: Mapped[int] = mapped_column(ForeignKey("semesters.id"))
-    # 排課紀錄's 編號 (1, 2, 3 ... per school, oldest first). None only for
-    # an EDITING working copy.
+    # The record's permanent serial (1, 2, 3 ... per school, oldest first;
+    # see display_number below for the 編號 people see). None only for an
+    # EDITING working copy.
     version_number: Mapped[int | None] = mapped_column()
     status: Mapped[str] = mapped_column(String(20))
     is_published: Mapped[bool] = mapped_column(default=False, server_default="false")
-    # COPIED: the 編號 of the record it was copied from (kept as a number,
-    # so it still reads right after that record is deleted).
+    # COPIED: the serial (version_number) of the record it was copied from;
+    # copied_from_display_number below turns it into that record's current
+    # 編號.
     copied_from_number: Mapped[int | None] = mapped_column()
     # EDITING: the record this working copy edits.
     editing_source_id: Mapped[int | None] = mapped_column(
@@ -108,3 +117,53 @@ class ScheduleVersion(TimestampMixin, Base):
     note: Mapped[str | None] = mapped_column(String(NOTE_MAX_LENGTH))
 
     semester: Mapped["Semester"] = relationship()
+
+
+# --- 編號 as 排課紀錄 shows it ---
+#
+# version_number is the record's permanent serial (1, 2, 3 ... per school,
+# in the order the records were made) and is what copied_from_number points
+# at. What people see is display_number instead: 1 is the school's newest
+# record, 2 the one before it, and so on -- it shifts by one every time a
+# record is made or deleted. Both are read-only SQL expressions computed when
+# the record is loaded (no column of their own); a working copy (no
+# version_number) has neither.
+# The table itself, not aliased(ScheduleVersion): an ORM alias would
+# configure every mapper while the models are still being imported.
+_other = ScheduleVersion.__table__.alias("other_records")
+
+
+def _records_from(serial: ColumnElement[int | None]) -> ScalarSelect[int]:
+    """How many of the school's records have a serial >= `serial` -- the
+    display number of the record whose serial that is."""
+    return (
+        select(func.count())
+        .where(
+            _other.c.school_id == ScheduleVersion.school_id,
+            _other.c.version_number >= serial,
+        )
+        .correlate_except(_other)
+        .scalar_subquery()
+    )
+
+
+ScheduleVersion.display_number = column_property(
+    case(
+        (ScheduleVersion.version_number.is_(None), null()),
+        else_=_records_from(ScheduleVersion.version_number),
+    )
+)
+# COPIED: the source record's display number now -- None once that record
+# has been deleted (the copy then says only that it is a copy).
+ScheduleVersion.copied_from_display_number = column_property(
+    case(
+        (
+            exists().where(
+                _other.c.school_id == ScheduleVersion.school_id,
+                _other.c.version_number == ScheduleVersion.copied_from_number,
+            ),
+            _records_from(ScheduleVersion.copied_from_number),
+        ),
+        else_=null(),
+    )
+)

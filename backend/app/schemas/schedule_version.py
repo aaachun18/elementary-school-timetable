@@ -20,11 +20,18 @@ class ScheduleVersionCreate(BaseModel):
 class ScheduleVersionRead(BaseModel):
     id: int
     semester_id: int
-    # 編號; None only for a manual edit's working copy (EDITING).
+    # The record's permanent serial; None only for a manual edit's working
+    # copy (EDITING).
     version_number: int | None
+    # 編號 as 排課紀錄 shows it: 1 = the school's newest record (see
+    # app/models/schedule_version.py). None for a working copy.
+    display_number: int | None
     status: VersionStatus
     is_published: bool
+    # COPIED: the source's serial, and its 編號 now (None once the source
+    # has been deleted).
     copied_from_number: int | None
+    copied_from_display_number: int | None
     editing_source_id: int | None
     note: str | None
     created_at: datetime

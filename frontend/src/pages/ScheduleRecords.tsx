@@ -92,7 +92,7 @@ export default function ScheduleRecords(): ReactElement {
     setDeleteError(null);
     try {
       await removeScheduleVersion(deleting.id);
-      flash.showFlash(`已刪除排課紀錄編號 ${deleting.version_number}`);
+      flash.showFlash(`已刪除排課紀錄編號 ${deleting.display_number}`);
       setDeleting(null);
       data.reload();
     } catch (caught) {
@@ -136,7 +136,7 @@ export default function ScheduleRecords(): ReactElement {
             <tbody>
               {sortRecords(versions).map((version) => (
                 <tr key={version.id} className={TR_HOVER}>
-                  <td className={`${TD} font-medium`}>{version.version_number}</td>
+                  <td className={`${TD} font-medium`}>{version.display_number}</td>
                   <td className={TD}>{semesterLabelOf(version, semesterById, academicYearById)}</td>
                   <td className={TD}>
                     <span className={recordStatusBadgeClass(version)}>{formatRecordStatus(version)}</span>
@@ -251,7 +251,7 @@ function NoteCell({ record }: { record: ScheduleVersion }): ReactElement {
         maxLength={NOTE_MAX_LENGTH}
         disabled={isSaving}
         placeholder="例如：王老師上三年級自然課版"
-        aria-label={`編號 ${record.version_number} 的備註`}
+        aria-label={`編號 ${record.display_number} 的備註`}
         className={`${INPUT} w-full`}
       />
       {isSaving && <span className={MUTED_TEXT}>儲存中…</span>}

@@ -31,8 +31,9 @@ const HELP =
 // Task 98, wizard step 8: per grade of the school (fixed by its type:
 // 國小 一到六年級, 國中 七到九年級, 高中 一到三年級 -- nothing to create
 // here), the slots its classes may use in this record -- a timetable-shaped
-// dialog starting from the band's default. A grade nobody opened gets its
-// default saved on 「下一步」.
+// dialog starting from the band's default. Entering the step saves the
+// default for every grade that has nothing set yet, so the counts shown are
+// already the real ones.
 export default function GradesStep({
   versionId,
   onBack,
@@ -44,7 +45,7 @@ export default function GradesStep({
 }): ReactElement {
   const grades = useResource(() => listGrades(0, 1000), []);
   const timeSlots = useResource(() => listTimeSlots(0, 1000), []);
-  const saved = useResource(() => listGradeTimeSlots(versionId), [versionId]);
+  const saved = useResource(() => loadWithDefaults(versionId), [versionId]);
 
   const errorMessage = grades.errorMessage ?? timeSlots.errorMessage ?? saved.errorMessage;
   if (errorMessage !== null) {
@@ -68,6 +69,25 @@ export default function GradesStep({
       onNext={onNext}
     />
   );
+}
+
+// The record's saved open slots, after saving each grade's default for the
+// grades that have none yet (a grade whose default is empty stays unset;
+// 「下一步」 then says so).
+async function loadWithDefaults(versionId: number): Promise<GradeTimeSlots[]> {
+  const [grades, saved] = await Promise.all([listGrades(0, 1000), listGradeTimeSlots(versionId)]);
+  const savedGradeIds = new Set(saved.map((item) => item.grade_id));
+  const result = [...saved];
+  for (const grade of grades) {
+    if (savedGradeIds.has(grade.id)) {
+      continue;
+    }
+    const defaults = await defaultGradeTimeSlots(grade.id);
+    if (defaults.length > 0) {
+      result.push(await replaceGradeTimeSlots(versionId, grade.id, defaults));
+    }
+  }
+  return result;
 }
 
 interface Picker {

@@ -115,6 +115,18 @@ function TeachersForm({
   }
 
   const checkedTeachers = teachers.filter((teacher) => drafts.get(teacher.id)?.checked === true);
+  const allChecked = teachers.length > 0 && checkedTeachers.length === teachers.length;
+  const someChecked = checkedTeachers.length > 0 && !allChecked;
+
+  function setAllChecked(checked: boolean): void {
+    setDrafts((previous) => {
+      const next = new Map(previous);
+      for (const [teacherId, draft] of previous) {
+        next.set(teacherId, { ...draft, checked });
+      }
+      return next;
+    });
+  }
   const rangeErrors = new Map(
     checkedTeachers.map((teacher) => {
       const draft = drafts.get(teacher.id) as Draft;
@@ -158,60 +170,76 @@ function TeachersForm({
       {teachers.length === 0 ? (
         <p className={MUTED_TEXT}>目前沒有啟用中的老師帳號。</p>
       ) : (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          {teachers.map((teacher) => {
-            const draft = drafts.get(teacher.id) as Draft;
-            const rangeError = rangeErrors.get(teacher.id) ?? null;
-            return (
-              <div key={teacher.id} className="rounded border border-gray-200 p-3">
-                <label className="flex items-center gap-2 font-medium text-gray-900">
-                  <input
-                    type="checkbox"
-                    checked={draft.checked}
-                    onChange={(event) => update(teacher.id, { checked: event.target.checked })}
-                    className={CHECKBOX}
-                  />
-                  {teacher.name}
-                </label>
-                {draft.checked && (
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
-                    <label className="inline-flex items-center gap-1">
-                      每週最低
-                      <input
-                        type="number"
-                        min={0}
-                        value={draft.minText}
-                        onChange={(event) => update(teacher.id, { minText: event.target.value })}
-                        aria-label={`${teacher.name}每週最低節數`}
-                        className={`${INPUT} w-16`}
-                      />
-                    </label>
-                    <label className="inline-flex items-center gap-1">
-                      最高
-                      <input
-                        type="number"
-                        min={0}
-                        value={draft.maxText}
-                        onChange={(event) => update(teacher.id, { maxText: event.target.value })}
-                        aria-label={`${teacher.name}每週最高節數`}
-                        className={`${INPUT} w-16`}
-                      />
-                      節
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => setPickerTeacher(teacher)}
-                      className={BUTTON_SECONDARY_SM}
-                    >
-                      不可排時段（{draft.unavailable.length}）
-                    </button>
-                    {rangeError !== null && <p className={`${ERROR_TEXT} w-full`}>{rangeError}</p>}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <>
+          <label className="mb-3 inline-flex cursor-pointer items-center gap-2 rounded border border-gray-300 bg-gray-50 px-3 py-2 font-medium text-gray-900">
+            <input
+              type="checkbox"
+              checked={allChecked}
+              ref={(element) => {
+                if (element !== null) {
+                  element.indeterminate = someChecked;
+                }
+              }}
+              onChange={(event) => setAllChecked(event.target.checked)}
+              className={CHECKBOX}
+            />
+            全選
+          </label>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {teachers.map((teacher) => {
+              const draft = drafts.get(teacher.id) as Draft;
+              const rangeError = rangeErrors.get(teacher.id) ?? null;
+              return (
+                <div key={teacher.id} className="rounded border border-gray-200 p-3">
+                  <label className="flex items-center gap-2 font-medium text-gray-900">
+                    <input
+                      type="checkbox"
+                      checked={draft.checked}
+                      onChange={(event) => update(teacher.id, { checked: event.target.checked })}
+                      className={CHECKBOX}
+                    />
+                    {teacher.name}
+                  </label>
+                  {draft.checked && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                      <label className="inline-flex items-center gap-1">
+                        每週最低
+                        <input
+                          type="number"
+                          min={0}
+                          value={draft.minText}
+                          onChange={(event) => update(teacher.id, { minText: event.target.value })}
+                          aria-label={`${teacher.name}每週最低節數`}
+                          className={`${INPUT} w-16`}
+                        />
+                      </label>
+                      <label className="inline-flex items-center gap-1">
+                        最高
+                        <input
+                          type="number"
+                          min={0}
+                          value={draft.maxText}
+                          onChange={(event) => update(teacher.id, { maxText: event.target.value })}
+                          aria-label={`${teacher.name}每週最高節數`}
+                          className={`${INPUT} w-16`}
+                        />
+                        節
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setPickerTeacher(teacher)}
+                        className={BUTTON_SECONDARY_SM}
+                      >
+                        不可排時段（{draft.unavailable.length}）
+                      </button>
+                      {rangeError !== null && <p className={`${ERROR_TEXT} w-full`}>{rangeError}</p>}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
       <p className="mt-3 text-sm text-gray-700">已納入 {checkedTeachers.length} 位老師。</p>
       {error !== null && (

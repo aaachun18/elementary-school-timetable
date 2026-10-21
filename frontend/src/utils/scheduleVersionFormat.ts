@@ -1,12 +1,12 @@
 import type { ScheduleVersion, ScheduleVersionStatus } from "../types/scheduleVersion";
 import type { Semester } from "../types/semester";
-import { BADGE_INFO, BADGE_NEUTRAL, BADGE_SUCCESS, BADGE_WARNING } from "../styles/ui";
+import { BADGE_INFO, BADGE_MANUAL, BADGE_NEUTRAL, BADGE_SUCCESS, BADGE_WARNING } from "../styles/ui";
 
 // The one place a 排課紀錄's status becomes Chinese text and a badge, and
 // a record becomes a one-line label (semester_id -> Semester ->
 // academic_year_id -> year). Pure, no React.
 
-type RecordStatusSource = Pick<ScheduleVersion, "status" | "is_published" | "copied_from_number">;
+type RecordStatusSource = Pick<ScheduleVersion, "status" | "is_published" | "copied_from_display_number">;
 
 // Keyed by plain string so an unexpected value from the backend still
 // reaches the raw-string fallback.
@@ -20,7 +20,7 @@ const STATUS_LABELS: Record<string, string> = {
 const STATUS_BADGES: Record<string, string> = {
   NOT_SCHEDULED: BADGE_WARNING,
   AUTO: BADGE_INFO,
-  MANUAL: BADGE_INFO,
+  MANUAL: BADGE_MANUAL,
   COPIED: BADGE_NEUTRAL,
   EDITING: BADGE_NEUTRAL,
 };
@@ -34,9 +34,9 @@ function known(table: Record<string, string>, key: string): boolean {
 // The status alone, ignoring publication: 「自動排課」、「複製自編號 3」…
 // An unknown status is shown as its raw string -- never silently presented
 // as one of the known ones.
-export function formatStatusOnly(record: Pick<RecordStatusSource, "status" | "copied_from_number">): string {
+export function formatStatusOnly(record: Pick<RecordStatusSource, "status" | "copied_from_display_number">): string {
   if (record.status === "COPIED") {
-    return record.copied_from_number === null ? "複製" : `複製自編號 ${record.copied_from_number}`;
+    return record.copied_from_display_number === null ? "複製" : `複製自編號 ${record.copied_from_display_number}`;
   }
   return known(STATUS_LABELS, record.status) ? STATUS_LABELS[record.status] : record.status;
 }
@@ -86,6 +86,6 @@ export function formatVersionLabel(
   semesterById: Map<number, Semester>,
   academicYearById: Map<number, number>,
 ): string {
-  const number = version.version_number === null ? "編輯中" : `編號 ${version.version_number}`;
+  const number = version.display_number === null ? "編輯中" : `編號 ${version.display_number}`;
   return `${number}・${semesterLabelOf(version, semesterById, academicYearById)}（${formatRecordStatus(version)}）`;
 }

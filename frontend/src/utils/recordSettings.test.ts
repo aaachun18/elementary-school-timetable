@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildPeriodDisplay } from "./periodDisplay";
-import { summarizeSlots } from "./recordSettings";
+import { paginate, summarizeSlots } from "./recordSettings";
 import type { TimeSlot } from "../types/timeSlot";
 
 function slot(id: number, weekday: number, period: number, teaching = true): TimeSlot {
@@ -31,5 +31,23 @@ describe("summarizeSlots", () => {
   it("skips unknown and non-teaching slots, and says 無 for nothing", () => {
     expect(summarizeSlots([999, 10, 15], BY_ID, DISPLAY)).toBe("無");
     expect(summarizeSlots([], BY_ID, DISPLAY)).toBe("無");
+  });
+});
+
+describe("paginate", () => {
+  const items = Array.from({ length: 23 }, (_, index) => index + 1);
+
+  it("cuts the list into pages of the given size", () => {
+    expect(paginate(items, 1, 10)).toEqual({ items: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], page: 1, pageCount: 3 });
+    expect(paginate(items, 3, 10)).toEqual({ items: [21, 22, 23], page: 3, pageCount: 3 });
+  });
+
+  it("clamps a page past either end", () => {
+    expect(paginate(items, 9, 10).page).toBe(3);
+    expect(paginate(items, 0, 10).page).toBe(1);
+  });
+
+  it("has one empty page for an empty list", () => {
+    expect(paginate([], 1, 10)).toEqual({ items: [], page: 1, pageCount: 1 });
   });
 });

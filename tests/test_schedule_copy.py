@@ -234,6 +234,46 @@ def test_copy_creates_a_copied_record_with_the_next_number(
     assert data["id"] != setup.source.version_id
 
 
+def _read(client: TestClient, version_id: int) -> dict:
+    response = client.get(f"/api/v1/schedule-versions/{version_id}")
+    assert response.status_code == 200, response.json()
+    data: dict = response.json()
+    return data
+
+
+def test_display_numbers_count_from_the_newest_record(
+    client: TestClient, db_session: Session
+) -> None:
+    """編號 as shown: the newest record is 1. A copy names its source by
+    the source's 編號 now, which shifts as records are made and deleted;
+    the stored serials never change."""
+    setup = _build_copy_setup(db_session)
+    copy = _copy_cross(client, setup)
+
+    assert copy["display_number"] == 1
+    assert copy["copied_from_display_number"] == 2
+    assert _read(client, setup.source.version_id)["display_number"] == 2
+
+    newer = client.post(
+        "/api/v1/schedule-versions/", json={"semester_id": setup.target_semester_id}
+    )
+    assert newer.status_code == 201, newer.json()
+    assert newer.json()["display_number"] == 1
+    copy_now = _read(client, copy["id"])
+    assert copy_now["display_number"] == 2
+    assert copy_now["copied_from_display_number"] == 3
+    assert copy_now["version_number"] == copy["version_number"]
+    assert copy_now["copied_from_number"] == copy["copied_from_number"]
+
+    listed = client.get("/api/v1/schedule-versions/").json()
+    assert [item["display_number"] for item in listed] == list(range(1, len(listed) + 1))
+
+    assert client.delete(f"/api/v1/schedule-versions/{setup.source.version_id}").status_code == 204
+    copy_after = _read(client, copy["id"])
+    assert copy_after["copied_from_display_number"] is None
+    assert copy_after["copied_from_number"] == copy["copied_from_number"]
+
+
 def test_copy_copies_requirements(client: TestClient, db_session: Session) -> None:
     setup = _build_copy_setup(db_session)
     source_requirement = db_session.get(

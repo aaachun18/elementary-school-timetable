@@ -7,7 +7,7 @@ import {
   hasTimetable,
   recordStatusBadgeClass,
 } from "./scheduleVersionFormat";
-import { BADGE_INFO, BADGE_NEUTRAL, BADGE_SUCCESS, BADGE_WARNING } from "../styles/ui";
+import { BADGE_INFO, BADGE_MANUAL, BADGE_NEUTRAL, BADGE_SUCCESS, BADGE_WARNING } from "../styles/ui";
 import type { ScheduleVersion } from "../types/scheduleVersion";
 import type { Semester } from "../types/semester";
 
@@ -16,9 +16,11 @@ function record(fields: Partial<ScheduleVersion> = {}): ScheduleVersion {
     id: 24,
     semester_id: 3,
     version_number: 4,
+    display_number: 2,
     status: "AUTO",
     is_published: false,
     copied_from_number: null,
+    copied_from_display_number: null,
     editing_source_id: null,
     note: null,
     created_at: "",
@@ -37,8 +39,16 @@ describe("formatRecordStatus", () => {
     expect(formatRecordStatus(record({ status }))).toBe(label);
   });
 
-  it("names the record a copy came from", () => {
-    expect(formatRecordStatus(record({ status: "COPIED", copied_from_number: 3 }))).toBe("複製自編號 3");
+  it("names the record a copy came from by its 編號 now, not its serial", () => {
+    expect(
+      formatRecordStatus(record({ status: "COPIED", copied_from_number: 3, copied_from_display_number: 5 })),
+    ).toBe("複製自編號 5");
+  });
+
+  it("says only 複製 once the source record has been deleted", () => {
+    expect(
+      formatRecordStatus(record({ status: "COPIED", copied_from_number: 3, copied_from_display_number: null })),
+    ).toBe("複製");
   });
 
   it("shows 已發布 for the published record, whatever its own status", () => {
@@ -47,10 +57,10 @@ describe("formatRecordStatus", () => {
   });
 
   it("shows an unknown status as its raw string, never as a known label", () => {
-    expect(formatStatusOnly({ status: "SOMETHING_NEW" as ScheduleVersion["status"], copied_from_number: null })).toBe(
+    expect(formatStatusOnly({ status: "SOMETHING_NEW" as ScheduleVersion["status"], copied_from_display_number: null })).toBe(
       "SOMETHING_NEW",
     );
-    expect(formatStatusOnly({ status: "toString" as ScheduleVersion["status"], copied_from_number: null })).toBe(
+    expect(formatStatusOnly({ status: "toString" as ScheduleVersion["status"], copied_from_display_number: null })).toBe(
       "toString",
     );
   });
@@ -61,6 +71,7 @@ describe("recordStatusBadgeClass", () => {
     expect(recordStatusBadgeClass(record({ is_published: true }))).toBe(BADGE_SUCCESS);
     expect(recordStatusBadgeClass(record({ status: "NOT_SCHEDULED" }))).toBe(BADGE_WARNING);
     expect(recordStatusBadgeClass(record({ status: "AUTO" }))).toBe(BADGE_INFO);
+    expect(recordStatusBadgeClass(record({ status: "MANUAL" }))).toBe(BADGE_MANUAL);
     expect(recordStatusBadgeClass(record({ status: "COPIED" }))).toBe(BADGE_NEUTRAL);
   });
 });
@@ -84,13 +95,13 @@ describe("formatVersionLabel", () => {
 
   it("reads 「編號 {n}・{學期}（{狀態}）」", () => {
     expect(formatVersionLabel(record({ is_published: true }), new Map([[3, semester]]), new Map([[1, 115]]))).toBe(
-      "編號 4・115 學年度第 1 學期（已發布）",
+      "編號 2・115 學年度第 1 學期（已發布）",
     );
   });
 
   it("falls back to ids when the semester or academic year is unknown", () => {
     expect(formatVersionLabel(record({ status: "NOT_SCHEDULED" }), new Map(), new Map())).toBe(
-      "編號 4・學期 ID 3（尚未排課）",
+      "編號 2・學期 ID 3（尚未排課）",
     );
     expect(formatSemesterLabel(semester, new Map())).toBe("學期 ID 3");
   });

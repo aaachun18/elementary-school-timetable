@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canMoveLessonTo, canSwapLessons, lessonTargetId } from "./lessonDrop";
+import { canMoveLessonTo, canSwapLessons, homeroomTargetId, lessonTargetId } from "./lessonDrop";
 import type { EnrichedSchedule } from "../hooks/useTimetableData";
 import type { TimeSlot } from "../types/timeSlot";
 
@@ -80,6 +80,10 @@ describe("lessonTargetId (Task 84)", () => {
     expect(lessonTargetId(row, "class")).toBe(10);
     expect(lessonTargetId(row, "teacher")).toBe(1);
     expect(lessonTargetId(row, "room")).toBe(7);
-    expect(lessonTargetId(lesson(2, 100), "room")).toBeNull();
+  });
+
+  it("lists a lesson without a room under its class's own classroom", () => {
+    expect(lessonTargetId(lesson(2, 100), "room")).toBe(homeroomTargetId(10));
+    expect(homeroomTargetId(10)).toBe(-10);
   });
 });

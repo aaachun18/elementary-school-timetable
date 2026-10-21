@@ -47,9 +47,9 @@ export type ClassNameStyle = "NUMBER" | "HEAVENLY_STEM" | "VIRTUE";
 export const CLASS_NAME_STYLES: readonly ClassNameStyle[] = ["NUMBER", "HEAVENLY_STEM", "VIRTUE"];
 
 export const CLASS_NAME_STYLE_LABELS: Record<ClassNameStyle, string> = {
-  NUMBER: "一二三…",
-  HEAVENLY_STEM: "甲乙丙…",
-  VIRTUE: "忠孝仁愛…",
+  NUMBER: "一二三",
+  HEAVENLY_STEM: "甲乙丙",
+  VIRTUE: "忠孝仁愛",
 };
 
 const CLASS_NUMBER_COUNT = 30;
@@ -73,17 +73,17 @@ export function classNameOptions(level: number, style: ClassNameStyle): string[]
 // --- A grade's default open periods (開始排課 > 年級與可排節次) ---
 
 // The same defaults the backend applies (app/services/grade_levels.py), in
-// the words people use: only teaching periods are counted, so 國小's
-// afternoon is 第 5-7 節.
+// the words people use: 全天 is every teaching period of the day, 半天 the
+// morning ones only.
 export function defaultOpenPeriodsText(level: number): string {
   if (level <= 2) {
-    return "星期二第 1–7 節，其他天第 1–4 節";
+    return "星期二全天，其餘半天";
   }
   if (level <= 4) {
-    return "星期三、五第 1–4 節，其他天第 1–7 節";
+    return "星期三、五半天，其餘全天";
   }
   if (level <= 6) {
-    return "星期三第 1–4 節，其他天第 1–7 節";
+    return "星期三半天，其餘全天";
   }
-  return "每天第 1–8 節";
+  return "每天全天";
 }

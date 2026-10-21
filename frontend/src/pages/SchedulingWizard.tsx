@@ -50,7 +50,7 @@ async function loadRecord(recordId: number): Promise<{ record: WizardRecord; isE
   return {
     record: {
       id: version.id,
-      versionNumber: version.version_number,
+      versionNumber: version.display_number,
       semesterLabel: semester === undefined ? "" : formatSemesterLabel(semester, academicYearById),
     },
     isEditable: version.status === "NOT_SCHEDULED",
@@ -119,7 +119,7 @@ export default function SchedulingWizard(): ReactElement {
 
   function chooseRecord(created: ScheduleVersion, semesterLabel: string): void {
     rememberWizardRecord(created.id);
-    setRecord({ id: created.id, versionNumber: created.version_number, semesterLabel });
+    setRecord({ id: created.id, versionNumber: created.display_number, semesterLabel });
     go("teachers");
   }
 

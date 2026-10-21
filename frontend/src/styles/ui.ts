@@ -93,9 +93,12 @@ export const LOCK_BADGE =
   "inline-flex items-center gap-1 rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-700";
 export const BADGE_SUCCESS = "inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700";
 export const BADGE_NEUTRAL = "inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600";
-// 排課紀錄 status pills (utils/scheduleVersionFormat.ts): 自動/手動排課 use
-// the accent blue (BADGE_INFO), 已發布 BADGE_SUCCESS, 尚未排課 BADGE_WARNING.
+// 排課紀錄 status pills (utils/scheduleVersionFormat.ts): 自動排課 uses the
+// accent blue (BADGE_INFO), 手動排課 amber yellow (BADGE_MANUAL), 已發布
+// BADGE_SUCCESS, 尚未排課 BADGE_WARNING.
 export const BADGE_INFO = "inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700";
+// A solid amber yellow, clearly stronger than BADGE_WARNING's pale amber.
+export const BADGE_MANUAL = "inline-flex items-center rounded-full bg-amber-400 px-2 py-0.5 text-xs font-medium text-amber-950";
 // Task 90: a WARNING (e.g. a teacher below the minimum weekly periods) --
 // amber like NOTICE, never the red of an error.
 export const BADGE_WARNING = "inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800";

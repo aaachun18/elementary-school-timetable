@@ -35,12 +35,17 @@ import {
   MUTED_TEXT,
   NOTICE,
   SELECT,
+  TAB_BUTTON,
+  TAB_BUTTON_ACTIVE,
   TABLE,
   TABLE_HEAD_ROW,
   TABLE_WRAPPER,
   TD,
   TH,
 } from "../../styles/ui";
+
+const CLASS_BUTTON = `${TAB_BUTTON} text-left`;
+const CLASS_BUTTON_ACTIVE = `${TAB_BUTTON_ACTIVE} text-left`;
 
 // Task 98, wizard 科目需求 step: every class's subjects and weekly periods
 // come from the school's 科目需求 (學校資料) -- opening the step syncs them
@@ -49,6 +54,8 @@ import {
 // teacher (one taking part in the record; optional -- then any teacher
 // still under their maximum) and the special room (one of the school's
 // rooms; 原班教室 otherwise) are set. Each change is saved right away.
+// Classes are picked per grade: a grade dropdown, then that grade's classes
+// listed on the left.
 export default function RequirementsStep({
   versionId,
   onBack,
@@ -96,6 +103,7 @@ export default function RequirementsStep({
       key={versionId}
       versionId={versionId}
       syncResult={synced.data}
+      grades={[...grades.data].sort((a, b) => a.level - b.level)}
       classes={[...classes.data].sort(
         (a, b) => (levelOf.get(a.grade_id) ?? 0) - (levelOf.get(b.grade_id) ?? 0) || a.id - b.id,
       )}
@@ -114,6 +122,7 @@ function SyncedRequirements({
 }: {
   versionId: number;
   syncResult: RequirementSyncResult;
+  grades: readonly Grade[];
   classes: readonly Class[];
   subjects: readonly Subject[];
   rooms: readonly Room[];
@@ -149,6 +158,7 @@ function syncSummary(result: RequirementSyncResult): string | null {
 
 function RequirementsForm({
   syncResult,
+  grades,
   classes,
   subjects,
   rooms,
@@ -158,6 +168,7 @@ function RequirementsForm({
   onNext,
 }: {
   syncResult: RequirementSyncResult;
+  grades: readonly Grade[];
   classes: readonly Class[];
   subjects: readonly Subject[];
   rooms: readonly Room[];
@@ -167,7 +178,15 @@ function RequirementsForm({
   onNext: () => void;
 }): ReactElement {
   const [requirements, setRequirements] = useState<ClassSubjectRequirement[]>(() => [...initialRequirements]);
-  const [classId, setClassId] = useState<number | null>(classes[0]?.id ?? null);
+  const gradesWithClasses = grades.filter((grade) => classes.some((item) => item.grade_id === grade.id));
+  const [gradeId, setGradeId] = useState<number | null>(gradesWithClasses[0]?.id ?? null);
+  const gradeClasses = classes.filter((item) => item.grade_id === gradeId);
+  const [classId, setClassId] = useState<number | null>(gradeClasses[0]?.id ?? null);
+
+  function selectGrade(nextGradeId: number): void {
+    setGradeId(nextGradeId);
+    setClassId(classes.find((item) => item.grade_id === nextGradeId)?.id ?? null);
+  }
 
   const subjectName = new Map(subjects.map((subject) => [subject.id, subject.name]));
   const classRequirements = requirements
@@ -203,53 +222,71 @@ function RequirementsForm({
       ) : (
         <>
           <label className="mb-3 flex items-center gap-2">
-            <span className={LABEL}>班級</span>
+            <span className={LABEL}>年級</span>
             <select
-              value={classId ?? ""}
-              onChange={(event) => setClassId(Number(event.target.value))}
+              value={gradeId ?? ""}
+              onChange={(event) => selectGrade(Number(event.target.value))}
               className={SELECT}
             >
-              {classes.map((item) => {
-                const count = requirements.filter((requirement) => requirement.class_id === item.id).length;
-                return (
-                  <option key={item.id} value={item.id}>
-                    {item.name}（{count} 科）
-                  </option>
-                );
-              })}
+              {gradesWithClasses.map((grade) => (
+                <option key={grade.id} value={grade.id}>
+                  {grade.name}
+                </option>
+              ))}
             </select>
           </label>
-          <div className={TABLE_WRAPPER}>
-            <table className={TABLE}>
-              <thead>
-                <tr className={TABLE_HEAD_ROW}>
-                  <th className={TH}>科目</th>
-                  <th className={TH}>每週節數</th>
-                  <th className={TH}>連堂</th>
-                  <th className={TH}>指定老師</th>
-                  <th className={TH}>特殊教室</th>
-                </tr>
-              </thead>
-              <tbody>
-                {classRequirements.map((requirement) => (
-                  <RequirementRow
-                    key={requirement.id}
-                    requirement={requirement}
-                    subjectName={subjectName.get(requirement.subject_id) ?? "—"}
-                    rooms={rooms}
-                    teachers={teachers}
-                    onSaved={replaceRequirement}
-                  />
-                ))}
-                {classRequirements.length === 0 && (
-                  <tr>
-                    <td className={TD} colSpan={5}>
-                      <span className={MUTED_TEXT}>這個班級的年級還沒有科目需求。</span>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+          <div className="flex flex-col gap-3 md:flex-row md:items-start">
+            <nav aria-label="班級" className="flex shrink-0 flex-row flex-wrap gap-1 md:w-40 md:flex-col">
+              {gradeClasses.map((item) => {
+                const count = requirements.filter((requirement) => requirement.class_id === item.id).length;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setClassId(item.id)}
+                    aria-current={item.id === classId ? "true" : undefined}
+                    className={item.id === classId ? CLASS_BUTTON_ACTIVE : CLASS_BUTTON}
+                  >
+                    {item.name}
+                    <span className="ml-1 text-xs text-gray-500">（{count} 科）</span>
+                  </button>
+                );
+              })}
+            </nav>
+            <div className="min-w-0 flex-1">
+              <div className={TABLE_WRAPPER}>
+                <table className={TABLE}>
+                  <thead>
+                    <tr className={TABLE_HEAD_ROW}>
+                      <th className={TH}>科目</th>
+                      <th className={TH}>每週節數</th>
+                      <th className={TH}>連堂</th>
+                      <th className={TH}>指定老師</th>
+                      <th className={TH}>特殊教室</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {classRequirements.map((requirement) => (
+                      <RequirementRow
+                        key={requirement.id}
+                        requirement={requirement}
+                        subjectName={subjectName.get(requirement.subject_id) ?? "—"}
+                        rooms={rooms}
+                        teachers={teachers}
+                        onSaved={replaceRequirement}
+                      />
+                    ))}
+                    {classRequirements.length === 0 && (
+                      <tr>
+                        <td className={TD} colSpan={5}>
+                          <span className={MUTED_TEXT}>這個班級的年級還沒有科目需求。</span>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
           {classesWithout.length > 0 && (
             <p className="mt-3 text-sm text-amber-800">

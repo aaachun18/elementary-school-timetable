@@ -11,12 +11,18 @@ export type ScheduleVersionStatus = "NOT_SCHEDULED" | "AUTO" | "MANUAL" | "COPIE
 export interface ScheduleVersion {
   id: number;
   semester_id: number;
-  // 編號 -- one sequence per school, oldest first; null only for EDITING.
+  // The record's permanent serial -- one sequence per school, oldest
+  // first; null only for EDITING. Never shown: see display_number.
   version_number: number | null;
+  // 編號 as people see it: 1 = the school's newest record, so it shifts
+  // whenever a record is made or deleted. null only for EDITING.
+  display_number: number | null;
   status: ScheduleVersionStatus;
   is_published: boolean;
-  // COPIED: the 編號 it was copied from.
+  // COPIED: the source's serial, and its 編號 now (null once the source
+  // has been deleted).
   copied_from_number: number | null;
+  copied_from_display_number: number | null;
   // EDITING: the record it edits.
   editing_source_id: number | null;
   // 備註.

@@ -13,3 +13,22 @@ body {
   color: #111827; /* gray-900 */
   font-family: system-ui, "Segoe UI", Roboto, -apple-system, sans-serif;
 }
+
+/* Everything clickable shows the pointing hand (Tailwind's preflight resets
+   buttons to the default arrow). Disabled controls keep their own
+   not-allowed cursor; the drag handles' grab cursors are more specific
+   utilities and still win. */
+@layer base {
+  a[href],
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"],
+  select:not(:disabled),
+  summary,
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled),
+  label:has(> input[type="checkbox"]:not(:disabled)),
+  label:has(> input[type="radio"]:not(:disabled)) {
+    cursor: pointer;
+  }
+}

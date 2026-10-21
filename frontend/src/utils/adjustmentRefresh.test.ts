@@ -22,14 +22,10 @@ function violation(fields: Partial<ConstraintViolationDetail>): ConstraintViolat
 }
 
 describe("planAdjustmentRefresh", () => {
-  const draft = { isAdmin: true, versionStatus: "EDITING", isEditModeOn: true, isCheckShown: true };
+  const draft = { isAdmin: true, versionStatus: "EDITING", isEditModeOn: true };
 
-  it("reloads the timetable and the unscheduled panel and re-runs a shown check", () => {
+  it("reloads the timetable and the unscheduled panel and re-runs the check", () => {
     expect(planAdjustmentRefresh(draft)).toEqual({ reloadTimetable: true, reloadUnscheduled: true, rerunCheck: true });
-  });
-
-  it("never starts a check nobody asked for", () => {
-    expect(planAdjustmentRefresh({ ...draft, isCheckShown: false }).rerunCheck).toBe(false);
   });
 
   it("leaves the unscheduled panel alone outside edit mode (換教師 works without it)", () => {
