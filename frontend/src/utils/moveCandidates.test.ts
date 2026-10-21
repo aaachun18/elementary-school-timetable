@@ -95,7 +95,7 @@ function check(...violations: ConstraintViolationDetail[]): ScheduleCheckResult 
   };
 }
 
-// 王老師 double-booked at 星期五第 8 節 -- reported once per lesson (×2).
+// 王老師 double-booked at 星期五第 7 節 -- reported once per lesson (×2).
 const teacherClash = [
   violation({ type: "H1_TEACHER_CONFLICT", teacher_id: 1, time_slot_id: FRI_8, lesson_id: 1 }),
   violation({ type: "H1_TEACHER_CONFLICT", teacher_id: 1, time_slot_id: FRI_8, lesson_id: 2 }),
@@ -114,7 +114,7 @@ describe("assessCandidate", () => {
 
     expect(mark).toEqual({
       status: "conflict",
-      reasons: ["王老師在星期五第 8 節被同時排定兩堂課！ ×2"],
+      reasons: ["王老師在星期五第 7 節被同時排定兩堂課！ ×2"],
     });
   });
 

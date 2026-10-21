@@ -1,90 +1,162 @@
-import { useState, type ReactElement } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useEffect, useState, type ReactElement } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { get as getRecord } from "../api/scheduleVersions";
+import { list as listAcademicYears } from "../api/academicYears";
+import { list as listSemesters } from "../api/semesters";
 import GradesStep from "../components/wizard/GradesStep";
 import RequirementsStep from "../components/wizard/RequirementsStep";
 import RunStep from "../components/wizard/RunStep";
 import SemesterStep from "../components/wizard/SemesterStep";
 import TeachersStep from "../components/wizard/TeachersStep";
+import { extractApiErrorMessage } from "../constants/errorMessages";
+import { formatSemesterLabel } from "../utils/scheduleVersionFormat";
 import { WIZARD_STEPS, isWizardStep, type WizardStepKey } from "../utils/wizard";
-import { BUTTON_PRIMARY, HELP_TEXT, PAGE, PAGE_TITLE, SECTION_TITLE } from "../styles/ui";
+import { readRememberedWizardRecord, rememberWizardRecord } from "../utils/wizardRecord";
+import type { ScheduleVersion } from "../types/scheduleVersion";
+import {
+  BUTTON_PRIMARY,
+  ERROR_TEXT,
+  HELP_TEXT,
+  LINK_TEXT,
+  LOADING_TEXT,
+  NOTICE,
+  PAGE,
+  PAGE_TITLE,
+  SECTION_TITLE,
+} from "../styles/ui";
 
-// The semester the wizard last worked on, so a link straight to one step
-// (?step=teachers, from a failed run's diagnostics) can open it. A per-
-// browser convenience only: without it the wizard just starts at step one.
-const REMEMBERED_SEMESTER_KEY = "wizard.semester";
-
-interface RememberedSemester {
+interface WizardRecord {
   id: number;
-  label: string;
+  versionNumber: number | null;
+  semesterLabel: string;
 }
 
-function readRemembered(): RememberedSemester | null {
-  try {
-    const raw = sessionStorage.getItem(REMEMBERED_SEMESTER_KEY);
-    if (raw === null) {
-      return null;
-    }
-    const parsed: unknown = JSON.parse(raw);
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      typeof (parsed as RememberedSemester).id === "number" &&
-      typeof (parsed as RememberedSemester).label === "string"
-    ) {
-      return parsed as RememberedSemester;
-    }
-    return null;
-  } catch {
-    return null;
-  }
+function parseId(raw: string | null): number | null {
+  const parsed = raw === null ? NaN : Number(raw);
+  return Number.isInteger(parsed) ? parsed : null;
 }
 
-function remember(semester: RememberedSemester): void {
-  try {
-    sessionStorage.setItem(REMEMBERED_SEMESTER_KEY, JSON.stringify(semester));
-  } catch {
-    // Storage unavailable (private mode ...): deep links just start over.
-  }
+// The record named by ?record= (檢視排課設定 > 修改排課設定) or, with ?step=,
+// the remembered one -- loaded with its semester's label. A record that is
+// no longer 尚未排課 can't be edited here.
+async function loadRecord(recordId: number): Promise<{ record: WizardRecord; isEditable: boolean }> {
+  const [version, semesters, academicYears] = await Promise.all([
+    getRecord(recordId),
+    listSemesters(0, 1000),
+    listAcademicYears(0, 1000),
+  ]);
+  const semester = semesters.find((item) => item.id === version.semester_id);
+  const academicYearById = new Map(academicYears.map((item) => [item.id, item.year]));
+  return {
+    record: {
+      id: version.id,
+      versionNumber: version.version_number,
+      semesterLabel: semester === undefined ? "" : formatSemesterLabel(semester, academicYearById),
+    },
+    isEditable: version.status === "NOT_SCHEDULED",
+  };
 }
 
-// Task 98: 開始排課 -- the one place a 教學組長 sets up and runs a
-// semester's scheduling, replacing 基礎資料 / 排課需求總覽 / 排課控制台:
-// 學年度與學期 -> 教師設定 -> 年級與可排節次 -> 科目需求 -> 確認並排課.
-// Classes and the school's 科目需求 are kept on 學校資料. Every step saves
-// its own part, so it can be left and resumed.
+// Task 98 / v3: 開始排課 -- 學年度與學期 (creates a 尚未排課 排課紀錄) ->
+// 教師設定 -> 年級與可排節次 -> 科目需求 -> 確認並自動排課. Every step saves
+// its part into the record, so it can be left and resumed (排課紀錄 >
+// 檢視排課設定 > 修改排課設定 opens it again). Classes and the school's
+// 科目需求 are kept on 學校資料.
 export default function SchedulingWizard(): ReactElement {
   const [searchParams] = useSearchParams();
   const requestedStep = searchParams.get("step");
-  const [semester, setSemester] = useState<RememberedSemester | null>(() =>
-    isWizardStep(requestedStep) ? readRemembered() : null,
-  );
-  const [step, setStep] = useState<WizardStepKey | null>(() =>
-    isWizardStep(requestedStep) ? (readRemembered() === null ? "semester" : requestedStep) : null,
-  );
+  const requestedRecordId =
+    parseId(searchParams.get("record")) ?? (isWizardStep(requestedStep) ? readRememberedWizardRecord() : null);
+  const [record, setRecord] = useState<WizardRecord | null>(null);
+  const [isLoading, setIsLoading] = useState(requestedRecordId !== null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [lockedRecord, setLockedRecord] = useState<WizardRecord | null>(null);
+  const [step, setStep] = useState<WizardStepKey | null>(null);
+
+  useEffect(() => {
+    if (requestedRecordId === null) {
+      return;
+    }
+    let isCurrent = true;
+    loadRecord(requestedRecordId)
+      .then(({ record: loaded, isEditable }) => {
+        if (!isCurrent) {
+          return;
+        }
+        if (isEditable) {
+          rememberWizardRecord(loaded.id);
+          setRecord(loaded);
+          setStep(isWizardStep(requestedStep) && requestedStep !== "semester" ? requestedStep : "teachers");
+        } else {
+          setLockedRecord(loaded);
+        }
+      })
+      .catch((caught: unknown) => {
+        if (isCurrent) {
+          setLoadError(extractApiErrorMessage(caught));
+        }
+      })
+      .finally(() => {
+        if (isCurrent) {
+          setIsLoading(false);
+        }
+      });
+    return () => {
+      isCurrent = false;
+    };
+  }, [requestedRecordId, requestedStep]);
 
   function go(next: WizardStepKey): void {
     setStep(next);
     window.scrollTo({ top: 0 });
   }
 
-  function chooseSemester(id: number, label: string): void {
-    const chosen = { id, label };
-    remember(chosen);
-    setSemester(chosen);
+  function startNew(): void {
+    setRecord(null);
+    setLockedRecord(null);
+    go("semester");
+  }
+
+  function chooseRecord(created: ScheduleVersion, semesterLabel: string): void {
+    rememberWizardRecord(created.id);
+    setRecord({ id: created.id, versionNumber: created.version_number, semesterLabel });
     go("teachers");
   }
 
   const stepIndex = step === null ? -1 : WIZARD_STEPS.findIndex((item) => item.key === step);
 
+  if (isLoading) {
+    return (
+      <div className={PAGE}>
+        <h1 className={PAGE_TITLE}>開始排課</h1>
+        <p className={LOADING_TEXT}>載入中…</p>
+      </div>
+    );
+  }
+
   return (
     <div className={PAGE}>
       <h1 className={PAGE_TITLE}>開始排課</h1>
+      {loadError !== null && (
+        <p role="alert" className={ERROR_TEXT}>
+          無法開啟這筆排課紀錄：{loadError}
+        </p>
+      )}
+      {lockedRecord !== null && (
+        <p className={`${NOTICE} mb-4`}>
+          排課紀錄編號 {lockedRecord.versionNumber} 已經排過課，排課設定不能再修改。請到
+          <Link to="/records" className={LINK_TEXT}>
+            排課紀錄
+          </Link>
+          「複製此次排課設定」後再修改。
+        </p>
+      )}
       {step === null ? (
         <div>
           <p className={HELP_TEXT}>
-            依序設定學年度與學期、參與的老師、年級可排節次與科目需求，最後由系統自動排課。班級與各年級的科目節數請先在「學校資料」維護。每一步都會先存起來，可以隨時離開再回來。
+            依序設定學年度與學期、參與的老師、年級可排節次與科目需求，最後由系統自動排課。每次開始排課都會新增一筆「尚未排課」的排課紀錄，每一步都會先存進這筆紀錄，可以隨時離開，之後從排課紀錄的「檢視排課設定」繼續。班級與各年級的科目節數請先在「學校資料」維護。
           </p>
-          <button type="button" onClick={() => go("semester")} className={BUTTON_PRIMARY}>
+          <button type="button" onClick={startNew} className={BUTTON_PRIMARY}>
             開始排課 →
           </button>
         </div>
@@ -93,7 +165,8 @@ export default function SchedulingWizard(): ReactElement {
           <ol className="mb-4 flex flex-wrap gap-2 text-sm" aria-label="排課步驟">
             {WIZARD_STEPS.map((item, index) => {
               const isCurrent = item.key === step;
-              const canJump = semester !== null && !isCurrent;
+              // A record's semester is fixed once it exists.
+              const canJump = record !== null && !isCurrent && item.key !== "semester";
               return (
                 <li key={item.key}>
                   <button
@@ -115,28 +188,32 @@ export default function SchedulingWizard(): ReactElement {
               );
             })}
           </ol>
-          {semester !== null && step !== "semester" && (
-            <p className="mb-2 text-sm text-gray-700">排課學期：{semester.label}</p>
+          {record !== null && step !== "semester" && (
+            <p className="mb-2 text-sm text-gray-700">
+              排課紀錄編號 {record.versionNumber}・{record.semesterLabel}（尚未排課）
+            </p>
           )}
           <h2 className={SECTION_TITLE}>{WIZARD_STEPS[stepIndex]?.label}</h2>
           {step === "semester" && (
-            <SemesterStep initialYear={null} initialNumber={null} onChosen={chooseSemester} />
+            <SemesterStep initialYear={null} initialNumber={null} onChosen={chooseRecord} />
           )}
-          {semester !== null && step === "teachers" && (
-            <TeachersStep semesterId={semester.id} onBack={() => go("semester")} onNext={() => go("grades")} />
+          {record !== null && step === "teachers" && (
+            // No 上一步: the record's semester can't change any more.
+            <TeachersStep versionId={record.id} onNext={() => go("grades")} />
           )}
-          {semester !== null && step === "grades" && (
-            <GradesStep semesterId={semester.id} onBack={() => go("teachers")} onNext={() => go("requirements")} />
+          {record !== null && step === "grades" && (
+            <GradesStep versionId={record.id} onBack={() => go("teachers")} onNext={() => go("requirements")} />
           )}
-          {semester !== null && step === "requirements" && (
-            <RequirementsStep
-              semesterId={semester.id}
-              onBack={() => go("grades")}
-              onNext={() => go("run")}
+          {record !== null && step === "requirements" && (
+            <RequirementsStep versionId={record.id} onBack={() => go("grades")} onNext={() => go("run")} />
+          )}
+          {record !== null && step === "run" && (
+            <RunStep
+              versionId={record.id}
+              versionNumber={record.versionNumber}
+              semesterLabel={record.semesterLabel}
+              onBack={() => go("requirements")}
             />
-          )}
-          {semester !== null && step === "run" && (
-            <RunStep semesterId={semester.id} semesterLabel={semester.label} onBack={() => go("requirements")} />
           )}
         </>
       )}

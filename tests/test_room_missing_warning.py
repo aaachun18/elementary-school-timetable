@@ -134,9 +134,10 @@ def test_moves_swaps_reassign_and_publish_are_not_blocked(client: TestClient, db
     for data in (moved, swapped, reassigned):
         assert len(_warnings(data["check"])) == 3
         assert data["check"]["is_valid"] is True
-    published = client.patch(f"{URL}/{world.version.id}", json={"status": "PUBLISHED"})
+    saved = _ok(client.post(f"{URL}/{world.version.id}/save"))
+    published = client.post(f"{URL}/{saved['id']}/publish")
     assert published.status_code == 200, published.json()
-    assert published.json()["status"] == "PUBLISHED"
+    assert published.json()["is_published"] is True
 
 
 def test_placing_uses_the_required_room_so_no_warning(

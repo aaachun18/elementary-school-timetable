@@ -44,27 +44,27 @@ import {
 
 // Task 98, wizard 科目需求 step: every class's subjects and weekly periods
 // come from the school's 科目需求 (學校資料) -- opening the step syncs them
-// into the semester (POST /class-subject-requirements/sync) -- so here only
+// into the 排課紀錄 (POST /class-subject-requirements/sync) -- so here only
 // the lesson pattern (連堂, offered by the number of periods; optional), the
-// teacher (one taking part in the semester; optional -- then any teacher
+// teacher (one taking part in the record; optional -- then any teacher
 // still under their maximum) and the special room (one of the school's
 // rooms; 原班教室 otherwise) are set. Each change is saved right away.
 export default function RequirementsStep({
-  semesterId,
+  versionId,
   onBack,
   onNext,
 }: {
-  semesterId: number;
+  versionId: number;
   onBack: () => void;
   onNext: () => void;
 }): ReactElement {
   // The sync runs first; the requirements are read after it.
-  const synced = useResource(() => syncWithSchool(semesterId), [semesterId]);
+  const synced = useResource(() => syncWithSchool(versionId), [versionId]);
   const grades = useResource(() => listGrades(0, 1000), []);
   const classes = useResource(() => listClasses(0, 1000), []);
   const subjects = useResource(() => listSubjects(0, 1000), []);
   const rooms = useResource(() => listRooms(0, 1000), []);
-  const teachers = useResource(() => listSemesterTeachers(semesterId), [semesterId]);
+  const teachers = useResource(() => listSemesterTeachers(versionId), [versionId]);
 
   const errorMessage =
     synced.errorMessage ??
@@ -93,8 +93,8 @@ export default function RequirementsStep({
   const levelOf = new Map(grades.data.map((grade: Grade) => [grade.id, grade.level]));
   return (
     <SyncedRequirements
-      key={semesterId}
-      semesterId={semesterId}
+      key={versionId}
+      versionId={versionId}
       syncResult={synced.data}
       classes={[...classes.data].sort(
         (a, b) => (levelOf.get(a.grade_id) ?? 0) - (levelOf.get(b.grade_id) ?? 0) || a.id - b.id,
@@ -109,10 +109,10 @@ export default function RequirementsStep({
 }
 
 function SyncedRequirements({
-  semesterId,
+  versionId,
   ...props
 }: {
-  semesterId: number;
+  versionId: number;
   syncResult: RequirementSyncResult;
   classes: readonly Class[];
   subjects: readonly Subject[];
@@ -122,8 +122,8 @@ function SyncedRequirements({
   onNext: () => void;
 }): ReactElement {
   const requirements = useResource(
-    () => listRequirements(0, 1000, { semester_id: semesterId }),
-    [semesterId],
+    () => listRequirements(0, 1000, { schedule_version_id: versionId }),
+    [versionId],
   );
   if (requirements.errorMessage !== null) {
     return (
@@ -192,11 +192,6 @@ function RequirementsForm({
         ，要調整請到那裡修改。這裡只需要視情況指定連堂、老師與特殊教室，修改後會立即儲存；不指定特殊教室就在原班教室上課（課表上不顯示），指定了會在課表上註記。
       </p>
       {summary !== null && <p className={`${NOTICE} mb-3`}>{summary}</p>}
-      {syncResult.locked_requirement_ids.length > 0 && (
-        <p className={`${NOTICE} mb-3`}>
-          有 {syncResult.locked_requirement_ids.length} 筆需求已被已發布或已封存的課表使用，維持原本的設定，不會跟著學校的科目需求變動。
-        </p>
-      )}
       {classes.length === 0 ? (
         <p className={MUTED_TEXT}>
           還沒有班級，請先到

@@ -1,5 +1,5 @@
 from fastapi.testclient import TestClient
-from tests.api_helpers import create_class, create_grade
+from tests.api_helpers import create_class, create_grade, create_record, mark_status
 
 
 def _create_academic_year(client: TestClient, year: int) -> int:
@@ -8,14 +8,14 @@ def _create_academic_year(client: TestClient, year: int) -> int:
     return academic_year_id
 
 
-def _create_semester(client: TestClient, year: int) -> int:
+def _create_record(client: TestClient, year: int) -> int:
+    """v3: a semester and its 尚未排課 record -- requirements belong to it."""
     academic_year_id = _create_academic_year(client, year)
     response = client.post(
         "/api/v1/semesters/",
         json={"academic_year_id": academic_year_id, "number": 1},
     )
-    semester_id: int = response.json()["id"]
-    return semester_id
+    return create_record(client, response.json()["id"])
 
 
 def _create_grade(client: TestClient, level: int) -> int:
@@ -34,14 +34,14 @@ def _create_subject(client: TestClient, name: str = "Subject A") -> int:
 
 
 def test_create_class_subject_requirement(client: TestClient) -> None:
-    semester_id = _create_semester(client, year=2051)
+    record_id = _create_record(client, year=2051)
     class_id = _create_class(client, level=1)
     subject_id = _create_subject(client)
 
     response = client.post(
         "/api/v1/class-subject-requirements/",
         json={
-            "semester_id": semester_id,
+            "schedule_version_id": record_id,
             "class_id": class_id,
             "subject_id": subject_id,
             "weekly_periods": 4,
@@ -50,7 +50,7 @@ def test_create_class_subject_requirement(client: TestClient) -> None:
 
     assert response.status_code == 201
     data = response.json()
-    assert data["semester_id"] == semester_id
+    assert data["schedule_version_id"] == record_id
     assert data["class_id"] == class_id
     assert data["subject_id"] == subject_id
     assert data["weekly_periods"] == 4
@@ -65,13 +65,13 @@ def test_create_class_subject_requirement(client: TestClient) -> None:
 
 
 def test_get_class_subject_requirement_list(client: TestClient) -> None:
-    semester_id = _create_semester(client, year=2052)
+    record_id = _create_record(client, year=2052)
     class_id = _create_class(client, level=2)
     subject_id = _create_subject(client)
     client.post(
         "/api/v1/class-subject-requirements/",
         json={
-            "semester_id": semester_id,
+            "schedule_version_id": record_id,
             "class_id": class_id,
             "subject_id": subject_id,
             "weekly_periods": 3,
@@ -86,13 +86,13 @@ def test_get_class_subject_requirement_list(client: TestClient) -> None:
 
 
 def test_get_class_subject_requirement_by_id(client: TestClient) -> None:
-    semester_id = _create_semester(client, year=2053)
+    record_id = _create_record(client, year=2053)
     class_id = _create_class(client, level=3)
     subject_id = _create_subject(client)
     create_response = client.post(
         "/api/v1/class-subject-requirements/",
         json={
-            "semester_id": semester_id,
+            "schedule_version_id": record_id,
             "class_id": class_id,
             "subject_id": subject_id,
             "weekly_periods": 5,
@@ -113,13 +113,13 @@ def test_get_class_subject_requirement_not_found(client: TestClient) -> None:
 
 
 def test_update_class_subject_requirement(client: TestClient) -> None:
-    semester_id = _create_semester(client, year=2054)
+    record_id = _create_record(client, year=2054)
     class_id = _create_class(client, level=4)
     subject_id = _create_subject(client)
     create_response = client.post(
         "/api/v1/class-subject-requirements/",
         json={
-            "semester_id": semester_id,
+            "schedule_version_id": record_id,
             "class_id": class_id,
             "subject_id": subject_id,
             "weekly_periods": 2,
@@ -147,13 +147,13 @@ def test_update_class_subject_requirement_not_found(client: TestClient) -> None:
 
 
 def test_delete_class_subject_requirement(client: TestClient) -> None:
-    semester_id = _create_semester(client, year=2055)
+    record_id = _create_record(client, year=2055)
     class_id = _create_class(client, level=5)
     subject_id = _create_subject(client)
     create_response = client.post(
         "/api/v1/class-subject-requirements/",
         json={
-            "semester_id": semester_id,
+            "schedule_version_id": record_id,
             "class_id": class_id,
             "subject_id": subject_id,
             "weekly_periods": 3,
@@ -175,11 +175,11 @@ def test_delete_class_subject_requirement_not_found(client: TestClient) -> None:
 def test_create_class_subject_requirement_duplicate_conflict(
     client: TestClient,
 ) -> None:
-    semester_id = _create_semester(client, year=2056)
+    record_id = _create_record(client, year=2056)
     class_id = _create_class(client, level=6)
     subject_id = _create_subject(client)
     payload = {
-        "semester_id": semester_id,
+        "schedule_version_id": record_id,
         "class_id": class_id,
         "subject_id": subject_id,
         "weekly_periods": 3,
@@ -191,7 +191,7 @@ def test_create_class_subject_requirement_duplicate_conflict(
     assert response.status_code == 409
 
 
-def test_create_class_subject_requirement_invalid_semester_id(
+def test_create_class_subject_requirement_invalid_record_id(
     client: TestClient,
 ) -> None:
     class_id = _create_class(client, level=7)
@@ -200,7 +200,7 @@ def test_create_class_subject_requirement_invalid_semester_id(
     response = client.post(
         "/api/v1/class-subject-requirements/",
         json={
-            "semester_id": 999999,
+            "schedule_version_id": 999999,
             "class_id": class_id,
             "subject_id": subject_id,
             "weekly_periods": 3,
@@ -213,13 +213,13 @@ def test_create_class_subject_requirement_invalid_semester_id(
 def test_create_class_subject_requirement_invalid_class_id(
     client: TestClient,
 ) -> None:
-    semester_id = _create_semester(client, year=2057)
+    record_id = _create_record(client, year=2057)
     subject_id = _create_subject(client)
 
     response = client.post(
         "/api/v1/class-subject-requirements/",
         json={
-            "semester_id": semester_id,
+            "schedule_version_id": record_id,
             "class_id": 999999,
             "subject_id": subject_id,
             "weekly_periods": 3,
@@ -232,13 +232,13 @@ def test_create_class_subject_requirement_invalid_class_id(
 def test_create_class_subject_requirement_invalid_subject_id(
     client: TestClient,
 ) -> None:
-    semester_id = _create_semester(client, year=2058)
+    record_id = _create_record(client, year=2058)
     class_id = _create_class(client, level=8)
 
     response = client.post(
         "/api/v1/class-subject-requirements/",
         json={
-            "semester_id": semester_id,
+            "schedule_version_id": record_id,
             "class_id": class_id,
             "subject_id": 999999,
             "weekly_periods": 3,
@@ -253,7 +253,7 @@ def test_create_class_subject_requirement_invalid_subject_id(
 
 def _create_requirement(
     client: TestClient,
-    semester_id: int,
+    record_id: int,
     class_id: int,
     subject_id: int,
     weekly_periods: int,
@@ -261,7 +261,7 @@ def _create_requirement(
     response = client.post(
         "/api/v1/class-subject-requirements/",
         json={
-            "semester_id": semester_id,
+            "schedule_version_id": record_id,
             "class_id": class_id,
             "subject_id": subject_id,
             "weekly_periods": weekly_periods,
@@ -269,15 +269,6 @@ def _create_requirement(
     )
     requirement_id: int = response.json()["id"]
     return requirement_id
-
-
-def _create_draft_version(client: TestClient, semester_id: int, number: int) -> int:
-    response = client.post(
-        "/api/v1/schedule-versions/",
-        json={"semester_id": semester_id, "version_number": number, "status": "DRAFT"},
-    )
-    version_id: int = response.json()["id"]
-    return version_id
 
 
 def _generate_lessons(client: TestClient, version_id: int) -> dict[int, list[int]]:
@@ -292,23 +283,12 @@ def _generate_lessons(client: TestClient, version_id: int) -> dict[int, list[int
     return lessons_by_requirement
 
 
-def _create_schedule(client: TestClient, version_id: int, lesson_id: int) -> int:
-    response = client.post(
-        "/api/v1/schedules/",
-        json={"schedule_version_id": version_id, "lesson_id": lesson_id},
-    )
-    assert response.status_code == 201
-    schedule_id: int = response.json()["id"]
-    return schedule_id
-
-
-def test_delete_requirement_with_lessons_and_no_schedules(client: TestClient) -> None:
-    semester_id = _create_semester(client, year=2061)
+def test_delete_requirement_with_lessons(client: TestClient) -> None:
+    record_id = _create_record(client, year=2061)
     class_id = _create_class(client, level=1)
     subject_id = _create_subject(client)
-    requirement_id = _create_requirement(client, semester_id, class_id, subject_id, 2)
-    version_id = _create_draft_version(client, semester_id, number=1)
-    lesson_ids = _generate_lessons(client, version_id)[requirement_id]
+    requirement_id = _create_requirement(client, record_id, class_id, subject_id, 2)
+    lesson_ids = _generate_lessons(client, record_id)[requirement_id]
     assert len(lesson_ids) == 2
 
     response = client.delete(f"/api/v1/class-subject-requirements/{requirement_id}")
@@ -318,81 +298,44 @@ def test_delete_requirement_with_lessons_and_no_schedules(client: TestClient) ->
         assert client.get(f"/api/v1/lessons/{lesson_id}").status_code == 404
     get_response = client.get(f"/api/v1/class-subject-requirements/{requirement_id}")
     assert get_response.status_code == 404
+    # The record itself is not part of the requirement -- it stays.
+    assert client.get(f"/api/v1/schedule-versions/{record_id}").status_code == 200
 
 
-def test_delete_requirement_removes_draft_schedules(client: TestClient) -> None:
-    semester_id = _create_semester(client, year=2062)
-    class_id = _create_class(client, level=2)
-    subject_id = _create_subject(client)
-    requirement_id = _create_requirement(client, semester_id, class_id, subject_id, 1)
-    version_id = _create_draft_version(client, semester_id, number=1)
-    lesson_id = _generate_lessons(client, version_id)[requirement_id][0]
-    schedule_id = _create_schedule(client, version_id, lesson_id)
-
-    response = client.delete(f"/api/v1/class-subject-requirements/{requirement_id}")
-
-    assert response.status_code == 204
-    assert client.get(f"/api/v1/schedules/{schedule_id}").status_code == 404
-    assert client.get(f"/api/v1/lessons/{lesson_id}").status_code == 404
-    get_response = client.get(f"/api/v1/class-subject-requirements/{requirement_id}")
-    assert get_response.status_code == 404
-    # The DRAFT version itself is not part of the requirement -- it stays.
-    assert client.get(f"/api/v1/schedule-versions/{version_id}").status_code == 200
-
-
-def test_delete_requirement_blocked_by_published_schedule(client: TestClient) -> None:
-    semester_id = _create_semester(client, year=2063)
+def test_delete_requirement_of_a_scheduled_record_is_refused(client: TestClient) -> None:
+    """v3: a record with a timetable keeps its settings."""
+    record_id = _create_record(client, year=2063)
     class_id = _create_class(client, level=3)
     subject_id = _create_subject(client)
-    requirement_id = _create_requirement(client, semester_id, class_id, subject_id, 2)
-    draft_version_id = _create_draft_version(client, semester_id, number=1)
-    published_version_id = _create_draft_version(client, semester_id, number=2)
-    lesson_ids = _generate_lessons(client, draft_version_id)[requirement_id]
-    # One lesson sits in a DRAFT version, the other in a PUBLISHED one --
-    # the DRAFT schedule must survive too, since the whole delete is refused.
-    draft_schedule_id = _create_schedule(client, draft_version_id, lesson_ids[0])
-    published_schedule_id = _create_schedule(
-        client, published_version_id, lesson_ids[1]
-    )
-    publish_response = client.patch(
-        f"/api/v1/schedule-versions/{published_version_id}",
-        json={"status": "PUBLISHED"},
-    )
-    assert publish_response.status_code == 200
+    requirement_id = _create_requirement(client, record_id, class_id, subject_id, 2)
+    lesson_ids = _generate_lessons(client, record_id)[requirement_id]
+    mark_status(client, record_id, "AUTO", is_published=True)
 
     response = client.delete(f"/api/v1/class-subject-requirements/{requirement_id}")
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "此排課需求已被已發布或已封存的課表使用，無法刪除"
+    assert "尚未排課" in response.json()["detail"]
     get_response = client.get(f"/api/v1/class-subject-requirements/{requirement_id}")
     assert get_response.status_code == 200
     for lesson_id in lesson_ids:
         assert client.get(f"/api/v1/lessons/{lesson_id}").status_code == 200
-    assert client.get(f"/api/v1/schedules/{draft_schedule_id}").status_code == 200
-    assert client.get(f"/api/v1/schedules/{published_schedule_id}").status_code == 200
 
 
 def test_delete_requirement_leaves_other_requirements_untouched(
     client: TestClient,
 ) -> None:
-    semester_id = _create_semester(client, year=2064)
+    record_id = _create_record(client, year=2064)
     class_id = _create_class(client, level=4)
     subject_a_id = _create_subject(client, name="Subject A")
     subject_b_id = _create_subject(client, name="Subject B")
     requirement_a_id = _create_requirement(
-        client, semester_id, class_id, subject_a_id, 1
+        client, record_id, class_id, subject_a_id, 1
     )
     requirement_b_id = _create_requirement(
-        client, semester_id, class_id, subject_b_id, 2
+        client, record_id, class_id, subject_b_id, 2
     )
-    version_id = _create_draft_version(client, semester_id, number=1)
-    lessons_by_requirement = _generate_lessons(client, version_id)
-    lesson_a_id = lessons_by_requirement[requirement_a_id][0]
+    lessons_by_requirement = _generate_lessons(client, record_id)
     lesson_b_ids = lessons_by_requirement[requirement_b_id]
-    _create_schedule(client, version_id, lesson_a_id)
-    schedule_b_ids = [
-        _create_schedule(client, version_id, lesson_id) for lesson_id in lesson_b_ids
-    ]
 
     response = client.delete(f"/api/v1/class-subject-requirements/{requirement_a_id}")
 
@@ -401,6 +344,25 @@ def test_delete_requirement_leaves_other_requirements_untouched(
     assert get_response.status_code == 200
     for lesson_id in lesson_b_ids:
         assert client.get(f"/api/v1/lessons/{lesson_id}").status_code == 200
-    for schedule_id in schedule_b_ids:
-        schedule_response = client.get(f"/api/v1/schedules/{schedule_id}")
-        assert schedule_response.status_code == 200
+
+
+def test_same_class_and_subject_in_two_records_is_fine(client: TestClient) -> None:
+    """v3: each record has its own requirements -- the uniqueness is per
+    record."""
+    first = _create_record(client, year=2065)
+    semester_id = client.get(f"/api/v1/schedule-versions/{first}").json()["semester_id"]
+    second = create_record(client, semester_id)
+    class_id = _create_class(client, level=5)
+    subject_id = _create_subject(client)
+
+    for record_id in (first, second):
+        response = client.post(
+            "/api/v1/class-subject-requirements/",
+            json={
+                "schedule_version_id": record_id,
+                "class_id": class_id,
+                "subject_id": subject_id,
+                "weekly_periods": 2,
+            },
+        )
+        assert response.status_code == 201

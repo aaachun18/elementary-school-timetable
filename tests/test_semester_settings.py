@@ -22,16 +22,22 @@ from tests.api_helpers import (
     create_class,
     create_enrolled_teacher,
     create_grade,
+    create_record,
     create_teacher,
     create_time_slot,
+    mark_status,
 )
 
-# Task 98: one semester's scheduling settings -- the wizard's steps 4-6
+# Task 98: a 排課紀錄's scheduling settings -- the wizard's 教師設定
 # (teachers taking part, their weekly periods range, unavailable slots) and
-# step 8 (the slots each grade is open for) -- and the run-scheduler rules
-# that come from them.
+# 年級與可排節次 (the slots each grade is open for) -- and the run-scheduler
+# rules that come from them. v3: every record owns its own settings, and
+# only a 尚未排課 record's change.
 
-SEMESTERS = "/api/v1/semesters"
+RECORDS = "/api/v1/schedule-versions"
+LOCKED_MESSAGE = (
+    "只有「尚未排課」的排課紀錄可以修改排課設定，請先在排課紀錄「複製此次排課設定」再修改"
+)
 
 
 def _messages(response: Any) -> str:
@@ -41,11 +47,11 @@ def _messages(response: Any) -> str:
     return " ".join(item["msg"] for item in detail)
 
 
-def _semester(client: TestClient, year: int = 115) -> int:
+def _record(client: TestClient, year: int = 115) -> int:
+    """A semester and its 尚未排課 record."""
     year_id = client.post("/api/v1/academic-years/", json={"year": year}).json()["id"]
-    response = client.post(f"{SEMESTERS}/", json={"academic_year_id": year_id, "number": 1})
-    semester_id: int = response.json()["id"]
-    return semester_id
+    response = client.post("/api/v1/semesters/", json={"academic_year_id": year_id, "number": 1})
+    return create_record(client, response.json()["id"])
 
 
 def _slot(client: TestClient, weekday: int, period: int, *, teaching: bool = True) -> int:
@@ -65,25 +71,25 @@ def _entry(teacher_id: int, minimum: int = 0, maximum: int = 20, unavailable: li
     }
 
 
-def _put_teachers(client: TestClient, semester_id: int, entries: list[dict[str, Any]]) -> Any:
-    return client.put(f"{SEMESTERS}/{semester_id}/teachers", json={"teachers": entries})
+def _put_teachers(client: TestClient, record_id: int, entries: list[dict[str, Any]]) -> Any:
+    return client.put(f"{RECORDS}/{record_id}/teachers", json={"teachers": entries})
 
 
 # --- teachers taking part (steps 4-6) ---
 
 
 def test_teachers_taking_part_are_saved_with_their_settings(client: TestClient) -> None:
-    semester_id = _semester(client)
+    record_id = _record(client)
     slot_a, slot_b = _slot(client, 1, 1), _slot(client, 1, 2)
     wang = create_teacher(client, "王老師")
     lin = create_teacher(client, "林老師")
 
     response = _put_teachers(
-        client, semester_id, [_entry(lin, 2, 18, [slot_b, slot_a]), _entry(wang, 0, 10)]
+        client, record_id, [_entry(lin, 2, 18, [slot_b, slot_a]), _entry(wang, 0, 10)]
     )
 
     assert response.status_code == 200, response.json()
-    assert response.json() == client.get(f"{SEMESTERS}/{semester_id}/teachers").json()
+    assert response.json() == client.get(f"{RECORDS}/{record_id}/teachers").json()
     assert response.json() == [
         {"teacher_id": wang, "teacher_name": "王老師", "min_weekly_periods": 0,
          "max_weekly_periods": 10, "unavailable_time_slot_ids": []},
@@ -93,23 +99,23 @@ def test_teachers_taking_part_are_saved_with_their_settings(client: TestClient) 
 
 
 def test_replacing_drops_teachers_left_out(client: TestClient) -> None:
-    semester_id = _semester(client)
+    record_id = _record(client)
     slot = _slot(client, 1, 1)
     wang = create_teacher(client, "王老師")
     lin = create_teacher(client, "林老師")
-    _put_teachers(client, semester_id, [_entry(wang, unavailable=[slot]), _entry(lin)])
+    _put_teachers(client, record_id, [_entry(wang, unavailable=[slot]), _entry(lin)])
 
-    response = _put_teachers(client, semester_id, [_entry(lin)])
+    response = _put_teachers(client, record_id, [_entry(lin)])
 
     assert [item["teacher_id"] for item in response.json()] == [lin]
 
 
-def test_settings_are_per_semester(client: TestClient) -> None:
-    first, second = _semester(client, 115), _semester(client, 116)
+def test_settings_are_per_record(client: TestClient) -> None:
+    first, second = _record(client, 115), _record(client, 116)
     wang = create_teacher(client, "王老師")
     _put_teachers(client, first, [_entry(wang, 1, 5)])
 
-    assert client.get(f"{SEMESTERS}/{second}/teachers").json() == []
+    assert client.get(f"{RECORDS}/{second}/teachers").json() == []
 
 
 @pytest.mark.parametrize(
@@ -124,41 +130,41 @@ def test_bad_weekly_periods_ranges_are_422(
     client: TestClient, minimum: int, maximum: int, message: str
 ) -> None:
     """Task 88's rules, now for the semester's own range."""
-    semester_id = _semester(client)
+    record_id = _record(client)
     wang = create_teacher(client, "王老師")
 
-    response = _put_teachers(client, semester_id, [_entry(wang, minimum, maximum)])
+    response = _put_teachers(client, record_id, [_entry(wang, minimum, maximum)])
 
     assert response.status_code == 422
     assert message in _messages(response)
-    assert client.get(f"{SEMESTERS}/{semester_id}/teachers").json() == []
+    assert client.get(f"{RECORDS}/{record_id}/teachers").json() == []
 
 
 def test_a_teacher_listed_twice_is_422(client: TestClient) -> None:
-    semester_id = _semester(client)
+    record_id = _record(client)
     wang = create_teacher(client, "王老師")
 
-    response = _put_teachers(client, semester_id, [_entry(wang), _entry(wang)])
+    response = _put_teachers(client, record_id, [_entry(wang), _entry(wang)])
 
     assert response.status_code == 422
     assert "同一位教師只能出現一次" in _messages(response)
 
 
 def test_an_inactive_teacher_cannot_take_part(client: TestClient, db_session: Session) -> None:
-    semester_id = _semester(client)
+    record_id = _record(client)
     wang = create_teacher(client, "王老師")
     teacher = db_session.get(Teacher, wang)
     assert teacher is not None
     teacher.is_active = False
     db_session.commit()
 
-    response = _put_teachers(client, semester_id, [_entry(wang)])
+    response = _put_teachers(client, record_id, [_entry(wang)])
 
     assert response.status_code == 409
 
 
 def test_another_schools_teacher_or_slot_is_422(client: TestClient, db_session: Session) -> None:
-    semester_id = _semester(client)
+    record_id = _record(client)
     other_school = School(name="別的學校", is_active=True)
     db_session.add(other_school)
     db_session.flush()
@@ -168,49 +174,76 @@ def test_another_schools_teacher_or_slot_is_422(client: TestClient, db_session: 
     db_session.commit()
     wang = create_teacher(client, "王老師")
 
-    assert _put_teachers(client, semester_id, [_entry(outsider.id)]).status_code == 422
-    assert _put_teachers(client, semester_id, [_entry(wang, unavailable=[999999])]).status_code == 422
+    assert _put_teachers(client, record_id, [_entry(outsider.id)]).status_code == 422
+    assert _put_teachers(client, record_id, [_entry(wang, unavailable=[999999])]).status_code == 422
 
 
-def test_unknown_semester_is_404(client: TestClient) -> None:
-    assert client.get(f"{SEMESTERS}/999999/teachers").status_code == 404
+def test_unknown_record_is_404(client: TestClient) -> None:
+    assert client.get(f"{RECORDS}/999999/teachers").status_code == 404
     assert _put_teachers(client, 999999, []).status_code == 404
 
 
-def test_teacher_account_reads_but_cannot_change(
+def test_teacher_account_reads_published_settings_but_cannot_change(
     client: TestClient, teacher_client: TestClient
 ) -> None:
-    semester_id = _semester(client)
+    record_id = _record(client)
 
-    assert teacher_client.get(f"{SEMESTERS}/{semester_id}/teachers").status_code == 200
-    assert _put_teachers(teacher_client, semester_id, []).status_code == 403
+    # An unpublished record is as hidden from a TEACHER as its timetable.
+    assert teacher_client.get(f"{RECORDS}/{record_id}/teachers").status_code == 404
+    assert teacher_client.get(f"{RECORDS}/{record_id}/grade-time-slots").status_code == 404
+    mark_status(client, record_id, "AUTO", is_published=True)
+    assert teacher_client.get(f"{RECORDS}/{record_id}/teachers").status_code == 200
+    assert teacher_client.get(f"{RECORDS}/{record_id}/grade-time-slots").status_code == 200
+    assert _put_teachers(teacher_client, record_id, []).status_code == 403
+
+
+@pytest.mark.parametrize("status", ["AUTO", "MANUAL", "COPIED", "EDITING"])
+def test_settings_of_a_scheduled_record_cannot_change(
+    client: TestClient, status: str
+) -> None:
+    record_id = _record(client)
+    grade_id = _grade(client, 1)
+    slot = _slot(client, 1, 1)
+    wang = create_teacher(client, "王老師")
+    _put_teachers(client, record_id, [_entry(wang)])
+    mark_status(client, record_id, status)
+
+    teachers = _put_teachers(client, record_id, [])
+    grade_slots = client.put(
+        f"{RECORDS}/{record_id}/grades/{grade_id}/time-slots", json={"time_slot_ids": [slot]}
+    )
+
+    for response in (teachers, grade_slots):
+        assert response.status_code == 409
+        assert response.json()["detail"] == LOCKED_MESSAGE
+    assert [item["teacher_id"] for item in client.get(f"{RECORDS}/{record_id}/teachers").json()] == [wang]
 
 
 # --- grades' open slots (step 8) ---
 
 
 def test_grade_open_slots_are_saved_and_replaced(client: TestClient) -> None:
-    semester_id = _semester(client)
+    record_id = _record(client)
     grade_id = _grade(client, 1)
     slots = [_slot(client, 1, period) for period in (1, 2, 3)]
-    url = f"{SEMESTERS}/{semester_id}/grades/{grade_id}/time-slots"
+    url = f"{RECORDS}/{record_id}/grades/{grade_id}/time-slots"
 
     first = client.put(url, json={"time_slot_ids": [slots[2], slots[0]]})
     second = client.put(url, json={"time_slot_ids": [slots[1]]})
 
     assert first.json() == {"grade_id": grade_id, "time_slot_ids": sorted([slots[0], slots[2]])}
     assert second.status_code == 200
-    assert client.get(f"{SEMESTERS}/{semester_id}/grade-time-slots").json() == [
+    assert client.get(f"{RECORDS}/{record_id}/grade-time-slots").json() == [
         {"grade_id": grade_id, "time_slot_ids": [slots[1]]}
     ]
 
 
 def test_a_grade_needs_at_least_one_open_slot(client: TestClient) -> None:
-    semester_id = _semester(client)
+    record_id = _record(client)
     grade_id = _grade(client, 1)
 
     response = client.put(
-        f"{SEMESTERS}/{semester_id}/grades/{grade_id}/time-slots", json={"time_slot_ids": []}
+        f"{RECORDS}/{record_id}/grades/{grade_id}/time-slots", json={"time_slot_ids": []}
     )
 
     assert response.status_code == 422
@@ -218,14 +251,14 @@ def test_a_grade_needs_at_least_one_open_slot(client: TestClient) -> None:
 
 
 def test_unknown_grade_or_slot(client: TestClient) -> None:
-    semester_id = _semester(client)
+    record_id = _record(client)
     grade_id = _grade(client, 1)
 
     unknown_grade = client.put(
-        f"{SEMESTERS}/{semester_id}/grades/999999/time-slots", json={"time_slot_ids": [1]}
+        f"{RECORDS}/{record_id}/grades/999999/time-slots", json={"time_slot_ids": [1]}
     )
     unknown_slot = client.put(
-        f"{SEMESTERS}/{semester_id}/grades/{grade_id}/time-slots", json={"time_slot_ids": [999999]}
+        f"{RECORDS}/{record_id}/grades/{grade_id}/time-slots", json={"time_slot_ids": [999999]}
     )
 
     assert unknown_grade.status_code == 404
@@ -236,17 +269,17 @@ def test_a_grade_cannot_be_opened_for_a_non_schedulable_slot(client: TestClient)
     """A slot the school marked not schedulable (早自習, 午休 ...) can't be
     one of a grade's open slots -- the wizard greys it out, the backend
     refuses it too. Nothing is saved."""
-    semester_id = _semester(client)
+    record_id = _record(client)
     grade_id = _grade(client, 1)
     teaching = _slot(client, 1, 1)
     lunch = _slot(client, 1, 5, teaching=False)
-    url = f"{SEMESTERS}/{semester_id}/grades/{grade_id}/time-slots"
+    url = f"{RECORDS}/{record_id}/grades/{grade_id}/time-slots"
 
     response = client.put(url, json={"time_slot_ids": [teaching, lunch]})
 
     assert response.status_code == 422
     assert response.json()["detail"] == "不可排課的時段不能設為年級可排節次"
-    assert client.get(f"{SEMESTERS}/{semester_id}/grade-time-slots").json() == []
+    assert client.get(f"{RECORDS}/{record_id}/grade-time-slots").json() == []
 
 
 # --- default open slots per band ---
@@ -265,11 +298,11 @@ def test_grade_bands(level: int, band: GradeBand) -> None:
 @pytest.mark.parametrize(
     ("band", "last_by_weekday"),
     [
-        (GradeBand.LOWER, {1: 5, 2: 8, 3: 5, 4: 5, 5: 5}),
-        (GradeBand.MIDDLE, {1: 8, 2: 8, 3: 5, 4: 8, 5: 5}),
-        (GradeBand.UPPER, {1: 8, 2: 8, 3: 5, 4: 8, 5: 8}),
-        (GradeBand.JUNIOR_HIGH, {1: 10, 2: 10, 3: 10, 4: 10, 5: 10}),
-        (GradeBand.SENIOR_HIGH, {1: 10, 2: 10, 3: 10, 4: 10, 5: 10}),
+        (GradeBand.LOWER, {1: 4, 2: 8, 3: 4, 4: 4, 5: 4}),
+        (GradeBand.MIDDLE, {1: 8, 2: 8, 3: 4, 4: 8, 5: 4}),
+        (GradeBand.UPPER, {1: 8, 2: 8, 3: 4, 4: 8, 5: 8}),
+        (GradeBand.JUNIOR_HIGH, {1: 9, 2: 9, 3: 9, 4: 9, 5: 9}),
+        (GradeBand.SENIOR_HIGH, {1: 9, 2: 9, 3: 9, 4: 9, 5: 9}),
     ],
 )
 def test_last_open_period_by_band(band: GradeBand, last_by_weekday: dict[int, int]) -> None:
@@ -278,12 +311,13 @@ def test_last_open_period_by_band(band: GradeBand, last_by_weekday: dict[int, in
 
 def test_default_open_slots_skip_non_teaching_periods() -> None:
     slots = [
-        SlotPosition(time_slot_id=10 + period, weekday=1, period=period, is_teaching_period=period != 4)
+        SlotPosition(time_slot_id=10 + period, weekday=2, period=period, is_teaching_period=period != 3)
         for period in range(0, 9)
     ]
 
-    # 低年級, Monday 0-5, without the lunch break at period 4.
-    assert default_open_slot_ids(1, slots) == [10, 11, 12, 13, 15]
+    # 低年級, Tuesday 第 1-7 節 (periods 1-8, never 0), without period 3
+    # the school marked not schedulable.
+    assert default_open_slot_ids(1, slots) == [11, 12, 14, 15, 16, 17, 18]
 
 
 def test_default_time_slots_endpoint(client: TestClient) -> None:
@@ -300,11 +334,11 @@ def test_default_time_slots_endpoint(client: TestClient) -> None:
     lower_slots = client.get(f"/api/v1/grades/{lower}/default-time-slots").json()
     junior_slots = client.get(f"/api/v1/grades/{junior}/default-time-slots").json()
 
-    # 低年級: Tuesday 0-8, Wednesday 0-5 -- schedulable periods only.
+    # 低年級: Tuesday 第 1-7 節, Wednesday 第 1-4 節 -- schedulable periods only.
     assert lower_slots == [by_position[(2, p)] for p in (1, 2, 3, 4, 6, 7, 8)] + [
         by_position[(3, p)] for p in (1, 2, 3, 4)
     ]
-    # 國中 / 高中: every day 0-10.
+    # 國中 / 高中: every day 第 1-8 節.
     assert junior_slots == [
         by_position[(w, p)] for w in (2, 3) for p in range(0, 11) if p not in closed
     ]
@@ -316,30 +350,28 @@ def test_default_time_slots_endpoint(client: TestClient) -> None:
 
 def _schedulable(client: TestClient, weekly_periods: int) -> tuple[int, int, int, list[int]]:
     """One 1st-grade class needing `weekly_periods` of one subject, one
-    teacher taking part, four Monday slots. Returns (semester_id,
+    teacher taking part, four Monday slots. Returns (record_id,
     version_id, grade_id, slot ids)."""
-    semester_id = _semester(client)
+    record_id = _record(client)
     grade_id = _grade(client, 1)
     class_id = create_class(client, grade_id, "一甲")
     subject_id = client.post("/api/v1/subjects/", json={"name": "國語"}).json()["id"]
     client.post(
         "/api/v1/class-subject-requirements/",
-        json={"semester_id": semester_id, "class_id": class_id, "subject_id": subject_id,
+        json={"schedule_version_id": record_id, "class_id": class_id, "subject_id": subject_id,
               "weekly_periods": weekly_periods},
     )
     slots = [_slot(client, 1, period) for period in (1, 2, 3, 4)]
-    create_enrolled_teacher(client, semester_id, "王老師")
-    version_id = client.post(
-        "/api/v1/schedule-versions/", json={"semester_id": semester_id, "version_number": 1}
-    ).json()["id"]
+    create_enrolled_teacher(client, record_id, "王老師")
+    version_id = record_id
     client.post(f"/api/v1/schedule-versions/{version_id}/generate-lessons")
-    return semester_id, version_id, grade_id, slots
+    return record_id, version_id, grade_id, slots
 
 
 def test_run_scheduler_keeps_a_grade_inside_its_open_slots(client: TestClient) -> None:
-    semester_id, version_id, grade_id, slots = _schedulable(client, weekly_periods=2)
+    record_id, version_id, grade_id, slots = _schedulable(client, weekly_periods=2)
     client.put(
-        f"{SEMESTERS}/{semester_id}/grades/{grade_id}/time-slots",
+        f"{RECORDS}/{record_id}/grades/{grade_id}/time-slots",
         json={"time_slot_ids": [slots[2], slots[3]]},
     )
 
@@ -354,9 +386,9 @@ def test_run_scheduler_keeps_a_grade_inside_its_open_slots(client: TestClient) -
 
 
 def test_run_scheduler_reports_too_few_open_slots(client: TestClient) -> None:
-    semester_id, version_id, grade_id, slots = _schedulable(client, weekly_periods=3)
+    record_id, version_id, grade_id, slots = _schedulable(client, weekly_periods=3)
     client.put(
-        f"{SEMESTERS}/{semester_id}/grades/{grade_id}/time-slots",
+        f"{RECORDS}/{record_id}/grades/{grade_id}/time-slots",
         json={"time_slot_ids": [slots[0], slots[1]]},
     )
 
@@ -369,8 +401,8 @@ def test_run_scheduler_reports_too_few_open_slots(client: TestClient) -> None:
 
 
 def test_run_scheduler_without_any_teacher_explains_it(client: TestClient) -> None:
-    semester_id, version_id, _, _ = _schedulable(client, weekly_periods=1)
-    _put_teachers(client, semester_id, [])
+    record_id, version_id, _, _ = _schedulable(client, weekly_periods=1)
+    _put_teachers(client, record_id, [])
 
     response = client.post(f"/api/v1/schedule-versions/{version_id}/run-scheduler")
 
@@ -379,10 +411,10 @@ def test_run_scheduler_without_any_teacher_explains_it(client: TestClient) -> No
     assert reasons == ["NO_CANDIDATE_TEACHER"]
 
 
-def test_run_scheduler_uses_the_semesters_maximum(client: TestClient) -> None:
-    semester_id, version_id, _, _ = _schedulable(client, weekly_periods=2)
-    [teacher] = client.get(f"{SEMESTERS}/{semester_id}/teachers").json()
-    _put_teachers(client, semester_id, [_entry(teacher["teacher_id"], 0, 1)])
+def test_run_scheduler_uses_the_records_maximum(client: TestClient) -> None:
+    record_id, version_id, _, _ = _schedulable(client, weekly_periods=2)
+    [teacher] = client.get(f"{RECORDS}/{record_id}/teachers").json()
+    _put_teachers(client, record_id, [_entry(teacher["teacher_id"], 0, 1)])
 
     response = client.post(f"/api/v1/schedule-versions/{version_id}/run-scheduler")
 

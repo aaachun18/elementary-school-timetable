@@ -28,18 +28,18 @@ router = APIRouter(
 def list_lessons(
     skip: int = 0,
     limit: int = 100,
-    semester_id: int | None = None,
+    schedule_version_id: int | None = None,
     current_user: User = Depends(require_school_member),
     db: Session = Depends(get_db),
     school_id: int = Depends(member_school_id),
 ) -> list[Lesson]:
-    # Task 72: a TEACHER only sees Lessons of semesters with a PUBLISHED
-    # version -- a silent filter, same as /schedules (Task 43).
+    # Task 72: a TEACHER only sees Lessons of published records -- a silent
+    # filter, same as /schedules (Task 43).
     return lesson_service.get_lessons(
         db,
         skip=skip,
         limit=limit,
-        semester_id=semester_id,
+        schedule_version_id=schedule_version_id,
         role=current_user.role,
         school_id=school_id,
     )

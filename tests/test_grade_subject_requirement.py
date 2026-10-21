@@ -1,6 +1,6 @@
 """學校資料 > 科目需求 (GradeSubjectRequirement): weekly periods per grade
 and subject, and how the wizard's 科目需求 step copies them into a
-semester (POST /class-subject-requirements/sync)."""
+排課紀錄 (POST /class-subject-requirements/sync)."""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.models.grade_class import Grade
 from app.models.school import School
 from app.models.subject import Subject
-from tests.api_helpers import create_class, create_grade, create_time_slot
+from tests.api_helpers import create_class, create_grade, create_record, mark_status
 from tests.test_school_isolation import other_school  # noqa: F401 (fixture)
 
 URL = "/api/v1/grade-subject-requirements"
@@ -33,23 +33,26 @@ def _rule(client: TestClient, grade_id: int, subject_id: int, weekly_periods: in
     return rule_id
 
 
-def _semester(client: TestClient, year: int = 115) -> int:
+def _record(client: TestClient, year: int = 115) -> int:
+    """v3: a semester and its 尚未排課 record (requirements belong to it)."""
     year_id = client.post("/api/v1/academic-years/", json={"year": year}).json()["id"]
     semester_id: int = client.post(
         "/api/v1/semesters/", json={"academic_year_id": year_id, "number": 1}
     ).json()["id"]
-    return semester_id
+    return create_record(client, semester_id)
 
 
-def _sync(client: TestClient, semester_id: int) -> dict:
-    response = client.post(f"{CSR}/sync", json={"semester_id": semester_id})
+def _sync(client: TestClient, record_id: int) -> dict:
+    response = client.post(f"{CSR}/sync", json={"schedule_version_id": record_id})
     assert response.status_code == 200, response.json()
     data: dict = response.json()
     return data
 
 
-def _requirements(client: TestClient, semester_id: int) -> dict[tuple[int, int], dict]:
-    rows = client.get(f"{CSR}/", params={"semester_id": semester_id, "limit": 1000}).json()
+def _requirements(client: TestClient, record_id: int) -> dict[tuple[int, int], dict]:
+    rows = client.get(
+        f"{CSR}/", params={"schedule_version_id": record_id, "limit": 1000}
+    ).json()
     return {(row["class_id"], row["subject_id"]): row for row in rows}
 
 
@@ -161,7 +164,7 @@ def test_teacher_can_read_but_not_write_rules(
     assert teacher_client.delete(f"{URL}/{rule_id}").status_code == 403
 
 
-# --- Copying the rules into a semester (the wizard's 科目需求 step) ---
+# --- Copying the rules into a record (the wizard's 科目需求 step) ---
 
 
 def test_sync_creates_a_requirement_per_class_and_rule(client: TestClient) -> None:
@@ -174,12 +177,12 @@ def test_sync_creates_a_requirement_per_class_and_rule(client: TestClient) -> No
     _rule(client, first, chinese, 6)
     _rule(client, first, maths, 4)
     _rule(client, second, chinese, 5)
-    semester_id = _semester(client)
+    record_id = _record(client)
 
-    result = _sync(client, semester_id)
+    result = _sync(client, record_id)
 
-    assert result == {"created": 5, "updated": 0, "removed": 0, "locked_requirement_ids": []}
-    rows = _requirements(client, semester_id)
+    assert result == {"created": 5, "updated": 0, "removed": 0}
+    rows = _requirements(client, record_id)
     assert {key: row["weekly_periods"] for key, row in rows.items()} == {
         (first_a, chinese): 6,
         (first_a, maths): 4,
@@ -199,12 +202,10 @@ def test_sync_twice_changes_nothing_the_second_time(client: TestClient) -> None:
     grade_id = create_grade(client, level=1)
     create_class(client, grade_id, "一年甲班")
     _rule(client, grade_id, _subject(client, "國語"), 6)
-    semester_id = _semester(client)
-    _sync(client, semester_id)
+    record_id = _record(client)
+    _sync(client, record_id)
 
-    assert _sync(client, semester_id) == {
-        "created": 0, "updated": 0, "removed": 0, "locked_requirement_ids": []
-    }
+    assert _sync(client, record_id) == {"created": 0, "updated": 0, "removed": 0}
 
 
 def test_sync_follows_changed_and_removed_rules_but_keeps_wizard_choices(
@@ -217,9 +218,9 @@ def test_sync_follows_changed_and_removed_rules_but_keeps_wizard_choices(
     maths_rule = _rule(client, grade_id, maths, 4)
     music_rule = _rule(client, grade_id, music, 2)
     room_id = client.post("/api/v1/rooms/", json={"name": "音樂教室"}).json()["id"]
-    semester_id = _semester(client)
-    _sync(client, semester_id)
-    rows = _requirements(client, semester_id)
+    record_id = _record(client)
+    _sync(client, record_id)
+    rows = _requirements(client, record_id)
     # The wizard's own choices.
     client.patch(f"{CSR}/{rows[(class_id, chinese)]['id']}", json={"lesson_pattern": "2+1"})
     client.patch(f"{CSR}/{rows[(class_id, maths)]['id']}", json={"lesson_pattern": "2+2"})
@@ -229,10 +230,10 @@ def test_sync_follows_changed_and_removed_rules_but_keeps_wizard_choices(
     client.patch(f"{URL}/{maths_rule}", json={"weekly_periods": 4})  # unchanged
     client.delete(f"{URL}/{music_rule}")
 
-    result = _sync(client, semester_id)
+    result = _sync(client, record_id)
 
-    assert result == {"created": 0, "updated": 1, "removed": 1, "locked_requirement_ids": []}
-    rows = _requirements(client, semester_id)
+    assert result == {"created": 0, "updated": 1, "removed": 1}
+    rows = _requirements(client, record_id)
     assert set(rows) == {(class_id, chinese), (class_id, maths)}
     assert rows[(class_id, chinese)]["weekly_periods"] == 5
     assert rows[(class_id, chinese)]["lesson_pattern"] is None
@@ -243,74 +244,64 @@ def test_sync_trims_the_lessons_of_a_shrunk_requirement(client: TestClient) -> N
     grade_id = create_grade(client, level=1)
     create_class(client, grade_id, "一年甲班")
     rule_id = _rule(client, grade_id, _subject(client, "國語"), 4)
-    semester_id = _semester(client)
-    _sync(client, semester_id)
-    version_id = client.post(
-        "/api/v1/schedule-versions/", json={"semester_id": semester_id, "version_number": 1}
-    ).json()["id"]
-    client.post(f"/api/v1/schedule-versions/{version_id}/generate-lessons")
+    record_id = _record(client)
+    _sync(client, record_id)
+    client.post(f"/api/v1/schedule-versions/{record_id}/generate-lessons")
     client.patch(f"{URL}/{rule_id}", json={"weekly_periods": 2})
 
-    _sync(client, semester_id)
+    _sync(client, record_id)
 
-    lessons = client.get("/api/v1/lessons/", params={"semester_id": semester_id}).json()
+    lessons = client.get("/api/v1/lessons/", params={"schedule_version_id": record_id}).json()
     assert sorted(lesson["sequence_number"] for lesson in lessons) == [1, 2]
     # generate-lessons is in sync again: nothing over-provisioned.
-    regenerated = client.post(f"/api/v1/schedule-versions/{version_id}/generate-lessons")
+    regenerated = client.post(f"/api/v1/schedule-versions/{record_id}/generate-lessons")
     assert regenerated.status_code == 200, regenerated.json()
 
 
-def test_sync_leaves_a_locked_requirement_alone(client: TestClient) -> None:
+def test_sync_only_touches_its_own_record(client: TestClient) -> None:
+    """v3: another record of the same semester keeps its requirements."""
     grade_id = create_grade(client, level=1)
     class_id = create_class(client, grade_id, "一年甲班")
     subject_id = _subject(client, "國語")
     rule_id = _rule(client, grade_id, subject_id, 1)
-    semester_id = _semester(client)
-    _sync(client, semester_id)
-    requirement_id = _requirements(client, semester_id)[(class_id, subject_id)]["id"]
-    teacher = client.post(
-        "/api/v1/auth/register",
-        json={"username": "t-sync", "password": "teacher-pass-123", "role": "TEACHER", "teacher_name": "王老師"},
-    ).json()["id"]
-    teacher_id = next(
-        row["id"] for row in client.get("/api/v1/teachers/").json() if row["user_id"] == teacher
-    )
-    slot_id = create_time_slot(client, 1, 1)
-    version_id = client.post(
-        "/api/v1/schedule-versions/", json={"semester_id": semester_id, "version_number": 1}
-    ).json()["id"]
-    lesson_id = client.post(
-        f"/api/v1/schedule-versions/{version_id}/generate-lessons"
-    ).json()["created_lessons"][0]["lesson_id"]
-    client.post(
-        "/api/v1/schedules/",
-        json={
-            "schedule_version_id": version_id,
-            "lesson_id": lesson_id,
-            "teacher_id": teacher_id,
-            "time_slot_id": slot_id,
-        },
-    )
-    published = client.patch(f"/api/v1/schedule-versions/{version_id}", json={"status": "PUBLISHED"})
-    assert published.status_code == 200, published.json()
+    first = _record(client)
+    semester_id = client.get(f"/api/v1/schedule-versions/{first}").json()["semester_id"]
+    second = create_record(client, semester_id)
+    _sync(client, first)
+    _sync(client, second)
     client.patch(f"{URL}/{rule_id}", json={"weekly_periods": 3})
 
-    result = _sync(client, semester_id)
+    _sync(client, second)
 
-    assert result["locked_requirement_ids"] == [requirement_id]
-    assert result["updated"] == 0
-    assert _requirements(client, semester_id)[(class_id, subject_id)]["weekly_periods"] == 1
+    assert _requirements(client, first)[(class_id, subject_id)]["weekly_periods"] == 1
+    assert _requirements(client, second)[(class_id, subject_id)]["weekly_periods"] == 3
 
 
-def test_sync_unknown_semester_is_404(client: TestClient) -> None:
-    response = client.post(f"{CSR}/sync", json={"semester_id": 999999})
+def test_sync_of_a_scheduled_record_is_refused(client: TestClient) -> None:
+    grade_id = create_grade(client, level=1)
+    class_id = create_class(client, grade_id, "一年甲班")
+    subject_id = _subject(client, "國語")
+    rule_id = _rule(client, grade_id, subject_id, 1)
+    record_id = _record(client)
+    _sync(client, record_id)
+    mark_status(client, record_id, "AUTO", is_published=True)
+    client.patch(f"{URL}/{rule_id}", json={"weekly_periods": 3})
+
+    response = client.post(f"{CSR}/sync", json={"schedule_version_id": record_id})
+
+    assert response.status_code == 409
+    assert _requirements(client, record_id)[(class_id, subject_id)]["weekly_periods"] == 1
+
+
+def test_sync_unknown_record_is_404(client: TestClient) -> None:
+    response = client.post(f"{CSR}/sync", json={"schedule_version_id": 999999})
 
     assert response.status_code == 404
 
 
 def test_teacher_cannot_sync(client: TestClient, teacher_client: TestClient) -> None:
-    semester_id = _semester(client)
+    record_id = _record(client)
 
-    response = teacher_client.post(f"{CSR}/sync", json={"semester_id": semester_id})
+    response = teacher_client.post(f"{CSR}/sync", json={"schedule_version_id": record_id})
 
     assert response.status_code == 403

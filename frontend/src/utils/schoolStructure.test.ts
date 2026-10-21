@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chineseNumber, classNameOptions, gradeName } from "./schoolStructure";
+import { chineseNumber, classNameOptions, defaultOpenPeriodsText, gradeName } from "./schoolStructure";
 
 describe("chineseNumber", () => {
   it("writes 1-30 the way class names use them", () => {
@@ -56,5 +56,15 @@ describe("classNameOptions", () => {
 
   it("uses 一到三年 for 高中", () => {
     expect(classNameOptions(10, "HEAVENLY_STEM")[0]).toBe("一年甲班");
+  });
+});
+
+describe("defaultOpenPeriodsText", () => {
+  it("describes each band's default open periods", () => {
+    expect(defaultOpenPeriodsText(1)).toBe("星期二第 1–7 節，其他天第 1–4 節");
+    expect(defaultOpenPeriodsText(4)).toBe("星期三、五第 1–4 節，其他天第 1–7 節");
+    expect(defaultOpenPeriodsText(6)).toBe("星期三第 1–4 節，其他天第 1–7 節");
+    expect(defaultOpenPeriodsText(8)).toBe("每天第 1–8 節");
+    expect(defaultOpenPeriodsText(11)).toBe("每天第 1–8 節");
   });
 });

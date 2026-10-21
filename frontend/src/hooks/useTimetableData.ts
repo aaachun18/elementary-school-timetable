@@ -1,4 +1,3 @@
-import { get as getScheduleVersion } from "../api/scheduleVersions";
 import { list as listSchedules } from "../api/schedules";
 import { list as listLessons } from "../api/lessons";
 import { list as listRequirements } from "../api/classSubjectRequirements";
@@ -83,11 +82,10 @@ export interface TimetableData {
   teacherIdsByRequirementId: Map<number, number[]>;
 }
 
-// Task 67: Schedule rows are fetched for this one version only
-// (?schedule_version_id=), and Lessons/requirements for that version's
-// semester only (?semester_id=) -- previously all three tables were fetched
-// whole and filtered here, so copies (which multiply rows quickly) could
-// push this version's rows past the limit and silently drop lessons. The
+// Task 67 / v3: Schedule rows, Lessons and requirements are all fetched for
+// this one record only (?schedule_version_id=) -- every record owns its
+// own -- so other records (copies multiply rows quickly) can never push this
+// one's rows past the limit and silently drop lessons. The
 // master tables (time slots, teachers, classes, subjects, rooms) are still
 // fetched whole: they're small and not per-version. The limit stays
 // explicit and generous; the backend has no upper bound of its own (see
@@ -105,14 +103,10 @@ function buildPeriods(timeSlots: TimeSlot[]): number[] {
   );
 }
 
-// Lessons and requirements are filtered by the version's semester, which
-// only the version itself knows -- so this one chain waits on GET
-// /schedule-versions/{id} first, while everything else runs in parallel.
-async function loadSemesterLessonsAndRequirements(scheduleVersionId: number) {
-  const version = await getScheduleVersion(scheduleVersionId);
+async function loadLessonsAndRequirements(scheduleVersionId: number) {
   return Promise.all([
-    listLessons(0, FETCH_LIMIT, { semester_id: version.semester_id }),
-    listRequirements(0, FETCH_LIMIT, { semester_id: version.semester_id }),
+    listLessons(0, FETCH_LIMIT, { schedule_version_id: scheduleVersionId }),
+    listRequirements(0, FETCH_LIMIT, { schedule_version_id: scheduleVersionId }),
   ]);
 }
 
@@ -126,7 +120,7 @@ async function buildTimetableData(scheduleVersionId: number): Promise<TimetableD
     subjects,
     rooms,
   ] = await Promise.all([
-    loadSemesterLessonsAndRequirements(scheduleVersionId),
+    loadLessonsAndRequirements(scheduleVersionId),
     listSchedules(0, FETCH_LIMIT, { schedule_version_id: scheduleVersionId }),
     listTimeSlots(0, FETCH_LIMIT),
     listTeachers(0, FETCH_LIMIT),

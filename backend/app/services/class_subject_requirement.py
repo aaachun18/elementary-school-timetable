@@ -1,15 +1,20 @@
-from sqlalchemy import Select, select
+"""A 排課紀錄's class subject requirements (科目需求): how many weekly periods
+a class needs of a subject, its lesson pattern, teacher and room. v3: they
+belong to one record (schedule_version_id) and change only while it is
+尚未排課 -- SettingsLockedError (409) otherwise, for create, update, delete
+and the sync from the school's 科目需求 alike."""
+
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.academic_year import Semester
 from app.models.class_subject_requirement import ClassSubjectRequirement
 from app.models.grade_class import Class
 from app.models.grade_subject_requirement import GradeSubjectRequirement
 from app.models.lesson import Lesson
 from app.models.room import Room
 from app.models.schedule import Schedule
-from app.models.schedule_version import LOCKED_STATUSES, ScheduleVersion
+from app.models.schedule_version import ScheduleVersion
 from app.models.subject import Subject
 from app.models.teacher import Teacher
 from app.schemas.class_subject_requirement import (
@@ -20,14 +25,12 @@ from app.schemas.class_subject_requirement import (
 from app.services.exceptions import (
     DependentRecordsExistError,
     InvalidLessonPatternError,
-    RequirementEditBlockedByPublishedScheduleError,
-    RequirementUsedByPublishedScheduleError,
     raise_for_integrity_error,
 )
 from app.services.lesson_pattern import assign_block_fields, check_pattern_total
 from app.services.schedule_version import (
-    published_semester_ids,
-    semester_has_published_version,
+    published_version_ids,
+    raise_if_settings_locked,
 )
 from app.services.school_scope import (
     ensure_references_in_school,
@@ -35,75 +38,16 @@ from app.services.school_scope import (
     in_school,
 )
 
-# Task 72: every field PATCH can change. A requirement whose lessons are
-# placed in a PUBLISHED or ARCHIVED version may not change any of them: the
-# requirement is shared by every version of the semester, so editing it
-# would leave the locked timetable inconsistent with it.
-LOCKED_REQUIREMENT_FIELDS = frozenset(
-    {
-        "class_id",
-        "subject_id",
-        "semester_id",
-        "weekly_periods",
-        "required_teacher_id",
-        "required_room_id",
-        "required_room_type",
-        "consecutive_limit",
-        # Task 87: changing the pattern regroups the lessons a locked
-        # timetable already uses.
-        "lesson_pattern",
-    }
-)
-
-
-def _locked_requirement_ids_query() -> Select[tuple[int]]:
-    """The one definition of "locked" (Task 56/64/72/73): ids of the
-    requirements with at least one Lesson placed in a PUBLISHED or ARCHIVED
-    version (fully locked, Task 25). Every check below narrows this same
-    query, so the delete guard, the update guard and the is_locked response
-    field can never disagree."""
-    return (
-        select(Lesson.class_subject_requirement_id)
-        .join(Schedule, Schedule.lesson_id == Lesson.id)
-        .join(ScheduleVersion, Schedule.schedule_version_id == ScheduleVersion.id)
-        .where(ScheduleVersion.status.in_(LOCKED_STATUSES))
-    )
-
-
-def is_used_by_locked_schedule(db: Session, requirement_id: int) -> bool:
-    """Whether this one requirement is locked (delete and update guards)."""
-    locked_id = db.scalars(
-        _locked_requirement_ids_query()
-        .where(Lesson.class_subject_requirement_id == requirement_id)
-        .limit(1)
-    ).first()
-    return locked_id is not None
-
-
-def locked_requirement_ids(db: Session, requirement_ids: list[int]) -> set[int]:
-    """Task 73: which of these requirements are locked -- one query for a
-    whole list (the is_locked field of GET /class-subject-requirements),
-    never one per requirement."""
-    if not requirement_ids:
-        return set()
-    return set(
-        db.scalars(
-            _locked_requirement_ids_query()
-            .where(Lesson.class_subject_requirement_id.in_(requirement_ids))
-            .distinct()
-        ).all()
-    )
-
 
 def _ensure_references_in_school(
     db: Session, school_id: int, fields: dict[str, object]
 ) -> None:
-    """Task 98: the semester, class, subject, required teacher and required
+    """Task 98: the record, class, subject, required teacher and required
     room a requirement points at must all be of the caller's school."""
     references: list[tuple[type, int | None]] = [
         (model, fields.get(field))  # type: ignore[misc]
         for model, field in (
-            (Semester, "semester_id"),
+            (ScheduleVersion, "schedule_version_id"),
             (Class, "class_id"),
             (Subject, "subject_id"),
             (Teacher, "required_teacher_id"),
@@ -113,10 +57,17 @@ def _ensure_references_in_school(
     ensure_references_in_school(db, school_id, references)
 
 
+def _raise_if_locked(db: Session, schedule_version_id: int) -> None:
+    schedule_version = db.get(ScheduleVersion, schedule_version_id)
+    assert schedule_version is not None  # FK / checked by the caller
+    raise_if_settings_locked(schedule_version)
+
+
 def create_class_subject_requirement(
     db: Session, requirement_data: ClassSubjectRequirementCreate, *, school_id: int
 ) -> ClassSubjectRequirement:
     _ensure_references_in_school(db, school_id, requirement_data.model_dump())
+    _raise_if_locked(db, requirement_data.schedule_version_id)
     requirement = ClassSubjectRequirement(**requirement_data.model_dump())
     db.add(requirement)
     try:
@@ -131,17 +82,16 @@ def create_class_subject_requirement(
 def get_class_subject_requirement(
     db: Session, requirement_id: int, *, school_id: int, role: str | None = None
 ) -> ClassSubjectRequirement | None:
-    """Task 72: a TEACHER only sees a requirement whose semester currently
-    has a PUBLISHED version; any other one resolves to None (the router's
-    existing 404). `role=None` (the 教學組長 and internal callers) sees
-    all of the school's."""
+    """Task 72: a TEACHER only sees a requirement of a published record;
+    any other one resolves to None (the router's existing 404). `role=None`
+    (the 教學組長 and internal callers) sees all of the school's."""
     requirement = get_in_school(db, ClassSubjectRequirement, requirement_id, school_id)
     if requirement is None:
         return None
-    if role == "TEACHER" and not semester_has_published_version(
-        db, requirement.semester_id
-    ):
-        return None
+    if role == "TEACHER":
+        schedule_version = db.get(ScheduleVersion, requirement.schedule_version_id)
+        if schedule_version is None or not schedule_version.is_published:
+            return None
     return requirement
 
 
@@ -151,21 +101,20 @@ def get_class_subject_requirements(
     limit: int = 100,
     *,
     school_id: int,
-    semester_id: int | None = None,
+    schedule_version_id: int | None = None,
     role: str | None = None,
 ) -> list[ClassSubjectRequirement]:
-    """Task 66: optional semester_id filter; an unknown semester simply
+    """Optional schedule_version_id filter; an unknown record simply
     matches no rows. Ordered by id so skip/limit pages are stable. Task 72:
-    a TEACHER only gets requirements of semesters that currently have a
-    PUBLISHED version."""
+    a TEACHER only gets requirements of published records."""
     stmt = select(ClassSubjectRequirement).where(
         in_school(ClassSubjectRequirement, school_id)
     )
-    if semester_id is not None:
-        stmt = stmt.where(ClassSubjectRequirement.semester_id == semester_id)
+    if schedule_version_id is not None:
+        stmt = stmt.where(ClassSubjectRequirement.schedule_version_id == schedule_version_id)
     if role == "TEACHER":
         stmt = stmt.where(
-            ClassSubjectRequirement.semester_id.in_(published_semester_ids())
+            ClassSubjectRequirement.schedule_version_id.in_(published_version_ids())
         )
     stmt = stmt.order_by(ClassSubjectRequirement.id).offset(skip).limit(limit)
     return list(db.scalars(stmt).all())
@@ -184,19 +133,7 @@ def update_class_subject_requirement(
 
     requested = requirement_data.model_dump(exclude_unset=True)
     _ensure_references_in_school(db, school_id, requested)
-    # Task 72: only an actual change counts -- sending a field's current
-    # value is not an edit (same rule as ScheduleVersion's locked fields).
-    changed_locked_fields = sorted(
-        field
-        for field, value in requested.items()
-        if field in LOCKED_REQUIREMENT_FIELDS and getattr(requirement, field) != value
-    )
-    if changed_locked_fields and is_used_by_locked_schedule(db, requirement_id):
-        raise RequirementEditBlockedByPublishedScheduleError(
-            f"ClassSubjectRequirement {requirement_id} cannot change "
-            f"{', '.join(changed_locked_fields)}: its lessons are used by a "
-            "PUBLISHED or ARCHIVED schedule version."
-        )
+    _raise_if_locked(db, requirement.schedule_version_id)
 
     # Task 87: the pattern must add up to weekly_periods as they will be
     # AFTER this update -- changing either one alone can break that.
@@ -233,9 +170,9 @@ def update_class_subject_requirement(
 
 
 def _stage_delete_lessons(db: Session, lesson_ids: list[int]) -> None:
-    """Staged, not committed: these lessons and their (DRAFT) Schedule rows,
-    flushed in that order -- child rows before the rows they reference.
-    The caller has made sure no locked version uses them."""
+    """Staged, not committed: these lessons and any Schedule rows of them,
+    flushed in that order -- child rows before the rows they reference. (A
+    尚未排課 record has no timetable, so normally there are none.)"""
     if not lesson_ids:
         return
     for schedule in db.scalars(select(Schedule).where(Schedule.lesson_id.in_(lesson_ids))).all():
@@ -246,47 +183,27 @@ def _stage_delete_lessons(db: Session, lesson_ids: list[int]) -> None:
     db.flush()
 
 
-def delete_class_subject_requirement(
-    db: Session, requirement_id: int, *, school_id: int
-) -> bool:
-    requirement = get_in_school(db, ClassSubjectRequirement, requirement_id, school_id)
-    if requirement is None:
-        return False
-
-    # Task 56: Lesson rows are owned sub-resources of this requirement
-    # (generate-lessons creates them FROM it -- see app/models/lesson.py),
-    # not something that genuinely still needs it -- same reasoning as
-    # Task 48's delete_teacher(). lessons.class_subject_requirement_id and
-    # schedules.lesson_id have no ON DELETE CASCADE, so without this, any
-    # requirement that had ever been expanded into lessons could never be
-    # deleted at all, and there's no endpoint to delete a Lesson by hand.
-    lesson_ids = list(
+def _lesson_ids(db: Session, requirement_id: int) -> list[int]:
+    return list(
         db.scalars(
-            select(Lesson.id).where(
-                Lesson.class_subject_requirement_id == requirement_id
-            )
+            select(Lesson.id).where(Lesson.class_subject_requirement_id == requirement_id)
         ).all()
     )
 
-    # A PUBLISHED or (Task 64) ARCHIVED version is fully locked (Task 25):
-    # if any of these lessons is placed in one, the whole delete is refused
-    # up front, before anything is staged.
-    if lesson_ids and is_used_by_locked_schedule(db, requirement_id):
-        raise RequirementUsedByPublishedScheduleError(
-            f"ClassSubjectRequirement {requirement_id} cannot be deleted: "
-            "its lessons are used by a PUBLISHED or ARCHIVED schedule "
-            "version."
-        )
 
-    # Everything below is staged on `db` but not committed yet. Each step is
-    # flushed explicitly so the DELETE order is Schedule -> Lesson ->
-    # requirement (child rows before the rows they reference). If any step
-    # fails, the rollback() undoes the WHOLE transaction, so a lesson is
-    # never lost while its requirement survives.
+def delete_class_subject_requirement(
+    db: Session, requirement_id: int, *, school_id: int
+) -> bool:
+    """Task 56: the requirement goes with its Lesson rows -- they are its
+    owned sub-resources (generate-lessons creates them from it). One
+    transaction: Lesson rows first, then the requirement."""
+    requirement = get_in_school(db, ClassSubjectRequirement, requirement_id, school_id)
+    if requirement is None:
+        return False
+    _raise_if_locked(db, requirement.schedule_version_id)
+
     try:
-        # Only DRAFT rows can remain here (PUBLISHED/ARCHIVED was refused
-        # above).
-        _stage_delete_lessons(db, lesson_ids)
+        _stage_delete_lessons(db, _lesson_ids(db, requirement_id))
         db.delete(requirement)
         db.commit()
     except IntegrityError as exc:
@@ -299,7 +216,7 @@ def delete_class_subject_requirement(
     return True
 
 
-# --- the school's 科目需求 -> a semester (wizard 科目需求 step) ---
+# --- the school's 科目需求 -> a record (wizard 科目需求 step) ---
 
 
 def _pattern_or_none(pattern: str | None, weekly_periods: int) -> str | None:
@@ -311,25 +228,25 @@ def _pattern_or_none(pattern: str | None, weekly_periods: int) -> str | None:
     return pattern
 
 
-def sync_semester_requirements(
-    db: Session, semester_id: int, *, school_id: int
+def sync_version_requirements(
+    db: Session, schedule_version_id: int, *, school_id: int
 ) -> RequirementSyncResult | None:
-    """Makes the semester's requirements follow the school's 科目需求
+    """Makes the record's requirements follow the school's 科目需求
     (GradeSubjectRequirement), for every class of the school:
     - a grade rule a class has no requirement for -> created (no pattern,
       teacher or room yet);
     - weekly_periods differing from the rule -> changed to it; a lesson
       pattern that no longer adds up is cleared, and lessons beyond the new
-      count are deleted with their DRAFT schedules (missing ones are made
-      by generate-lessons when scheduling);
-    - a requirement with no rule any more -> deleted, lessons and DRAFT
-      schedules with it.
-    A requirement a PUBLISHED or ARCHIVED version uses is never touched
-    (listed in locked_requirement_ids). The lesson pattern, teacher and
-    room the wizard set are kept. All in one transaction. None if the
-    semester doesn't exist in the school."""
-    if get_in_school(db, Semester, semester_id, school_id) is None:
+      count are deleted (missing ones are made by generate-lessons when
+      scheduling);
+    - a requirement with no rule any more -> deleted, lessons with it.
+    The lesson pattern, teacher and room the wizard set are kept. Only a
+    尚未排課 record (409 otherwise). All in one transaction. None if the
+    record doesn't exist in the school."""
+    schedule_version = get_in_school(db, ScheduleVersion, schedule_version_id, school_id)
+    if schedule_version is None:
         return None
+    raise_if_settings_locked(schedule_version)
 
     rule_periods = {
         (class_id, subject_id): weekly_periods
@@ -346,18 +263,15 @@ def sync_semester_requirements(
     existing = list(
         db.scalars(
             select(ClassSubjectRequirement).where(
-                ClassSubjectRequirement.semester_id == semester_id
+                ClassSubjectRequirement.schedule_version_id == schedule_version_id
             )
         ).all()
     )
-    locked_ids = locked_requirement_ids(db, [requirement.id for requirement in existing])
 
     created = updated = removed = 0
     try:
         for requirement in existing:
             key = (requirement.class_id, requirement.subject_id)
-            if requirement.id in locked_ids:
-                continue
             if key not in rule_periods:
                 _stage_delete_lessons(db, _lesson_ids(db, requirement.id))
                 db.delete(requirement)
@@ -373,7 +287,7 @@ def sync_semester_requirements(
             if (class_id, subject_id) not in covered:
                 db.add(
                     ClassSubjectRequirement(
-                        semester_id=semester_id,
+                        schedule_version_id=schedule_version_id,
                         class_id=class_id,
                         subject_id=subject_id,
                         weekly_periods=weekly_periods,
@@ -385,20 +299,7 @@ def sync_semester_requirements(
         db.rollback()
         raise_for_integrity_error(exc)
 
-    return RequirementSyncResult(
-        created=created,
-        updated=updated,
-        removed=removed,
-        locked_requirement_ids=sorted(locked_ids),
-    )
-
-
-def _lesson_ids(db: Session, requirement_id: int) -> list[int]:
-    return list(
-        db.scalars(
-            select(Lesson.id).where(Lesson.class_subject_requirement_id == requirement_id)
-        ).all()
-    )
+    return RequirementSyncResult(created=created, updated=updated, removed=removed)
 
 
 def _resize(db: Session, requirement: ClassSubjectRequirement, weekly_periods: int) -> None:

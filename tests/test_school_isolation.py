@@ -17,7 +17,14 @@ from app.models.subject import Subject
 from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
 from app.models.user import User
-from tests.conftest import _make_client, enroll_in_semester, get_test_school_id, time_slot_at
+from tests.conftest import (
+    _make_client,
+    enroll_in_semester,
+    get_test_school_id,
+    make_record,
+    mark_status_in_db,
+    time_slot_at,
+)
 
 # Task 98: every school's scheduling data is its own. The `client` fixture
 # is the 教學組長 of the test school ("school A" below); `other_client` is
@@ -90,12 +97,12 @@ def _school_world(db: Session, school_id: int, teacher_name: str = "甲老師") 
     class_ = Class(grade_id=grade.id, name="四年甲班")
     db.add_all([semester, class_])
     db.flush()
-    enroll_in_semester(db, semester.id, teacher)
+    version = make_record(db, semester.id)
+    enroll_in_semester(db, version.id, teacher)
     requirement = ClassSubjectRequirement(
-        semester_id=semester.id, class_id=class_.id, subject_id=subject.id, weekly_periods=2
+        schedule_version_id=version.id, class_id=class_.id, subject_id=subject.id, weekly_periods=2
     )
-    version = ScheduleVersion(semester_id=semester.id, version_number=1, status="DRAFT")
-    db.add_all([requirement, version])
+    db.add(requirement)
     db.commit()
     return SchoolWorld(year, semester, grade, class_, subject, teacher, slots, requirement, version)
 
@@ -234,8 +241,7 @@ def test_teacher_does_not_see_other_schools_published_version(
     teacher_client: TestClient, db_session: Session, other_school: School
 ) -> None:
     other = _school_world(db_session, other_school.id)
-    other.version.status = "PUBLISHED"
-    db_session.commit()
+    mark_status_in_db(db_session, other.version.id, "AUTO", is_published=True)
 
     assert teacher_client.get(f"{URL}/").json() == []
     assert teacher_client.get(f"{URL}/{other.version.id}").status_code == 404
@@ -250,7 +256,7 @@ def test_scheduler_uses_only_own_schools_teachers(
     # use school A's own teacher.
     other = _school_world(db_session, other_school.id, teacher_name="乙老師")
     world = _school_world(db_session, get_test_school_id(db_session))
-    enroll_in_semester(db_session, world.semester.id, other.teacher)
+    enroll_in_semester(db_session, world.version.id, other.teacher)
 
     assert client.post(f"{URL}/{world.version.id}/generate-lessons").status_code == 200
     response = client.post(f"{URL}/{world.version.id}/run-scheduler")

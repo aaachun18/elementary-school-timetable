@@ -1,5 +1,11 @@
 from fastapi.testclient import TestClient
-from tests.api_helpers import create_class, create_grade, create_time_slot
+from tests.api_helpers import (
+    create_class,
+    create_grade,
+    create_record,
+    create_time_slot,
+    mark_status,
+)
 
 
 def _create_academic_year(client: TestClient, year: int) -> int:
@@ -36,24 +42,20 @@ def _create_subject(client: TestClient, name: str) -> int:
 def _generate_lessons(
     client: TestClient, year: int, weekly_periods: int
 ) -> list[int]:
-    """Creates one requirement + syncs it, returning the created lesson ids."""
-    semester_id = _create_semester(client, year)
+    """Creates one requirement of a new 尚未排課 record + syncs it,
+    returning the created lesson ids."""
+    version_id = create_record(client, _create_semester(client, year))
     class_id = _create_class(client, level=year % 1000)
     subject_id = _create_subject(client, name=f"Subject {year}")
     client.post(
         "/api/v1/class-subject-requirements/",
         json={
-            "semester_id": semester_id,
+            "schedule_version_id": version_id,
             "class_id": class_id,
             "subject_id": subject_id,
             "weekly_periods": weekly_periods,
         },
     )
-    version_response = client.post(
-        "/api/v1/schedule-versions/",
-        json={"semester_id": semester_id, "version_number": 1, "status": "DRAFT"},
-    )
-    version_id = version_response.json()["id"]
     generate_response = client.post(
         f"/api/v1/schedule-versions/{version_id}/generate-lessons"
     )
@@ -119,6 +121,22 @@ def test_fix_lesson_time_slot_sets_and_clears(client: TestClient) -> None:
     )
     assert clear_response.status_code == 200
     assert clear_response.json()["fixed_time_slot_id"] is None
+
+
+def test_fix_lesson_time_slot_of_a_scheduled_record_is_refused(client: TestClient) -> None:
+    """v3: a fixed slot is a setting -- it changes only while the record
+    is 尚未排課."""
+    lesson_id = _generate_lessons(client, year=2096, weekly_periods=1)[0]
+    version_id = client.get("/api/v1/schedule-versions/").json()[0]["id"]
+    mark_status(client, version_id, "AUTO")
+    time_slot_id = _create_time_slot(client, weekday=4, period=4)
+
+    response = client.patch(
+        f"/api/v1/lessons/{lesson_id}/fix-time-slot", json={"time_slot_id": time_slot_id}
+    )
+
+    assert response.status_code == 409
+    assert client.get(f"/api/v1/lessons/{lesson_id}").json()["fixed_time_slot_id"] is None
 
 
 def test_fix_lesson_time_slot_not_found(client: TestClient) -> None:

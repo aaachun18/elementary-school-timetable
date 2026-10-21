@@ -1,20 +1,19 @@
-"""Task 98: one semester's scheduling settings -- the wizard's steps 4-6
-(which teachers take part, their weekly periods range and unavailable
-slots) and step 8 (the slots each grade is open for). Both are replaced as
-a whole by the wizard rather than edited row by row.
+"""Task 98: a 排課紀錄's scheduling settings -- the wizard's 教師設定 (which
+teachers take part, their weekly periods range and unavailable slots) and
+年級與可排節次 (the slots each grade is open for). Both are replaced as a
+whole by the wizard rather than edited row by row.
 
-Not locked by a published version: the settings are shared by every
-version of the semester (like its requirements), and a new DRAFT of a
-published timetable must be able to change them. Re-checking a published
-version afterwards judges it against the current settings.
+v3: every record owns its own settings (schedule_version_id), and only a
+尚未排課 record's change (SettingsLockedError otherwise) -- a record with a
+timetable keeps the settings it was made under.
 """
 
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.academic_year import Semester
 from app.models.grade_class import Grade
+from app.models.schedule_version import ScheduleVersion
 from app.models.semester_grade_time_slot import SemesterGradeTimeSlot
 from app.models.semester_teacher import SemesterTeacher, SemesterTeacherUnavailability
 from app.models.teacher import Teacher
@@ -30,6 +29,7 @@ from app.services.exceptions import (
     raise_for_integrity_error,
 )
 from app.services.grade_levels import SlotPosition, default_open_slot_ids
+from app.services.schedule_version import get_schedule_version, raise_if_settings_locked
 from app.services.school_scope import (
     ensure_references_in_school,
     get_in_school,
@@ -38,14 +38,14 @@ from app.services.school_scope import (
 
 NOT_SCHEDULABLE_SLOT_MESSAGE = "不可排課的時段不能設為年級可排節次"
 
-# --- teachers (steps 4-6) ---
+# --- teachers (教師設定) ---
 
 
-def _read_semester_teachers(db: Session, semester_id: int) -> list[SemesterTeacherRead]:
+def _read_semester_teachers(db: Session, version_id: int) -> list[SemesterTeacherRead]:
     rows = db.execute(
         select(SemesterTeacher, Teacher.name)
         .join(Teacher, SemesterTeacher.teacher_id == Teacher.id)
-        .where(SemesterTeacher.semester_id == semester_id)
+        .where(SemesterTeacher.schedule_version_id == version_id)
         .order_by(SemesterTeacher.teacher_id)
     ).all()
     unavailable: dict[int, list[int]] = {}
@@ -55,7 +55,7 @@ def _read_semester_teachers(db: Session, semester_id: int) -> list[SemesterTeach
             SemesterTeacherUnavailability.time_slot_id,
         )
         .join(SemesterTeacher)
-        .where(SemesterTeacher.semester_id == semester_id)
+        .where(SemesterTeacher.schedule_version_id == version_id)
         .order_by(SemesterTeacherUnavailability.time_slot_id)
     ).all():
         unavailable.setdefault(semester_teacher_id, []).append(time_slot_id)
@@ -72,35 +72,39 @@ def _read_semester_teachers(db: Session, semester_id: int) -> list[SemesterTeach
 
 
 def get_semester_teachers(
-    db: Session, semester_id: int, *, school_id: int
+    db: Session, version_id: int, *, school_id: int, role: str | None = None
 ) -> list[SemesterTeacherRead] | None:
-    """None if the semester doesn't exist in the school (caller -> 404)."""
-    if get_in_school(db, Semester, semester_id, school_id) is None:
+    """None if the record doesn't exist in the school -- or, for a TEACHER,
+    isn't published (caller -> 404)."""
+    if get_schedule_version(db, version_id, school_id=school_id, role=role) is None:
         return None
-    return _read_semester_teachers(db, semester_id)
+    return _read_semester_teachers(db, version_id)
 
 
-def _delete_semester_teachers(db: Session, semester_id: int) -> None:
+def _delete_semester_teachers(db: Session, version_id: int) -> None:
     semester_teacher_ids = select(SemesterTeacher.id).where(
-        SemesterTeacher.semester_id == semester_id
+        SemesterTeacher.schedule_version_id == version_id
     )
     db.execute(
         delete(SemesterTeacherUnavailability).where(
             SemesterTeacherUnavailability.semester_teacher_id.in_(semester_teacher_ids)
         )
     )
-    db.execute(delete(SemesterTeacher).where(SemesterTeacher.semester_id == semester_id))
+    db.execute(delete(SemesterTeacher).where(SemesterTeacher.schedule_version_id == version_id))
 
 
 def replace_semester_teachers(
-    db: Session, semester_id: int, data: SemesterTeachersUpdate, *, school_id: int
+    db: Session, version_id: int, data: SemesterTeachersUpdate, *, school_id: int
 ) -> list[SemesterTeacherRead] | None:
-    """The semester's teachers become exactly `data.teachers`. Every
-    teacher and time slot must be of the school (else 422), and every
-    teacher active -- only 啟用 accounts take part (else 409). None if the
-    semester doesn't exist in the school. One transaction."""
-    if get_in_school(db, Semester, semester_id, school_id) is None:
+    """The record's teachers become exactly `data.teachers`. Every teacher
+    and time slot must be of the school (else 422), and every teacher
+    active -- only 啟用 accounts take part (else 409). None if the record
+    doesn't exist in the school; a record that is not 尚未排課 -> 409. One
+    transaction."""
+    schedule_version = get_in_school(db, ScheduleVersion, version_id, school_id)
+    if schedule_version is None:
         return None
+    raise_if_settings_locked(schedule_version)
     ensure_references_in_school(
         db,
         school_id,
@@ -120,10 +124,10 @@ def replace_semester_teachers(
             )
 
     try:
-        _delete_semester_teachers(db, semester_id)
+        _delete_semester_teachers(db, version_id)
         for entry in data.teachers:
             semester_teacher = SemesterTeacher(
-                semester_id=semester_id,
+                schedule_version_id=version_id,
                 teacher_id=entry.teacher_id,
                 min_weekly_periods=entry.min_weekly_periods,
                 max_weekly_periods=entry.max_weekly_periods,
@@ -140,17 +144,17 @@ def replace_semester_teachers(
     except IntegrityError as exc:
         db.rollback()
         raise_for_integrity_error(exc)
-    return _read_semester_teachers(db, semester_id)
+    return _read_semester_teachers(db, version_id)
 
 
-# --- grades' open time slots (step 8) ---
+# --- grades' open time slots (年級與可排節次) ---
 
 
-def _read_grade_time_slots(db: Session, semester_id: int) -> list[GradeTimeSlotsRead]:
+def _read_grade_time_slots(db: Session, version_id: int) -> list[GradeTimeSlotsRead]:
     slots_by_grade: dict[int, list[int]] = {}
     for grade_id, time_slot_id in db.execute(
         select(SemesterGradeTimeSlot.grade_id, SemesterGradeTimeSlot.time_slot_id)
-        .where(SemesterGradeTimeSlot.semester_id == semester_id)
+        .where(SemesterGradeTimeSlot.schedule_version_id == version_id)
         .order_by(SemesterGradeTimeSlot.grade_id, SemesterGradeTimeSlot.time_slot_id)
     ).all():
         slots_by_grade.setdefault(grade_id, []).append(time_slot_id)
@@ -161,34 +165,34 @@ def _read_grade_time_slots(db: Session, semester_id: int) -> list[GradeTimeSlots
 
 
 def get_grade_time_slots(
-    db: Session, semester_id: int, *, school_id: int
+    db: Session, version_id: int, *, school_id: int, role: str | None = None
 ) -> list[GradeTimeSlotsRead] | None:
-    """Every grade that has its open slots set for the semester. A grade
-    left out has none set -- it is then not restricted at all (see
-    services/scheduler.py). None if the semester doesn't exist."""
-    if get_in_school(db, Semester, semester_id, school_id) is None:
+    """Every grade that has its open slots set in the record. A grade left
+    out has none set -- it is then not restricted at all (see
+    services/scheduler.py). None if the record doesn't exist (or, for a
+    TEACHER, isn't published)."""
+    if get_schedule_version(db, version_id, school_id=school_id, role=role) is None:
         return None
-    return _read_grade_time_slots(db, semester_id)
+    return _read_grade_time_slots(db, version_id)
 
 
 def replace_grade_time_slots(
     db: Session,
-    semester_id: int,
+    version_id: int,
     grade_id: int,
     time_slot_ids: list[int],
     *,
     school_id: int,
 ) -> GradeTimeSlotsRead | None:
-    """The grade's open slots for the semester become exactly
-    `time_slot_ids` (at least one -- the schema refuses an empty list).
-    None if the semester or the grade doesn't exist in the school; a time
-    slot of another school, or one the school marked not schedulable
-    (學校資料 > 時段) -> 422."""
-    if (
-        get_in_school(db, Semester, semester_id, school_id) is None
-        or get_in_school(db, Grade, grade_id, school_id) is None
-    ):
+    """The grade's open slots in the record become exactly `time_slot_ids`
+    (at least one -- the schema refuses an empty list). None if the record
+    or the grade doesn't exist in the school; a record that is not 尚未排課
+    -> 409; a time slot of another school, or one the school marked not
+    schedulable (學校資料 > 時段) -> 422."""
+    schedule_version = get_in_school(db, ScheduleVersion, version_id, school_id)
+    if schedule_version is None or get_in_school(db, Grade, grade_id, school_id) is None:
         return None
+    raise_if_settings_locked(schedule_version)
     ensure_references_in_school(
         db, school_id, [(TimeSlot, time_slot_id) for time_slot_id in time_slot_ids]
     )
@@ -202,13 +206,13 @@ def replace_grade_time_slots(
     try:
         db.execute(
             delete(SemesterGradeTimeSlot).where(
-                SemesterGradeTimeSlot.semester_id == semester_id,
+                SemesterGradeTimeSlot.schedule_version_id == version_id,
                 SemesterGradeTimeSlot.grade_id == grade_id,
             )
         )
         db.add_all(
             SemesterGradeTimeSlot(
-                semester_id=semester_id, grade_id=grade_id, time_slot_id=time_slot_id
+                schedule_version_id=version_id, grade_id=grade_id, time_slot_id=time_slot_id
             )
             for time_slot_id in time_slot_ids
         )
@@ -238,15 +242,4 @@ def default_grade_time_slots(db: Session, grade_id: int, *, school_id: int) -> l
             SlotPosition(slot.id, slot.weekday, slot.period, slot.is_teaching_period)
             for slot in slots
         ],
-    )
-
-
-# --- owned rows other deletes take with them ---
-
-
-def delete_settings_of_semester(db: Session, semester_id: int) -> None:
-    """Staged, not committed: a deleted semester's settings go with it."""
-    _delete_semester_teachers(db, semester_id)
-    db.execute(
-        delete(SemesterGradeTimeSlot).where(SemesterGradeTimeSlot.semester_id == semester_id)
     )

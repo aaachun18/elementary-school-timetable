@@ -12,7 +12,6 @@ import { DEFAULT_MAX_WEEKLY_PERIODS, periodsRangeError } from "../../utils/wizar
 import TimeSlotPickerDialog from "./TimeSlotPickerDialog";
 import {
   BUTTON_PRIMARY,
-  BUTTON_SECONDARY,
   BUTTON_SECONDARY_SM,
   CARD,
   CHECKBOX,
@@ -49,20 +48,18 @@ function initialDrafts(teachers: readonly Teacher[], current: readonly SemesterT
 }
 
 // Task 98, wizard steps 4-6: which 啟用 teacher accounts take part in this
-// semester (a grid of checkboxes), each one's weekly minimum / maximum, and
+// 排課紀錄 (a grid of checkboxes), each one's weekly minimum / maximum, and
 // the slots they can't teach (a timetable-shaped dialog). Saved together
-// with 「儲存並下一步」 (PUT /semesters/{id}/teachers, the complete list).
+// with 「儲存並下一步」 (PUT /schedule-versions/{id}/teachers, the complete list).
 export default function TeachersStep({
-  semesterId,
-  onBack,
+  versionId,
   onNext,
 }: {
-  semesterId: number;
-  onBack: () => void;
+  versionId: number;
   onNext: () => void;
 }): ReactElement {
   const teachers = useResource(() => listTeachers(0, 1000), []);
-  const current = useResource(() => listSemesterTeachers(semesterId), [semesterId]);
+  const current = useResource(() => listSemesterTeachers(versionId), [versionId]);
   const timeSlots = useResource(() => listTimeSlots(0, 1000), []);
 
   const errorMessage = teachers.errorMessage ?? current.errorMessage ?? timeSlots.errorMessage;
@@ -78,30 +75,27 @@ export default function TeachersStep({
   }
   return (
     <TeachersForm
-      key={semesterId}
-      semesterId={semesterId}
+      key={versionId}
+      versionId={versionId}
       teachers={teachers.data.filter((teacher) => teacher.is_active)}
       current={current.data}
       timeSlots={timeSlots.data}
-      onBack={onBack}
       onNext={onNext}
     />
   );
 }
 
 function TeachersForm({
-  semesterId,
+  versionId,
   teachers,
   current,
   timeSlots,
-  onBack,
   onNext,
 }: {
-  semesterId: number;
+  versionId: number;
   teachers: readonly Teacher[];
   current: readonly SemesterTeacher[];
   timeSlots: readonly TimeSlot[];
-  onBack: () => void;
   onNext: () => void;
 }): ReactElement {
   const [drafts, setDrafts] = useState(() => initialDrafts(teachers, current));
@@ -142,7 +136,7 @@ function TeachersForm({
       };
     });
     try {
-      await replaceTeachers(semesterId, entries);
+      await replaceTeachers(versionId, entries);
       onNext();
     } catch (caught) {
       setError(extractApiErrorMessage(caught));
@@ -226,9 +220,6 @@ function TeachersForm({
         </p>
       )}
       <div className="mt-4 flex gap-2">
-        <button type="button" onClick={onBack} className={BUTTON_SECONDARY}>
-          上一步
-        </button>
         <button
           type="button"
           onClick={() => void handleSave()}

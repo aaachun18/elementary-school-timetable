@@ -8,14 +8,13 @@ import type { TimeSlot } from "../types/timeSlot";
 import { formatBlockPosition } from "../utils/lessonPattern";
 import { buildPeriodDisplay, type PeriodDisplayMap } from "../utils/periodDisplay";
 
-// Same "fetch everything, join client-side" approach as
-// useTimetableData.ts -- none of these list endpoints support a
-// semester_id/class_subject_requirement_id filter, so a generously large
-// limit is passed explicitly (see that file's FETCH_LIMIT comment for why
-// the default of 100 isn't safe here).
+// Same "fetch, join client-side" approach as useTimetableData.ts: lessons
+// and requirements of the one record (?schedule_version_id=), the master
+// tables whole -- with a generously large limit passed explicitly (see that
+// file's FETCH_LIMIT comment for why the default of 100 isn't safe here).
 const FETCH_LIMIT = 1000;
 
-// One row per generated Lesson -- SchedulerConsole's "設定固定時段" section
+// One row per generated Lesson -- 檢視排課設定's "設定固定時段" section
 // renders one <select> per row. fixedTimeSlotId mirrors
 // Lesson.fixed_time_slot_id as of the last fetch/successful save; the
 // console keeps its own copy of this (seeded from here, then updated
@@ -53,10 +52,10 @@ export interface FixedTimeSlotData {
   periodDisplay: PeriodDisplayMap;
 }
 
-async function buildFixedTimeSlotData(semesterId: number): Promise<FixedTimeSlotData> {
+async function buildFixedTimeSlotData(versionId: number): Promise<FixedTimeSlotData> {
   const [lessons, requirements, classes, subjects, timeSlots] = await Promise.all([
-    listLessons(0, FETCH_LIMIT),
-    listRequirements(0, FETCH_LIMIT),
+    listLessons(0, FETCH_LIMIT, { schedule_version_id: versionId }),
+    listRequirements(0, FETCH_LIMIT, { schedule_version_id: versionId }),
     listClasses(0, FETCH_LIMIT),
     listSubjects(0, FETCH_LIMIT),
     listTimeSlots(0, FETCH_LIMIT),
@@ -65,17 +64,10 @@ async function buildFixedTimeSlotData(semesterId: number): Promise<FixedTimeSlot
   const classNameById = new Map(classes.map((classItem) => [classItem.id, classItem.name]));
   const subjectNameById = new Map(subjects.map((subject) => [subject.id, subject.name]));
 
-  // One empty group per requirement belonging to this semester, keyed by
-  // requirement id -- Lessons are attached to these below. Requirements
-  // from OTHER semesters are deliberately left out entirely (never even
-  // get an empty group), since a Lesson can only belong to one semester's
-  // requirement and showing an empty "0 堂" group for every other
-  // semester's requirements would just be noise.
+  // One empty group per requirement of the record, keyed by requirement id
+  // -- Lessons are attached to these below.
   const groupsByRequirementId = new Map<number, FixedTimeSlotGroup>();
   for (const requirement of requirements) {
-    if (requirement.semester_id !== semesterId) {
-      continue;
-    }
     groupsByRequirementId.set(requirement.id, {
       requirementId: requirement.id,
       label: `${classNameById.get(requirement.class_id) ?? `班級 ID ${requirement.class_id}`}的${
@@ -97,9 +89,8 @@ async function buildFixedTimeSlotData(semesterId: number): Promise<FixedTimeSlot
   for (const lesson of lessons) {
     const group = groupsByRequirementId.get(lesson.class_subject_requirement_id);
     if (group === undefined) {
-      // Either a different semester's requirement, or (in principle) a
-      // requirement that's since been deleted -- either way, not
-      // something this semester's "設定固定時段" section should show.
+      // (In principle) a requirement that's since been deleted -- not
+      // something this record's "設定固定時段" section should show.
       continue;
     }
     group.lessons.push({
@@ -130,23 +121,23 @@ async function buildFixedTimeSlotData(semesterId: number): Promise<FixedTimeSlot
 }
 
 // `refreshKey` deliberately has no meaning of its own -- it exists so a
-// caller can force a refetch (e.g. SchedulerConsole passes generateResult,
-// a fresh object every time 展開課程清單 succeeds again) without this hook
-// needing to know why. semesterId alone would miss the case where the same
-// version's Lessons are regenerated and the set of groups/rows changes.
+// caller can force a refetch (e.g. a fresh object every time 展開課程清單
+// succeeds again) without this hook needing to know why. versionId alone
+// would miss the case where the same record's Lessons are regenerated and
+// the set of groups/rows changes.
 export function useFixedTimeSlotData(
-  semesterId: number | null,
+  versionId: number | null,
   refreshKey: unknown,
 ): { data: FixedTimeSlotData | null; isLoading: boolean; errorMessage: string | null } {
   return useResource(
     () =>
-      semesterId === null
+      versionId === null
         ? Promise.resolve<FixedTimeSlotData>({
             groups: [],
             teachingTimeSlots: [],
             periodDisplay: new Map(),
           })
-        : buildFixedTimeSlotData(semesterId),
-    [semesterId, refreshKey],
+        : buildFixedTimeSlotData(versionId),
+    [versionId, refreshKey],
   );
 }

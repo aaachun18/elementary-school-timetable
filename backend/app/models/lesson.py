@@ -14,9 +14,9 @@ if TYPE_CHECKING:
 class Lesson(TimestampMixin, Base):
     """One required lesson instance for a ClassSubjectRequirement -- e.g. if
     a requirement needs 3 weekly_periods, there are 3 Lesson rows (sequence
-    1..3). Version-independent: this is the requirement checklist, not a
-    scheduled result. See Schedule for where a Lesson actually lands on the
-    timetable within a specific ScheduleVersion."""
+    1..3). The requirement checklist, not a scheduled result: v3 -- it
+    belongs to its requirement's 排課紀錄 (ScheduleVersion), and Schedule
+    says where it landed on that record's timetable."""
 
     __tablename__ = "lessons"
     __table_args__ = (

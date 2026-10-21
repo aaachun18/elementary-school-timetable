@@ -11,8 +11,8 @@ import type {
 // see teachers.ts for why create()/update()/remove() exist even though
 // Task 31 only calls list().
 
-// Task 67: `filters.semester_id` (Task 66) narrows to one semester's
-// requirements; omitted -> every requirement, as before.
+// `filters.schedule_version_id` narrows to one 排課紀錄's requirements;
+// omitted -> every requirement.
 export async function list(
   skip = 0,
   limit = 100,
@@ -57,12 +57,12 @@ export async function remove(requirementId: number): Promise<void> {
   await apiClient.delete(`/api/v1/class-subject-requirements/${requirementId}`);
 }
 
-// The wizard's 科目需求 step: the semester's requirements follow the
-// school's 科目需求 (學校資料) -- created, resized or removed.
-export async function syncWithSchool(semesterId: number): Promise<RequirementSyncResult> {
+// The wizard's 科目需求 step: the (尚未排課) record's requirements follow
+// the school's 科目需求 (學校資料) -- created, resized or removed.
+export async function syncWithSchool(versionId: number): Promise<RequirementSyncResult> {
   const response = await apiClient.post<RequirementSyncResult>(
     "/api/v1/class-subject-requirements/sync",
-    { semester_id: semesterId },
+    { schedule_version_id: versionId },
   );
   return response.data;
 }

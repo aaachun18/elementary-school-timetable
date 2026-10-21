@@ -28,7 +28,13 @@ from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
 from tests.test_move_candidates import _by_slot, _candidates
 from tests.test_move_swap_lessons import _move, _ok, _swap
-from tests.conftest import enroll_in_semester, get_test_school_id, next_free_grade_level, time_slot_at
+from tests.conftest import (
+    enroll_in_semester,
+    get_test_school_id,
+    make_record,
+    next_free_grade_level,
+    time_slot_at,
+)
 
 URL = "/api/v1/schedule-versions"
 BLOCK_TYPES = {"BLOCK_NOT_CONSECUTIVE", "BLOCK_SAME_DAY"}
@@ -99,17 +105,19 @@ def _world(db: Session) -> World:
     t2 = Teacher(school_id=get_test_school_id(db), name="二號老師", is_active=True, min_weekly_periods=0, max_weekly_periods=20)
     db.add_all([science, english, c1, t1, t2])
     db.flush()
+    # A working copy of a copied timetable: 換教師 is allowed too.
+    version = make_record(db, semester.id, status="EDITING", source_status="COPIED")
     for teacher in (t1, t2):
-        enroll_in_semester(db, semester.id, teacher)
+        enroll_in_semester(db, version.id, teacher)
     science_requirement = ClassSubjectRequirement(
-        semester_id=semester.id,
+        schedule_version_id=version.id,
         class_id=c1.id,
         subject_id=science.id,
         weekly_periods=3,
         lesson_pattern="2+1",
     )
     english_requirement = ClassSubjectRequirement(
-        semester_id=semester.id, class_id=c1.id, subject_id=english.id, weekly_periods=2
+        schedule_version_id=version.id, class_id=c1.id, subject_id=english.id, weekly_periods=2
     )
     db.add_all([science_requirement, english_requirement])
     db.flush()
@@ -127,8 +135,6 @@ def _world(db: Session) -> World:
         for number in (1, 2)
     ]
     db.add_all(science_lessons + english_lessons)
-    version = ScheduleVersion(semester_id=semester.id, version_number=1, status="DRAFT")
-    db.add(version)
     db.commit()
     return World(
         db=db,

@@ -31,7 +31,7 @@ function demoSlots(): PeriodDisplaySource[] {
 }
 
 describe("buildPeriodDisplay", () => {
-  it("numbers teaching rows by their own period and names the 早自習 / 午休 / 放學 rows (demo data)", () => {
+  it("numbers teaching rows 1-7 and names the 早自習 / 午休 / 放學 rows (demo data)", () => {
     const display = buildPeriodDisplay(demoSlots());
 
     expect(Array.from(display.entries())).toEqual([
@@ -41,9 +41,9 @@ describe("buildPeriodDisplay", () => {
       [3, { kind: "teaching", number: 3 }],
       [4, { kind: "teaching", number: 4 }],
       [5, { kind: "nonTeaching", label: "午餐/午休" }],
-      [6, { kind: "teaching", number: 6 }],
-      [7, { kind: "teaching", number: 7 }],
-      [8, { kind: "teaching", number: 8 }],
+      [6, { kind: "teaching", number: 5 }],
+      [7, { kind: "teaching", number: 6 }],
+      [8, { kind: "teaching", number: 7 }],
       // Only Monday has a record -- still a non-teaching row.
       [9, { kind: "nonTeaching", label: "放學" }],
     ]);
@@ -88,7 +88,7 @@ describe("buildPeriodDisplay", () => {
     expect(buildPeriodDisplay([]).size).toBe(0);
   });
 
-  it("keeps the raw period numbers even when they have gaps", () => {
+  it("counts teaching rows only, whatever the raw period numbers", () => {
     const display = buildPeriodDisplay([
       slot(1, 10, true),
       slot(1, 3, true),
@@ -97,10 +97,10 @@ describe("buildPeriodDisplay", () => {
     ]);
 
     expect(Array.from(display.entries())).toEqual([
-      [3, { kind: "teaching", number: 3 }],
+      [3, { kind: "teaching", number: 1 }],
       [7, { kind: "nonTeaching", label: "午休" }],
-      [10, { kind: "teaching", number: 10 }],
-      [12, { kind: "teaching", number: 12 }],
+      [10, { kind: "teaching", number: 2 }],
+      [12, { kind: "teaching", number: 3 }],
     ]);
   });
 });
@@ -108,10 +108,10 @@ describe("buildPeriodDisplay", () => {
 describe("formatPeriodHeader", () => {
   const display = buildPeriodDisplay(demoSlots());
 
-  it("shows the school's own period number (0-9 / 0-10 grid)", () => {
+  it("shows the afternoon after 午休 as 第 5-7 節", () => {
     expect(formatPeriodHeader(1, display)).toBe("第 1 節");
-    expect(formatPeriodHeader(6, display)).toBe("第 6 節");
-    expect(formatPeriodHeader(8, display)).toBe("第 8 節");
+    expect(formatPeriodHeader(6, display)).toBe("第 5 節");
+    expect(formatPeriodHeader(8, display)).toBe("第 7 節");
   });
 
   it("shows only the name of a non-teaching row", () => {

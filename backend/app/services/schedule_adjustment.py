@@ -1,6 +1,6 @@
 """Task 65: move one lesson to another time slot, or swap the time slots of
-two lessons, within a DRAFT ScheduleVersion -- then report the version's
-full schedule check.
+two lessons, within a manual edit's working copy (v3: EDITING) -- then
+report its full schedule check.
 
 Manual adjustments, same shape as reassign-teacher (Task 63): validate
 (every refusal before anything changes) -> update -> flush -> run the
@@ -44,7 +44,7 @@ from app.services.exceptions import (
     CannotSwapWithSelfError,
     ScheduleNotInVersionError,
 )
-from app.services.schedule_version import raise_if_version_locked
+from app.services.schedule_version import raise_if_timetable_locked
 
 # See services/teacher_reassignment.py for why this alias exists.
 ConstraintViolation = schedule_check.ConstraintViolation
@@ -70,7 +70,7 @@ class AdjustmentOutcome:
 def _get_unlocked_version(db: Session, schedule_version_id: int) -> ScheduleVersion | None:
     schedule_version = db.get(ScheduleVersion, schedule_version_id)
     if schedule_version is not None:
-        raise_if_version_locked(schedule_version)
+        raise_if_timetable_locked(schedule_version)
     return schedule_version
 
 
@@ -117,7 +117,7 @@ def _plan(
     the block rules refuse it."""
     layout = block_adjustment.Layout(
         schedule_check.load_assignment_rows(db, schedule_version.id),
-        schedule_check.load_check_context(db, schedule_version.semester_id, schedule_version.id),
+        schedule_check.load_check_context(db, schedule_version.id),
     )
     plan = make_plan(layout)
     if plan.refusal is not None:

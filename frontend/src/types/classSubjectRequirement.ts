@@ -2,7 +2,8 @@
 
 export interface ClassSubjectRequirement {
   id: number;
-  semester_id: number;
+  // v3: the 排課紀錄 whose settings it is part of.
+  schedule_version_id: number;
   class_id: number;
   subject_id: number;
   weekly_periods: number;
@@ -18,14 +19,14 @@ export interface ClassSubjectRequirement {
   lesson_pattern?: string | null;
   created_at: string;
   updated_at: string;
-  // Task 73: computed by the backend on every response -- true when a
-  // PUBLISHED or ARCHIVED version uses this requirement's lessons, in which
-  // case PATCH/DELETE are refused (409). Response-only; never sent back.
+  // Task 73 / v3: computed by the backend on every response -- true once
+  // the record is no longer 尚未排課, in which case PATCH/DELETE are refused
+  // (409). Response-only; never sent back.
   is_locked: boolean;
 }
 
 export interface ClassSubjectRequirementCreate {
-  semester_id: number;
+  schedule_version_id: number;
   class_id: number;
   subject_id: number;
   weekly_periods: number;
@@ -35,7 +36,6 @@ export interface ClassSubjectRequirementCreate {
 }
 
 export interface ClassSubjectRequirementUpdate {
-  semester_id?: number;
   class_id?: number;
   subject_id?: number;
   weekly_periods?: number;
@@ -44,18 +44,15 @@ export interface ClassSubjectRequirementUpdate {
   lesson_pattern?: string | null;
 }
 
-// Task 67: optional query filters for GET /class-subject-requirements
-// (Task 66).
+// Optional query filters for GET /class-subject-requirements.
 export interface ClassSubjectRequirementListFilters {
-  semester_id?: number;
+  schedule_version_id?: number;
 }
 
 // POST /class-subject-requirements/sync: what copying the school's 科目需求
-// into the semester changed. locked_requirement_ids: requirements a
-// published or archived version uses -- left as they were.
+// into the record changed.
 export interface RequirementSyncResult {
   created: number;
   updated: number;
   removed: number;
-  locked_requirement_ids: number[];
 }

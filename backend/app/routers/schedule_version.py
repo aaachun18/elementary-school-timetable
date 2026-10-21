@@ -14,7 +14,7 @@ from app.models.user import User
 from app.schemas.schedule_version import (
     GeneratedLessonInfo,
     GenerateLessonsResult,
-    ScheduleVersionCopy,
+    ScheduleVersionCopyTimetable,
     ScheduleVersionCreate,
     ScheduleVersionRead,
     ScheduleVersionUpdate,
@@ -50,6 +50,7 @@ from app.schemas.scheduler import (
 )
 from app.services import schedule_adjustment as schedule_adjustment_service
 from app.services import lesson_placement as lesson_placement_service
+from app.services import manual_edit as manual_edit_service
 from app.services import room_change as room_change_service
 from app.services import schedule_check as schedule_check_service
 from app.services import move_candidates as move_candidates_service
@@ -90,10 +91,9 @@ def list_schedule_versions(
     db: Session = Depends(get_db),
     school_id: int = Depends(member_school_id),
 ) -> list[ScheduleVersion]:
-    # Task 43: TEACHER only ever sees PUBLISHED versions -- see
-    # get_schedule_versions()'s own docstring-equivalent comment in
-    # services/schedule_version.py for why this is a silent filter, not a
-    # 403.
+    # Task 43: TEACHER only ever sees published records -- a silent
+    # filter, not a 403 (see services/schedule_version.py). Newest first;
+    # manual edits' working copies are never listed.
     return schedule_version_service.get_schedule_versions(
         db, skip=skip, limit=limit, school_id=school_id, role=current_user.role
     )
@@ -151,11 +151,49 @@ def delete_schedule_version(
         )
 
 
-# --- copy (Task 62): new DRAFT from an existing version ---
-# TargetSemesterNotFoundError / CopyAcrossAcademicYearsError /
-# TargetSemesterHasRequirementsError / CopySourceInconsistentError are
+def _found(schedule_version: ScheduleVersion | None) -> ScheduleVersion:
+    if schedule_version is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ScheduleVersion not found",
+        )
+    return schedule_version
+
+
+# --- v3: publishing, copying and manual editing a 排課紀錄 ---
+# RecordStatusError / TargetSemesterNotFoundError /
+# CopyAcrossAcademicYearsError / CopySourceInconsistentError are
 # intentionally not caught here -- the global exception handlers in main.py
 # convert them to 404/409.
+
+
+@router.post(
+    "/{schedule_version_id}/publish",
+    response_model=ScheduleVersionRead,
+    dependencies=[Depends(require_version_in_school)],
+)
+def publish_schedule_version(
+    schedule_version_id: int,
+    db: Session = Depends(get_db),
+    school_id: int = Depends(coordinator_school_id),
+) -> ScheduleVersion:
+    """發布此課表: the semester's one published record from now on."""
+    return _found(
+        schedule_version_service.publish_schedule_version(
+            db, schedule_version_id, school_id=school_id
+        )
+    )
+
+
+@router.post(
+    "/{schedule_version_id}/copy-settings",
+    response_model=ScheduleVersionRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_version_in_school)],
+)
+def copy_settings(schedule_version_id: int, db: Session = Depends(get_db)) -> ScheduleVersion:
+    """複製此次排課設定: a new 尚未排課 record with the same settings."""
+    return _found(schedule_copy_service.copy_settings(db, schedule_version_id))
 
 
 @router.post(
@@ -164,21 +202,40 @@ def delete_schedule_version(
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_version_in_school)],
 )
-def copy_schedule_version(
+def copy_timetable(
     schedule_version_id: int,
-    copy_data: ScheduleVersionCopy | None = None,
+    copy_data: ScheduleVersionCopyTimetable | None = None,
     db: Session = Depends(get_db),
 ) -> ScheduleVersion:
+    """複製此課表: a new 複製自編號 x record (settings and timetable), of any
+    semester of the same academic year."""
     target_semester_id = copy_data.target_semester_id if copy_data else None
-    new_version = schedule_copy_service.copy_schedule_version(
-        db, schedule_version_id, target_semester_id
+    return _found(
+        schedule_copy_service.copy_timetable(db, schedule_version_id, target_semester_id)
     )
-    if new_version is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="ScheduleVersion not found",
-        )
-    return new_version
+
+
+@router.post(
+    "/{schedule_version_id}/edit",
+    response_model=ScheduleVersionRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_version_in_school)],
+)
+def start_editing(schedule_version_id: int, db: Session = Depends(get_db)) -> ScheduleVersion:
+    """手動編輯課表: a fresh working copy every adjustment then changes.
+    Leaving without saving: DELETE the working copy."""
+    return _found(manual_edit_service.start_editing(db, schedule_version_id))
+
+
+@router.post(
+    "/{schedule_version_id}/save",
+    response_model=ScheduleVersionRead,
+    dependencies=[Depends(require_version_in_school)],
+)
+def save_editing(schedule_version_id: int, db: Session = Depends(get_db)) -> ScheduleVersion:
+    """儲存課表 (on the working copy's id): returns the record the edit was
+    saved as -- the 手動排課 record itself, or a new 手動排課 record."""
+    return _found(manual_edit_service.save_editing(db, schedule_version_id))
 
 
 # --- generate-lessons: diff-sync (not standard CRUD) ---
@@ -298,10 +355,9 @@ def check_schedule_version(
     schedule_version_id: int,
     db: Session = Depends(get_db),
 ) -> ScheduleCheckResult:
-    # Task 61: read-only. Task 72: ADMIN only -- the conflict details (and,
-    # for a DRAFT, its content) are an administrative tool, not something
-    # the read-only TEACHER role needs; a TEACHER gets 403 for every
-    # version, including PUBLISHED ones.
+    # Task 61: read-only. Task 72: 教學組長 only -- the conflict details
+    # are an administrative tool, not something the read-only TEACHER role
+    # needs; a TEACHER gets 403 for every record, published ones included.
     violations = schedule_check_service.check_schedule_version(
         db, schedule_version_id
     )
@@ -331,8 +387,9 @@ def _build_check_result(
 
 
 # --- reassign-teacher (Task 63): manual adjustment, one requirement ---
-# PublishedVersionImmutableError / ReassignmentTargetNotFoundError /
-# RequirementSemesterMismatchError / InactiveTeacherAssignmentError are
+# v3: only in the working copy of a copied timetable.
+# TimetableLockedError / RecordStatusError / ReassignmentTargetNotFoundError
+# / RequirementNotInVersionError / InactiveTeacherAssignmentError are
 # intentionally not caught here -- the global exception handlers in main.py
 # convert them to 409/404.
 
@@ -371,7 +428,7 @@ def reassign_teacher(
 
 
 # --- move-lesson / swap-lessons (Task 65): manual time-slot adjustments ---
-# PublishedVersionImmutableError / ArchivedVersionImmutableError /
+# v3: only in a manual edit's working copy. TimetableLockedError /
 # AdjustmentTargetNotFoundError / ScheduleNotInVersionError /
 # CannotSwapWithSelfError are intentionally not caught here -- the global
 # exception handlers in main.py convert them to 409/404.
@@ -437,8 +494,8 @@ def swap_lessons(
 
 
 # --- move-candidates (Task 83): read-only "what if" for every time slot ---
-# PublishedVersionImmutableError / ArchivedVersionImmutableError (409) and
-# AdjustmentTargetNotFoundError (404) are converted by main.py's handlers.
+# TimetableLockedError (409) and AdjustmentTargetNotFoundError (404) are
+# converted by main.py's handlers.
 
 
 def _block_members(
@@ -508,8 +565,7 @@ def list_move_candidates(
 
 
 # --- Task 92: unscheduled lessons and placing them (decision 28) ---
-# PublishedVersionImmutableError / ArchivedVersionImmutableError /
-# LessonNotInSemesterError / LessonAlreadyScheduledError /
+# TimetableLockedError / LessonNotInVersionError / LessonAlreadyScheduledError /
 # InactiveTeacherAssignmentError / PlacementRefusedError (409) and
 # AdjustmentTargetNotFoundError (404) are converted by main.py's handlers.
 
@@ -548,7 +604,7 @@ def list_place_candidates(
     room_id: int | None = None,
     db: Session = Depends(get_db),
 ) -> PlaceCandidatesResult:
-    # Read-only, DRAFT only (like move-candidates). Writes nothing.
+    # Read-only, working copies only (like move-candidates). Writes nothing.
     outcome = lesson_placement_service.list_place_candidates(
         db, schedule_version_id, lesson_id, teacher_id, room_id
     )
@@ -622,7 +678,7 @@ def place_lesson(
 
 
 # --- Task 95: change the room of scheduled lessons (decision 32) ---
-# Locked version / row of another version / inactive room (409) and a
+# Locked timetable / row of another record / inactive room (409) and a
 # missing row or room (404) are converted by main.py's handlers.
 
 

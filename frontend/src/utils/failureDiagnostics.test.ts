@@ -92,27 +92,27 @@ describe("fixed time slot pre-check sentences", () => {
     [
       "STATIC_FIXED_SLOT_TEACHER_UNAVAILABLE",
       { teacher_id: 1 },
-      "901班A的國語被固定在星期五第 8 節，但王老師在這個時段不可排課！",
+      "901班A的國語被固定在星期五第 7 節，但王老師在這個時段不可排課！",
     ],
     [
       "STATIC_FIXED_SLOT_TEACHER_UNAVAILABLE",
       {},
-      "901班A的國語被固定在星期五第 8 節，但所有可教授國語的教師在這個時段都不可排課！",
+      "901班A的國語被固定在星期五第 7 節，但所有可教授國語的教師在這個時段都不可排課！",
     ],
     [
       "STATIC_FIXED_SLOT_CLASS_CLASH",
       {},
-      "901班A的國語被固定在星期五第 8 節，但901班A在同一時段還有其他固定的課！",
+      "901班A的國語被固定在星期五第 7 節，但901班A在同一時段還有其他固定的課！",
     ],
     [
       "STATIC_FIXED_SLOT_TEACHER_CLASH",
       { teacher_id: 1 },
-      "901班A的國語被固定在星期五第 8 節，但只能由王老師授課，而王老師在同一時段還有其他固定的課！",
+      "901班A的國語被固定在星期五第 7 節，但只能由王老師授課，而王老師在同一時段還有其他固定的課！",
     ],
     [
       "STATIC_FIXED_SLOT_CLASS_CLOSED",
       {},
-      "901班A的國語被固定在星期五第 8 節，但所屬年級沒有開放這個節次！",
+      "901班A的國語被固定在星期五第 7 節，但所屬年級沒有開放這個節次！",
     ],
   ])("%s %j", (type, fields, expected) => {
     const sentence = getViolationSentence(fixedSlotViolation(type, fields), lookups);
@@ -248,7 +248,7 @@ describe("room pre-check sentences and pages", () => {
     [
       "STATIC_FIXED_SLOT_ROOM_CLASH",
       { room_id: 60 },
-      "901班A的國語被固定在星期五第 8 節，但在同一間教室（901班A教室）上課的另一班同一時段也有固定的課！",
+      "901班A的國語被固定在星期五第 7 節，但在同一間教室（901班A教室）上課的另一班同一時段也有固定的課！",
       "/records",
     ],
     [
@@ -293,7 +293,7 @@ describe("REQUIRED_ROOM_MISSING", () => {
 
   it("names the class, subject and slot", () => {
     expect(getViolationSentence(warning, typedLookups)).toBe(
-      "901班A的國語指定了上課教室，但星期五第 8 節這堂課沒有教室！",
+      "901班A的國語指定了上課教室，但星期五第 7 節這堂課沒有教室！",
     );
   });
 

@@ -232,7 +232,7 @@ describe("diffViolations", () => {
     expect(diff.added).toEqual([]);
     expect(diff.resolved).toEqual([]);
     expect(diff.unchanged.map((item) => [item.sentence, item.descriptionChanged])).toEqual([
-      ["901班A的國語被固定在星期五第 8 節，但目前排在星期三第 1 節！", true],
+      ["901班A的國語被固定在星期五第 7 節，但目前排在星期三第 1 節！", true],
       ["林老師在星期一第 1 節已標記為不可排課，但仍被排入該時段！", false],
     ]);
   });
@@ -242,7 +242,7 @@ describe("diffViolations", () => {
 
     expect(diff.added).toEqual([]);
     expect(sentences(diff.resolved)).toEqual([
-      "901班A的國語被固定在星期五第 8 節，但目前排在星期一第 1 節！",
+      "901班A的國語被固定在星期五第 7 節，但目前排在星期一第 1 節！",
     ]);
     expect(diff.unchanged.map((item) => item.descriptionChanged)).toEqual([false]);
   });
@@ -251,7 +251,7 @@ describe("diffViolations", () => {
     const diff = diffViolations([linUnavailable], [fixedMismatchAt(MONDAY_1), linUnavailable], sentenceOf);
 
     expect(sentences(diff.added)).toEqual([
-      "901班A的國語被固定在星期五第 8 節，但目前排在星期一第 1 節！",
+      "901班A的國語被固定在星期五第 7 節，但目前排在星期一第 1 節！",
     ]);
     expect(diff.resolved).toEqual([]);
   });

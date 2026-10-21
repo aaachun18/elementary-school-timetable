@@ -4,6 +4,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.grade_class import Class, Grade
+from app.models.grade_subject_requirement import GradeSubjectRequirement
+from app.models.subject import Subject
 from app.models.time_slot import TimeSlot
 
 
@@ -208,3 +210,65 @@ def test_delete_school_with_classes_is_409_and_keeps_everything(
     grades, slots = _structure(db_session, school_id)
     assert len(grades) == 6
     assert len(slots) == 50
+
+
+def _subjects_and_periods(
+    db_session: Session, school_id: int
+) -> tuple[list[str], dict[int, dict[str, int]]]:
+    """The school's subject names (by id) and, per grade level, each
+    subject's weekly periods (學校資料 > 科目需求)."""
+    subjects = db_session.scalars(
+        select(Subject).where(Subject.school_id == school_id).order_by(Subject.id)
+    ).all()
+    name_of = {subject.id: subject.name for subject in subjects}
+    periods: dict[int, dict[str, int]] = {}
+    for level, subject_id, weekly_periods in db_session.execute(
+        select(Grade.level, GradeSubjectRequirement.subject_id, GradeSubjectRequirement.weekly_periods)
+        .join(Grade, GradeSubjectRequirement.grade_id == Grade.id)
+        .where(Grade.school_id == school_id)
+    ).all():
+        periods.setdefault(level, {})[name_of[subject_id]] = weekly_periods
+    return [subject.name for subject in subjects], periods
+
+
+def test_create_elementary_school_builds_default_subjects_and_periods(
+    admin_client: TestClient, db_session: Session
+) -> None:
+    """v3: a new 國小 starts with the ten 領域 and every grade's weekly
+    periods of them."""
+    school_id = admin_client.post("/api/v1/schools/", json={"name": "預設科目國小"}).json()["id"]
+
+    names, periods = _subjects_and_periods(db_session, school_id)
+
+    assert names == [
+        "國語文", "英語文", "本土語文／臺灣手語", "數學", "生活課程",
+        "社會", "自然科學", "藝術", "健康與體育", "綜合活動",
+    ]
+    lower = {"國語文": 6, "本土語文／臺灣手語": 1, "數學": 4, "生活課程": 6, "健康與體育": 3}
+    middle = {
+        "國語文": 5, "本土語文／臺灣手語": 1, "英語文": 1, "數學": 4, "社會": 3,
+        "自然科學": 3, "藝術": 3, "綜合活動": 2, "健康與體育": 3,
+    }
+    upper = {**middle, "英語文": 2}
+    assert periods == {1: lower, 2: lower, 3: middle, 4: middle, 5: upper, 6: upper}
+
+
+@pytest.mark.parametrize("school_type", ["JUNIOR_HIGH", "SENIOR_HIGH"])
+def test_create_secondary_school_has_no_default_subjects(
+    admin_client: TestClient, db_session: Session, school_type: str
+) -> None:
+    school_id = admin_client.post(
+        "/api/v1/schools/", json={"name": "中學", "school_type": school_type}
+    ).json()["id"]
+
+    assert _subjects_and_periods(db_session, school_id) == ([], {})
+
+
+def test_delete_school_takes_its_default_subjects_with_it(
+    admin_client: TestClient, db_session: Session
+) -> None:
+    school_id = admin_client.post("/api/v1/schools/", json={"name": "刪除國小"}).json()["id"]
+
+    assert admin_client.delete(f"/api/v1/schools/{school_id}").status_code == 204
+
+    assert _subjects_and_periods(db_session, school_id) == ([], {})

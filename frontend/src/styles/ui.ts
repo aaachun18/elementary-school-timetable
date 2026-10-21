@@ -36,6 +36,9 @@ export const BUTTON_SECONDARY =
   "inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50";
 export const BUTTON_DANGER =
   "inline-flex items-center justify-center rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-600 shadow-sm hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50";
+// v3: 發布此課表 -- amber, set apart from every other action.
+export const BUTTON_PUBLISH =
+  "inline-flex items-center justify-center rounded-md bg-amber-500 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50";
 
 // Small size (in-row actions: 編輯/刪除/確認/取消/移除 inside a table row).
 export const BUTTON_PRIMARY_SM =
@@ -90,8 +93,8 @@ export const LOCK_BADGE =
   "inline-flex items-center gap-1 rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-700";
 export const BADGE_SUCCESS = "inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700";
 export const BADGE_NEUTRAL = "inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600";
-// Task 67: version status pills -- DRAFT uses the accent blue (BADGE_INFO),
-// PUBLISHED reuses BADGE_SUCCESS, ARCHIVED reuses BADGE_NEUTRAL.
+// 排課紀錄 status pills (utils/scheduleVersionFormat.ts): 自動/手動排課 use
+// the accent blue (BADGE_INFO), 已發布 BADGE_SUCCESS, 尚未排課 BADGE_WARNING.
 export const BADGE_INFO = "inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700";
 // Task 90: a WARNING (e.g. a teacher below the minimum weekly periods) --
 // amber like NOTICE, never the red of an error.

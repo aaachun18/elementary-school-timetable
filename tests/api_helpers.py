@@ -1,7 +1,8 @@
 """Task 98: shared test helpers for the two ways a teacher reaches a
 schedule now -- an 一般老師 account (which creates its Teacher), and taking
-part in a semester (SemesterTeacher, with that semester's weekly periods
-range and unavailable slots). `client` is the test school's 教學組長."""
+part in a 排課紀錄's scheduling (SemesterTeacher, with the record's weekly
+periods range and unavailable slots; v3: settings belong to one record).
+`client` is the test school's 教學組長."""
 
 from collections.abc import Iterable
 from itertools import count
@@ -12,7 +13,12 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.main import app
 from app.models.grade_class import Class, Grade
-from tests.conftest import get_test_school_id, next_free_grade_level, time_slot_at
+from tests.conftest import (
+    get_test_school_id,
+    mark_status_in_db,
+    next_free_grade_level,
+    time_slot_at,
+)
 
 _usernames = count(1)
 
@@ -38,16 +44,17 @@ def create_teacher(client: TestClient, name: str) -> int:
 
 def enroll_teacher(
     client: TestClient,
-    semester_id: int,
+    schedule_version_id: int,
     teacher_id: int,
     *,
     min_weekly_periods: int = 0,
     max_weekly_periods: int = 20,
     unavailable_time_slot_ids: Iterable[int] = (),
 ) -> None:
-    """Adds the teacher to the semester's teachers -- or replaces their
-    entry -- keeping every other teacher already taking part."""
-    current = client.get(f"/api/v1/semesters/{semester_id}/teachers").json()
+    """Adds the teacher to the record's teachers -- or replaces their
+    entry -- keeping every other teacher already taking part. The record
+    must be 尚未排課 (see mark_status() for later states)."""
+    current = client.get(f"/api/v1/schedule-versions/{schedule_version_id}/teachers").json()
     entries = [
         {
             "teacher_id": item["teacher_id"],
@@ -66,13 +73,15 @@ def enroll_teacher(
             "unavailable_time_slot_ids": list(unavailable_time_slot_ids),
         }
     )
-    response = client.put(f"/api/v1/semesters/{semester_id}/teachers", json={"teachers": entries})
+    response = client.put(
+        f"/api/v1/schedule-versions/{schedule_version_id}/teachers", json={"teachers": entries}
+    )
     assert response.status_code == 200, response.json()
 
 
 def create_enrolled_teacher(
     client: TestClient,
-    semester_id: int,
+    schedule_version_id: int,
     name: str,
     *,
     min_weekly_periods: int = 0,
@@ -81,7 +90,7 @@ def create_enrolled_teacher(
     teacher_id = create_teacher(client, name)
     enroll_teacher(
         client,
-        semester_id,
+        schedule_version_id,
         teacher_id,
         min_weekly_periods=min_weekly_periods,
         max_weekly_periods=max_weekly_periods,
@@ -140,3 +149,36 @@ def create_class(client: TestClient, grade_id: int, name: str) -> int:
     db.add(class_)
     db.commit()
     return class_.id
+
+
+# --- v3: 排課紀錄 ---
+
+
+def create_record(client: TestClient, semester_id: int) -> int:
+    """A new 尚未排課 record of the semester -- the owner of the settings a
+    test then builds (teachers, grade slots, requirements)."""
+    response = client.post("/api/v1/schedule-versions/", json={"semester_id": semester_id})
+    assert response.status_code == 201, response.json()
+    return int(response.json()["id"])
+
+
+def mark_status(
+    client: TestClient,
+    schedule_version_id: int,
+    status: str,
+    *,
+    is_published: bool = False,
+    source_status: str = "AUTO",
+) -> None:
+    """Puts a record straight into a later state, keeping its ids -- for
+    tests about what a state allows, not about how it is reached (that is
+    run-scheduler / edit / save / publish, tested on their own). EDITING
+    also gets the empty record it edits (of `source_status`); COPIED
+    copies "from 編號 1"."""
+    mark_status_in_db(
+        db_of(client),
+        schedule_version_id,
+        status,
+        is_published=is_published,
+        source_status=source_status,
+    )

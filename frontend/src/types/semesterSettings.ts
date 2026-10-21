@@ -1,5 +1,5 @@
-// Task 98: mirrors backend/app/schemas/semester_settings.py -- one
-// semester's scheduling settings (the wizard's steps 4-6 and 8).
+// Task 98: mirrors backend/app/schemas/semester_settings.py -- one 排課紀錄's
+// scheduling settings (the wizard's 教師設定 and 年級與可排節次).
 
 export interface SemesterTeacherEntry {
   teacher_id: number;

@@ -11,6 +11,7 @@ import { useResource } from "../../hooks/useResource";
 import type { Grade } from "../../types/grade";
 import type { GradeTimeSlots } from "../../types/semesterSettings";
 import type { TimeSlot } from "../../types/timeSlot";
+import { defaultOpenPeriodsText } from "../../utils/schoolStructure";
 import TimeSlotPickerDialog from "./TimeSlotPickerDialog";
 import {
   BUTTON_PRIMARY,
@@ -24,26 +25,26 @@ import {
   SUBSECTION_TITLE,
 } from "../../styles/ui";
 
-const DEFAULT_RULES =
-  "預設：低年級星期二 0–8 節、其他天 0–5 節；中年級星期三、五 0–5 節、其他天 0–8 節；高年級星期三 0–5 節、其他天 0–8 節；國中、高中每天 0–10 節。學校資料設為不可排課的時段（早自習、午休、放學等）一律不能勾選。";
+const HELP =
+  "每個年級預設的可排節次列在年級旁邊；早自習、午休、放學與學校資料設為不可排課的時段一律不能勾選。";
 
 // Task 98, wizard step 8: per grade of the school (fixed by its type:
 // 國小 一到六年級, 國中 七到九年級, 高中 一到三年級 -- nothing to create
-// here), the slots its classes may use this semester -- a timetable-shaped
+// here), the slots its classes may use in this record -- a timetable-shaped
 // dialog starting from the band's default. A grade nobody opened gets its
 // default saved on 「下一步」.
 export default function GradesStep({
-  semesterId,
+  versionId,
   onBack,
   onNext,
 }: {
-  semesterId: number;
+  versionId: number;
   onBack: () => void;
   onNext: () => void;
 }): ReactElement {
   const grades = useResource(() => listGrades(0, 1000), []);
   const timeSlots = useResource(() => listTimeSlots(0, 1000), []);
-  const saved = useResource(() => listGradeTimeSlots(semesterId), [semesterId]);
+  const saved = useResource(() => listGradeTimeSlots(versionId), [versionId]);
 
   const errorMessage = grades.errorMessage ?? timeSlots.errorMessage ?? saved.errorMessage;
   if (errorMessage !== null) {
@@ -58,8 +59,8 @@ export default function GradesStep({
   }
   return (
     <GradesForm
-      key={semesterId}
-      semesterId={semesterId}
+      key={versionId}
+      versionId={versionId}
       initialGrades={grades.data}
       timeSlots={timeSlots.data}
       initialSaved={saved.data}
@@ -75,14 +76,14 @@ interface Picker {
 }
 
 function GradesForm({
-  semesterId,
+  versionId,
   initialGrades,
   timeSlots,
   initialSaved,
   onBack,
   onNext,
 }: {
-  semesterId: number;
+  versionId: number;
   initialGrades: readonly Grade[];
   timeSlots: readonly TimeSlot[];
   initialSaved: readonly GradeTimeSlots[];
@@ -117,7 +118,7 @@ function GradesForm({
     setIsPickerSaving(true);
     setPickerError(null);
     try {
-      const result = await replaceGradeTimeSlots(semesterId, picker.grade.id, timeSlotIds);
+      const result = await replaceGradeTimeSlots(versionId, picker.grade.id, timeSlotIds);
       setSavedSlots((previous) => new Map(previous).set(result.grade_id, result.time_slot_ids));
       setPicker(null);
     } catch (caught) {
@@ -140,7 +141,7 @@ function GradesForm({
           setError(`${grade.name}沒有任何預設可排節次，請先到學校資料把時段設為可排課，或手動設定。`);
           return;
         }
-        await replaceGradeTimeSlots(semesterId, grade.id, defaults);
+        await replaceGradeTimeSlots(versionId, grade.id, defaults);
       }
       onNext();
     } catch (caught) {
@@ -153,7 +154,7 @@ function GradesForm({
   return (
     <div className={CARD}>
       <h3 className={SUBSECTION_TITLE}>每個年級每週可以排課的節次</h3>
-      <p className={HELP_TEXT}>{DEFAULT_RULES}</p>
+      <p className={HELP_TEXT}>{HELP}</p>
       {grades.length === 0 ? (
         <p className={MUTED_TEXT}>學校還沒有年級。</p>
       ) : (
@@ -166,6 +167,7 @@ function GradesForm({
                 <span className="text-gray-700">
                   {slotIds === undefined ? "尚未設定（下一步時套用預設）" : `已開放 ${slotIds.length} 個節次`}
                 </span>
+                <span className={MUTED_TEXT}>預設：{defaultOpenPeriodsText(grade.level)}</span>
                 <button type="button" onClick={() => void openPicker(grade)} className={BUTTON_SECONDARY_SM}>
                   設定可排節次
                 </button>

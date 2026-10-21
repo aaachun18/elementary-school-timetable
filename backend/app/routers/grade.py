@@ -47,9 +47,10 @@ def get_default_time_slots(
     school_id: int = Depends(member_school_id),
 ) -> list[int]:
     """Task 98: the school's time slots this grade is open for by default
-    (wizard step 8): 低年級 Tuesday 0-8 / other days 0-5, 中年級 Wednesday
-    and Friday 0-5 / other days 0-8, 高年級 Wednesday 0-5 / other days 0-8,
-    國中 / 高中 every day 0-10 -- schedulable periods only."""
+    (wizard step 8): 低年級 Tuesday 第 1-7 節 / other days 第 1-4 節, 中年級
+    Wednesday and Friday 第 1-4 節 / other days 第 1-7 節, 高年級 Wednesday
+    第 1-4 節 / other days 第 1-7 節,
+    國中 / 高中 every day 第 1-8 節 -- schedulable periods only."""
     slot_ids = semester_settings_service.default_grade_time_slots(
         db, grade_id, school_id=school_id
     )

@@ -41,12 +41,14 @@ def grade_band(level: int) -> GradeBand:
     return GradeBand.SENIOR_HIGH
 
 
-# Weekdays: 1 = Monday ... 5 = Friday (TimeSlot.weekday). Periods count
-# from 0 (早自習 / 第 0 節).
-FIRST_PERIOD = 0
-SHORT_DAY_LAST_PERIOD = 5  # "0-5 節"
-FULL_DAY_LAST_PERIOD = 8  # "0-8 節"
-SECONDARY_LAST_PERIOD = 10  # 國中 / 高中 "0-10 節"
+# Weekdays: 1 = Monday ... 5 = Friday (TimeSlot.weekday). Periods are the
+# database's: 0 早自習, 1-4 the morning, 5 午休, then the afternoon up to
+# 放學 (國小 9, 國中 / 高中 10). People count only teaching periods, so the
+# afternoon's 6-8 are 「第 5-7 節」 on screen.
+FIRST_OPEN_PERIOD = 1
+SHORT_DAY_LAST_PERIOD = 4  # morning only: 第 1-4 節
+FULL_DAY_LAST_PERIOD = 8  # 國小 whole day: 第 1-7 節
+SECONDARY_LAST_PERIOD = 9  # 國中 / 高中 whole day: 第 1-8 節
 TUESDAY = 2
 WEDNESDAY = 3
 FRIDAY = 5
@@ -61,11 +63,12 @@ class SlotPosition:
 
 
 def last_open_period(band: GradeBand, weekday: int) -> int:
-    """The last period a band is open for by default on a weekday:
-    - 低年級: Tuesday 0-8, every other day 0-5;
-    - 中年級: Wednesday and Friday 0-5, every other day 0-8;
-    - 高年級: Wednesday 0-5, every other day 0-8;
-    - 國中 / 高中: every day 0-10."""
+    """The last (database) period a band is open for by default on a
+    weekday, as people count it:
+    - 一、二年級: Tuesday 第 1-7 節, every other day 第 1-4 節;
+    - 三、四年級: Wednesday and Friday 第 1-4 節, every other day 第 1-7 節;
+    - 五、六年級: Wednesday 第 1-4 節, every other day 第 1-7 節;
+    - 國中 / 高中: every day 第 1-8 節."""
     if band is GradeBand.LOWER:
         return FULL_DAY_LAST_PERIOD if weekday == TUESDAY else SHORT_DAY_LAST_PERIOD
     if band is GradeBand.MIDDLE:
@@ -85,5 +88,5 @@ def default_open_slot_ids(level: int, slots: list[SlotPosition]) -> list[int]:
         slot.time_slot_id
         for slot in slots
         if slot.is_teaching_period
-        and FIRST_PERIOD <= slot.period <= last_open_period(band, slot.weekday)
+        and FIRST_OPEN_PERIOD <= slot.period <= last_open_period(band, slot.weekday)
     ]

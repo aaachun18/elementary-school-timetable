@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.models.lesson import Lesson
 from app.models.room import Room
 from app.models.schedule import Schedule
-from app.models.schedule_version import PUBLISHED, ScheduleVersion
+from app.models.schedule_version import ScheduleVersion
 from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
 from app.schemas.schedule import ScheduleCreate, ScheduleUpdate
@@ -13,7 +13,7 @@ from app.services.exceptions import (
     DependentRecordsExistError,
     raise_for_integrity_error,
 )
-from app.services.schedule_version import raise_if_version_locked
+from app.services.schedule_version import raise_if_timetable_locked
 from app.services.school_scope import (
     ensure_references_in_school,
     get_in_school,
@@ -39,27 +39,23 @@ def _ensure_references_in_school(
     ensure_references_in_school(db, school_id, references)
 
 
-def _raise_if_version_published(db: Session, schedule_version_id: int) -> None:
-    """Task 25/25.5: a Schedule row -- new or existing -- belonging to a
-    PUBLISHED (Task 64: or ARCHIVED) ScheduleVersion is locked, same as the
-    version itself.
-    schedule_version_id is always set on a Schedule (see
-    app/models/schedule.py), so this lookup never needs a None check the
-    way an optional FK would."""
+def _raise_if_version_locked(db: Session, schedule_version_id: int) -> None:
+    """v3: a Schedule row -- new or existing -- changes only in a manual
+    edit's working copy (EDITING); every saved timetable is locked."""
     schedule_version = db.get(ScheduleVersion, schedule_version_id)
     if schedule_version is not None:
-        raise_if_version_locked(schedule_version)
+        raise_if_timetable_locked(schedule_version)
 
 
-def _raise_if_published(db: Session, schedule: Schedule) -> None:
-    _raise_if_version_published(db, schedule.schedule_version_id)
+def _raise_if_locked(db: Session, schedule: Schedule) -> None:
+    _raise_if_version_locked(db, schedule.schedule_version_id)
 
 
 def create_schedule(
     db: Session, schedule_data: ScheduleCreate, *, school_id: int
 ) -> Schedule:
     _ensure_references_in_school(db, school_id, schedule_data.model_dump())
-    _raise_if_version_published(db, schedule_data.schedule_version_id)
+    _raise_if_version_locked(db, schedule_data.schedule_version_id)
 
     schedule = Schedule(**schedule_data.model_dump())
     db.add(schedule)
@@ -75,17 +71,17 @@ def create_schedule(
 def get_schedule(
     db: Session, schedule_id: int, *, school_id: int, role: str | None = None
 ) -> Schedule | None:
-    """Task 43: same TEACHER-only-sees-PUBLISHED filter as
-    schedule_version.get_schedule_version() -- a Schedule belonging to a
-    DRAFT version resolves to None (-> the router's existing 404) for
-    TEACHER, never a separate 403. `role=None` (every other caller) sees
-    every Schedule of the school."""
+    """Task 43: same TEACHER-only-sees-published filter as
+    schedule_version.get_schedule_version() -- a Schedule of any other
+    record resolves to None (-> the router's existing 404) for TEACHER,
+    never a separate 403. `role=None` (every other caller) sees every
+    Schedule of the school."""
     schedule = get_in_school(db, Schedule, schedule_id, school_id)
     if schedule is None:
         return None
     if role == "TEACHER":
         version = db.get(ScheduleVersion, schedule.schedule_version_id)
-        if version is None or version.status != PUBLISHED:
+        if version is None or not version.is_published:
             return None
     return schedule
 
@@ -100,7 +96,7 @@ def get_schedules(
     role: str | None = None,
 ) -> list[Schedule]:
     """Task 66: optional schedule_version_id filter. A version that doesn't
-    exist -- or, for TEACHER, isn't PUBLISHED -- simply matches no rows
+    exist -- or, for TEACHER, isn't published -- simply matches no rows
     (empty list, never a 404), so the filter can't reveal whether a hidden
     version exists. Ordered by id so skip/limit pages are stable."""
     stmt = select(Schedule).where(in_school(Schedule, school_id))
@@ -109,7 +105,7 @@ def get_schedules(
     if role == "TEACHER":
         stmt = stmt.join(
             ScheduleVersion, Schedule.schedule_version_id == ScheduleVersion.id
-        ).where(ScheduleVersion.status == PUBLISHED)
+        ).where(ScheduleVersion.is_published.is_(True))
     stmt = stmt.order_by(Schedule.id).offset(skip).limit(limit)
     return list(db.scalars(stmt).all())
 
@@ -121,7 +117,7 @@ def update_schedule(
     if schedule is None:
         return None
 
-    _raise_if_published(db, schedule)
+    _raise_if_locked(db, schedule)
 
     changes = schedule_data.model_dump(exclude_unset=True)
     _ensure_references_in_school(db, school_id, changes)
@@ -142,7 +138,7 @@ def delete_schedule(db: Session, schedule_id: int, *, school_id: int) -> bool:
     if schedule is None:
         return False
 
-    _raise_if_published(db, schedule)
+    _raise_if_locked(db, schedule)
 
     try:
         db.delete(schedule)

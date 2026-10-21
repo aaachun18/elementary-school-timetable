@@ -5,7 +5,7 @@ import type { ClassSubjectRequirement } from "../types/classSubjectRequirement";
 function requirement(id: number, requiredTeacherId: number | null): ClassSubjectRequirement {
   return {
     id,
-    semester_id: 1,
+    schedule_version_id: 1,
     class_id: 10,
     subject_id: 20,
     weekly_periods: 3,

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatDateTime,
   pickCurrentSemester,
-  pickLatestDraft,
+  pickLatestUnpublished,
   summarizeDataHealth,
   summarizeDraftHealth,
   summarizeVersions,
@@ -11,6 +11,8 @@ import type { Class } from "../types/class";
 import type { Room } from "../types/room";
 import type { ConstraintViolationDetail } from "../types/scheduler";
 import type { ScheduleVersion, ScheduleVersionStatus } from "../types/scheduleVersion";
+
+type RecordState = ScheduleVersionStatus | "PUBLISHED";
 import type { Semester } from "../types/semester";
 import type { Subject } from "../types/subject";
 import type { Teacher } from "../types/teacher";
@@ -19,8 +21,20 @@ function semester(id: number, academicYearId: number, number: number, isActive: 
   return { id, academic_year_id: academicYearId, number, is_active: isActive, created_at: "", updated_at: "" };
 }
 
-function version(id: number, semesterId: number, versionNumber: number, status: ScheduleVersionStatus): ScheduleVersion {
-  return { id, semester_id: semesterId, version_number: versionNumber, status, created_at: "", updated_at: "2026-10-19T06:03:00Z" };
+// "PUBLISHED": a published 自動排課 record.
+function version(id: number, semesterId: number, versionNumber: number, state: RecordState): ScheduleVersion {
+  return {
+    id,
+    semester_id: semesterId,
+    version_number: versionNumber,
+    status: state === "PUBLISHED" ? "AUTO" : state,
+    is_published: state === "PUBLISHED",
+    copied_from_number: state === "COPIED" ? 1 : null,
+    editing_source_id: null,
+    note: null,
+    created_at: "",
+    updated_at: "2026-10-19T06:03:00Z",
+  };
 }
 
 function violation(fields: Partial<ConstraintViolationDetail>): ConstraintViolationDetail {
@@ -53,9 +67,9 @@ describe("pickCurrentSemester", () => {
 
   it("prefers the latest active semester whose timetable is published (the next one may be in preparation)", () => {
     const semesters = [semester(13, 1, 1, true), semester(17, 1, 2, true)];
-    const versions = [version(1, 13, 11, "PUBLISHED"), version(2, 17, 3, "DRAFT")];
+    const versions = [version(1, 13, 11, "PUBLISHED"), version(2, 17, 3, "AUTO")];
     expect(pickCurrentSemester(semesters, YEARS, versions)?.id).toBe(13);
-    expect(pickCurrentSemester(semesters, YEARS, [version(2, 17, 3, "DRAFT")])?.id).toBe(17);
+    expect(pickCurrentSemester(semesters, YEARS, [version(2, 17, 3, "AUTO")])?.id).toBe(17);
   });
 
   it("falls back to the latest semester when none is active, and to null without any", () => {
@@ -66,28 +80,30 @@ describe("pickCurrentSemester", () => {
 
 describe("summarizeVersions", () => {
   const versions = [
-    version(1, 13, 4, "ARCHIVED"),
+    version(1, 13, 4, "AUTO"),
     version(2, 13, 11, "PUBLISHED"),
-    version(3, 13, 12, "DRAFT"),
-    version(4, 13, 13, "DRAFT"),
-    version(5, 14, 1, "DRAFT"),
+    version(3, 13, 12, "MANUAL"),
+    version(4, 13, 13, "NOT_SCHEDULED"),
+    version(5, 14, 14, "COPIED"),
+    version(6, 14, 15, "NOT_SCHEDULED"),
   ];
 
-  it("finds the published version and counts drafts, for this semester only", () => {
+  it("finds the published record and counts the others, for this semester only", () => {
     const summary = summarizeVersions(versions, 13);
     expect(summary.published?.id).toBe(2);
-    expect(summary.draftCount).toBe(2);
+    expect(summary.otherCount).toBe(3);
   });
 
-  it("is empty without versions or without a semester", () => {
-    expect(summarizeVersions([], 13)).toEqual({ published: null, draftCount: 0 });
-    expect(summarizeVersions(versions, null)).toEqual({ published: null, draftCount: 0 });
+  it("is empty without records or without a semester", () => {
+    expect(summarizeVersions([], 13)).toEqual({ published: null, otherCount: 0 });
+    expect(summarizeVersions(versions, null)).toEqual({ published: null, otherCount: 0 });
   });
 
-  it("picks the most recently created draft of any semester", () => {
-    expect(pickLatestDraft(versions)?.id).toBe(5);
-    expect(pickLatestDraft(versions.filter((v) => v.status !== "DRAFT"))).toBeNull();
-    expect(pickLatestDraft([])).toBeNull();
+  it("picks the newest unpublished record that has a timetable, of any semester", () => {
+    expect(pickLatestUnpublished(versions)?.id).toBe(5);
+    expect(pickLatestUnpublished(versions.filter((v) => v.id !== 5))?.id).toBe(3);
+    expect(pickLatestUnpublished([version(2, 13, 11, "PUBLISHED"), version(4, 13, 13, "NOT_SCHEDULED")])).toBeNull();
+    expect(pickLatestUnpublished([])).toBeNull();
   });
 });
 

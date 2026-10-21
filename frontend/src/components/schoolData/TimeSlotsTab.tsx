@@ -3,6 +3,7 @@ import { list as listTimeSlots, updateMany as updateTimeSlots } from "../../api/
 import { extractApiErrorMessage } from "../../constants/errorMessages";
 import { useResource } from "../../hooks/useResource";
 import type { TimeSlot, TimeSlotBulkUpdateItem } from "../../types/timeSlot";
+import { buildPeriodDisplay, formatPeriodHeader } from "../../utils/periodDisplay";
 import { formatWeekday } from "../../utils/timeSlotFormat";
 import { buildTimeSlotGrid, slotKey } from "../../utils/wizard";
 import {
@@ -46,6 +47,9 @@ function changeOf(slot: TimeSlot, draft: Draft): TimeSlotBulkUpdateItem | null {
 
 // 學校資料 > 時段: the school's fixed week (Monday-Friday, periods 0-9 for
 // 國小, 0-10 for 國中/高中), built with the school -- no adding or deleting.
+// Only the coordinator's own school's grid is ever listed, so a 國小 sees
+// 早自習, 第 1-4 節, 午休, 第 5-7 節, 放學 (rows named like every other
+// page, utils/periodDisplay.ts).
 // Shown as a timetable; 編輯 turns every cell into a label input and a
 // 可排課 checkbox, 儲存 sends every changed cell at once.
 export default function TimeSlotsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
@@ -74,6 +78,7 @@ function TimeSlotGridEditor({
   onSaved: () => void;
 }): ReactElement {
   const grid = buildTimeSlotGrid(timeSlots);
+  const periodDisplay = buildPeriodDisplay(timeSlots);
   const [drafts, setDrafts] = useState<Map<number, Draft> | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -122,7 +127,7 @@ function TimeSlotGridEditor({
   return (
     <div>
       <p className={HELP_TEXT}>
-        每天的節次由學校類型決定（國小第 0 到 9 節、國中與高中第 0 到 10 節），不能新增或刪除；可以修改每一節的標籤與是否可排課。不可排課的時段不會被排入課程，也不能設為年級的可排節次。
+        每天的節次由本校的學校類型決定，不能新增或刪除；可以修改每一節的標籤與是否可排課。早自習、午休、放學預設不可排課。不可排課的時段不會被排入課程，也不能設為年級的可排節次。
       </p>
       {isAdmin && (
         <div className="mb-3 flex gap-2">
@@ -162,8 +167,8 @@ function TimeSlotGridEditor({
           <tbody>
             {grid.periods.map((period) => (
               <tr key={period}>
-                <th scope="row" className={TH}>
-                  第 {period} 節
+                <th scope="row" className={`${TH} whitespace-nowrap`}>
+                  {formatPeriodHeader(period, periodDisplay)}
                 </th>
                 {grid.weekdays.map((weekday) => {
                   const slot = grid.slotAt.get(slotKey(weekday, period));
@@ -171,7 +176,7 @@ function TimeSlotGridEditor({
                     return <td key={weekday} className={TD} />;
                   }
                   const draft = drafts?.get(slot.id) ?? draftOf(slot);
-                  const where = `${formatWeekday(weekday)}第 ${period} 節`;
+                  const where = `${formatWeekday(weekday)}${formatPeriodHeader(period, periodDisplay)}`;
                   if (isEditing) {
                     return (
                       <td key={weekday} className={TD}>

@@ -1,11 +1,11 @@
 """Bridges the database to the framework-independent scheduling_engine/
-package: reads the DB rows a ScheduleVersion's semester needs scheduled,
+package: reads the DB rows a 排課紀錄 (ScheduleVersion) needs scheduled,
 converts them into scheduling_engine's plain dataclasses, runs the
 Backtracking Scheduler, and (on success) writes the result back as
 Schedule rows.
 
 This file and services/schedule_check.py (Task 61, which reuses this
-file's load_semester_requirements()/build_scheduling_resources() and its
+file's load_version_requirements()/build_scheduling_resources() and its
 sys.path bootstrap below) are the only files in backend/app/ that import
 scheduling_engine. Nothing under scheduling_engine/ imports anything from
 here, or from SQLAlchemy/FastAPI at all -- see AGENTS.md section 4.
@@ -67,7 +67,7 @@ from app.models.grade_class import Class
 from app.models.lesson import Lesson
 from app.models.room import Room
 from app.models.schedule import Schedule
-from app.models.schedule_version import ScheduleVersion
+from app.models.schedule_version import AUTO, NOT_SCHEDULED, ScheduleVersion
 from app.models.semester_grade_time_slot import SemesterGradeTimeSlot
 from app.models.semester_teacher import SemesterTeacher, SemesterTeacherUnavailability
 from app.models.subject import Subject
@@ -78,20 +78,19 @@ from app.services.exceptions import (
     ScheduleVersionAlreadyScheduledError,
     raise_for_integrity_error,
 )
-from app.services.schedule_version import raise_if_version_locked
 
 
-def load_semester_requirements(
-    db: Session, semester_id: int
+def load_version_requirements(
+    db: Session, schedule_version_id: int
 ) -> list[ClassSubjectRequirement]:
-    """Every ClassSubjectRequirement in one semester. Task 61: pulled out of
-    _build_lessons_and_resources() (unchanged query) so the read-only
-    schedule check (services/schedule_check.py) loads exactly the same
-    requirement set the scheduler does."""
+    """Every ClassSubjectRequirement of one record. Task 61: pulled out of
+    _build_lessons_and_resources() so the read-only schedule check
+    (services/schedule_check.py) loads exactly the same requirement set the
+    scheduler does."""
     return list(
         db.scalars(
             select(ClassSubjectRequirement).where(
-                ClassSubjectRequirement.semester_id == semester_id
+                ClassSubjectRequirement.schedule_version_id == schedule_version_id
             )
         ).all()
     )
@@ -121,16 +120,12 @@ def build_lesson_blocks(lessons: list[Lesson]) -> list[LessonBlock]:
 def _build_lessons_and_resources(
     db: Session, schedule_version: ScheduleVersion
 ) -> tuple[list[LessonAssignment], SchedulingResources]:
-    """Read + convert step. Lesson is version-independent (see
-    app/models/lesson.py), so this actually queries by the ScheduleVersion's
-    *semester*, not the version itself -- every requirement in that
-    semester, and every Lesson already generated for them (via
-    generate-lessons, a separate, earlier Task).
-
-    Reference data is built by build_scheduling_resources() -- see its
-    docstring.
+    """Read + convert step: every requirement of the record, and every
+    Lesson already generated for them (via generate-lessons, an earlier
+    call). Reference data is built by build_scheduling_resources() -- see
+    its docstring.
     """
-    requirements = load_semester_requirements(db, schedule_version.semester_id)
+    requirements = load_version_requirements(db, schedule_version.id)
     requirement_by_id = {requirement.id: requirement for requirement in requirements}
 
     lessons_orm = (
@@ -175,7 +170,7 @@ def _build_lessons_and_resources(
     resources = build_scheduling_resources(
         db,
         requirements,
-        semester_id=schedule_version.semester_id,
+        schedule_version_id=schedule_version.id,
         school_id=school_id_of_version(db, schedule_version),
     )
     if lesson_blocks:
@@ -184,9 +179,9 @@ def _build_lessons_and_resources(
 
 
 def load_semester_teachers(
-    db: Session, semester_id: int, school_id: int
+    db: Session, schedule_version_id: int, school_id: int
 ) -> list[SemesterTeacher]:
-    """Task 98: the teachers taking part in the semester's scheduling, in
+    """Task 98: the teachers taking part in the record's scheduling, in
     teacher id order (the order the search tries them in). Only the
     school's own teachers, even if a row ever named another school's."""
     return list(
@@ -194,7 +189,7 @@ def load_semester_teachers(
             select(SemesterTeacher)
             .join(Teacher, SemesterTeacher.teacher_id == Teacher.id)
             .where(
-                SemesterTeacher.semester_id == semester_id,
+                SemesterTeacher.schedule_version_id == schedule_version_id,
                 in_school(Teacher, school_id),
             )
             .order_by(SemesterTeacher.teacher_id)
@@ -203,15 +198,15 @@ def load_semester_teachers(
 
 
 def _class_allowed_time_slots(
-    db: Session, semester_id: int, classes: list[Class]
+    db: Session, schedule_version_id: int, classes: list[Class]
 ) -> list[ClassAllowedTimeSlots]:
-    """H13: each class gets its grade's open slots for the semester. A
-    grade with no SemesterGradeTimeSlot row at all for the semester has no
+    """H13: each class gets its grade's open slots in the record. A grade
+    with no SemesterGradeTimeSlot row at all in the record has no
     restriction (no entry) -- the wizard always saves at least one slot."""
     slots_by_grade: dict[int, set[int]] = {}
     for grade_id, time_slot_id in db.execute(
         select(SemesterGradeTimeSlot.grade_id, SemesterGradeTimeSlot.time_slot_id).where(
-            SemesterGradeTimeSlot.semester_id == semester_id
+            SemesterGradeTimeSlot.schedule_version_id == schedule_version_id
         )
     ).all():
         slots_by_grade.setdefault(grade_id, set()).add(time_slot_id)
@@ -228,7 +223,7 @@ def build_scheduling_resources(
     db: Session,
     requirements: list[ClassSubjectRequirement],
     *,
-    semester_id: int,
+    schedule_version_id: int,
     school_id: int,
 ) -> SchedulingResources:
     """Converts the DB's reference data into the engine's
@@ -238,14 +233,14 @@ def build_scheduling_resources(
     resources the scheduler searches with.
 
     Per-requirement rules (required teacher, required room, weekly periods)
-    come from `requirements` -- one semester's ClassSubjectRequirements.
+    come from `requirements` -- one record's ClassSubjectRequirements.
     Task 98: the teachers, their weekly maximum and unavailable slots, and
-    the slots each grade is open for are the semester's own settings
+    the slots each grade is open for are the record's own settings
     (SemesterTeacher / SemesterTeacherUnavailability /
     SemesterGradeTimeSlot); rooms, time slots and active statuses are the
     school's. Never another school's teachers, rooms or time slots.
     """
-    semester_teachers = load_semester_teachers(db, semester_id, school_id)
+    semester_teachers = load_semester_teachers(db, schedule_version_id, school_id)
     teacher_unavailability = [
         TeacherUnavailability(
             teacher_id=semester_teacher.teacher_id, time_slot_id=row.time_slot_id
@@ -360,7 +355,9 @@ def build_scheduling_resources(
         # No default_rooms: a requirement with no special room is taught in
         # the class's own room (原班上課), which isn't a school room -- no
         # room and no room conflict (classes have no homeroom room).
-        class_allowed_time_slots=_class_allowed_time_slots(db, semester_id, all_classes),
+        class_allowed_time_slots=_class_allowed_time_slots(
+            db, schedule_version_id, all_classes
+        ),
     )
 
 
@@ -436,9 +433,9 @@ def run_scheduler(
 ) -> SchedulerRunOutcome | None:
     """Returns None if the ScheduleVersion doesn't exist (caller -> 404).
 
-    Raises ScheduleVersionAlreadyScheduledError if this version already has
-    Schedule rows (see that exception's docstring for why re-running isn't
-    just allowed to silently overwrite them).
+    Raises ScheduleVersionAlreadyScheduledError unless the record is
+    尚未排課 with no Schedule rows (see that exception's docstring for why
+    re-running never overwrites a timetable).
 
     Otherwise runs the Task 23 static feasibility checks first -- five facts
     (teacher workload, teacher availability, inactive entities, a Lesson
@@ -448,33 +445,28 @@ def run_scheduler(
     pass. A fixed Lesson can only ever be placed in its fixed slot (the
     search never tries another); that is re-checked before writing. In
     both cases:
-    - on success, writes state.assignments to the `schedules` table in one
-      commit (caller reads result.search_result.state.assignments /
-      backtrack_count for the 200 response).
+    - on success, writes state.assignments to the `schedules` table and
+      marks the record 自動排課 (AUTO), in one commit (caller reads
+      result.search_result.state.assignments / backtrack_count for the 200
+      response).
     - on any failure (static or search), writes nothing at all (matching
-      the engine's own atomic guarantee) and returns the failure details
-      for the caller to turn into a 422 response.
+      the engine's own atomic guarantee) -- the record stays 尚未排課 --
+      and returns the failure details for the caller to turn into a 422
+      response. A partial timetable is never saved as a result.
     """
     schedule_version = db.get(ScheduleVersion, schedule_version_id)
     if schedule_version is None:
         return None
 
-    # Task 25: a PUBLISHED (Task 64: or ARCHIVED) version is fully locked
-    # -- checked before the already-scheduled guard below, since that guard
-    # is specific to run-scheduler while this one is the more fundamental
-    # gate shared by every mutating operation on a ScheduleVersion.
-    raise_if_version_locked(schedule_version)
-
-    existing_count = db.scalar(
-        select(Schedule)
+    existing_row = db.scalar(
+        select(Schedule.id)
         .where(Schedule.schedule_version_id == schedule_version_id)
         .limit(1)
     )
-    if existing_count is not None:
+    if schedule_version.status != NOT_SCHEDULED or existing_row is not None:
         raise ScheduleVersionAlreadyScheduledError(
-            f"ScheduleVersion {schedule_version_id} already has Schedule "
-            "rows. Delete them first (DELETE /api/v1/schedules/{id}) "
-            "before running the scheduler again."
+            f"ScheduleVersion {schedule_version_id} is {schedule_version.status}; "
+            "the scheduler only fills an empty NOT_SCHEDULED record."
         )
 
     lessons, resources = _build_lessons_and_resources(db, schedule_version)
@@ -510,6 +502,7 @@ def run_scheduler(
             for assignment in result.state.assignments
         ]
         db.add_all(schedule_rows)
+        schedule_version.status = AUTO
         try:
             db.commit()
         except IntegrityError as exc:

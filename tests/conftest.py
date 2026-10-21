@@ -30,7 +30,15 @@ from app.core.security import (  # noqa: E402
 )
 from app.database import Base, get_db  # noqa: E402
 from app.main import app  # noqa: E402
+from app.models.academic_year import AcademicYear, Semester  # noqa: E402
 from app.models.grade_class import MAX_GRADE_LEVEL, MIN_GRADE_LEVEL, Grade  # noqa: E402
+from app.models.schedule_version import (  # noqa: E402
+    AUTO,
+    COPIED,
+    EDITING,
+    NOT_SCHEDULED,
+    ScheduleVersion,
+)
 from app.models.school import School  # noqa: E402
 from app.models.time_slot import TimeSlot  # noqa: E402
 from app.models.semester_teacher import (  # noqa: E402
@@ -160,22 +168,108 @@ def time_slot_at(
     return slot
 
 
-def enroll_in_semester(
+def make_record(
     db_session: Session,
     semester_id: int,
+    *,
+    status: str = NOT_SCHEDULED,
+    is_published: bool = False,
+    source_status: str = AUTO,
+) -> ScheduleVersion:
+    """v3: a 排課紀錄 of the semester for test builders that write straight
+    to the database -- numbered like the app numbers them (the school's
+    next 編號), in the given state (see mark_status_in_db())."""
+    school_id = db_session.scalar(
+        select(AcademicYear.school_id)
+        .join(Semester, Semester.academic_year_id == AcademicYear.id)
+        .where(Semester.id == semester_id)
+    )
+    assert school_id is not None, f"semester {semester_id} does not exist"
+    record = ScheduleVersion(
+        school_id=school_id,
+        semester_id=semester_id,
+        version_number=_next_number(db_session, school_id),
+        status=NOT_SCHEDULED,
+        is_published=False,
+    )
+    db_session.add(record)
+    db_session.flush()
+    mark_status_in_db(
+        db_session, record.id, status, is_published=is_published, source_status=source_status
+    )
+    return record
+
+
+def _next_number(db_session: Session, school_id: int) -> int:
+    numbers = db_session.scalars(
+        select(ScheduleVersion.version_number).where(ScheduleVersion.school_id == school_id)
+    ).all()
+    return max((number for number in numbers if number is not None), default=0) + 1
+
+
+def mark_status_in_db(
+    db_session: Session,
+    schedule_version_id: int,
+    status: str,
+    *,
+    is_published: bool = False,
+    source_status: str = AUTO,
+) -> None:
+    """Puts a record straight into `status` (keeping its id and contents).
+    EDITING (a manual edit's working copy) needs the record it edits: an
+    empty record of the same semester, of `source_status`, is made for it.
+    COPIED needs the number it was copied from: 1. Committed."""
+    record = db_session.get(ScheduleVersion, schedule_version_id)
+    assert record is not None
+    # The source first, before the record changes: every check constraint
+    # ties several of the record's columns together, so they all change in
+    # one flush.
+    source_id: int | None = None
+    if status == EDITING:
+        source = ScheduleVersion(
+            school_id=record.school_id,
+            semester_id=record.semester_id,
+            version_number=_next_number(db_session, record.school_id),
+            status=source_status,
+            is_published=False,
+            copied_from_number=1 if source_status == COPIED else None,
+        )
+        db_session.add(source)
+        db_session.flush()
+        source_id = source.id
+    if status == EDITING:
+        version_number = None
+    elif record.version_number is None:
+        version_number = _next_number(db_session, record.school_id)
+    else:
+        version_number = record.version_number
+    record.is_published = False
+    record.editing_source_id = source_id
+    record.version_number = version_number
+    record.copied_from_number = 1 if status == COPIED else None
+    record.status = status
+    db_session.flush()
+    record.is_published = is_published
+    db_session.commit()
+
+
+def enroll_in_semester(
+    db_session: Session,
+    schedule_version_id: int,
     teacher: Teacher,
     *,
     min_weekly_periods: int | None = None,
     max_weekly_periods: int | None = None,
     unavailable_time_slot_ids: tuple[int, ...] = (),
 ) -> SemesterTeacher:
-    """Task 98: makes `teacher` take part in the semester's scheduling, the
-    way the wizard's PUT /semesters/{id}/teachers does, for test builders
-    that write straight to the database. The weekly periods range defaults
+    """Task 98: makes `teacher` take part in the record's scheduling, the
+    way the wizard's PUT /schedule-versions/{id}/teachers does, for test
+    builders that write straight to the database (v3: settings belong to a
+    record -- the name is kept from when they belonged to the semester). The weekly periods range defaults
     to the teacher's own (deprecated) Teacher.min/max_weekly_periods, so a
     builder's existing numbers keep meaning what they meant."""
     semester_teacher = SemesterTeacher(
-        semester_id=semester_id,
+        schedule_version_id=schedule_version_id,
         teacher_id=teacher.id,
         min_weekly_periods=(
             teacher.min_weekly_periods if min_weekly_periods is None else min_weekly_periods

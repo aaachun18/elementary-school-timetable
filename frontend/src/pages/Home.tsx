@@ -16,7 +16,7 @@ import { getCurrentUserRole, getCurrentUsername, isCurrentUserCoordinator, ROLE_
 import {
   formatDateTime,
   pickCurrentSemester,
-  pickLatestDraft,
+  pickLatestUnpublished,
   summarizeDataHealth,
   summarizeDraftHealth,
   summarizeVersions,
@@ -103,7 +103,7 @@ function useSemesterData(): {
   semester: Semester | null;
   semesterLabel: string;
   versions: SemesterVersions;
-  latestDraft: ScheduleVersion | null;
+  latestUnpublished: ScheduleVersion | null;
   // 「1 學年度第 2 學期」 for any semester id ("" if unknown).
   labelOf: (semesterId: number) => string;
 } {
@@ -126,7 +126,7 @@ function useSemesterData(): {
     semester,
     semesterLabel: semester === null ? "" : labelOf(semester.id),
     versions: summarizeVersions(versions, semester?.id ?? null),
-    latestDraft: pickLatestDraft(versions),
+    latestUnpublished: pickLatestUnpublished(versions),
     labelOf,
   };
 }
@@ -149,13 +149,13 @@ function SemesterCard({ data }: { data: ReturnType<typeof useSemesterData> }): R
           <p className="text-sm text-gray-700">目前學期：{semesterLabel}</p>
           {versions.published !== null ? (
             <p className="text-sm text-gray-700">
-              已發布：v{versions.published.version_number}（發布時間 {formatDateTime(versions.published.updated_at)}）
+              已發布：編號 {versions.published.version_number}（最後更新 {formatDateTime(versions.published.updated_at)}）
             </p>
           ) : (
-            <p className={NOTICE}>這個學期還沒有已發布的課表，請到排課紀錄發布一個草稿。</p>
+            <p className={NOTICE}>這個學期還沒有已發布的課表，請到排課紀錄檢視課表後發布。</p>
           )}
           <div className={STAT_ROW}>
-            <Stat value={versions.draftCount} label="草稿版本" />
+            <Stat value={versions.otherCount} label="其他排課紀錄" />
           </div>
         </div>
       )}
@@ -164,7 +164,7 @@ function SemesterCard({ data }: { data: ReturnType<typeof useSemesterData> }): R
 }
 
 function DraftHealthCard({ data }: { data: ReturnType<typeof useSemesterData> }): ReactElement {
-  const draft = data.latestDraft;
+  const draft = data.latestUnpublished;
   const draftId = draft?.id ?? null;
   const health = useResource(
     () =>
@@ -178,14 +178,14 @@ function DraftHealthCard({ data }: { data: ReturnType<typeof useSemesterData> })
     health.data === null ? null : summarizeDraftHealth(health.data[0].violations, health.data[1].lessons.length);
   return (
     <DashboardCard
-      title="最新草稿健康度"
+      title="最新未發布課表健康度"
       isLoading={data.isLoading || (draftId !== null && health.isLoading && health.data === null)}
       errorMessage={data.errorMessage ?? health.errorMessage}
       onRetry={data.errorMessage !== null ? data.reload : health.reload}
     >
       {draft === null ? (
         <p className={MUTED_TEXT}>
-          {data.semester === null ? "還沒有任何學期。" : "目前沒有任何草稿版本。"}
+          {data.semester === null ? "還沒有任何學期。" : "目前沒有尚未發布的課表。"}
           <Link to="/wizard" className={LINK_TEXT}>
             到開始排課排出一份課表
           </Link>
@@ -195,7 +195,7 @@ function DraftHealthCard({ data }: { data: ReturnType<typeof useSemesterData> })
       ) : (
         <div className="flex flex-col gap-3">
           <p className="text-sm text-gray-700">
-            {data.labelOf(draft.semester_id)} 草稿 v{draft.version_number}
+            {data.labelOf(draft.semester_id)} 編號 {draft.version_number}
           </p>
           <div className={STAT_ROW}>
             <Stat value={summary.errorCount} label="錯誤" tone={summary.errorCount > 0 ? "problem" : "normal"} />
@@ -209,7 +209,7 @@ function DraftHealthCard({ data }: { data: ReturnType<typeof useSemesterData> })
               <Link to={timetablePath} className={LINK_TEXT}>
                 到課表查看與修正
               </Link>
-              <Link to={draftId === null ? "/records" : `/records?scheduleVersionId=${draftId}`} className={LINK_TEXT}>
+              <Link to="/records" className={LINK_TEXT}>
                 到排課紀錄
               </Link>
             </div>
@@ -296,7 +296,7 @@ function AdminHome(): ReactElement {
   );
 }
 
-// --- TEACHER: published timetable only, no drafts / checks / admin links ---
+// --- TEACHER: published timetable only, no other records / checks / admin links ---
 
 function TeacherHome(): ReactElement {
   const data = useSemesterData();
@@ -308,7 +308,7 @@ function TeacherHome(): ReactElement {
           {data.semester !== null && <p className="text-sm text-gray-700">目前學期：{data.semesterLabel}</p>}
           {published !== null ? (
             <p className="text-sm text-gray-700">
-              已發布：v{published.version_number}（發布時間 {formatDateTime(published.updated_at)}）
+              已發布：編號 {published.version_number}（最後更新 {formatDateTime(published.updated_at)}）
             </p>
           ) : (
             <p className={NOTICE}>目前學期還沒有已發布的課表，發布後就能在課表查看。</p>
@@ -328,7 +328,7 @@ function TeacherHome(): ReactElement {
 }
 
 // Task 97: the home page is a dashboard by role (decision 33) -- an ADMIN
-// sees the semester's versions, the latest draft's health, the basic
+// sees the semester's 排課紀錄, the latest unpublished timetable's health, the basic
 // data's health and quick links; anyone else (a TEACHER) only the
 // published timetable and the way to it. Every card loads on its own.
 // Task 98: the full dashboard is for the 教學組長 (the 系統管理員 has no

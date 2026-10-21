@@ -22,7 +22,7 @@ function violation(fields: Partial<ConstraintViolationDetail>): ConstraintViolat
 }
 
 describe("planAdjustmentRefresh", () => {
-  const draft = { isAdmin: true, versionStatus: "DRAFT", isEditModeOn: true, isCheckShown: true };
+  const draft = { isAdmin: true, versionStatus: "EDITING", isEditModeOn: true, isCheckShown: true };
 
   it("reloads the timetable and the unscheduled panel and re-runs a shown check", () => {
     expect(planAdjustmentRefresh(draft)).toEqual({ reloadTimetable: true, reloadUnscheduled: true, rerunCheck: true });
@@ -40,11 +40,11 @@ describe("planAdjustmentRefresh", () => {
     });
   });
 
-  it("does nothing for a TEACHER or a version that isn't a DRAFT", () => {
+  it("does nothing for a TEACHER or a record that isn't a working copy", () => {
     const nothing = { reloadTimetable: false, reloadUnscheduled: false, rerunCheck: false };
     expect(planAdjustmentRefresh({ ...draft, isAdmin: false })).toEqual(nothing);
-    expect(planAdjustmentRefresh({ ...draft, versionStatus: "PUBLISHED" })).toEqual(nothing);
-    expect(planAdjustmentRefresh({ ...draft, versionStatus: "ARCHIVED" })).toEqual(nothing);
+    expect(planAdjustmentRefresh({ ...draft, versionStatus: "AUTO" })).toEqual(nothing);
+    expect(planAdjustmentRefresh({ ...draft, versionStatus: "MANUAL" })).toEqual(nothing);
     expect(planAdjustmentRefresh({ ...draft, versionStatus: null })).toEqual(nothing);
   });
 });

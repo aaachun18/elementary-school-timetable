@@ -1,8 +1,9 @@
-"""Task 92: unscheduled lessons of a ScheduleVersion -- the list, the
-place-candidates and placing them with place-lesson (decision 28).
+"""Task 92: unscheduled lessons of a 排課紀錄 -- the list, the
+place-candidates and placing them with place-lesson (decision 28; v3:
+placing only in a manual edit's working copy).
 
 The timetable is test_block_adjustment.py's World, built without the rows
-named in skip_rows -- those lessons exist but are not in the version.
+named in skip_rows -- those lessons exist but are not in the timetable.
 """
 
 from typing import Any
@@ -22,7 +23,12 @@ from app.models.teacher import Teacher
 from app.services import lesson_placement
 from tests.test_block_adjustment import PLACEMENT, World, _check, _refused, _world
 from tests.test_move_swap_lessons import _ok, _schedule_snapshot
-from tests.conftest import enroll_in_semester, get_test_school_id
+from tests.conftest import (
+    enroll_in_semester,
+    get_test_school_id,
+    make_record,
+    mark_status_in_db,
+)
 
 URL = "/api/v1/schedule-versions"
 
@@ -153,7 +159,7 @@ def test_eligible_teachers_are_the_active_teachers_taking_part_by_name(
     retired = Teacher(school_id=get_test_school_id(db_session), name="0 老師", is_active=False, min_weekly_periods=0, max_weekly_periods=20)
     db_session.add(retired)
     db_session.flush()
-    enroll_in_semester(db_session, world.version.semester_id, retired)
+    enroll_in_semester(db_session, world.version.id, retired)
     world.science.required_teacher_id = world.t1.id
     db_session.commit()
 
@@ -210,26 +216,23 @@ def test_suggested_room_without_type_or_homeroom_is_none(
     assert art["suggested_room_id"] is None
 
 
-@pytest.mark.parametrize("status", ["PUBLISHED", "ARCHIVED"])
-def test_list_is_readable_for_locked_versions(
+@pytest.mark.parametrize("status", ["AUTO", "MANUAL", "COPIED"])
+def test_list_is_readable_for_saved_records(
     client: TestClient, db_session: Session, status: str
 ) -> None:
     world = _world(db_session, skip_rows=("A1",))
-    world.version.status = status
-    db_session.commit()
+    mark_status_in_db(db_session, world.version.id, status, is_published=True)
 
     lessons = _ok(_unscheduled(client, world.version.id))["lessons"]
 
     assert [item["lesson_id"] for item in lessons] == [_lesson(world, "A1")]
 
 
-def test_lessons_of_other_semesters_are_not_listed(client: TestClient, db_session: Session) -> None:
+def test_lessons_of_other_records_are_not_listed(client: TestClient, db_session: Session) -> None:
     world = _world(db_session)
-    other = Semester(academic_year_id=world.version.semester.academic_year_id, number=2, is_active=False)
-    db_session.add(other)
-    db_session.flush()
+    other = make_record(db_session, world.version.semester_id)
     requirement = ClassSubjectRequirement(
-        semester_id=other.id, class_id=world.science.class_id, subject_id=world.science.subject_id, weekly_periods=1
+        schedule_version_id=other.id, class_id=world.science.class_id, subject_id=world.science.subject_id, weekly_periods=1
     )
     db_session.add(requirement)
     db_session.flush()
@@ -516,13 +519,11 @@ def test_missing_room_or_time_slot_returns_404(client: TestClient, db_session: S
 # --- Which lessons can be placed ---
 
 
-def test_lesson_of_another_semester_is_refused(client: TestClient, db_session: Session) -> None:
+def test_lesson_of_another_record_is_refused(client: TestClient, db_session: Session) -> None:
     world = _world(db_session)
-    other = Semester(academic_year_id=world.version.semester.academic_year_id, number=2, is_active=False)
-    db_session.add(other)
-    db_session.flush()
+    other = make_record(db_session, world.version.semester_id)
     requirement = ClassSubjectRequirement(
-        semester_id=other.id, class_id=world.science.class_id, subject_id=world.science.subject_id, weekly_periods=1
+        schedule_version_id=other.id, class_id=world.science.class_id, subject_id=world.science.subject_id, weekly_periods=1
     )
     db_session.add(requirement)
     db_session.flush()
@@ -534,7 +535,7 @@ def test_lesson_of_another_semester_is_refused(client: TestClient, db_session: S
     candidates = _place_candidates(client, world.version.id, foreign.id, teacher_id=world.t1.id)
 
     for response in (place, candidates):
-        assert (response.status_code, response.json()["detail"]) == (409, "此課程不屬於該課表的學期")
+        assert (response.status_code, response.json()["detail"]) == (409, "此課程不屬於這筆排課紀錄")
 
 
 def test_lesson_already_in_the_version_is_refused(client: TestClient, db_session: Session) -> None:
@@ -589,8 +590,8 @@ def test_failure_halfway_through_a_block_writes_nothing(
 
 def test_teacher_gets_403(teacher_client: TestClient, db_session: Session) -> None:
     world = _world(db_session, skip_rows=("A1",))
-    world.version.status = "PUBLISHED"  # even a version a TEACHER may read
-    db_session.commit()
+    # Even a record a TEACHER may read.
+    mark_status_in_db(db_session, world.version.id, "AUTO", is_published=True)
 
     assert _unscheduled(teacher_client, world.version.id).status_code == 403
     assert _place_candidates(teacher_client, world.version.id, _lesson(world, "A1"), teacher_id=world.t2.id).status_code == 403
@@ -608,19 +609,13 @@ def test_missing_version_returns_404(client: TestClient, db_session: Session) ->
         assert (response.status_code, response.json()["detail"]) == (404, "ScheduleVersion not found")
 
 
-@pytest.mark.parametrize(
-    ("status", "detail"),
-    [
-        ("PUBLISHED", "已發布版本不可修改，請建立新草稿版本"),
-        ("ARCHIVED", "已封存的課表無法修改，請先複製成新草稿"),
-    ],
-)
+@pytest.mark.parametrize("status", ["NOT_SCHEDULED", "AUTO", "MANUAL", "COPIED"])
 def test_locked_version_returns_409_before_anything_else(
-    client: TestClient, db_session: Session, status: str, detail: str
+    client: TestClient, db_session: Session, status: str
 ) -> None:
+    detail = "課表不能直接修改，請先按「手動編輯課表」"
     world = _world(db_session, skip_rows=("A1",))
-    world.version.status = status
-    db_session.commit()
+    mark_status_in_db(db_session, world.version.id, status)
     before = _schedule_snapshot(db_session)
 
     # No teacher anywhere and lunch as target: the lock is reported first.
@@ -771,15 +766,13 @@ def test_two_blocks_of_2_plus_1_on_the_same_day_are_reported(
     assert data["check"] == _check(client, world)
 
 
-def test_other_versions_of_the_semester_are_untouched(client: TestClient, db_session: Session) -> None:
+def test_other_records_of_the_semester_are_untouched(client: TestClient, db_session: Session) -> None:
     world = _world(db_session, skip_rows=("A1",))
-    from app.models.schedule_version import ScheduleVersion
-
-    other = ScheduleVersion(semester_id=world.version.semester_id, version_number=2, status="DRAFT")
-    db_session.add(other)
-    db_session.commit()
+    other = make_record(db_session, world.version.semester_id, status="EDITING")
 
     _ok(_place(client, world.version.id, _lesson(world, "A1"), world.slot(3, 5), teacher_id=world.t2.id))
 
     assert _schedule_snapshot(db_session, other.id) == []
-    assert len(_ok(_unscheduled(client, other.id))["lessons"]) == len(PLACEMENT)
+    # v3: the other record owns no lessons at all -- nothing of this
+    # record's is ever listed for it.
+    assert _ok(_unscheduled(client, other.id))["lessons"] == []

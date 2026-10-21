@@ -38,7 +38,7 @@ def list_schedules(
     school_id: int = Depends(member_school_id),
 ) -> list[Schedule]:
     # Task 43: TEACHER only ever sees Schedule rows belonging to a
-    # PUBLISHED ScheduleVersion -- see schedule_version.py's own comment
+    # published record -- see schedule_version.py's own comment
     # on why this is a silent filter, not a 403. Task 66: the same holds
     # with schedule_version_id -- a hidden or missing version is an empty
     # list, not a 404.

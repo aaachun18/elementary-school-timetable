@@ -20,7 +20,7 @@ export function formatWeekday(weekday: number): string {
   return WEEKDAY_LABELS[weekday] ?? `星期代碼 ${weekday}`;
 }
 
-// Task 78: periods are shown by their TEACHING number (utils/periodDisplay.ts),
+// Task 78 / v3: periods are shown by their TEACHING number (utils/periodDisplay.ts),
 // e.g. raw period 8 on a day with 早自習 and 午休 is "星期五第 7 節"; a
 // non-teaching slot shows its name instead ("星期一早自習"). periodDisplay
 // must be built from ALL time slots, not just the ones being labelled.

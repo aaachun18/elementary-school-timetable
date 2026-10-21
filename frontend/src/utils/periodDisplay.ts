@@ -1,12 +1,13 @@
-// Task 78: what a period number is CALLED on screen. A school's periods
-// are a fixed 0-9 (國小) or 0-10 (國中/高中) grid, and every page shows
-// them by that same number -- the afternoon's period 6 is "第 6 節" (the
-// earlier renumbering by teaching periods only was dropped with the fixed
-// grid). A row nobody may be scheduled in is shown by its name instead.
+// Task 78 / v3: what a period number is CALLED on screen. A school's
+// periods are a fixed 0-9 (國小) or 0-10 (國中/高中) grid in the database,
+// but people count only the periods that teach: 0 is 早自習, 5 午休 and the
+// last one 放學, so 國小's afternoon periods 6-8 are 「第 5-7 節」 and
+// 國中 / 高中 have 第 1-8 節.
 //
 // Rules (per period, across all weekdays):
 // - a teaching row: ANY weekday has an is_teaching_period=true slot at this
-//   period. Shown as "第 {period} 節".
+//   period. Numbered 1, 2, 3 ... in period order, counting teaching rows
+//   only -- shown as "第 {number} 節".
 // - a non-teaching row: every other period that has at least one slot. It
 //   has no number, only a name: the first non-null label (by weekday), or
 //   NON_TEACHING_FALLBACK_LABEL.
@@ -41,10 +42,12 @@ export function buildPeriodDisplay(
 
   const display = new Map<number, PeriodDisplay>();
   const periods = Array.from(slotsByPeriod.keys()).sort((a, b) => a - b);
+  let teachingNumber = 0;
   for (const period of periods) {
     const slots = slotsByPeriod.get(period) ?? [];
     if (slots.some((timeSlot) => timeSlot.is_teaching_period)) {
-      display.set(period, { kind: "teaching", number: period });
+      teachingNumber += 1;
+      display.set(period, { kind: "teaching", number: teachingNumber });
       continue;
     }
     const labelled = [...slots]

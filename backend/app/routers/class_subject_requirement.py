@@ -17,6 +17,7 @@ from app.schemas.class_subject_requirement import (
     RequirementSyncResult,
 )
 from app.services import class_subject_requirement as requirement_service
+from app.services import schedule_version as schedule_version_service
 
 # Task 73: every Read field except is_locked comes straight from the row.
 _COLUMN_FIELDS = tuple(
@@ -38,7 +39,7 @@ def _to_read_one(
 ) -> ClassSubjectRequirementRead:
     return _to_read(
         requirement,
-        is_locked=requirement_service.is_used_by_locked_schedule(db, requirement.id),
+        is_locked=schedule_version_service.settings_locked_for_requirement(db, requirement),
     )
 
 
@@ -71,14 +72,14 @@ def sync_class_subject_requirements(
     db: Session = Depends(get_db),
     school_id: int = Depends(coordinator_school_id),
 ) -> RequirementSyncResult:
-    """The wizard's 科目需求 step: the semester's requirements follow the
-    school's 科目需求 (學校資料) -- see sync_semester_requirements()."""
-    result = requirement_service.sync_semester_requirements(
-        db, data.semester_id, school_id=school_id
+    """The wizard's 科目需求 step: the record's requirements follow the
+    school's 科目需求 (學校資料) -- see sync_version_requirements()."""
+    result = requirement_service.sync_version_requirements(
+        db, data.schedule_version_id, school_id=school_id
     )
     if result is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Semester not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="ScheduleVersion not found"
         )
     return result
 
@@ -87,29 +88,22 @@ def sync_class_subject_requirements(
 def list_class_subject_requirements(
     skip: int = 0,
     limit: int = 100,
-    semester_id: int | None = None,
+    schedule_version_id: int | None = None,
     current_user: User = Depends(require_school_member),
     db: Session = Depends(get_db),
     school_id: int = Depends(member_school_id),
 ) -> list[ClassSubjectRequirementRead]:
-    # Task 72: a TEACHER only sees requirements of semesters with a
-    # PUBLISHED version -- a silent filter, same as /schedules (Task 43).
+    # Task 72: a TEACHER only sees requirements of published records -- a
+    # silent filter, same as /schedules (Task 43).
     requirements = requirement_service.get_class_subject_requirements(
         db,
         skip=skip,
         limit=limit,
-        semester_id=semester_id,
+        schedule_version_id=schedule_version_id,
         role=current_user.role,
         school_id=school_id,
     )
-    # Task 73: one query for the whole page's is_locked flags.
-    locked_ids = requirement_service.locked_requirement_ids(
-        db, [requirement.id for requirement in requirements]
-    )
-    return [
-        _to_read(requirement, is_locked=requirement.id in locked_ids)
-        for requirement in requirements
-    ]
+    return [_to_read_one(db, requirement) for requirement in requirements]
 
 
 @router.get("/{requirement_id}", response_model=ClassSubjectRequirementRead)

@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   WIZARD_STEPS,
   buildTimeSlotGrid,
+  currentAcademicYear,
+  currentSemesterNumber,
   isWizardStep,
-  nextVersionNumber,
   periodsRangeError,
   slotKey,
 } from "./wizard";
-import type { ScheduleVersion } from "../types/scheduleVersion";
 import type { TimeSlot } from "../types/timeSlot";
 
 describe("isWizardStep", () => {
@@ -43,19 +43,6 @@ describe("buildTimeSlotGrid", () => {
   });
 });
 
-describe("nextVersionNumber", () => {
-  it("is one past the semester's highest, 1 for a new semester", () => {
-    const versions = [
-      { semester_id: 1, version_number: 1 },
-      { semester_id: 1, version_number: 3 },
-      { semester_id: 2, version_number: 9 },
-    ] as ScheduleVersion[];
-
-    expect(nextVersionNumber(versions, 1)).toBe(4);
-    expect(nextVersionNumber(versions, 5)).toBe(1);
-  });
-});
-
 describe("periodsRangeError", () => {
   it("accepts a valid range, zero included", () => {
     expect(periodsRangeError("0", "0")).toBeNull();
@@ -67,5 +54,22 @@ describe("periodsRangeError", () => {
     expect(periodsRangeError("1.5", "5")).toBe("請輸入整數節數");
     expect(periodsRangeError("-1", "5")).toBe("節數不得為負數");
     expect(periodsRangeError("6", "5")).toBe("最低每週節數不得大於最高每週節數");
+  });
+});
+
+describe("currentAcademicYear / currentSemesterNumber", () => {
+  it("starts 115 學年度 on 2026-08-01 and ends it on 2027-07-31", () => {
+    expect(currentAcademicYear(new Date(2026, 6, 31))).toBe(114);
+    expect(currentAcademicYear(new Date(2026, 7, 1))).toBe(115);
+    expect(currentAcademicYear(new Date(2026, 9, 20))).toBe(115);
+    expect(currentAcademicYear(new Date(2027, 6, 31))).toBe(115);
+    expect(currentAcademicYear(new Date(2027, 7, 1))).toBe(116);
+  });
+
+  it("is 第 1 學期 from August to January and 第 2 學期 from February to July", () => {
+    expect(currentSemesterNumber(new Date(2026, 7, 1))).toBe(1);
+    expect(currentSemesterNumber(new Date(2027, 0, 31))).toBe(1);
+    expect(currentSemesterNumber(new Date(2027, 1, 1))).toBe(2);
+    expect(currentSemesterNumber(new Date(2027, 6, 31))).toBe(2);
   });
 });

@@ -105,14 +105,14 @@ def test_moving_is_not_blocked_by_the_warning(client: TestClient, db_session: Se
 def test_run_scheduler_and_publish_are_not_blocked(
     client: TestClient, db_session: Session
 ) -> None:
-    builder = Builder(db_session, year=8802)
+    builder = Builder(db_session, year=8802, status="NOT_SCHEDULED")
     english = builder.subject("英文")
     teacher = builder.teacher("一號老師")
     builder.semester_teacher(teacher).min_weekly_periods = 10  # far more than the 2 periods below
     class_ = builder.class_("四年甲班")
     version = builder.version()
     requirement = ClassSubjectRequirement(
-        semester_id=version.semester_id, class_id=class_.id, subject_id=english.id, weekly_periods=2
+        schedule_version_id=version.id, class_id=class_.id, subject_id=english.id, weekly_periods=2
     )
     db_session.add(requirement)
     db_session.flush()
@@ -129,8 +129,8 @@ def test_run_scheduler_and_publish_are_not_blocked(
     assert check["is_valid"] is True
     assert [v["teacher_id"] for v in _min_violations(check)] == [teacher.id]
 
-    published = client.patch(f"{URL}/{version.id}", json={"status": "PUBLISHED"})
+    published = client.post(f"{URL}/{version.id}/publish")
     assert published.status_code == 200, published.json()
-    assert published.json()["status"] == "PUBLISHED"
+    assert published.json()["is_published"] is True
     db_session.expire_all()
     assert builder.semester_teacher(teacher).min_weekly_periods == 10

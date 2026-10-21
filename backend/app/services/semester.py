@@ -8,7 +8,6 @@ from app.services.exceptions import (
     DependentRecordsExistError,
     raise_for_integrity_error,
 )
-from app.services.semester_settings import delete_settings_of_semester
 from app.services.school_scope import (
     ensure_references_in_school,
     get_in_school,
@@ -82,9 +81,8 @@ def delete_semester(db: Session, semester_id: int, *, school_id: int) -> bool:
         return False
 
     try:
-        # Task 98: its scheduling settings are owned by it (a semester with
-        # requirements or versions is still refused by their foreign keys).
-        delete_settings_of_semester(db, semester_id)
+        # v3: the scheduling settings belong to its 排課紀錄, so a semester
+        # with any record is refused by their foreign key.
         db.delete(semester)
         db.commit()
     except IntegrityError as exc:

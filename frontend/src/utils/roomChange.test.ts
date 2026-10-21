@@ -96,12 +96,12 @@ describe("scope labels and when the controls show", () => {
     expect(ROOM_CHANGE_SCOPE_LABELS).toEqual({ lesson: "這堂課（連堂整組）", requirement: "這門課在此版本的全部節次" });
   });
 
-  it("shows only for an ADMIN in edit mode on a DRAFT with a lesson selected", () => {
-    const ok = { isAdmin: true, versionStatus: "DRAFT", isEditModeOn: true, hasSelectedLesson: true };
+  it("shows only for a coordinator in a working copy with a lesson selected", () => {
+    const ok = { isAdmin: true, versionStatus: "EDITING", isEditModeOn: true, hasSelectedLesson: true };
     expect(canChangeRoom(ok)).toBe(true);
     expect(canChangeRoom({ ...ok, isAdmin: false })).toBe(false); // a TEACHER
-    expect(canChangeRoom({ ...ok, versionStatus: "PUBLISHED" })).toBe(false);
-    expect(canChangeRoom({ ...ok, versionStatus: "ARCHIVED" })).toBe(false);
+    expect(canChangeRoom({ ...ok, versionStatus: "AUTO" })).toBe(false);
+    expect(canChangeRoom({ ...ok, versionStatus: "MANUAL" })).toBe(false);
     expect(canChangeRoom({ ...ok, versionStatus: null })).toBe(false);
     expect(canChangeRoom({ ...ok, isEditModeOn: false })).toBe(false);
     expect(canChangeRoom({ ...ok, hasSelectedLesson: false })).toBe(false);

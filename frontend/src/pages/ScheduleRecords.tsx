@@ -1,66 +1,39 @@
-import { useEffect, useRef, useState, type ReactElement } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import axios from "axios";
-import {
-  copy as copyScheduleVersion,
-  generateLessons,
-  list as listScheduleVersions,
-  publish as publishScheduleVersion,
-  remove as removeScheduleVersion,
-  runScheduler,
-  unpublish as unpublishScheduleVersion,
-} from "../api/scheduleVersions";
-import { list as listSchedules } from "../api/schedules";
-import { list as listSemesters } from "../api/semesters";
+import { useState, type FormEvent, type ReactElement } from "react";
+import { Link } from "react-router-dom";
 import { list as listAcademicYears } from "../api/academicYears";
-import { fixTimeSlot } from "../api/lessons";
+import {
+  list as listScheduleVersions,
+  remove as removeScheduleVersion,
+  update as updateScheduleVersion,
+} from "../api/scheduleVersions";
+import { list as listSemesters } from "../api/semesters";
+import ConfirmDialog from "../components/ConfirmDialog";
+import { extractApiErrorMessage } from "../constants/errorMessages";
 import { useFlashMessage } from "../hooks/useFlashMessage";
 import { useResource } from "../hooks/useResource";
-import {
-  useFixedTimeSlotData,
-  type FixedTimeSlotGroup,
-} from "../hooks/useFixedTimeSlotData";
-import ConfirmDialog from "../components/ConfirmDialog";
-import FailureDiagnostics from "../components/FailureDiagnostics";
-import type { ScheduleVersion } from "../types/scheduleVersion";
-import type {
-  GenerateLessonsResponse,
-  RunSchedulerFailureResponse,
-  RunSchedulerSuccessResponse,
-} from "../types/scheduler";
-import { extractApiErrorMessage } from "../constants/errorMessages";
-import {
-  formatSemesterLabel,
-  formatVersionLabel,
-  formatVersionStatus,
-  versionStatusBadgeClass,
-} from "../utils/scheduleVersionFormat";
+import { formatDateTime } from "../utils/dashboard";
 import { sortRecords } from "../utils/scheduleRecords";
-import type { PeriodDisplayMap } from "../utils/periodDisplay";
-import { formatTimeSlotLabel } from "../utils/timeSlotFormat";
 import {
-  PUBLISHED_DELETE_HINT,
-  canDeleteVersion,
-  deleteWarningOf,
-  pickVersionAfterDelete,
-} from "../utils/versionDelete";
+  formatRecordStatus,
+  formatVersionLabel,
+  hasTimetable,
+  recordStatusBadgeClass,
+  semesterLabelOf,
+} from "../utils/scheduleVersionFormat";
+import { DELETE_WARNING, PUBLISHED_DELETE_HINT, canDeleteRecord } from "../utils/versionDelete";
+import type { ScheduleVersion } from "../types/scheduleVersion";
 import {
-  BADGE_SUCCESS,
-  BUTTON_DANGER,
+  BUTTON_DANGER_SM,
   BUTTON_LINK,
-  BUTTON_PRIMARY,
-  BUTTON_SECONDARY,
   CARD,
   ERROR_TEXT,
   HELP_TEXT,
-  LABEL,
+  INPUT,
+  LINK_TEXT,
   LOADING_TEXT,
   MUTED_TEXT,
   PAGE,
   PAGE_TITLE,
-  SECTION,
-  SECTION_TITLE,
-  SELECT,
   SUCCESS_TEXT,
   TABLE,
   TABLE_HEAD_ROW,
@@ -70,998 +43,228 @@ import {
   TR_HOVER,
 } from "../styles/ui";
 
-// Task 67: which version-management ConfirmDialog is open, if any.
-type VersionAction = "publish" | "unpublish" | "copy" | "delete";
+const ALL = 1000;
+const NOTE_MAX_LENGTH = 200;
 
-// Copy dialog: same semester (new DRAFT, Schedule rows only) or another
-// semester of the same academic year (requirements + Lessons + rows).
-type CopyTargetMode = "same" | "other";
-
-// Before the fixed-slot data has loaded (or no version is selected).
-const EMPTY_PERIOD_DISPLAY: PeriodDisplayMap = new Map();
-
-// Task 98: 排課紀錄 -- every schedule version of the school (each run of
-// 開始排課 makes one), newest semester first. Picking one manages it: view
-// and edit its timetable (課表 page, edit mode), publish / unpublish /
-// copy / delete, pin lessons to fixed time slots and schedule a DRAFT again.
-// Formerly the 排課控制台 (Task 32.7 / 67), whose step 1 picker this list
-// replaces; a new version is made by the wizard.
+// v3 (items 9, 11, 15): 排課紀錄 -- every record of the school, newest 編號
+// first. Each row: its semester, status (尚未排課 / 自動排課 / 手動排課 /
+// 複製自編號 x / 已發布), creation time, 備註 (typed right in the row) and
+// its actions: 檢視課表 and 檢視排課設定 (each its own page, with a way
+// back here) and 刪除. Publishing, copying and manual editing happen on
+// those pages.
 export default function ScheduleRecords(): ReactElement {
-  const versionsResource = useResource(() => listScheduleVersions(), []);
-  const semesters = useResource(() => listSemesters(), []);
-  const academicYears = useResource(() => listAcademicYears(), []);
-
-  // Copied from versionsResource.data once loaded, then updated locally
-  // when a new version is created -- avoids needing a "refetch" escape
-  // hatch on the shared useResource hook just for this one page.
-  const [versions, setVersions] = useState<ScheduleVersion[]>([]);
-  useEffect(() => {
-    if (versionsResource.data !== null) {
-      setVersions(versionsResource.data);
-    }
-  }, [versionsResource.data]);
-
-  // --- The single source of truth for "which version is being operated on"
-  // (Task 32.7 redesign). This is the ONE state step 2/3 ever read from --
-  // there is no separate "dropdown value" or "just-created id" living
-  // anywhere else that could disagree with it. It holds the full object
-  // (not just an id) so the confirmation banner never needs to re-look it
-  // up and can never show a stale/mismatched label.
-  const [selectedVersion, setSelectedVersion] = useState<ScheduleVersion | null>(
-    null,
+  const data = useResource(
+    () => Promise.all([listScheduleVersions(0, ALL), listSemesters(0, ALL), listAcademicYears(0, ALL)]),
+    [],
   );
+  const [deleting, setDeleting] = useState<ScheduleVersion | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const flash = useFlashMessage();
 
-  // ?scheduleVersionId= (the wizard's last step links here) picks that
-  // record as soon as the list has loaded.
-  const [searchParams] = useSearchParams();
-  const requestedVersionId = Number(searchParams.get("scheduleVersionId") ?? "") || null;
-  // Picked once: going back to the list must not pick it again.
-  const isRequestHandled = useRef(false);
-  useEffect(() => {
-    if (isRequestHandled.current || requestedVersionId === null) {
-      return;
-    }
-    const requested = versions.find((version) => version.id === requestedVersionId);
-    if (requested !== undefined) {
-      isRequestHandled.current = true;
-      setSelectedVersion(requested);
-    }
-  }, [versions, requestedVersionId]);
-
-  // Step 2: generate-lessons.
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generateResult, setGenerateResult] = useState<GenerateLessonsResponse | null>(
-    null,
-  );
-  const [generateError, setGenerateError] = useState<string | null>(null);
-
-  // Step 3: run-scheduler.
-  const [isRunning, setIsRunning] = useState(false);
-  const [runResult, setRunResult] = useState<RunSchedulerSuccessResponse | null>(null);
-  const [runFailure, setRunFailure] = useState<RunSchedulerFailureResponse | null>(
-    null,
-  );
-  const [runError, setRunError] = useState<string | null>(null);
-
-  // --- 版本管理(Task 67;取代 Task 43 的單一「發布」按鈕):發布、取消
-  // 發布、重新發布已封存版本、複製成新草稿。Deliberately NOT gated behind
-  // this session's own runResult -- ADMIN may run the scheduler, go check
-  // the timetable, and only come back to publish later (even in a later
-  // visit to this page, after re-selecting an existing version). The
-  // controls live next to the confirmed-version banner instead, chosen by
-  // selectedVersion.status. Every action is confirmed through one
-  // ConfirmDialog at a time; its error stays inside the dialog, which stays
-  // open so the user can retry or change the input.
-  const [openAction, setOpenAction] = useState<VersionAction | null>(null);
-  // Task 86: after deleting, the version card (and the 「刪除」 button that
-  // opened the dialog) is gone -- focus returns to step one instead.
-  const versionSectionRef = useRef<HTMLElement>(null);
-  const [isActionBusy, setIsActionBusy] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [copyTargetMode, setCopyTargetMode] = useState<CopyTargetMode>("same");
-  const [copyTargetSemesterId, setCopyTargetSemesterId] = useState<number | "">("");
-  // Set only when an action itself succeeded but re-fetching the version
-  // list afterwards failed -- other versions' statuses may then be stale.
-  const [versionsRefreshError, setVersionsRefreshError] = useState<string | null>(null);
-  const versionActionFlash = useFlashMessage();
-
-  // Task 67: a DRAFT that already has Schedule rows (e.g. one made by copy,
-  // or one the scheduler already ran on) can't be auto-scheduled again --
-  // the backend refuses with ScheduleVersionAlreadyScheduledError, whose
-  // advice ("先刪除既有排課結果記錄") has no matching action anywhere in this
-  // UI. So check up front with a 1-row filtered query and explain instead.
-  // Re-checked after a successful run (runResult in deps). A failed check
-  // just leaves the button enabled -- the backend still has the final say.
-  const scheduleRowsCheck = useResource(
-    () =>
-      selectedVersion === null || selectedVersion.status !== "DRAFT"
-        ? Promise.resolve(false)
-        : listSchedules(0, 1, { schedule_version_id: selectedVersion.id }).then(
-            (rows) => rows.length > 0,
-          ),
-    [selectedVersion?.id, selectedVersion?.status, runResult],
-  );
-  const isDraftAlreadyScheduled =
-    !scheduleRowsCheck.isLoading && scheduleRowsCheck.data === true;
-
-  // Built from whatever has loaded so far (empty until then) -- declared up
-  // here, not after the loading/error early returns below, because the
-  // version-action handlers use them too.
-  const academicYearById = new Map(
-    (academicYears.data ?? []).map((academicYear) => [
-      academicYear.id,
-      academicYear.year,
-    ]),
-  );
-  const semesterById = new Map(
-    (semesters.data ?? []).map((semester) => [semester.id, semester]),
-  );
-
-  // --- 設定固定時段(選填,Task 41): lets the user pin individual Lessons
-  // (not whole requirements) to a specific TimeSlot before running the
-  // scheduler. Only meaningful once generateResult !== null (Lessons must
-  // exist first), but the hook itself is called unconditionally -- React
-  // requires every hook call site to run every render regardless of what
-  // JSX ends up using its result.
-  const fixedSlotsResource = useFixedTimeSlotData(
-    selectedVersion?.semester_id ?? null,
-    generateResult,
-  );
-  // Task 78: dropdown labels use the teaching-period numbering.
-  const fixedSlotPeriodDisplay = fixedSlotsResource.data?.periodDisplay ?? EMPTY_PERIOD_DISPLAY;
-  // Local, mutable copy of the resource's groups -- same pattern as
-  // `versions` above: seeded from the fetch, then updated optimistically
-  // on each fix-time-slot PATCH so the "已固定" badge and dropdown value
-  // change immediately without waiting on (or forcing) a refetch.
-  const [fixedSlotGroups, setFixedSlotGroups] = useState<FixedTimeSlotGroup[]>([]);
-  useEffect(() => {
-    if (fixedSlotsResource.data !== null) {
-      setFixedSlotGroups(fixedSlotsResource.data.groups);
-    }
-  }, [fixedSlotsResource.data]);
-  // Collapsed by default (per spec: most scheduling runs never touch this,
-  // so it shouldn't add visual weight every time).
-  const [isFixedSlotsExpanded, setIsFixedSlotsExpanded] = useState(false);
-  // At most one row's <select> is ever mid-save at a time (a user can only
-  // change one dropdown per click) -- disables that row's <select> for the
-  // duration so a second change can't race the first one's PATCH.
-  const [savingLessonId, setSavingLessonId] = useState<number | null>(null);
-  // Per-lesson error message, shown under that lesson's row only -- a
-  // failed PATCH for one Lesson has no bearing on any other row.
-  const [fixedSlotRowErrors, setFixedSlotRowErrors] = useState<Map<number, string>>(
-    new Map(),
-  );
-
-  // Shared by both "a version was just confirmed" paths AND "重新選擇版本"
-  // -- a previous version's step 2/3 results must never survive onto a
-  // newly-selected version's screen.
-  function resetDownstreamResults(): void {
-    setGenerateResult(null);
-    setGenerateError(null);
-    setRunResult(null);
-    setRunFailure(null);
-    setRunError(null);
-    setIsFixedSlotsExpanded(false);
-    setSavingLessonId(null);
-    setFixedSlotRowErrors(new Map());
-    setOpenAction(null);
-    setActionError(null);
-    setVersionsRefreshError(null);
-  }
-
-  // Updates every row across every group matching lessonId -- a plain
-  // nested map, since a Lesson can only ever appear in exactly one group,
-  // but there's no cheap O(1) lookup worth building for a per-row edit
-  // this infrequent.
-  function applyFixedTimeSlotValue(lessonId: number, value: number | null): void {
-    setFixedSlotGroups((previousGroups) =>
-      previousGroups.map((group) => ({
-        ...group,
-        lessons: group.lessons.map((lessonRow) =>
-          lessonRow.lessonId === lessonId
-            ? { ...lessonRow, fixedTimeSlotId: value }
-            : lessonRow,
-        ),
-      })),
-    );
-  }
-
-  async function handleFixedTimeSlotChange(
-    lessonId: number,
-    previousValue: number | null,
-    rawValue: string,
-  ): Promise<void> {
-    const newValue = rawValue === "" ? null : Number(rawValue);
-    if (newValue === previousValue) {
-      return;
-    }
-    setSavingLessonId(lessonId);
-    setFixedSlotRowErrors((previous) => {
-      const next = new Map(previous);
-      next.delete(lessonId);
-      return next;
-    });
-    // Optimistic: apply immediately, per the "選了就生效" convention this
-    // page already uses elsewhere -- reverted below if the PATCH fails.
-    applyFixedTimeSlotValue(lessonId, newValue);
-    try {
-      await fixTimeSlot(lessonId, { time_slot_id: newValue });
-    } catch (error) {
-      applyFixedTimeSlotValue(lessonId, previousValue);
-      setFixedSlotRowErrors((previous) => {
-        const next = new Map(previous);
-        next.set(lessonId, extractApiErrorMessage(error));
-        return next;
-      });
-    } finally {
-      setSavingLessonId(null);
-    }
-  }
-
-  function handleSelectVersion(version: ScheduleVersion): void {
-    setSelectedVersion(version);
-    resetDownstreamResults();
-  }
-
-  // Back to the list: the only way to change which record is being managed.
-  function handleResetVersionSelection(): void {
-    setSelectedVersion(null);
-    resetDownstreamResults();
-  }
-
-  async function handleGenerateLessons(): Promise<void> {
-    if (selectedVersion === null) {
-      return;
-    }
-    setIsGenerating(true);
-    setGenerateError(null);
-    setGenerateResult(null);
-    try {
-      const result = await generateLessons(selectedVersion.id);
-      setGenerateResult(result);
-    } catch (error) {
-      setGenerateError(extractApiErrorMessage(error));
-    } finally {
-      setIsGenerating(false);
-    }
-  }
-
-  async function handleRunScheduler(): Promise<void> {
-    if (selectedVersion === null) {
-      return;
-    }
-    setIsRunning(true);
-    setRunError(null);
-    setRunResult(null);
-    setRunFailure(null);
-    try {
-      const result = await runScheduler(selectedVersion.id);
-      setRunResult(result);
-    } catch (error) {
-      // Only run-scheduler's 422 carries the structured
-      // RunSchedulerFailureResponse shape (failure_type/lesson_failures/
-      // post_hoc_violations) -- every other status (404/409/500/network)
-      // is the plain {detail} shape every other endpoint uses.
-      if (
-        axios.isAxiosError<RunSchedulerFailureResponse>(error) &&
-        error.response?.status === 422
-      ) {
-        setRunFailure(error.response.data);
-      } else {
-        setRunError(extractApiErrorMessage(error));
-      }
-    } finally {
-      setIsRunning(false);
-    }
-  }
-
-  function openVersionAction(action: VersionAction): void {
-    setActionError(null);
-    setCopyTargetMode("same");
-    setCopyTargetSemesterId("");
-    setOpenAction(action);
-  }
-
-  function closeVersionAction(): void {
-    if (isActionBusy) {
-      return;
-    }
-    setOpenAction(null);
-    setActionError(null);
-  }
-
-  // Publishing/unpublishing can change OTHER versions' status too (publish
-  // archives the semester's previous PUBLISHED version), so after any
-  // action the whole list is re-fetched, and the selected version is
-  // re-read from it. `focus` is the version the action returned -- the one
-  // to select afterwards (for copy: the new draft).
-  async function refreshVersions(focus: ScheduleVersion): Promise<void> {
-    setVersionsRefreshError(null);
-    try {
-      const latest = await listScheduleVersions();
-      setVersions(latest);
-      setSelectedVersion(latest.find((version) => version.id === focus.id) ?? focus);
-    } catch (error) {
-      setVersions((previous) =>
-        previous.some((version) => version.id === focus.id)
-          ? previous.map((version) => (version.id === focus.id ? focus : version))
-          : [...previous, focus],
-      );
-      setSelectedVersion(focus);
-      setVersionsRefreshError(versionsRefreshFailedMessage(error));
-    }
-  }
-
-  function versionsRefreshFailedMessage(error: unknown): string {
-    return `操作已完成，但重新載入版本清單失敗（${extractApiErrorMessage(error)}），其他版本的狀態可能不是最新的，請重新整理頁面。`;
-  }
-
-  // Shared by all three actions: on failure the dialog stays open with the
-  // error inside; on success it closes, the previous step 2/3 results
-  // (which belonged to the version as it was) are cleared, and the list is
-  // reloaded.
-  async function runVersionAction(
-    action: () => Promise<ScheduleVersion>,
-    successMessage: (result: ScheduleVersion) => string,
-  ): Promise<void> {
-    setIsActionBusy(true);
-    setActionError(null);
-    let result: ScheduleVersion;
-    try {
-      result = await action();
-    } catch (error) {
-      setActionError(extractApiErrorMessage(error));
-      setIsActionBusy(false);
-      return;
-    }
-    setIsActionBusy(false);
-    resetDownstreamResults();
-    versionActionFlash.showFlash(successMessage(result));
-    await refreshVersions(result);
-  }
-
-  function handleConfirmPublish(): void {
-    if (selectedVersion === null) {
-      return;
-    }
-    const versionId = selectedVersion.id;
-    void runVersionAction(
-      () => publishScheduleVersion(versionId),
-      () => "已發布，這個版本現在是本學期生效的課表",
-    );
-  }
-
-  function handleConfirmUnpublish(): void {
-    if (selectedVersion === null) {
-      return;
-    }
-    const versionId = selectedVersion.id;
-    void runVersionAction(
-      () => unpublishScheduleVersion(versionId),
-      () => "已取消發布，這個版本已改為已封存",
-    );
-  }
-
-  function handleConfirmCopy(): void {
-    if (selectedVersion === null) {
-      return;
-    }
-    if (copyTargetMode === "other" && copyTargetSemesterId === "") {
-      return;
-    }
-    const versionId = selectedVersion.id;
-    const targetSemesterId = copyTargetMode === "same" ? null : Number(copyTargetSemesterId);
-    void runVersionAction(
-      () => copyScheduleVersion(versionId, targetSemesterId),
-      (created) =>
-        `已複製成新草稿：${formatVersionLabel(created, semesterById, academicYearById)}`,
-    );
-  }
-
-  // Task 68 / Task 80: DELETE /schedule-versions/{id} -- DRAFT or ARCHIVED
-  // (the backend 409s the PUBLISHED one; the button isn't offered for it).
-  // Its Schedule rows go with it; Lessons and requirements are untouched,
-  // and their lock is recomputed by the backend on the next request. The
-  // deleted version was the one being operated on, so the page switches to
-  // another version of the same semester (utils/versionDelete.ts) -- or,
-  // if none is left, back to the version picker.
-  async function deleteVersion(version: ScheduleVersion): Promise<void> {
-    setIsActionBusy(true);
-    setActionError(null);
-    try {
-      await removeScheduleVersion(version.id);
-    } catch (error) {
-      setActionError(extractApiErrorMessage(error));
-      setIsActionBusy(false);
-      return;
-    }
-    setIsActionBusy(false);
-    const label = formatVersionLabel(version, semesterById, academicYearById);
-
-    let latest: ScheduleVersion[];
-    let refreshError: string | null = null;
-    try {
-      latest = await listScheduleVersions();
-    } catch (error) {
-      latest = versions.filter((candidate) => candidate.id !== version.id);
-      refreshError = versionsRefreshFailedMessage(error);
-    }
-    setVersions(latest);
-    const replacement = pickVersionAfterDelete(latest, version);
-    if (replacement === null) {
-      handleResetVersionSelection();
-      versionActionFlash.showFlash(`已刪除「${label}」`);
-    } else {
-      setSelectedVersion(replacement);
-      resetDownstreamResults();
-      versionActionFlash.showFlash(
-        `已刪除「${label}」，已切換到「${formatVersionLabel(replacement, semesterById, academicYearById)}」`,
-      );
-    }
-    // After the resets above, which clear any earlier refresh error.
-    setVersionsRefreshError(refreshError);
-  }
-
-  function handleConfirmDelete(): void {
-    if (selectedVersion === null) {
-      return;
-    }
-    void deleteVersion(selectedVersion);
-  }
-
-  const isLoadingLookups =
-    versionsResource.isLoading || semesters.isLoading || academicYears.isLoading;
-  const lookupErrorMessage =
-    versionsResource.errorMessage ?? semesters.errorMessage ?? academicYears.errorMessage;
-
-  if (isLoadingLookups) {
+  if (data.errorMessage !== null) {
     return (
       <div className={PAGE}>
-        <p className={LOADING_TEXT}>載入中…</p>
-      </div>
-    );
-  }
-  if (lookupErrorMessage !== null) {
-    return (
-      <div className={PAGE}>
+        <h1 className={PAGE_TITLE}>排課紀錄</h1>
         <p role="alert" className={ERROR_TEXT}>
-          {lookupErrorMessage}
+          {data.errorMessage}
         </p>
       </div>
     );
   }
+  if (data.data === null) {
+    return (
+      <div className={PAGE}>
+        <h1 className={PAGE_TITLE}>排課紀錄</h1>
+        <p className={LOADING_TEXT}>載入中…</p>
+      </div>
+    );
+  }
+  const [versions, semesters, academicYears] = data.data;
+  const semesterById = new Map(semesters.map((item) => [item.id, item]));
+  const academicYearById = new Map(academicYears.map((item) => [item.id, item.year]));
 
-  const isSelectedDraft = selectedVersion !== null && selectedVersion.status === "DRAFT";
-
-  // --- Version-management dialog content (Task 67) ---
-  // The semester's currently PUBLISHED version other than this one, if any:
-  // publishing this one will archive it.
-  const otherPublishedVersion =
-    selectedVersion === null
-      ? undefined
-      : versions.find(
-          (version) =>
-            version.semester_id === selectedVersion.semester_id &&
-            version.status === "PUBLISHED" &&
-            version.id !== selectedVersion.id,
-        );
-  // Cross-semester copy targets: the other semesters of the source's own
-  // academic year (the backend refuses any other).
-  const sourceSemester =
-    selectedVersion === null ? undefined : semesterById.get(selectedVersion.semester_id);
-  const copyTargetSemesters =
-    sourceSemester === undefined
-      ? []
-      : (semesters.data ?? [])
-          .filter(
-            (semester) =>
-              semester.academic_year_id === sourceSemester.academic_year_id &&
-              semester.id !== sourceSemester.id,
-          )
-          .sort((a, b) => a.number - b.number);
+  async function handleConfirmDelete(): Promise<void> {
+    if (deleting === null) {
+      return;
+    }
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await removeScheduleVersion(deleting.id);
+      flash.showFlash(`已刪除排課紀錄編號 ${deleting.version_number}`);
+      setDeleting(null);
+      data.reload();
+    } catch (caught) {
+      setDeleteError(extractApiErrorMessage(caught));
+    } finally {
+      setIsDeleting(false);
+    }
+  }
 
   return (
     <div className={PAGE}>
       <h1 className={PAGE_TITLE}>排課紀錄</h1>
       <p className={HELP_TEXT}>
-        每次「開始排課」都會留下一筆排課紀錄。選一筆紀錄就能檢視、手動修改課表，或發布給老師。
+        每次「開始排課」或複製都會留下一筆排課紀錄，依編號由新到舊排列。「檢視課表」可以手動編輯、複製與發布課表；「檢視排課設定」可以查看這次排課用的設定，或複製設定重新排課。備註直接在欄位裡輸入，離開欄位就會儲存。
       </p>
+      {flash.message !== null && <p className={`${SUCCESS_TEXT} mb-2`}>✓ {flash.message}</p>}
 
-      {/* 步驟一:選擇/建立 ScheduleVersion -- 二選一,任何時刻都只有其中
-          一種輸入方式在畫面上,或是已確認狀態的說明文字,三者互斥。 */}
-      <section
-        ref={versionSectionRef}
-        tabIndex={-1}
-        aria-label="排課紀錄"
-        className={`${SECTION} focus:outline-none`}
+      {versions.length === 0 ? (
+        <div className={CARD}>
+          <p className={MUTED_TEXT}>
+            還沒有排課紀錄。到「
+            <Link to="/wizard" className={LINK_TEXT}>
+              開始排課
+            </Link>
+            」完成設定並排課後，紀錄就會出現在這裡。
+          </p>
+        </div>
+      ) : (
+        <div className={TABLE_WRAPPER}>
+          <table className={TABLE}>
+            <thead>
+              <tr className={TABLE_HEAD_ROW}>
+                <th className={TH}>編號</th>
+                <th className={TH}>學期</th>
+                <th className={TH}>狀態</th>
+                <th className={TH}>建立時間</th>
+                <th className={TH}>操作</th>
+                <th className={TH}>備註</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortRecords(versions).map((version) => (
+                <tr key={version.id} className={TR_HOVER}>
+                  <td className={`${TD} font-medium`}>{version.version_number}</td>
+                  <td className={TD}>{semesterLabelOf(version, semesterById, academicYearById)}</td>
+                  <td className={TD}>
+                    <span className={recordStatusBadgeClass(version)}>{formatRecordStatus(version)}</span>
+                  </td>
+                  <td className={`${TD} whitespace-nowrap`}>{formatDateTime(version.created_at)}</td>
+                  <td className={TD}>
+                    <div className="flex flex-col items-start gap-1">
+                      {hasTimetable(version.status) && (
+                        <Link to={`/timetable?scheduleVersionId=${version.id}`} className={LINK_TEXT}>
+                          檢視課表
+                        </Link>
+                      )}
+                      <Link to={`/records/${version.id}/settings`} className={LINK_TEXT}>
+                        檢視排課設定
+                      </Link>
+                      {canDeleteRecord(version) ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDeleteError(null);
+                            setDeleting(version);
+                          }}
+                          className={BUTTON_DANGER_SM}
+                        >
+                          刪除
+                        </button>
+                      ) : (
+                        <span className={MUTED_TEXT} title={PUBLISHED_DELETE_HINT}>
+                          不可刪除
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className={TD}>
+                    <NoteCell key={`${version.id}-${version.note ?? ""}`} record={version} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={deleting !== null}
+        title="刪除這筆排課紀錄？"
+        confirmLabel="刪除"
+        danger
+        busy={isDeleting}
+        busyLabel="刪除中…"
+        onConfirm={() => void handleConfirmDelete()}
+        onCancel={() => setDeleting(null)}
       >
-        <h2 className={SECTION_TITLE}>{selectedVersion === null ? "全部紀錄" : "目前紀錄"}</h2>
-        {/* Version-action feedback sits outside the card so it stays
-            visible after a delete sends the page back to the picker. */}
-        {versionActionFlash.message !== null && (
-          <p className={`${SUCCESS_TEXT} mb-2`}>✓ {versionActionFlash.message}</p>
-        )}
-        {versionsRefreshError !== null && (
-          <p role="alert" className={`${ERROR_TEXT} mb-2`}>
-            {versionsRefreshError}
+        {deleting !== null && (
+          <p>
+            將刪除「{formatVersionLabel(deleting, semesterById, academicYearById)}」。{DELETE_WARNING}
           </p>
         )}
-
-        {selectedVersion === null ? (
-          versions.length === 0 ? (
-            <div className={CARD}>
-              <p className={MUTED_TEXT}>
-                還沒有排課紀錄。到「
-                <Link to="/wizard" className="font-medium text-blue-600 hover:underline">
-                  開始排課
-                </Link>
-                」完成設定並排課後，紀錄就會出現在這裡。
-              </p>
-            </div>
-          ) : (
-            <div className={TABLE_WRAPPER}>
-              <table className={TABLE}>
-                <thead>
-                  <tr className={TABLE_HEAD_ROW}>
-                    <th className={TH}>紀錄</th>
-                    <th className={TH}>狀態</th>
-                    <th className={TH}>建立時間</th>
-                    <th className={TH}>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortRecords(versions, semesterById, academicYearById).map((version) => (
-                    <tr key={version.id} className={TR_HOVER}>
-                      <td className={TD}>{formatVersionLabel(version, semesterById, academicYearById)}</td>
-                      <td className={TD}>
-                        <span className={versionStatusBadgeClass(version.status)}>
-                          {formatVersionStatus(version.status)}
-                        </span>
-                      </td>
-                      <td className={TD}>{new Date(version.created_at).toLocaleString("zh-TW")}</td>
-                      <td className={TD}>
-                        <div className="flex flex-wrap gap-2">
-                          <Link
-                            to={`/timetable?scheduleVersionId=${version.id}`}
-                            className="font-medium text-blue-600 hover:underline"
-                          >
-                            檢視課表
-                          </Link>
-                          <button
-                            type="button"
-                            onClick={() => handleSelectVersion(version)}
-                            className={BUTTON_LINK}
-                          >
-                            管理
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )
-        ) : (
-          // 已確認狀態:不管是「選擇既有版本」還是「建立新版本」走到這裡,
-          // 呈現方式完全一樣 -- 這就是修正方向 1、3 要求的「單一、明確、
-          // 一致」的狀態顯示。
-          <div className={CARD}>
-            <p className="flex flex-wrap items-center gap-2 font-semibold text-gray-900">
-              目前紀錄：
-              {formatVersionLabel(selectedVersion, semesterById, academicYearById)}
-              <span className={versionStatusBadgeClass(selectedVersion.status)}>
-                {formatVersionStatus(selectedVersion.status)}
-              </span>
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Link
-                to={`/timetable?scheduleVersionId=${selectedVersion.id}`}
-                className={BUTTON_PRIMARY}
-              >
-                {selectedVersion.status === "DRAFT" ? "檢視與手動修改課表" : "檢視課表"}
-              </Link>
-              <button type="button" onClick={handleResetVersionSelection} className={BUTTON_SECONDARY}>
-                回到紀錄列表
-              </button>
-            </div>
-
-            {/* 版本管理(Task 67)-- 依狀態顯示不同動作,刻意不綁在「這次
-                session 剛排課成功」上:ADMIN 排課完後可能會先去課表檢視核
-                對,之後才回到這裡發布,甚至是重新選一次既有版本。 */}
-            <div className="mt-4 border-t border-gray-200 pt-4">
-              <div className="flex flex-wrap gap-2">
-                {selectedVersion.status === "PUBLISHED" ? (
-                  <button
-                    type="button"
-                    onClick={() => openVersionAction("unpublish")}
-                    className={BUTTON_DANGER}
-                  >
-                    取消發布
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => openVersionAction("publish")}
-                    className={BUTTON_PRIMARY}
-                  >
-                    {selectedVersion.status === "ARCHIVED" ? "發布（切換為生效版本）" : "發布"}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => openVersionAction("copy")}
-                  className={BUTTON_SECONDARY}
-                >
-                  複製成新草稿
-                </button>
-                {canDeleteVersion(selectedVersion.status) && (
-                  <button
-                    type="button"
-                    onClick={() => openVersionAction("delete")}
-                    className={BUTTON_DANGER}
-                  >
-                    刪除
-                  </button>
-                )}
-              </div>
-              {selectedVersion.status === "PUBLISHED" && (
-                <p className={`${MUTED_TEXT} mt-2`}>{PUBLISHED_DELETE_HINT}</p>
-              )}
-              <p className={`${HELP_TEXT} mt-2`}>
-                {selectedVersion.status === "DRAFT" &&
-                  "發布後老師就能在課表看到這份課表；同學期原本生效的版本會自動改為已封存。已發布與已封存的課表內容都會鎖定，要修改請複製成新草稿。"}
-                {selectedVersion.status === "PUBLISHED" &&
-                  "這是本學期目前生效的課表，老師可以在課表看到它。內容已鎖定；要修改請複製成新草稿，調整後再發布（發布時會自動取代這個版本）。也可以取消發布，之後隨時能再發布回來。"}
-                {selectedVersion.status === "ARCHIVED" &&
-                  "這是已封存的版本，內容已鎖定，老師看不到。可以重新發布，讓它切換為本學期的生效版本（目前生效的版本會自動封存），或複製成新草稿再修改；不再需要時也可以刪除。"}
-              </p>
-            </div>
-          </div>
+        {deleteError !== null && (
+          <p role="alert" className={ERROR_TEXT}>
+            {deleteError}
+          </p>
         )}
-      </section>
-
-      {selectedVersion !== null && (
-        <>
-          {/* 課程清單 -- 修改科目需求後重新展開 */}
-          <section className={SECTION}>
-            <h2 className={SECTION_TITLE}>課程清單</h2>
-            <p className={HELP_TEXT}>到「開始排課」修改科目需求後，在這裡重新展開課程清單，再重新自動排課。</p>
-            <div className={CARD}>
-              <button
-                type="button"
-                onClick={handleGenerateLessons}
-                disabled={isGenerating || !isSelectedDraft}
-                className={BUTTON_PRIMARY}
-              >
-                {isGenerating ? "展開中…" : "展開課程清單"}
-              </button>
-              {/* Task 67: steps 2 and 3 only apply to a DRAFT -- the
-                  backend refuses both for a locked version anyway. */}
-              {!isSelectedDraft && (
-                <p className={`${MUTED_TEXT} mt-2`}>
-                  {formatVersionStatus(selectedVersion.status)}
-                  的版本內容已鎖定，不能展開課程清單或自動排課；要修改請先複製成新草稿。
-                </p>
-              )}
-              {generateError !== null && (
-                <p role="alert" className={ERROR_TEXT}>
-                  {generateError}
-                </p>
-              )}
-              {generateResult !== null && (
-                <p className={`${SUCCESS_TEXT} mt-2`}>
-                  ✓ 共 {generateResult.total_lesson_count} 堂課待排
-                  {generateResult.created_count > 0 && (
-                    <span className="font-normal text-gray-600">
-                      {" "}
-                      （本次新增 {generateResult.created_count} 筆）
-                    </span>
-                  )}
-                </p>
-              )}
-            </div>
-          </section>
-
-          {/* 設定固定時段(選填,Task 41) -- 預設收合,只有在展開課程清單
-              成功後才出現;不影響下面「開始自動排課」按鈕是否可按。 */}
-          {generateResult !== null && (
-            <section className={SECTION}>
-              <button
-                type="button"
-                onClick={() => setIsFixedSlotsExpanded((previous) => !previous)}
-                className={BUTTON_LINK}
-              >
-                {isFixedSlotsExpanded ? "▾" : "▸"} 設定固定時段（選填）
-              </button>
-
-              {isFixedSlotsExpanded && (
-                <div className={`${CARD} mt-2`}>
-                  {fixedSlotsResource.isLoading && <p className={LOADING_TEXT}>載入中…</p>}
-                  {fixedSlotsResource.errorMessage !== null && (
-                    <p role="alert" className={ERROR_TEXT}>
-                      {fixedSlotsResource.errorMessage}
-                    </p>
-                  )}
-                  {!fixedSlotsResource.isLoading &&
-                    fixedSlotsResource.errorMessage === null &&
-                    (fixedSlotGroups.length === 0 ? (
-                      <p className={MUTED_TEXT}>目前沒有課程可供設定固定時段。</p>
-                    ) : (
-                      <div className="flex flex-col gap-4">
-                        {fixedSlotGroups.map((group) => (
-                          <div key={group.requirementId}>
-                            <p className="mb-2 font-semibold text-gray-900">{group.label}</p>
-                            <div className="ml-4 flex flex-col gap-2">
-                              {group.lessons.map((lessonRow) => {
-                                const selectId = `fixed-slot-${lessonRow.lessonId}`;
-                                return (
-                                  <div key={lessonRow.lessonId} className="flex flex-wrap items-center gap-2">
-                                    <label htmlFor={selectId} className={LABEL}>
-                                      第 {lessonRow.sequenceNumber} 堂
-                                      {lessonRow.blockPosition !== "" && (
-                                        <span className="ml-1 text-xs font-normal text-gray-500">
-                                          （{lessonRow.blockPosition}）
-                                        </span>
-                                      )}
-                                    </label>
-                                    <select
-                                      id={selectId}
-                                      value={lessonRow.fixedTimeSlotId ?? ""}
-                                      disabled={savingLessonId === lessonRow.lessonId}
-                                      onChange={(event) =>
-                                        handleFixedTimeSlotChange(
-                                          lessonRow.lessonId,
-                                          lessonRow.fixedTimeSlotId,
-                                          event.target.value,
-                                        )
-                                      }
-                                      className={SELECT}
-                                    >
-                                      <option value="">不固定（交給系統排）</option>
-                                      {(fixedSlotsResource.data?.teachingTimeSlots ?? []).map(
-                                        (timeSlot) => (
-                                          <option key={timeSlot.id} value={timeSlot.id}>
-                                            {formatTimeSlotLabel(timeSlot, fixedSlotPeriodDisplay)}
-                                          </option>
-                                        ),
-                                      )}
-                                    </select>
-                                    {lessonRow.fixedTimeSlotId !== null && (
-                                      <span className={BADGE_SUCCESS}>已固定</span>
-                                    )}
-                                    {fixedSlotRowErrors.get(lessonRow.lessonId) !== undefined && (
-                                      <p role="alert" className={`${ERROR_TEXT} w-full`}>
-                                        {fixedSlotRowErrors.get(lessonRow.lessonId)}
-                                      </p>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                </div>
-              )}
-            </section>
-          )}
-
-          {/* 自動排課 */}
-          {generateResult !== null && (
-            <section className={SECTION}>
-              <h2 className={SECTION_TITLE}>自動排課</h2>
-              <div className={CARD}>
-                <button
-                  type="button"
-                  onClick={handleRunScheduler}
-                  disabled={isRunning || isDraftAlreadyScheduled}
-                  className={BUTTON_PRIMARY}
-                >
-                  {isRunning ? "排課中…" : "開始自動排課"}
-                </button>
-                {isDraftAlreadyScheduled && runResult === null && (
-                  <p className={`${MUTED_TEXT} mt-2`}>
-                    這個草稿已有排課結果（例如由複製建立），無法重新自動排課。可以到
-                    <Link
-                      to={`/timetable?scheduleVersionId=${selectedVersion.id}`}
-                      className="font-medium text-blue-600 hover:underline"
-                    >
-                      課表
-                    </Link>
-                    查看並手動修改，或到「開始排課」重新排出一筆新紀錄。
-                  </p>
-                )}
-                {isRunning && <p className={`${MUTED_TEXT} mt-2`}>排課可能需要一點時間，請耐心等候，畫面不會當機。</p>}
-                {runError !== null && (
-                  <p role="alert" className={ERROR_TEXT}>
-                    {runError}
-                  </p>
-                )}
-
-                {runResult !== null && (
-                  <div className="mt-2">
-                    <p className={SUCCESS_TEXT}>
-                      ✓ 成功排定 {runResult.scheduled_count} 堂課（回溯{" "}
-                      {runResult.backtrack_count} 次）
-                    </p>
-                    <Link
-                      to={`/timetable?scheduleVersionId=${selectedVersion.id}`}
-                      className="text-sm font-medium text-blue-600 hover:underline"
-                    >
-                      查看課表
-                    </Link>
-                  </div>
-                )}
-
-                {runFailure !== null && <FailureDiagnostics response={runFailure} />}
-              </div>
-            </section>
-          )}
-        </>
-      )}
-
-      {/* 版本管理確認對話框(Task 67) */}
-      {selectedVersion !== null && (
-        <>
-          <ConfirmDialog
-            open={openAction === "publish"}
-            title={selectedVersion.status === "ARCHIVED" ? "重新發布這個版本？" : "發布這個版本？"}
-            confirmLabel={selectedVersion.status === "ARCHIVED" ? "發布（切換為生效版本）" : "發布"}
-            busy={isActionBusy}
-            busyLabel="發布中…"
-            onConfirm={handleConfirmPublish}
-            onCancel={closeVersionAction}
-          >
-            <p>
-              即將發布「{formatVersionLabel(selectedVersion, semesterById, academicYearById)}」。
-            </p>
-            {otherPublishedVersion !== undefined ? (
-              <p>
-                目前生效的「
-                {formatVersionLabel(otherPublishedVersion, semesterById, academicYearById)}
-                」會自動變成已封存，之後仍可再發布回來。
-              </p>
-            ) : (
-              <p>發布後老師將看到這份課表。</p>
-            )}
-            <p>已發布的課表內容無法修改，要調整請先複製成新草稿。</p>
-            {actionError !== null && (
-              <p role="alert" className={ERROR_TEXT}>
-                {actionError}
-              </p>
-            )}
-          </ConfirmDialog>
-
-          <ConfirmDialog
-            open={openAction === "unpublish"}
-            title="取消發布這個版本？"
-            confirmLabel="取消發布"
-            cancelLabel="返回"
-            danger
-            busy={isActionBusy}
-            onConfirm={handleConfirmUnpublish}
-            onCancel={closeVersionAction}
-          >
-            <p>
-              「{formatVersionLabel(selectedVersion, semesterById, academicYearById)}
-              」將改為已封存。
-            </p>
-            <p>
-              取消後這個學期將沒有生效的課表，老師會看不到任何課表。之後可以隨時重新發布。
-            </p>
-            {actionError !== null && (
-              <p role="alert" className={ERROR_TEXT}>
-                {actionError}
-              </p>
-            )}
-          </ConfirmDialog>
-
-          <ConfirmDialog
-            open={openAction === "delete"}
-            title="刪除這個版本？"
-            confirmLabel="刪除"
-            cancelLabel="返回"
-            danger
-            busy={isActionBusy}
-            busyLabel="刪除中…"
-            onConfirm={handleConfirmDelete}
-            onCancel={closeVersionAction}
-            restoreFocusFallback={() => versionSectionRef.current?.focus()}
-          >
-            <p>
-              將刪除「{formatVersionLabel(selectedVersion, semesterById, academicYearById)}
-              」及其排課結果。{deleteWarningOf(selectedVersion.status)}
-            </p>
-            <p>課程與排課需求不會被刪除。</p>
-            {selectedVersion.status === "ARCHIVED" && (
-              <p>
-                如果沒有其他已發布或已封存的版本使用這些排課需求，它們會解除鎖定，可以再修改。
-              </p>
-            )}
-            {actionError !== null && (
-              <p role="alert" className={ERROR_TEXT}>
-                {actionError}
-              </p>
-            )}
-          </ConfirmDialog>
-
-          <ConfirmDialog
-            open={openAction === "copy"}
-            title="複製成新草稿"
-            confirmLabel="複製"
-            busy={isActionBusy}
-            busyLabel="複製中…"
-            confirmDisabled={copyTargetMode === "other" && copyTargetSemesterId === ""}
-            onConfirm={handleConfirmCopy}
-            onCancel={closeVersionAction}
-          >
-            <p>
-              來源：{formatVersionLabel(selectedVersion, semesterById, academicYearById)}
-            </p>
-            <fieldset className="flex flex-col gap-2" disabled={isActionBusy}>
-              <legend className={`${LABEL} mb-1`}>複製到</legend>
-              <label className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="copy-target-mode"
-                  checked={copyTargetMode === "same"}
-                  onChange={() => setCopyTargetMode("same")}
-                  className="accent-blue-600"
-                />
-                同一學期（建立新草稿）
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="copy-target-mode"
-                  checked={copyTargetMode === "other"}
-                  onChange={() => setCopyTargetMode("other")}
-                  disabled={copyTargetSemesters.length === 0}
-                  className="accent-blue-600"
-                />
-                同學年的其他學期
-                {copyTargetSemesters.length === 0 && (
-                  <span className={MUTED_TEXT}>（同學年沒有其他學期）</span>
-                )}
-              </label>
-              {copyTargetMode === "other" && (
-                <select
-                  aria-label="目標學期"
-                  value={copyTargetSemesterId}
-                  onChange={(event) =>
-                    setCopyTargetSemesterId(
-                      event.target.value === "" ? "" : Number(event.target.value),
-                    )
-                  }
-                  className={`${SELECT} ml-6 max-w-xs`}
-                >
-                  <option value="">請選擇學期…</option>
-                  {copyTargetSemesters.map((semester) => (
-                    <option key={semester.id} value={semester.id}>
-                      {formatSemesterLabel(semester, academicYearById)}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </fieldset>
-            <p className={MUTED_TEXT}>
-              同一學期：只複製排課結果，排課需求與課程清單和來源共用。
-              <br />
-              其他學期：連同排課需求、課程清單與排課結果一起複製；目標學期必須還沒有任何排課需求。
-            </p>
-            <p className={MUTED_TEXT}>
-              複製出的草稿已有排課結果，不能再自動排課，只能手動調整。
-            </p>
-            {actionError !== null && (
-              <p role="alert" className={ERROR_TEXT}>
-                {actionError}
-              </p>
-            )}
-          </ConfirmDialog>
-        </>
-      )}
+      </ConfirmDialog>
     </div>
+  );
+}
+
+// 備註: typed in place, saved when the field loses focus or on Enter
+// (only when it actually changed). Keyed by the saved note, so a reload
+// starts it over from what is stored.
+function NoteCell({ record }: { record: ScheduleVersion }): ReactElement {
+  const [text, setText] = useState(record.note ?? "");
+  const [saved, setSaved] = useState(record.note ?? "");
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [justSaved, setJustSaved] = useState(false);
+
+  async function save(): Promise<void> {
+    if (text.trim() === saved.trim()) {
+      return;
+    }
+    setIsSaving(true);
+    setError(null);
+    setJustSaved(false);
+    try {
+      const updated = await updateScheduleVersion(record.id, { note: text.trim() === "" ? null : text.trim() });
+      setSaved(updated.note ?? "");
+      setText(updated.note ?? "");
+      setJustSaved(true);
+    } catch (caught) {
+      setError(extractApiErrorMessage(caught));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>): void {
+    event.preventDefault();
+    void save();
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="flex min-w-48 flex-col gap-1">
+      <input
+        value={text}
+        onChange={(event) => {
+          setText(event.target.value);
+          setJustSaved(false);
+        }}
+        onBlur={() => void save()}
+        maxLength={NOTE_MAX_LENGTH}
+        disabled={isSaving}
+        placeholder="例如：王老師上三年級自然課版"
+        aria-label={`編號 ${record.version_number} 的備註`}
+        className={`${INPUT} w-full`}
+      />
+      {isSaving && <span className={MUTED_TEXT}>儲存中…</span>}
+      {justSaved && !isSaving && <span className="text-xs text-green-600">已儲存</span>}
+      {error !== null && (
+        <span role="alert" className={ERROR_TEXT}>
+          {error}
+        </span>
+      )}
+      {/* Enter submits the form (no visible button needed). */}
+      <button type="submit" className={`${BUTTON_LINK} sr-only`} tabIndex={-1}>
+        儲存備註
+      </button>
+    </form>
   );
 }

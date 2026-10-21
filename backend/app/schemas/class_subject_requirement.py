@@ -14,7 +14,8 @@ LESSON_PATTERN_DESCRIPTION = (
 
 
 class ClassSubjectRequirementBase(BaseModel):
-    semester_id: int
+    # v3: the 排課紀錄 whose settings this requirement is part of.
+    schedule_version_id: int
     class_id: int
     subject_id: int
     weekly_periods: int
@@ -54,17 +55,17 @@ class ClassSubjectRequirementRead(ClassSubjectRequirementBase):
     id: int
     created_at: datetime
     updated_at: datetime
-    # Task 73: computed per request, not a column -- whether a PUBLISHED or
-    # ARCHIVED version uses this requirement's lessons (then PATCH/DELETE
-    # are refused with 409). Response-only: it is not in Create/Update, so a
-    # request carrying it is simply ignored (pydantic drops unknown fields).
+    # Task 73 / v3: computed per request, not a column -- whether the
+    # requirement's record is no longer 尚未排課 (then PATCH/DELETE are
+    # refused with 409). Response-only: a request carrying it is simply
+    # ignored (pydantic drops unknown fields).
     is_locked: bool
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class ClassSubjectRequirementUpdate(BaseModel):
-    semester_id: int | None = None
+    # The record is fixed: a requirement never moves to another record.
     class_id: int | None = None
     subject_id: int | None = None
     weekly_periods: int | None = None
@@ -85,16 +86,13 @@ class ClassSubjectRequirementUpdate(BaseModel):
 
 
 class RequirementSyncRequest(BaseModel):
-    semester_id: int
+    schedule_version_id: int
 
 
 class RequirementSyncResult(BaseModel):
     """POST /class-subject-requirements/sync: what copying the school's
-    科目需求 into the semester changed. locked_requirement_ids: the
-    requirements a PUBLISHED or ARCHIVED version uses -- left as they were
-    even where the school's rule differs."""
+    科目需求 into the (尚未排課) record changed."""
 
     created: int
     updated: int
     removed: int
-    locked_requirement_ids: list[int]

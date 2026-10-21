@@ -1,15 +1,12 @@
-"""Task 92: lessons of a ScheduleVersion's semester that have no Schedule row
-in that version yet ("unscheduled" -- e.g. a requirement added after the
-version was scheduled), and placing them into a DRAFT version by hand.
+"""Task 92: lessons of a 排課紀錄 that have no Schedule row in its
+timetable ("unscheduled" -- e.g. one taken off in a manual edit), and
+placing them back by hand during a manual edit (v3: only in an EDITING
+working copy). Three operations, all 教學組長-only (decision 28):
 
-Lessons are shared by every version of a semester (app/models/lesson.py),
-so a requirement added after scheduling gets lessons no existing version
-has a row for, and the check reports the weekly periods as short. Three
-operations, all ADMIN-only (decision 28):
-
-- list_unscheduled_lessons(): read-only, any version status.
-- list_place_candidates(): read-only "what if" for every time slot, DRAFT
-  only, in memory like move-candidates (services/move_candidates.py).
+- list_unscheduled_lessons(): read-only, any record.
+- list_place_candidates(): read-only "what if" for every time slot,
+  working copies only, in memory like move-candidates
+  (services/move_candidates.py).
 - place_lesson(): creates the rows -- insert -> flush -> the version's full
   schedule check -> commit, or roll back for dry_run (the same flow as
   move-lesson). All or nothing.
@@ -49,10 +46,10 @@ from app.services.exceptions import (
     AdjustmentTargetNotFoundError,
     InactiveTeacherAssignmentError,
     LessonAlreadyScheduledError,
-    LessonNotInSemesterError,
+    LessonNotInVersionError,
     PlacementRefusedError,
 )
-from app.services.schedule_version import raise_if_version_locked
+from app.services.schedule_version import raise_if_timetable_locked
 
 ConstraintViolation = schedule_check.ConstraintViolation
 LessonAssignment = schedule_check.LessonAssignment
@@ -98,7 +95,7 @@ class UnscheduledLesson:
     # Task 92B / 98: the required special room (what placing uses by
     # default; None: 原班上課).
     suggested_room_id: int | None
-    # Task 98: the active teachers taking part in the semester, by name.
+    # Task 98: the active teachers taking part in the record, by name.
     eligible_teachers: list[EligibleTeacher]
     # Task 98: the requirement's special room (None: 原班教室).
     required_room_id: int | None = None
@@ -115,13 +112,16 @@ def default_room_id(required_room_id: int | None) -> int | None:
     return required_room_id
 
 
-def _eligible_teachers(db: Session, semester_id: int) -> list[EligibleTeacher]:
-    """Task 98: the active teachers taking part in the semester's
+def _eligible_teachers(db: Session, schedule_version_id: int) -> list[EligibleTeacher]:
+    """Task 98: the active teachers taking part in the record's
     scheduling, by name -- any of them may teach any lesson."""
     rows = db.execute(
         select(Teacher.id, Teacher.name)
         .join(SemesterTeacher, SemesterTeacher.teacher_id == Teacher.id)
-        .where(SemesterTeacher.semester_id == semester_id, Teacher.is_active.is_(True))
+        .where(
+            SemesterTeacher.schedule_version_id == schedule_version_id,
+            Teacher.is_active.is_(True),
+        )
         .order_by(Teacher.name, Teacher.id)
     ).all()
     return [EligibleTeacher(teacher_id, name) for teacher_id, name in rows]
@@ -131,8 +131,8 @@ def list_unscheduled_lessons(
     db: Session, schedule_version_id: int
 ) -> list[UnscheduledLesson] | None:
     """Returns None if the ScheduleVersion doesn't exist (caller -> 404).
-    Every Lesson of the version's semester with no Schedule row in this
-    version, ordered by class, subject, block, place in the block (lessons
+    Every Lesson of the record with no Schedule row in its timetable,
+    ordered by class, subject, block, place in the block (lessons
     of no block last), then sequence number. Read-only, any status."""
     schedule_version = db.get(ScheduleVersion, schedule_version_id)
     if schedule_version is None:
@@ -143,7 +143,7 @@ def list_unscheduled_lessons(
         .join(Class, ClassSubjectRequirement.class_id == Class.id)
         .join(Subject, ClassSubjectRequirement.subject_id == Subject.id)
         .where(
-            ClassSubjectRequirement.semester_id == schedule_version.semester_id,
+            ClassSubjectRequirement.schedule_version_id == schedule_version_id,
             ~exists().where(
                 Schedule.schedule_version_id == schedule_version_id,
                 Schedule.lesson_id == Lesson.id,
@@ -159,7 +159,7 @@ def list_unscheduled_lessons(
             Lesson.id,
         )
     ).all()
-    teachers = _eligible_teachers(db, schedule_version.semester_id)
+    teachers = _eligible_teachers(db, schedule_version_id)
     return [
         UnscheduledLesson(
             lesson_id=lesson.id,
@@ -231,22 +231,22 @@ def _prepare(
 ) -> _Prepared | None:
     """Returns None if the ScheduleVersion doesn't exist. Every refusal
     that doesn't depend on the target slot is raised here, in this order:
-    locked version (409), lesson not found (404), lesson of another
-    semester (409), lesson already in the version (409), teacher (404 /
+    locked record (409), lesson not found (404), lesson of another
+    record (409), lesson already in the version (409), teacher (404 /
     409 TEACHER_REQUIRED / 409 inactive), room not found (404)."""
     schedule_version = db.get(ScheduleVersion, schedule_version_id)
     if schedule_version is None:
         return None
-    raise_if_version_locked(schedule_version)
+    raise_if_timetable_locked(schedule_version)
     school_id = school_id_of_version(db, schedule_version)
     lesson = get_in_school(db, Lesson, lesson_id, school_id)
     if lesson is None:
         raise AdjustmentTargetNotFoundError("Lesson not found")
     requirement = db.get(ClassSubjectRequirement, lesson.class_subject_requirement_id)
     assert requirement is not None  # foreign key
-    if requirement.semester_id != schedule_version.semester_id:
-        raise LessonNotInSemesterError(
-            f"Lesson {lesson_id} is not of semester {schedule_version.semester_id}."
+    if requirement.schedule_version_id != schedule_version_id:
+        raise LessonNotInVersionError(
+            f"Lesson {lesson_id} is not of ScheduleVersion {schedule_version_id}."
         )
     already = db.scalar(
         select(Schedule.id).where(
@@ -266,7 +266,7 @@ def _prepare(
         room_id = default_room_id(requirement.required_room_id)
 
     rows = schedule_check.load_assignment_rows(db, schedule_version_id)
-    context = schedule_check.load_check_context(db, schedule_version.semester_id, schedule_version_id)
+    context = schedule_check.load_check_context(db, schedule_version_id)
     fixed = db.execute(
         select(Lesson.id, Lesson.fixed_time_slot_id).where(
             Lesson.class_subject_requirement_id == requirement.id,

@@ -24,6 +24,9 @@ import { ERROR_TEXT, LOADING_TEXT, MUTED_TEXT, SUBSECTION_TITLE } from "../style
 
 interface FailureDiagnosticsProps {
   response: RunSchedulerFailureResponse;
+  // v3: the 排課紀錄 that was scheduled -- its requirements name the
+  // lessons (every record owns its own).
+  versionId: number;
 }
 
 // Shared by both <ul> lists below: list-none drops the browser's default
@@ -133,13 +136,17 @@ function GroupedLessonFailureItem({
 // get their own headings.
 export default function FailureDiagnostics({
   response,
+  versionId,
 }: FailureDiagnosticsProps): ReactElement {
   const teachers = useResource(() => listTeachers(), []);
   const classes = useResource(() => listClasses(), []);
   const subjects = useResource(() => listSubjects(), []);
   const rooms = useResource(() => listRooms(), []);
   const timeSlots = useResource(() => listTimeSlots(), []);
-  const requirements = useResource(() => listRequirements(), []);
+  const requirements = useResource(
+    () => listRequirements(0, 1000, { schedule_version_id: versionId }),
+    [versionId],
+  );
 
   const isLoading =
     teachers.isLoading ||

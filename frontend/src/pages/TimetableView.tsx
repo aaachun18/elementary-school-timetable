@@ -1,12 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactElement } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { list as listScheduleVersions } from "../api/scheduleVersions";
+import {
+  copy as copyTimetable,
+  list as listScheduleVersions,
+  publish as publishRecord,
+  remove as removeRecord,
+  saveEditing,
+  startEditing,
+} from "../api/scheduleVersions";
 import { list as listSemesters } from "../api/semesters";
 import { list as listAcademicYears } from "../api/academicYears";
 import { list as listClasses } from "../api/classes";
 import { list as listTeachers } from "../api/teachers";
 import { list as listRooms } from "../api/rooms";
 import AdjustmentPreviewDialog from "../components/AdjustmentPreviewDialog";
+import ConfirmDialog from "../components/ConfirmDialog";
 import ConflictChecklist from "../components/ConflictChecklist";
 import PlacementPreviewDialog from "../components/PlacementPreviewDialog";
 import RoomChangeControls from "../components/RoomChangeControls";
@@ -24,6 +32,7 @@ import { useResource } from "../hooks/useResource";
 import { useScheduleCheck } from "../hooks/useScheduleCheck";
 import { useTimetableData, type EnrichedSchedule } from "../hooks/useTimetableData";
 import { useUnscheduledLessons } from "../hooks/useUnscheduledLessons";
+import { extractApiErrorMessage } from "../constants/errorMessages";
 import { isCurrentUserCoordinator } from "../utils/auth";
 import { getViolationSentence, resolveTimeSlotLabel } from "../utils/failureDiagnostics";
 import { blockGroupMemberIds } from "../utils/lessonBlocks";
@@ -45,13 +54,21 @@ import {
   teacherForCard,
   type PlacementCard,
 } from "../utils/placement";
-import { formatVersionLabel } from "../utils/scheduleVersionFormat";
+import {
+  formatRecordStatus,
+  formatSemesterLabel,
+  formatVersionLabel,
+  hasTimetable,
+  recordStatusBadgeClass,
+  semesterLabelOf,
+} from "../utils/scheduleVersionFormat";
 import { mergeViolationsBySentence, splitBySeverity, violationIdentityKey } from "../utils/violationMerge";
 import { resolveLocateTarget, type TimetableViewMode } from "../utils/violationLocate";
 import type { ConstraintViolationDetail, RoomChangeScope } from "../types/scheduler";
 import type { TimeSlot } from "../types/timeSlot";
 import {
   BUTTON_PRIMARY,
+  BUTTON_PUBLISH,
   BUTTON_SECONDARY,
   BUTTON_SECONDARY_SM,
   CANDIDATE_LEGEND,
@@ -84,8 +101,16 @@ const VIEW_MODES: { key: TimetableViewMode; label: string }[] = [
   { key: "room", label: "依教室" },
 ];
 
+// v3 (items 10, 13, 14): 檢視課表 -- one 排課紀錄's timetable, by class,
+// teacher or room. For the 教學組長: 手動編輯課表 starts a working copy
+// (every drag & drop, room change and -- for a copied timetable only --
+// 換教師 changes the copy), 儲存課表 saves it (a 手動排課 record is saved
+// over, anything else becomes a new 手動排課 record), 取消編輯 throws it
+// away; 複製此課表 copies it (settings too) into a semester of the same
+// academic year; 發布此課表 makes it the semester's published timetable.
+// A 一般老師 picks among the published records only.
 export default function TimetableView(): ReactElement {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const versionsResource = useResource(() => listScheduleVersions(), []);
   const semesters = useResource(() => listSemesters(), []);
@@ -94,15 +119,15 @@ export default function TimetableView(): ReactElement {
   const teachersResource = useResource(() => listTeachers(), []);
   const roomsResource = useResource(() => listRooms(), []);
 
-  // Task 34: arriving from 排課控制台's 「查看課表」 link carries
-  // ?scheduleVersionId=<id> in the URL -- a query string rather than
-  // react-router's <Link state> because it survives a page reload and can
-  // be bookmarked/shared, not just an in-memory navigation.
-  const [requestedVersionId, setRequestedVersionId] = useState<number | null>(() => {
-    const raw = searchParams.get("scheduleVersionId");
-    const parsed = raw !== null ? Number(raw) : NaN;
-    return Number.isInteger(parsed) ? parsed : null;
-  });
+  // Task 34: 排課紀錄's 「檢視課表」 carries ?scheduleVersionId=<id> in the
+  // URL -- a query string rather than react-router's <Link state> because
+  // it survives a page reload and can be bookmarked/shared.
+  const rawRequestedId = searchParams.get("scheduleVersionId");
+  const parsedRequestedId = rawRequestedId !== null ? Number(rawRequestedId) : NaN;
+  const requestedVersionId = Number.isInteger(parsedRequestedId) ? parsedRequestedId : null;
+  function setRequestedVersionId(versionId: number | null): void {
+    setSearchParams(versionId === null ? {} : { scheduleVersionId: String(versionId) });
+  }
   // Task 80: versions can be deleted (ARCHIVED too), so a bookmarked or
   // back-button URL may name a version that no longer exists. Once the
   // list has loaded, such an id counts as "nothing selected" -- the page
@@ -116,14 +141,24 @@ export default function TimetableView(): ReactElement {
   const [viewMode, setViewMode] = useState<TimetableViewMode>("class");
   const [selectedTargetId, setSelectedTargetId] = useState<number | null>(null);
 
-  const timetable = useTimetableData(selectedVersionId);
+  // v3: 手動編輯課表's working copy (EDITING) -- while it exists every
+  // request below works on it instead of the record itself.
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const activeVersionId = editingId ?? selectedVersionId;
+  const [recordAction, setRecordAction] = useState<"publish" | "copy" | null>(null);
+  const [isRecordBusy, setIsRecordBusy] = useState(false);
+  const [recordError, setRecordError] = useState<string | null>(null);
+  const [copyTargetSemesterId, setCopyTargetSemesterId] = useState<number | null>(null);
+  const recordFlash = useFlashMessage(6000);
+
+  const timetable = useTimetableData(activeVersionId);
 
   // --- Task 68: 檢查衝突 (ADMIN only; the backend would also let a TEACHER
   // check a PUBLISHED version, this is a UI scoping choice). ---
   // Task 98: "isAdmin" here means whoever may edit scheduling data -- a
   // 教學組長 (backend require_coordinator).
   const isAdmin = isCurrentUserCoordinator();
-  const scheduleCheck = useScheduleCheck(selectedVersionId);
+  const scheduleCheck = useScheduleCheck(activeVersionId);
   // The TimeSlot whose cell 「在課表中查看」 (or, Task 69, a saved move/swap)
   // marked. Cleared by any other change of what the grid shows (view,
   // target, version) and by re-checking.
@@ -141,10 +176,10 @@ export default function TimetableView(): ReactElement {
     }
   }, [locateRequestCount]);
 
-  // --- Task 69: 編輯模式 (ADMIN, DRAFT only) -- click a lesson, then click
-  // 「移到這裡」 or another lesson; every change is previewed first. ---
-  const [isEditModeOn, setIsEditModeOn] = useState(false);
-  const adjustment = useLessonAdjustment(selectedVersionId);
+  // --- Task 69: 編輯 (v3: in the working copy) -- click a lesson, then
+  // click 「移到這裡」 or another lesson; every change is previewed first. ---
+  const isEditModeOn = isAdmin && editingId !== null;
+  const adjustment = useLessonAdjustment(activeVersionId);
   const adjustmentFlash = useFlashMessage(4000);
   // Task 90: why a lesson block can't go where it was dropped -- shown
   // instead of sending a request the backend would refuse (409).
@@ -194,19 +229,17 @@ export default function TimetableView(): ReactElement {
     }
   }, [timetable.isLoading, timetable.data]);
 
-  // --- Task 70: 換教師 panel (ADMIN, DRAFT only); independent of edit mode.
+  // --- Task 70: 換教師 panel -- v3: only while editing a copied timetable.
   const [isReassignPanelOpen, setIsReassignPanelOpen] = useState(false);
 
-  // --- Task 93: 「未排入課程」 -- lessons of the semester with no row in this
-  // version, placed by dragging a card onto a cell or clicking it and then
-  // a cell's 「放到這裡」. Only in edit mode (ADMIN + DRAFT); nothing is
-  // fetched otherwise. ---
-  const isDraftVersionSelected =
-    (versionsResource.data ?? []).find((version) => version.id === selectedVersionId)?.status === "DRAFT";
-  const isPlacementActive = isAdmin && isEditModeOn && isDraftVersionSelected;
-  const unscheduled = useUnscheduledLessons(isPlacementActive ? selectedVersionId : null);
+  // --- Task 93: 「未排入課程」 -- lessons of the record with no row in its
+  // timetable, placed by dragging a card onto a cell or clicking it and
+  // then a cell's 「放到這裡」. Only while editing; nothing is fetched
+  // otherwise. ---
+  const isPlacementActive = isEditModeOn;
+  const unscheduled = useUnscheduledLessons(isPlacementActive ? activeVersionId : null);
   const placementCards = useMemo(() => buildPlacementCards(unscheduled.lessons), [unscheduled.lessons]);
-  const placement = usePlacement(selectedVersionId);
+  const placement = usePlacement(activeVersionId);
   const [selectedCardKey, setSelectedCardKey] = useState<string | null>(null);
   const [draggingCardKey, setDraggingCardKey] = useState<string | null>(null);
   const [chosenTeacherByCard, setChosenTeacherByCard] = useState<ReadonlyMap<string, number>>(() => new Map());
@@ -219,7 +252,7 @@ export default function TimetableView(): ReactElement {
   // A drag wins over the click selection, as for lessons.
   const placingCard = isPlacementActive ? (draggingCard ?? selectedCard) : null;
   // --- Task 95: 「更改教室」 of the selected scheduled lesson. ---
-  const roomChange = useRoomChange(selectedVersionId);
+  const roomChange = useRoomChange(activeVersionId);
   const isBusy = adjustment.phase !== "idle" || placement.phase !== "idle" || roomChange.phase !== "idle";
 
   function resetPlacement(): void {
@@ -248,12 +281,10 @@ export default function TimetableView(): ReactElement {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [canClearSelection, clearSelection]);
 
-  function handleSelectVersion(versionId: number | null): void {
-    setRequestedVersionId(versionId);
-    setSelectedTargetId(null);
-    setHighlightedTimeSlotId(null);
-    // Task 69: a new version always starts out of edit mode.
-    setIsEditModeOn(false);
+  // Leaving the working copy (saved or thrown away), or switching record:
+  // everything tied to what was on screen starts over.
+  function resetEditingState(): void {
+    setEditingId(null);
     adjustment.reset();
     setAdjustedTimeSlotId(null);
     setIsReassignPanelOpen(false);
@@ -261,6 +292,13 @@ export default function TimetableView(): ReactElement {
     resetPlacement();
     setChosenTeacherByCard(new Map());
     setChosenRoomByCard(new Map());
+  }
+
+  function handleSelectVersion(versionId: number | null): void {
+    setRequestedVersionId(versionId);
+    setSelectedTargetId(null);
+    setHighlightedTimeSlotId(null);
+    resetEditingState();
   }
 
   function handleSelectViewMode(mode: TimetableViewMode): void {
@@ -272,12 +310,115 @@ export default function TimetableView(): ReactElement {
     setAdjustedTimeSlotId(null);
   }
 
-  function handleToggleEditMode(): void {
-    setIsEditModeOn((previous) => !previous);
-    adjustment.reset();
-    setAdjustedTimeSlotId(null);
-    setDragSourceId(null);
-    resetPlacement();
+  // --- v3: 手動編輯課表 / 儲存課表 / 取消編輯 ---
+
+  async function handleStartEditing(): Promise<void> {
+    if (selectedVersionId === null) {
+      return;
+    }
+    setIsRecordBusy(true);
+    setRecordError(null);
+    try {
+      const workingCopy = await startEditing(selectedVersionId);
+      resetEditingState();
+      setEditingId(workingCopy.id);
+      setHighlightedTimeSlotId(null);
+    } catch (caught) {
+      setRecordError(extractApiErrorMessage(caught));
+    } finally {
+      setIsRecordBusy(false);
+    }
+  }
+
+  async function handleSaveEditing(): Promise<void> {
+    if (editingId === null) {
+      return;
+    }
+    setIsRecordBusy(true);
+    setRecordError(null);
+    try {
+      const saved = await saveEditing(editingId);
+      resetEditingState();
+      versionsResource.reload();
+      setRequestedVersionId(saved.id);
+      recordFlash.showFlash(
+        saved.id === selectedVersionId
+          ? `已儲存課表（編號 ${saved.version_number}，手動排課）`
+          : `已儲存為新的排課紀錄：編號 ${saved.version_number}（手動排課），原本的紀錄沒有改變`,
+      );
+    } catch (caught) {
+      setRecordError(extractApiErrorMessage(caught));
+    } finally {
+      setIsRecordBusy(false);
+    }
+  }
+
+  async function handleCancelEditing(): Promise<void> {
+    if (editingId === null) {
+      return;
+    }
+    if (!window.confirm("確定要取消編輯嗎？這次手動編輯的變更都不會儲存。")) {
+      return;
+    }
+    setIsRecordBusy(true);
+    setRecordError(null);
+    try {
+      await removeRecord(editingId);
+      resetEditingState();
+    } catch (caught) {
+      setRecordError(extractApiErrorMessage(caught));
+    } finally {
+      setIsRecordBusy(false);
+    }
+  }
+
+  // --- v3: 發布此課表 / 複製此課表 ---
+
+  function openRecordAction(action: "publish" | "copy"): void {
+    setRecordError(null);
+    setCopyTargetSemesterId(selectedVersion?.semester_id ?? null);
+    setRecordAction(action);
+  }
+
+  async function handleConfirmPublish(): Promise<void> {
+    if (selectedVersionId === null) {
+      return;
+    }
+    setIsRecordBusy(true);
+    setRecordError(null);
+    try {
+      const published = await publishRecord(selectedVersionId);
+      versionsResource.reload();
+      setRecordAction(null);
+      recordFlash.showFlash(`已發布編號 ${published.version_number}，老師現在看得到這份課表`);
+    } catch (caught) {
+      setRecordError(extractApiErrorMessage(caught));
+    } finally {
+      setIsRecordBusy(false);
+    }
+  }
+
+  async function handleConfirmCopy(): Promise<void> {
+    if (selectedVersionId === null) {
+      return;
+    }
+    setIsRecordBusy(true);
+    setRecordError(null);
+    try {
+      const created = await copyTimetable(selectedVersionId, copyTargetSemesterId);
+      versionsResource.reload();
+      setRecordAction(null);
+      setRequestedVersionId(created.id);
+      setSelectedTargetId(null);
+      resetEditingState();
+      recordFlash.showFlash(
+        `已複製成新的排課紀錄：編號 ${created.version_number}（複製自編號 ${created.copied_from_number}），現在檢視的是這份複製的課表`,
+      );
+    } catch (caught) {
+      setRecordError(extractApiErrorMessage(caught));
+    } finally {
+      setIsRecordBusy(false);
+    }
   }
 
   function handleRunCheck(): void {
@@ -314,13 +455,10 @@ export default function TimetableView(): ReactElement {
 
   // --- Task 84: candidate marks for the selected or dragged lesson. A drag
   // wins over the click selection. Nothing is shown outside edit mode
-  // (ADMIN + DRAFT), while a preview or save is in progress, or when the
+  // (a working copy), while a preview or save is in progress, or when the
   // lesson isn't on the grid being shown (e.g. another class was picked).
   // The marks are a hint only: every drop still goes through the preview.
-  const isDraftVersion =
-    (versionsResource.data ?? []).find((version) => version.id === selectedVersionId)
-      ?.status === "DRAFT";
-  const canShowCandidates = isAdmin && isEditModeOn && isDraftVersion && !isBusy;
+  const canShowCandidates = isEditModeOn && !isBusy;
   const candidateSourceId =
     canShowCandidates && placingCard === null ? (dragSourceId ?? adjustment.selectedScheduleId) : null;
   const candidateSource =
@@ -332,7 +470,7 @@ export default function TimetableView(): ReactElement {
       ? candidateSource.scheduleId
       : null;
   const candidateState = useMoveCandidates(
-    selectedVersionId,
+    activeVersionId,
     shownCandidateSourceId,
     candidateRevision,
   );
@@ -361,7 +499,7 @@ export default function TimetableView(): ReactElement {
   const placingTeacherId = placingCard === null ? null : teacherForCard(placingCard, chosenTeacherByCard);
   const placingRoomId = placingCard === null ? null : roomForCard(placingCard, chosenRoomByCard);
   const placeCandidateState = usePlaceCandidates(
-    selectedVersionId,
+    activeVersionId,
     canShowCandidates && placingCard !== null ? placingCard.anchorLessonId : null,
     placingTeacherId,
     placingRoomId,
@@ -483,8 +621,7 @@ export default function TimetableView(): ReactElement {
   function refreshAfterAdjustment(): void {
     const plan = planAdjustmentRefresh({
       isAdmin,
-      versionStatus:
-        (versionsResource.data ?? []).find((version) => version.id === selectedVersionId)?.status ?? null,
+      versionStatus: isEditModeOn ? "EDITING" : null,
       isEditModeOn,
       isCheckShown: scheduleCheck.result !== null || scheduleCheck.errorMessage !== null,
     });
@@ -703,9 +840,25 @@ export default function TimetableView(): ReactElement {
   );
   const versions = versionsResource.data ?? [];
   const selectedVersion = versions.find((version) => version.id === selectedVersionId);
-  const isDraftSelected = selectedVersion?.status === "DRAFT";
-  // Edit mode is only ever in effect for an ADMIN on a DRAFT.
-  const isEditing = isAdmin && isDraftSelected && isEditModeOn;
+  // Editing is only ever in effect for a 教學組長 in a working copy.
+  const isEditing = isEditModeOn;
+  // 換教師 is only for a copied timetable (複製自編號 x).
+  const canReassign = isEditing && selectedVersion?.status === "COPIED";
+  // 複製此課表's targets: the semesters of the record's own academic year.
+  const recordSemester =
+    selectedVersion === undefined ? undefined : semesterById.get(selectedVersion.semester_id);
+  const copyTargetSemesters = (semesters.data ?? [])
+    .filter((semester) => semester.academic_year_id === recordSemester?.academic_year_id)
+    .sort((a, b) => a.number - b.number);
+  const otherPublished =
+    selectedVersion === undefined
+      ? undefined
+      : versions.find(
+          (version) =>
+            version.semester_id === selectedVersion.semester_id &&
+            version.is_published &&
+            version.id !== selectedVersion.id,
+        );
 
   const targetOptions =
     viewMode === "class"
@@ -747,68 +900,144 @@ export default function TimetableView(): ReactElement {
 
   return (
     <div className={PAGE}>
-      <h1 className={PAGE_TITLE}>課表</h1>
-      {/* Task 98: a timetable is opened from its 排課紀錄; managing it
-          (publish, copy, schedule again) is back there. */}
-      {isAdmin && (
-        <p className="mb-3 text-sm">
-          <Link
-            to={selectedVersionId === null ? "/records" : `/records?scheduleVersionId=${selectedVersionId}`}
-            className="font-medium text-blue-600 hover:underline"
-          >
-            ← 回到排課紀錄
+      {isAdmin && !isEditing && (
+        <p className="mb-3">
+          <Link to="/records" className={BUTTON_SECONDARY}>
+            ← 返回排課紀錄
           </Link>
         </p>
       )}
-      {/* Task 67: only ADMIN can ever pick an ARCHIVED version here (a
-          TEACHER's version list is PUBLISHED-only, enforced by the
-          backend). */}
-      {selectedVersion?.status === "ARCHIVED" && (
-        <p className={`${NOTICE} mb-4`}>這是已封存的版本，僅供查看。</p>
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className={PAGE_TITLE}>
+            {isAdmin && selectedVersion !== undefined ? `課表・編號 ${selectedVersion.version_number}` : "課表"}
+          </h1>
+          {isAdmin && selectedVersion !== undefined && (
+            <p className="flex flex-wrap items-center gap-2 text-sm text-gray-700">
+              {semesterLabelOf(selectedVersion, semesterById, academicYearById)}
+              <span className={recordStatusBadgeClass(selectedVersion)}>{formatRecordStatus(selectedVersion)}</span>
+              {isEditing && <span className={`${NOTICE} py-0.5`}>手動編輯中（尚未儲存）</span>}
+            </p>
+          )}
+        </div>
+        {/* 儲存課表 sits top right while editing. */}
+        {isEditing && (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => void handleCancelEditing()}
+              disabled={isRecordBusy || isBusy}
+              className={BUTTON_SECONDARY}
+            >
+              取消編輯
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSaveEditing()}
+              disabled={isRecordBusy || isBusy}
+              className={BUTTON_PRIMARY}
+            >
+              {isRecordBusy ? "儲存中…" : "儲存課表"}
+            </button>
+          </div>
+        )}
+      </div>
+      {recordFlash.message !== null && <p className={`${SUCCESS_TEXT} mb-3`}>✓ {recordFlash.message}</p>}
+      {recordError !== null && recordAction === null && (
+        <p role="alert" className={`${ERROR_TEXT} mb-3`}>
+          {recordError}
+        </p>
       )}
       {isRequestedVersionMissing && (
-        <p className={`${NOTICE} mb-4`}>指定的排課版本已不存在（可能已被刪除），請重新選擇。</p>
+        <p className={`${NOTICE} mb-4`}>指定的排課紀錄已不存在（可能已被刪除）。</p>
       )}
 
-      <section className={SECTION}>
-        <label htmlFor="timetable-version-select" className={`${LABEL} mb-1 block`}>
-          選擇排課版本
-        </label>
-        {/* Task 43: TEACHER's GET /api/v1/schedule-versions/ already only
-            ever returns PUBLISHED versions (backend/app/services/
-            schedule_version.py) -- `versions` here is exactly what this
-            page is allowed to offer, no extra client-side filtering
-            needed. An empty list (no PUBLISHED version exists yet, for
-            TEACHER; or genuinely none at all, for ADMIN) gets its own
-            message instead of a dropdown with nothing but "請選擇…" in
-            it. */}
-        {versions.length === 0 ? (
-          <p className={MUTED_TEXT}>目前沒有可查看的排課版本。</p>
-        ) : (
-          <select
-            id="timetable-version-select"
-            value={selectedVersionId ?? ""}
-            onChange={(event) =>
-              handleSelectVersion(event.target.value === "" ? null : Number(event.target.value))
-            }
-            disabled={isBusy}
-            className={SELECT}
-          >
-            <option value="">請選擇…</option>
-            {versions.map((version) => (
-              <option key={version.id} value={version.id}>
-                {formatVersionLabel(version, semesterById, academicYearById)}
-              </option>
-            ))}
-          </select>
-        )}
-      </section>
+      {/* A 一般老師 picks among the published records (the backend lists
+          nothing else for them); the 教學組長 opens one from 排課紀錄. */}
+      {!isAdmin && (
+        <section className={SECTION}>
+          <label htmlFor="timetable-version-select" className={`${LABEL} mb-1 block`}>
+            選擇學期的課表
+          </label>
+          {versions.length === 0 ? (
+            <p className={MUTED_TEXT}>目前沒有已發布的課表。</p>
+          ) : (
+            <select
+              id="timetable-version-select"
+              value={selectedVersionId ?? ""}
+              onChange={(event) =>
+                handleSelectVersion(event.target.value === "" ? null : Number(event.target.value))
+              }
+              className={SELECT}
+            >
+              <option value="">請選擇…</option>
+              {versions.map((version) => (
+                <option key={version.id} value={version.id}>
+                  {semesterLabelOf(version, semesterById, academicYearById)}
+                </option>
+              ))}
+            </select>
+          )}
+        </section>
+      )}
+      {isAdmin && selectedVersionId === null && !isRequestedVersionMissing && (
+        <p className={MUTED_TEXT}>
+          請從
+          <Link to="/records" className="font-medium text-blue-600 hover:underline">
+            排課紀錄
+          </Link>
+          選擇要檢視的課表。
+        </p>
+      )}
 
-      {/* Task 68: 檢查衝突 -- read-only, any version status. The result
-          belongs to the selected version only (useScheduleCheck drops it
-          on a version change). Waits for the timetable data, whose lookups
-          turn the violations into names. */}
-      {isAdmin && selectedVersionId !== null && (
+      {/* v3: the record's actions -- not while editing (then only 儲存課表 /
+          取消編輯 apply). */}
+      {isAdmin && selectedVersion !== undefined && !isEditing && (
+        <section className={SECTION} aria-label="課表操作">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void handleStartEditing()}
+              disabled={isRecordBusy || !hasTimetable(selectedVersion.status)}
+              className={BUTTON_PRIMARY}
+            >
+              {isRecordBusy ? "處理中…" : "手動編輯課表"}
+            </button>
+            <button
+              type="button"
+              onClick={() => openRecordAction("copy")}
+              disabled={isRecordBusy}
+              className={BUTTON_SECONDARY}
+            >
+              複製此課表
+            </button>
+            {selectedVersion.is_published ? (
+              <span className="inline-flex items-center text-sm font-medium text-green-700">✓ 已發布</span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => openRecordAction("publish")}
+                disabled={isRecordBusy}
+                className={BUTTON_PUBLISH}
+              >
+                發布此課表
+              </button>
+            )}
+          </div>
+          <p className={`${MUTED_TEXT} mt-2`}>
+            {selectedVersion.status === "MANUAL" && !selectedVersion.is_published
+              ? "手動編輯後按「儲存課表」會直接更新這筆手動排課紀錄。"
+              : "手動編輯後按「儲存課表」會另存成一筆新的「手動排課」紀錄，這份課表不會改變。"}
+            {selectedVersion.status === "COPIED" && "複製的課表在手動編輯時可以換教師。"}
+          </p>
+        </section>
+      )}
+
+      {/* Task 68: 檢查衝突 -- v3: while editing only (the view itself stays
+          clean). The result belongs to the working copy (useScheduleCheck
+          drops it when that changes). Waits for the timetable data, whose
+          lookups turn the violations into names. */}
+      {isEditing && (
         <section className={SECTION} aria-label="檢查衝突">
           <div className="flex flex-wrap items-center gap-3">
             <button
@@ -866,21 +1095,11 @@ export default function TimetableView(): ReactElement {
           aria-label="課表"
           className={`${SECTION} scroll-mt-4 focus:outline-none`}
         >
-          {/* Task 69: 編輯模式 switch -- ADMIN only; offered (disabled, with
-              the reason) for a locked version too, so it's clear why. */}
-          {isAdmin && selectedVersion !== undefined && (
+          {/* Task 69: editing (v3: in the working copy). */}
+          {isEditing && (
             <div className="mb-4 flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  onClick={handleToggleEditMode}
-                  disabled={!isDraftSelected || isBusy}
-                  aria-pressed={isEditing}
-                  className={isEditing ? BUTTON_PRIMARY : BUTTON_SECONDARY}
-                >
-                  {isEditing ? "結束編輯模式" : "編輯模式"}
-                </button>
-                {isDraftSelected && (
+                {canReassign && (
                   <button
                     type="button"
                     onClick={() => setIsReassignPanelOpen((previous) => !previous)}
@@ -890,15 +1109,10 @@ export default function TimetableView(): ReactElement {
                     {isReassignPanelOpen ? "收合換教師" : "換教師"}
                   </button>
                 )}
-                {isEditing && (
-                  <span className={MUTED_TEXT}>
-                    點一堂課選取它，再點「移到這裡」移動，或點另一堂課與它對調；也可以直接把課拖到空格（移動）或另一堂課上（對調）。每次異動都會先預覽。
-                  </span>
-                )}
+                <span className={MUTED_TEXT}>
+                  點一堂課選取它，再點「移到這裡」移動，或點另一堂課與它對調；也可以直接把課拖到空格（移動）或另一堂課上（對調）。每次異動都會先預覽。改完按右上角「儲存課表」。
+                </span>
               </div>
-              {!isDraftSelected && (
-                <p className={NOTICE}>已發布或已封存的版本不能編輯，請先複製成新草稿。</p>
-              )}
               {adjustmentFlash.message !== null && (
                 <p className={SUCCESS_TEXT}>✓ {adjustmentFlash.message}</p>
               )}
@@ -992,7 +1206,7 @@ export default function TimetableView(): ReactElement {
                   </span>
                   {canChangeRoom({
                     isAdmin,
-                    versionStatus: selectedVersion?.status ?? null,
+                    versionStatus: isEditing ? "EDITING" : null,
                     isEditModeOn,
                     hasSelectedLesson: true,
                   }) && (
@@ -1020,10 +1234,10 @@ export default function TimetableView(): ReactElement {
             </div>
           )}
 
-          {isAdmin && isDraftSelected && isReassignPanelOpen && timetable.data !== null && (
+          {canReassign && isReassignPanelOpen && timetable.data !== null && editingId !== null && (
             <TeacherReassignPanel
-              key={selectedVersionId}
-              scheduleVersionId={selectedVersionId}
+              key={editingId}
+              scheduleVersionId={editingId}
               timetable={timetable.data}
               disabled={timetable.isLoading}
               onSaved={handleReassignmentSaved}
@@ -1191,6 +1405,76 @@ export default function TimetableView(): ReactElement {
           onCancel={roomChange.closePreview}
           restoreFocusFallback={restoreFocusAfterPreview}
         />
+      )}
+      {/* v3: 發布此課表 */}
+      {selectedVersion !== undefined && (
+        <ConfirmDialog
+          open={recordAction === "publish"}
+          title="發布這份課表？"
+          confirmLabel="發布"
+          busy={isRecordBusy}
+          busyLabel="發布中…"
+          onConfirm={() => void handleConfirmPublish()}
+          onCancel={() => setRecordAction(null)}
+        >
+          <p>即將發布「{formatVersionLabel(selectedVersion, semesterById, academicYearById)}」，老師就能在課表看到它。</p>
+          {otherPublished !== undefined && (
+            <p className="mt-2">
+              同學期原本發布的「{formatVersionLabel(otherPublished, semesterById, academicYearById)}
+              」會改為未發布（紀錄本身保留）。
+            </p>
+          )}
+          {recordError !== null && (
+            <p role="alert" className={ERROR_TEXT}>
+              {recordError}
+            </p>
+          )}
+        </ConfirmDialog>
+      )}
+      {/* v3: 複製此課表 -- any semester of the same academic year. */}
+      {selectedVersion !== undefined && (
+        <ConfirmDialog
+          open={recordAction === "copy"}
+          title="複製這份課表？"
+          confirmLabel="複製"
+          busy={isRecordBusy}
+          busyLabel="複製中…"
+          confirmDisabled={copyTargetSemesterId === null}
+          onConfirm={() => void handleConfirmCopy()}
+          onCancel={() => setRecordAction(null)}
+        >
+          <p>
+            會複製這份課表與它的排課設定，產生一筆新的排課紀錄（複製自編號 {selectedVersion.version_number}
+            ）。可以選擇同一學年度的另一個學期，例如下學期老師有異動時，複製後在手動編輯中換教師。
+          </p>
+          <label className="mt-3 flex flex-col gap-1">
+            <span className={LABEL}>複製到學期</span>
+            <select
+              value={copyTargetSemesterId ?? ""}
+              onChange={(event) =>
+                setCopyTargetSemesterId(event.target.value === "" ? null : Number(event.target.value))
+              }
+              className={SELECT}
+            >
+              {copyTargetSemesters.map((semester) => (
+                <option key={semester.id} value={semester.id}>
+                  {formatSemesterLabel(semester, academicYearById)}
+                  {semester.id === selectedVersion.semester_id ? "（原學期）" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          {copyTargetSemesters.length < 2 && (
+            <p className={`${MUTED_TEXT} mt-2`}>
+              這個學年度目前只有一個學期；要複製到另一個學期，請先在「開始排課」建立該學期。
+            </p>
+          )}
+          {recordError !== null && (
+            <p role="alert" className={ERROR_TEXT}>
+              {recordError}
+            </p>
+          )}
+        </ConfirmDialog>
       )}
       {timetable.data !== null && (
         <PlacementPreviewDialog

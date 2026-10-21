@@ -6,6 +6,7 @@ import RoleRoute from "./components/RoleRoute";
 import DataBrowser from "./pages/DataBrowser";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
+import RecordSettings from "./pages/RecordSettings";
 import ScheduleRecords from "./pages/ScheduleRecords";
 import SchedulingWizard from "./pages/SchedulingWizard";
 import SchoolManagement from "./pages/SchoolManagement";
@@ -71,6 +72,15 @@ export default function App(): ReactElement {
             element={
               <RoleRoute allow={COORDINATOR_ONLY}>
                 <ScheduleRecords />
+              </RoleRoute>
+            }
+          />
+          {/* v3: 檢視排課設定 of one record (its own page, back to 排課紀錄). */}
+          <Route
+            path="/records/:recordId/settings"
+            element={
+              <RoleRoute allow={COORDINATOR_ONLY}>
+                <RecordSettings />
               </RoleRoute>
             }
           />

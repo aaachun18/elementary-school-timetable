@@ -19,15 +19,15 @@ export interface AdjustmentRefreshPlan {
 
 const NOTHING: AdjustmentRefreshPlan = { reloadTimetable: false, reloadUnscheduled: false, rerunCheck: false };
 
-// Adjustments only exist for an ADMIN on a DRAFT; anything else refreshes
-// nothing.
+// Adjustments only exist for a 教學組長 in a manual edit's working copy
+// (EDITING); anything else refreshes nothing.
 export function planAdjustmentRefresh(state: {
   isAdmin: boolean;
   versionStatus: string | null;
   isEditModeOn: boolean;
   isCheckShown: boolean;
 }): AdjustmentRefreshPlan {
-  if (!state.isAdmin || state.versionStatus !== "DRAFT") {
+  if (!state.isAdmin || state.versionStatus !== "EDITING") {
     return NOTHING;
   }
   return { reloadTimetable: true, reloadUnscheduled: state.isEditModeOn, rerunCheck: state.isCheckShown };

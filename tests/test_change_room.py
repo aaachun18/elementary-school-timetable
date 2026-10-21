@@ -17,7 +17,7 @@ from app.models.schedule import Schedule
 from app.services import room_change
 from tests.test_block_adjustment import World, _check, _world
 from tests.test_move_swap_lessons import _ok, _schedule_snapshot
-from tests.conftest import get_test_school_id
+from tests.conftest import get_test_school_id, mark_status_in_db
 
 URL = "/api/v1/schedule-versions"
 
@@ -198,15 +198,12 @@ def test_missing_version_returns_404(client: TestClient, db_session: Session) ->
     assert (response.status_code, response.json()["detail"]) == (404, "ScheduleVersion not found")
 
 
-@pytest.mark.parametrize(
-    ("status", "detail"),
-    [("PUBLISHED", "已發布版本不可修改，請建立新草稿版本"), ("ARCHIVED", "已封存的課表無法修改，請先複製成新草稿")],
-)
-def test_locked_version_returns_409(client: TestClient, db_session: Session, status: str, detail: str) -> None:
+@pytest.mark.parametrize("status", ["NOT_SCHEDULED", "AUTO", "MANUAL", "COPIED"])
+def test_locked_version_returns_409(client: TestClient, db_session: Session, status: str) -> None:
+    detail = "課表不能直接修改，請先按「手動編輯課表」"
     world = _world(db_session)
     room = _room(db_session)
-    world.version.status = status
-    db_session.commit()
+    mark_status_in_db(db_session, world.version.id, status)
     before = _schedule_snapshot(db_session)
 
     response = _change(client, world.version.id, world.row("A1"), room.id)

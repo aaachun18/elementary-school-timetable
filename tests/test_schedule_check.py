@@ -15,7 +15,14 @@ from app.models.subject import Subject
 from app.models.semester_teacher import SemesterTeacher, SemesterTeacherUnavailability
 from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
-from tests.conftest import enroll_in_semester, get_test_school_id, next_free_grade_level, time_slot_at
+from tests.conftest import (
+    enroll_in_semester,
+    get_test_school_id,
+    make_record,
+    mark_status_in_db,
+    next_free_grade_level,
+    time_slot_at,
+)
 
 # Task 61: GET /api/v1/schedule-versions/{id}/check -- read-only Hard
 # Constraint check of a version's CURRENT Schedule rows. Test data is
@@ -29,7 +36,8 @@ class CheckSetup:
     """Two classes, each with one 1-period requirement of the same subject
     (so two Lessons that do NOT share a class -- putting both in one slot
     is an H1 teacher conflict without also being an H2 class conflict),
-    one teacher taking part in the semester, and two teaching time slots."""
+    one teacher taking part, and two teaching time slots -- all settings of
+    one 尚未排課 record (v3), the version checked."""
 
     semester_id: int
     version_id: int
@@ -62,19 +70,19 @@ def _build_setup(db: Session, year: int = 4001) -> CheckSetup:
     ]
     db.add_all([*classes, *time_slots])
     db.flush()
-    enroll_in_semester(db, semester.id, teacher)
+    version = make_record(db, semester.id)
+    enroll_in_semester(db, version.id, teacher)
 
     requirements = [
         ClassSubjectRequirement(
-            semester_id=semester.id,
+            schedule_version_id=version.id,
             class_id=class_.id,
             subject_id=subject.id,
             weekly_periods=1,
         )
         for class_ in classes
     ]
-    version = ScheduleVersion(semester_id=semester.id, version_number=1, status="DRAFT")
-    db.add_all([*requirements, version])
+    db.add_all(requirements)
     db.flush()
 
     lessons = [
@@ -300,20 +308,17 @@ def test_check_reports_schedule_row_without_teacher(
     assert incomplete[0]["time_slot_id"] == setup.time_slot_ids[1]
 
 
-# --- PUBLISHED versions ---
+# --- Published records ---
 
 
-def test_check_published_version_same_result_as_draft(
+def test_check_published_version_same_result_as_unpublished(
     client: TestClient, db_session: Session
 ) -> None:
     setup = _build_setup(db_session)
     _place_both_lessons_in_same_slot(db_session, setup)
     draft_data = _check(client, setup.version_id)
 
-    version = db_session.get(ScheduleVersion, setup.version_id)
-    assert version is not None
-    version.status = "PUBLISHED"
-    db_session.commit()
+    mark_status_in_db(db_session, setup.version_id, "AUTO", is_published=True)
 
     published_data = _check(client, setup.version_id)
 
@@ -398,18 +403,17 @@ def test_check_unauthenticated_returns_401(
     assert response.status_code == 401
 
 
-@pytest.mark.parametrize("status", ["DRAFT", "PUBLISHED", "ARCHIVED"])
+@pytest.mark.parametrize(
+    ("status", "is_published"), [("NOT_SCHEDULED", False), ("AUTO", False), ("AUTO", True)]
+)
 def test_check_is_admin_only(
-    teacher_client: TestClient, db_session: Session, status: str
+    teacher_client: TestClient, db_session: Session, status: str, is_published: bool
 ) -> None:
     # Task 72 (was: a TEACHER could check a PUBLISHED version): the check
     # is an administrative tool -- 403 for a TEACHER whatever the status.
     setup = _build_setup(db_session)
     _place_both_lessons_validly(db_session, setup)
-    version = db_session.get(ScheduleVersion, setup.version_id)
-    assert version is not None
-    version.status = status
-    db_session.commit()
+    mark_status_in_db(db_session, setup.version_id, status, is_published=is_published)
 
     response = teacher_client.get(f"/api/v1/schedule-versions/{setup.version_id}/check")
 

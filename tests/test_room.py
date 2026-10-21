@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from tests.api_helpers import create_grade
+from tests.api_helpers import create_grade, create_record
 
 
 def test_create_room(client: TestClient) -> None:
@@ -120,7 +120,7 @@ def test_delete_room_still_required_by_a_requirement_returns_409(client: TestCli
     created = client.post(
         "/api/v1/class-subject-requirements/",
         json={
-            "semester_id": semester_id,
+            "schedule_version_id": create_record(client, semester_id),
             "class_id": class_id,
             "subject_id": subject_id,
             "weekly_periods": 3,

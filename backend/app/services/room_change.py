@@ -1,5 +1,5 @@
-"""Task 95: change the room of lessons already in a DRAFT ScheduleVersion,
-then report the version's full schedule check (decision 32).
+"""Task 95: change the room of lessons already in a manual edit's working
+copy (v3: EDITING), then report its full schedule check (decision 32).
 
 Rooms are otherwise decided only when a lesson is scheduled or placed; a
 room created (or retyped) afterwards could never be used, so the
@@ -39,7 +39,7 @@ from app.services.exceptions import (
     InactiveRoomAssignmentError,
     ScheduleNotInVersionError,
 )
-from app.services.schedule_version import raise_if_version_locked
+from app.services.schedule_version import raise_if_timetable_locked
 
 ConstraintViolation = schedule_check.ConstraintViolation
 
@@ -77,7 +77,7 @@ def _rows_in_scope(
         return [sid for sid, a in rows if a.class_subject_requirement_id == requirement_id]
     layout = block_adjustment.Layout(
         rows,
-        schedule_check.load_check_context(db, schedule_version.semester_id, schedule_version.id),
+        schedule_check.load_check_context(db, schedule_version.id),
     )
     return sorted(member for _, member in layout.group(schedule_id).members)
 
@@ -115,7 +115,7 @@ def change_room(
     schedule_version = db.get(ScheduleVersion, schedule_version_id)
     if schedule_version is None:
         return None
-    raise_if_version_locked(schedule_version)
+    raise_if_timetable_locked(schedule_version)
     schedule = db.get(Schedule, schedule_id)
     if schedule is None:
         raise AdjustmentTargetNotFoundError("Schedule not found")

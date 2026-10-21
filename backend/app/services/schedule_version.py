@@ -1,75 +1,104 @@
-from sqlalchemy import Select, select
+"""v3: 排課紀錄 (ScheduleVersion) -- creating, listing, the 備註, publishing,
+deleting, and the two locks every other service checks:
+
+- settings (teachers, grade slots, requirements, lessons) change only while
+  the record is 尚未排課 (NOT_SCHEDULED);
+- a timetable (Schedule rows) changes only in a manual edit's working copy
+  (EDITING) -- services/manual_edit.py.
+
+Copying lives in services/schedule_copy.py, running the scheduler in
+services/scheduler.py.
+"""
+
+from sqlalchemy import Select, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.academic_year import Semester
 from app.models.class_subject_requirement import ClassSubjectRequirement
 from app.models.lesson import Lesson
-from app.models.schedule import Schedule
 from app.models.schedule_version import (
-    ARCHIVED,
-    DRAFT,
-    LOCKED_STATUSES,
-    PUBLISHED,
+    EDITING,
+    NOT_SCHEDULED,
+    TIMETABLE_STATUSES,
     ScheduleVersion,
 )
 from app.schemas.schedule_version import ScheduleVersionCreate, ScheduleVersionUpdate
-from app.services.lesson_pattern import assign_block_fields, block_positions
 from app.services.exceptions import (
-    ArchivedVersionImmutableError,
     DependentRecordsExistError,
-    InvalidStatusTransitionError,
     LessonOverProvisionedError,
     PublishedVersionDeleteError,
-    PublishedVersionImmutableError,
+    RecordStatusError,
+    SettingsLockedError,
+    TimetableLockedError,
     raise_for_integrity_error,
 )
+from app.services.lesson_pattern import assign_block_fields, block_positions
 from app.services.school_scope import (
     ensure_references_in_school,
     get_in_school,
     in_school,
 )
+from app.services.version_contents import stage_delete_contents
 
-# Task 64: the only status changes allowed (an unchanged status is a
-# separate no-op case). Publishing always archives the semester's current
-# PUBLISHED version in the same transaction -- see _publish(). Task 65:
-# PUBLISHED -> ARCHIVED is "unpublish" -- the semester is then left with no
-# PUBLISHED version at all, which is a valid state.
-ALLOWED_STATUS_TRANSITIONS = frozenset(
-    {(DRAFT, PUBLISHED), (ARCHIVED, PUBLISHED), (PUBLISHED, ARCHIVED)}
-)
+PUBLISH_WITHOUT_TIMETABLE_MESSAGE = "這筆排課紀錄還沒有課表，無法發布"
+
+# --- the two locks ---
 
 
-def raise_if_version_locked(schedule_version: ScheduleVersion) -> None:
-    """Task 25/64: a PUBLISHED or ARCHIVED version is fully locked -- its
-    fields, its Schedule rows, generate-lessons, run-scheduler and
-    reassigning a teacher. (Deleting the version itself has its own rule
-    since Task 80 -- see delete_schedule_version().) Shared by every
-    service that modifies a
-    version or anything under it, so the two statuses can never drift
-    apart. The two exceptions differ only in the message the user sees."""
-    if schedule_version.status == PUBLISHED:
-        raise PublishedVersionImmutableError(
-            f"ScheduleVersion {schedule_version.id} is PUBLISHED and "
-            "cannot be modified."
-        )
-    if schedule_version.status == ARCHIVED:
-        raise ArchivedVersionImmutableError(
-            f"ScheduleVersion {schedule_version.id} is ARCHIVED and "
-            "cannot be modified."
+def raise_if_settings_locked(schedule_version: ScheduleVersion) -> None:
+    """Settings change only while the record is 尚未排課."""
+    if schedule_version.status != NOT_SCHEDULED:
+        raise SettingsLockedError(
+            f"ScheduleVersion {schedule_version.id} is {schedule_version.status}; "
+            "only a NOT_SCHEDULED record's settings can change."
         )
 
-# --- Standard CRUD ---
+
+def raise_if_timetable_locked(schedule_version: ScheduleVersion) -> None:
+    """A timetable changes only in a manual edit's working copy."""
+    if schedule_version.status != EDITING:
+        raise TimetableLockedError(
+            f"ScheduleVersion {schedule_version.id} is {schedule_version.status}; "
+            "only an EDITING working copy's timetable can change."
+        )
+
+
+def settings_locked_for_requirement(db: Session, requirement: ClassSubjectRequirement) -> bool:
+    """Whether the requirement's record no longer takes settings changes
+    (ClassSubjectRequirementRead.is_locked)."""
+    schedule_version = db.get(ScheduleVersion, requirement.schedule_version_id)
+    return schedule_version is None or schedule_version.status != NOT_SCHEDULED
+
+
+# --- numbers ---
+
+
+def next_version_number(db: Session, school_id: int) -> int:
+    """The school's next 編號: one past the highest ever given that still
+    exists. Numbers are never handed out to working copies."""
+    current_max = db.scalar(
+        select(func.max(ScheduleVersion.version_number)).where(
+            ScheduleVersion.school_id == school_id
+        )
+    )
+    return 1 if current_max is None else current_max + 1
+
+
+# --- standard CRUD ---
 
 
 def create_schedule_version(
     db: Session, version_data: ScheduleVersionCreate, *, school_id: int
 ) -> ScheduleVersion:
+    """A new 尚未排課 record with no settings yet (開始排課 fills them)."""
     ensure_references_in_school(db, school_id, [(Semester, version_data.semester_id)])
     schedule_version = ScheduleVersion(
+        school_id=school_id,
         semester_id=version_data.semester_id,
-        version_number=version_data.version_number,
-        status=version_data.status,
+        version_number=next_version_number(db, school_id),
+        status=NOT_SCHEDULED,
+        is_published=False,
     )
     db.add(schedule_version)
     try:
@@ -81,46 +110,25 @@ def create_schedule_version(
     return schedule_version
 
 
-def published_semester_ids() -> Select[tuple[int]]:
-    """Task 72: ids of the semesters that currently have a PUBLISHED
-    version -- the only semesters whose Lessons and requirements a TEACHER
-    may read (the same "PUBLISHED only" rule as versions and Schedule rows,
-    applied to the semester-level data a published timetable is built
-    from). A subquery: `.where(column.in_(published_semester_ids()))`."""
-    return select(ScheduleVersion.semester_id).where(ScheduleVersion.status == PUBLISHED)
-
-
-def semester_has_published_version(db: Session, semester_id: int) -> bool:
-    """Task 72: the single-record form of published_semester_ids()."""
-    published_id = db.scalar(
-        select(ScheduleVersion.id)
-        .where(
-            ScheduleVersion.semester_id == semester_id,
-            ScheduleVersion.status == PUBLISHED,
-        )
-        .limit(1)
-    )
-    return published_id is not None
+def published_version_ids() -> Select[tuple[int]]:
+    """Ids of the published records -- the only ones a TEACHER may read,
+    together with everything under them (requirements, lessons, Schedule
+    rows). A subquery: `.where(column.in_(published_version_ids()))`."""
+    return select(ScheduleVersion.id).where(ScheduleVersion.is_published.is_(True))
 
 
 def get_schedule_version(
     db: Session, schedule_version_id: int, *, school_id: int, role: str | None = None
 ) -> ScheduleVersion | None:
-    """Task 43: a TEACHER may only ever see a PUBLISHED ScheduleVersion --
-    a DRAFT one's id resolves to None for them, exactly like it not
-    existing at all. This is deliberately not a separate 403: a role that
-    can't see a draft's contents has no reason to be told one exists at
-    that id either, and the router already turns None into a plain 404
-    for the "doesn't exist" case, so TEACHER gets that same response for
-    both. `role=None` (every other caller -- the 教學組長's requests, and
-    any internal call that doesn't pass it) sees every version of the
-    school, unfiltered. Task 98: a version of another school is None too.
-    """
+    """Task 43: a TEACHER only ever sees a published record -- any other
+    id resolves to None for them, exactly like it not existing (the router
+    turns that into the same 404). `role=None` (the 教學組長 and internal
+    callers) sees every record of the school, working copies included. A
+    record of another school is None too."""
     schedule_version = get_in_school(db, ScheduleVersion, schedule_version_id, school_id)
     if schedule_version is None:
         return None
-    # Task 64: ARCHIVED is hidden from a TEACHER exactly like DRAFT.
-    if role == "TEACHER" and schedule_version.status != PUBLISHED:
+    if role == "TEACHER" and not schedule_version.is_published:
         return None
     return schedule_version
 
@@ -133,50 +141,15 @@ def get_schedule_versions(
     school_id: int,
     role: str | None = None,
 ) -> list[ScheduleVersion]:
-    stmt = select(ScheduleVersion).where(in_school(ScheduleVersion, school_id))
+    """排課紀錄: newest first (by 編號). Working copies are never listed; a
+    TEACHER only gets the published ones."""
+    stmt = select(ScheduleVersion).where(
+        in_school(ScheduleVersion, school_id), ScheduleVersion.status != EDITING
+    )
     if role == "TEACHER":
-        stmt = stmt.where(ScheduleVersion.status == PUBLISHED)
-    stmt = stmt.offset(skip).limit(limit)
+        stmt = stmt.where(ScheduleVersion.is_published.is_(True))
+    stmt = stmt.order_by(ScheduleVersion.version_number.desc()).offset(skip).limit(limit)
     return list(db.scalars(stmt).all())
-
-
-def _changed_fields(
-    schedule_version: ScheduleVersion, version_data: ScheduleVersionUpdate
-) -> dict[str, object]:
-    """Non-status fields in the request whose value actually differs from
-    the stored one (sending a field's current value is not a change)."""
-    requested = version_data.model_dump(exclude_unset=True)
-    requested.pop("status", None)
-    return {
-        field: value
-        for field, value in requested.items()
-        if getattr(schedule_version, field) != value
-    }
-
-
-def _mark_published(schedule_version: ScheduleVersion) -> None:
-    """The publish step itself -- its own function so tests can make
-    exactly this last step fail and verify the rollback."""
-    schedule_version.status = PUBLISHED
-
-
-def _publish(db: Session, schedule_version: ScheduleVersion) -> None:
-    """Archives the semester's current PUBLISHED version (if any) and then
-    publishes this one, staged on `db` (the caller commits). The archive is
-    flushed first: the partial unique index allows only one PUBLISHED per
-    semester at any moment, so the old one must stop being PUBLISHED before
-    the new one starts."""
-    current_published = db.scalars(
-        select(ScheduleVersion).where(
-            ScheduleVersion.semester_id == schedule_version.semester_id,
-            ScheduleVersion.status == PUBLISHED,
-            ScheduleVersion.id != schedule_version.id,
-        )
-    ).all()
-    for version in current_published:
-        version.status = ARCHIVED
-    db.flush()
-    _mark_published(schedule_version)
 
 
 def update_schedule_version(
@@ -186,54 +159,63 @@ def update_schedule_version(
     *,
     school_id: int,
 ) -> ScheduleVersion | None:
-    """Task 64 status rules (see ALLOWED_STATUS_TRANSITIONS):
-    - unchanged status: a no-op for the status, other versions untouched;
-    - DRAFT/ARCHIVED -> PUBLISHED: the semester's current PUBLISHED version
-      (if any) becomes ARCHIVED in the same transaction;
-    - PUBLISHED -> ARCHIVED (Task 65, unpublish): only this version changes;
-      the semester then has no PUBLISHED version;
-    - any other change: InvalidStatusTransitionError, nothing changes.
-    A PUBLISHED/ARCHIVED version's other fields can never change
-    (raise_if_version_locked). Everything is one transaction: a failure
-    never leaves the old version archived without the new one published.
-    """
+    """Only the 備註 changes -- on any record, published ones included: it
+    describes the record, it is not part of its timetable."""
     schedule_version = get_in_school(db, ScheduleVersion, schedule_version_id, school_id)
     if schedule_version is None:
         return None
-    ensure_references_in_school(db, school_id, [(Semester, version_data.semester_id)])
+    if "note" in version_data.model_fields_set:
+        schedule_version.note = version_data.note
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise_for_integrity_error(exc)
+    db.refresh(schedule_version)
+    return schedule_version
 
-    current_status = schedule_version.status
-    new_status = version_data.status or current_status
-    changed_fields = _changed_fields(schedule_version, version_data)
 
-    if current_status in LOCKED_STATUSES and changed_fields:
-        raise_if_version_locked(schedule_version)
-    if (
-        new_status != current_status
-        and (current_status, new_status) not in ALLOWED_STATUS_TRANSITIONS
-    ):
-        raise InvalidStatusTransitionError(
-            f"ScheduleVersion {schedule_version_id} cannot change status from "
-            f"{current_status} to {new_status}."
-        )
+def _mark_published(schedule_version: ScheduleVersion) -> None:
+    """The publish step itself -- its own function so tests can make
+    exactly this last step fail and verify the rollback."""
+    schedule_version.is_published = True
+
+
+def publish_schedule_version(
+    db: Session, schedule_version_id: int, *, school_id: int
+) -> ScheduleVersion | None:
+    """發布此課表: the record becomes the semester's one published record;
+    the one published before it (if any) goes back to being an ordinary
+    record of its own status. Only a record with a timetable (自動排課 /
+    手動排課 / 複製) can be published. One transaction: a failure never
+    leaves the semester without its old published record. Publishing the
+    published record again changes nothing."""
+    schedule_version = get_in_school(db, ScheduleVersion, schedule_version_id, school_id)
+    if schedule_version is None:
+        return None
+    if schedule_version.status not in TIMETABLE_STATUSES:
+        raise RecordStatusError(PUBLISH_WITHOUT_TIMETABLE_MESSAGE)
+    if schedule_version.is_published:
+        return schedule_version
 
     try:
-        # Only a DRAFT can reach here with changed fields (checked above).
-        for field, value in changed_fields.items():
-            setattr(schedule_version, field, value)
-        if new_status == PUBLISHED and current_status != PUBLISHED:
-            _publish(db, schedule_version)
-        elif new_status != current_status:
-            # Unpublish (PUBLISHED -> ARCHIVED) -- the only other allowed
-            # transition; no other version is affected.
-            schedule_version.status = new_status
+        for previous in db.scalars(
+            select(ScheduleVersion).where(
+                ScheduleVersion.semester_id == schedule_version.semester_id,
+                ScheduleVersion.is_published.is_(True),
+            )
+        ).all():
+            previous.is_published = False
+        # The partial unique index allows one published record per semester
+        # at any moment: the old one stops before the new one starts.
+        db.flush()
+        _mark_published(schedule_version)
         db.commit()
     except IntegrityError as exc:
         db.rollback()
         raise_for_integrity_error(exc)
     except Exception:
-        # Not swallowed: re-raised after undoing everything staged so far,
-        # so an archived old version is never left without a new one.
+        # Not swallowed: re-raised after undoing everything staged so far.
         db.rollback()
         raise
     db.refresh(schedule_version)
@@ -243,49 +225,29 @@ def update_schedule_version(
 def delete_schedule_version(
     db: Session, schedule_version_id: int, *, school_id: int
 ) -> bool:
+    """Deletes the record with everything it owns (its settings and
+    timetable, services/version_contents.py) and any working copy editing
+    it. The published record cannot be deleted. One transaction."""
     schedule_version = get_in_school(db, ScheduleVersion, schedule_version_id, school_id)
     if schedule_version is None:
         return False
-
-    # Task 80: DRAFT and ARCHIVED versions can be deleted; only the
-    # semester's PUBLISHED (live) version cannot -- unpublishing it first
-    # (PUBLISHED -> ARCHIVED) makes it deletable. Before Task 80 an ARCHIVED
-    # version was kept forever as history (Task 64), so versions only ever
-    # piled up. Raised before touching anything.
-    #
-    # Nothing else needs maintaining afterwards: a requirement's lock
-    # (is_used_by_locked_schedule()/locked_requirement_ids()) is computed
-    # from the Schedule rows of PUBLISHED/ARCHIVED versions at request
-    # time, so once this version's rows are gone it simply stops counting.
-    # schedules.schedule_version_id is the only foreign key pointing at
-    # schedule_versions (there is no "copied from" column -- a copy keeps
-    # no link to its source), so the rows below are all that must go.
-    if schedule_version.status == PUBLISHED:
+    if schedule_version.is_published:
         raise PublishedVersionDeleteError(
-            f"ScheduleVersion {schedule_version_id} is PUBLISHED and cannot "
-            "be deleted; unpublish it first."
+            f"ScheduleVersion {schedule_version_id} is published and cannot be deleted."
         )
 
-    # Task 50: Schedule is a semantic sub-resource of ScheduleVersion (a
-    # row only means anything within the version it was placed under --
-    # see app/models/schedule.py), and schedules.schedule_version_id has
-    # no ON DELETE CASCADE, so without this ANY DRAFT version that ever
-    # had a Schedule row (e.g. from a completed run-scheduler call) could
-    # never be deleted at all.
-    #
-    # Staged on `db` but not committed yet -- if the final commit() below
-    # somehow still fails (no other FK currently points at
-    # schedule_versions.id, but this stays defensive in case one is added
-    # later), the rollback() undoes the whole transaction, including these
-    # deletes, so no Schedule row is lost on a failed delete attempt.
-    schedules = db.scalars(
-        select(Schedule).where(Schedule.schedule_version_id == schedule_version_id)
-    ).all()
-    for schedule in schedules:
-        db.delete(schedule)
-
-    db.delete(schedule_version)
     try:
+        working_copies = db.scalars(
+            select(ScheduleVersion).where(
+                ScheduleVersion.editing_source_id == schedule_version_id
+            )
+        ).all()
+        for working_copy in working_copies:
+            stage_delete_contents(db, working_copy.id)
+            db.delete(working_copy)
+        db.flush()
+        stage_delete_contents(db, schedule_version_id)
+        db.delete(schedule_version)
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -295,67 +257,51 @@ def delete_schedule_version(
         ) from exc
     except Exception:
         # Not swallowed: one transaction -- any other failure undoes the
-        # staged Schedule deletes too before re-raising.
+        # staged deletes too before re-raising.
         db.rollback()
         raise
-
     return True
 
 
-# --- generate-lessons: diff-sync Lesson rows against the semester's
-# ClassSubjectRequirement list (Lesson is version-independent -- see
-# app/models/lesson.py -- so this really operates on the ScheduleVersion's
-# *semester*, not the version itself; any version in the same semester
-# would see/produce the same Lesson rows). ---
+# --- generate-lessons: diff-sync the record's Lesson rows against its
+# requirements ---
 
 
 def generate_lessons(
     db: Session, schedule_version_id: int
 ) -> tuple[list[Lesson], int] | None:
-    """Returns None if the ScheduleVersion doesn't exist (caller -> 404).
+    """Returns None if the record doesn't exist (caller -> 404). Only a
+    尚未排課 record's lessons change (SettingsLockedError otherwise).
 
-    Otherwise, for every ClassSubjectRequirement in the version's semester:
+    For every requirement of the record:
     - fewer existing Lesson rows than weekly_periods -> create the missing
       ones (sequence numbers continue from the current count).
     - more existing Lesson rows than weekly_periods -> collected as an
       over-provisioning error.
 
     If ANY requirement is over-provisioned, the whole call is aborted --
-    nothing is created for ANY requirement, not even the ones that were
-    fine -- and LessonOverProvisionedError is raised with the full list of
-    offending requirements. Otherwise, returns a
-    (newly_created_lessons, total_lesson_count) pair: the first element is
-    only what THIS call inserted (empty if everything was already in
-    sync -- diff-sync is idempotent by design); the second is the actual
-    total the semester has once this call returns, computed as
-    sum(weekly_periods) across its requirements -- which is guaranteed
-    correct at this point precisely because reaching here means nothing
-    was over-provisioned, so every requirement's Lesson count now equals
-    its weekly_periods exactly (see Task 32.8: a frontend page conflating
-    "newly created this call" with "current total" produced a visibly
-    contradictory pair of numbers on screen -- the fix is exposing the
-    total explicitly rather than making the caller infer it).
+    nothing is created for ANY requirement -- and LessonOverProvisionedError
+    is raised with the full list of offending requirements. Otherwise,
+    returns (newly_created_lessons, total_lesson_count): the first is only
+    what THIS call inserted (empty if everything was already in sync --
+    diff-sync is idempotent by design); the second the record's actual
+    total, sum(weekly_periods) across its requirements (Task 32.8: a page
+    once confused the two).
 
-    Task 28: "the excess" for an over-provisioned requirement is defined as
-    the Lesson rows with the highest sequence_number, beyond weekly_periods
-    many -- the same ones that would be the natural candidates to delete if
-    this function ever grew auto-cleanup. Any of those specific rows that
-    already has a manually-set fixed_time_slot_id is flagged in the raised
-    error (never silently dropped, never silently kept without a flag): a
-    human fixed that lesson to a specific slot on purpose, so it must never
-    be treated as disposable just because its sequence_number happens to be
-    high.
+    Task 28: "the excess" for an over-provisioned requirement is the Lesson
+    rows with the highest sequence_number beyond weekly_periods; any of
+    them with a manually set fixed_time_slot_id is flagged in the error --
+    a lesson fixed on purpose is never treated as disposable.
     """
     schedule_version = db.get(ScheduleVersion, schedule_version_id)
     if schedule_version is None:
         return None
-
-    raise_if_version_locked(schedule_version)
+    raise_if_settings_locked(schedule_version)
 
     requirements = list(
         db.scalars(
             select(ClassSubjectRequirement).where(
-                ClassSubjectRequirement.semester_id == schedule_version.semester_id
+                ClassSubjectRequirement.schedule_version_id == schedule_version_id
             )
         ).all()
     )
@@ -380,13 +326,9 @@ def generate_lessons(
         existing_count = len(existing_lessons)
 
         if existing_count > requirement.weekly_periods:
-            excess_count = existing_count - requirement.weekly_periods
-            # Highest sequence_number first -- the natural "extra" ones.
-            excess_lessons = existing_lessons[-excess_count:]
+            excess_lessons = existing_lessons[requirement.weekly_periods:]
             fixed_excess_lesson_ids = [
-                lesson.id
-                for lesson in excess_lessons
-                if lesson.fixed_time_slot_id is not None
+                lesson.id for lesson in excess_lessons if lesson.fixed_time_slot_id is not None
             ]
             over_provisioned.append(
                 {
@@ -398,11 +340,8 @@ def generate_lessons(
                 }
             )
         else:
-            if existing_count < requirement.weekly_periods:
-                for sequence_number in range(
-                    existing_count + 1, requirement.weekly_periods + 1
-                ):
-                    to_create.append((requirement.id, sequence_number))
+            for sequence_number in range(existing_count + 1, requirement.weekly_periods + 1):
+                to_create.append((requirement.id, sequence_number))
             # Task 87: re-syncing is part of the same diff-sync -- an
             # existing lesson's block follows the pattern as it is now.
             if assign_block_fields(existing_lessons, requirement.lesson_pattern):

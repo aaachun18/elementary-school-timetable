@@ -1,9 +1,8 @@
 // Task 98: the scheduling wizard's (pages/SchedulingWizard.tsx) pure rules
-// -- its steps, the time slot grid the pickers draw, and the next version
-// number. No React, no requests. (Grade and class names:
-// utils/schoolStructure.ts.)
+// -- its steps, the time slot grid the pickers draw, today's academic year
+// and the teachers' weekly periods. No React, no requests. (Grade and class
+// names: utils/schoolStructure.ts.)
 
-import type { ScheduleVersion } from "../types/scheduleVersion";
 import type { TimeSlot } from "../types/timeSlot";
 
 // --- Steps ---
@@ -50,15 +49,24 @@ export function buildTimeSlotGrid(timeSlots: readonly TimeSlot[]): TimeSlotGrid 
   };
 }
 
-// --- Versions ---
+// --- Today's academic year and semester (step 1's defaults) ---
 
-// A new run's version number: one past the semester's highest.
-export function nextVersionNumber(versions: readonly ScheduleVersion[], semesterId: number): number {
-  return (
-    versions
-      .filter((version) => version.semester_id === semesterId)
-      .reduce((max, version) => Math.max(max, version.version_number), 0) + 1
-  );
+// 民國 year = western year - 1911. An academic year runs 8/1 - 7/31: 115
+// 學年度 is 2026-08-01 to 2027-07-31. Its 第 1 學期 is August - January,
+// 第 2 學期 February - July.
+const ROC_YEAR_OFFSET = 1911;
+const ACADEMIC_YEAR_START_MONTH = 8; // August
+const SECOND_SEMESTER_START_MONTH = 2; // February
+
+export function currentAcademicYear(today: Date): number {
+  const month = today.getMonth() + 1;
+  const rocYear = today.getFullYear() - ROC_YEAR_OFFSET;
+  return month >= ACADEMIC_YEAR_START_MONTH ? rocYear : rocYear - 1;
+}
+
+export function currentSemesterNumber(today: Date): number {
+  const month = today.getMonth() + 1;
+  return month >= SECOND_SEMESTER_START_MONTH && month < ACADEMIC_YEAR_START_MONTH ? 2 : 1;
 }
 
 // --- Weekly periods ---

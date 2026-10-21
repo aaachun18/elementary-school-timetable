@@ -14,18 +14,17 @@ from app.models.subject import Subject
 from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
 from app.services.school_scope import get_in_school
-from tests.conftest import get_test_school_id, time_slot_at
+from tests.conftest import get_test_school_id, make_record, time_slot_at
 
-# Task 98 (Task 3 of the wizard redesign): the per-semester scheduling
-# settings tables, the grade level range and the requirement's special
-# room. Only the schema and its rules -- the engine starts reading them in
-# the next Task.
+# Task 98 (Task 3 of the wizard redesign): the scheduling settings tables
+# (v3: owned by one 排課紀錄 each), the grade level range and the
+# requirement's special room. Only the schema and its rules.
 
 
 
 class World:
-    """One school's semester, grade, teacher and time slot, written straight
-    to the database."""
+    """One school's semester (with one record), grade, teacher and time
+    slot, written straight to the database."""
 
     def __init__(self, db: Session, school_id: int) -> None:
         self.db = db
@@ -47,10 +46,11 @@ class World:
         self.class_ = Class(grade_id=self.grade.id, name="一年甲班")
         db.add_all([self.semester, self.class_])
         db.commit()
+        self.record = make_record(db, self.semester.id)
 
     def semester_teacher(self, min_periods: int = 2, max_periods: int = 20) -> SemesterTeacher:
         row = SemesterTeacher(
-            semester_id=self.semester.id,
+            schedule_version_id=self.record.id,
             teacher_id=self.teacher.id,
             min_weekly_periods=min_periods,
             max_weekly_periods=max_periods,
@@ -86,7 +86,7 @@ def test_database_refuses_grade_level_outside_1_to_12(db_session: Session, level
 # --- SemesterTeacher ---
 
 
-def test_semester_teacher_once_per_semester(world: World, db_session: Session) -> None:
+def test_semester_teacher_once_per_record(world: World, db_session: Session) -> None:
     world.semester_teacher()
 
     with pytest.raises(IntegrityError):
@@ -144,10 +144,12 @@ def test_unavailabilities_listed_on_semester_teacher(world: World, db_session: S
 # --- SemesterGradeTimeSlot ---
 
 
-def test_grade_time_slot_once_per_semester_grade_slot(world: World, db_session: Session) -> None:
+def test_grade_time_slot_once_per_record_grade_slot(world: World, db_session: Session) -> None:
     def allowed() -> SemesterGradeTimeSlot:
         return SemesterGradeTimeSlot(
-            semester_id=world.semester.id, grade_id=world.grade.id, time_slot_id=world.slot.id
+            schedule_version_id=world.record.id,
+            grade_id=world.grade.id,
+            time_slot_id=world.slot.id,
         )
 
     db_session.add(allowed())
@@ -163,7 +165,7 @@ def test_grade_time_slot_once_per_semester_grade_slot(world: World, db_session: 
 
 def test_requirement_stores_required_room(world: World, db_session: Session) -> None:
     requirement = ClassSubjectRequirement(
-        semester_id=world.semester.id,
+        schedule_version_id=world.record.id,
         class_id=world.class_.id,
         subject_id=world.subject.id,
         weekly_periods=1,
@@ -180,7 +182,7 @@ def test_requirement_stores_required_room(world: World, db_session: Session) -> 
 def test_requirement_required_room_must_exist(world: World, db_session: Session) -> None:
     db_session.add(
         ClassSubjectRequirement(
-            semester_id=world.semester.id,
+            schedule_version_id=world.record.id,
             class_id=world.class_.id,
             subject_id=world.subject.id,
             weekly_periods=1,
@@ -204,7 +206,7 @@ def test_new_tables_are_scoped_by_school(world: World, db_session: Session) -> N
         semester_teacher_id=semester_teacher.id, time_slot_id=world.slot.id
     )
     grade_slot = SemesterGradeTimeSlot(
-        semester_id=world.semester.id, grade_id=world.grade.id, time_slot_id=world.slot.id
+        schedule_version_id=world.record.id, grade_id=world.grade.id, time_slot_id=world.slot.id
     )
     db_session.add_all([unavailability, grade_slot])
     db_session.commit()

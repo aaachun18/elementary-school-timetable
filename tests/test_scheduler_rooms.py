@@ -26,7 +26,13 @@ from app.models.schedule_version import ScheduleVersion
 from app.models.subject import Subject
 from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
-from tests.conftest import enroll_in_semester, get_test_school_id, next_free_grade_level, time_slot_at
+from tests.conftest import (
+    enroll_in_semester,
+    get_test_school_id,
+    make_record,
+    next_free_grade_level,
+    time_slot_at,
+)
 
 URL = "/api/v1/schedule-versions"
 
@@ -113,8 +119,9 @@ def _world(
     c2 = Class(grade_id=grade.id, name="四年乙班")
     db.add_all([c1, c2])
     db.flush()
+    version = make_record(db, semester.id)
     for teacher in (t_a, t_b):
-        enroll_in_semester(db, semester.id, teacher)
+        enroll_in_semester(db, version.id, teacher)
     requirements: dict[tuple[str, str], ClassSubjectRequirement] = {}
     for class_ in (c1, c2):
         for name, periods_, pattern, room_id in (
@@ -123,7 +130,7 @@ def _world(
             ("自然", science_periods, None, lab.id),
         ):
             requirements[(class_.name, name)] = ClassSubjectRequirement(
-                semester_id=semester.id,
+                schedule_version_id=version.id,
                 class_id=class_.id,
                 subject_id=subjects[name].id,
                 weekly_periods=periods_,
@@ -131,8 +138,6 @@ def _world(
                 required_room_id=room_id,
             )
     db.add_all(requirements.values())
-    version = ScheduleVersion(semester_id=semester.id, version_number=1, status="DRAFT")
-    db.add(version)
     db.commit()
     science = {class_.name: requirements[(class_.name, "自然")] for class_ in (c1, c2)}
     return World(db, version, c1, c2, r1, r2, lab, science, requirements, slots)

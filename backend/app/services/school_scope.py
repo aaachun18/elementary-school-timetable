@@ -1,16 +1,16 @@
 """Task 98: which school a scheduling record belongs to.
 
-Six tables carry school_id themselves (the "root" tables: Teacher, Subject,
-Room, AcademicYear, Grade, TimeSlot). Every other scheduling table reaches
-its school through them:
+Seven tables carry school_id themselves (the "root" tables: Teacher,
+Subject, Room, AcademicYear, Grade, TimeSlot and -- v3, for its school-wide
+編號 -- ScheduleVersion). Every other scheduling table reaches its school
+through them:
 
     Semester            -> AcademicYear
     Class, GradeSubjectRequirement -> Grade
-    ClassSubjectRequirement, ScheduleVersion -> Semester
+    ClassSubjectRequirement, SemesterTeacher, SemesterGradeTimeSlot,
+    Schedule            -> ScheduleVersion (v3: a record's settings)
     Lesson              -> ClassSubjectRequirement
-    Schedule            -> ScheduleVersion
     TeacherSubject, TeacherAvailability -> Teacher
-    SemesterTeacher, SemesterGradeTimeSlot -> Semester
     SemesterTeacherUnavailability -> SemesterTeacher
 
 in_school() turns that chain into one SQL condition (nested IN subqueries,
@@ -43,7 +43,15 @@ from app.services.exceptions import InvalidReferenceError
 
 ModelT = TypeVar("ModelT")
 
-ROOT_MODELS: tuple[type[Any], ...] = (Teacher, Subject, Room, AcademicYear, Grade, TimeSlot)
+ROOT_MODELS: tuple[type[Any], ...] = (
+    Teacher,
+    Subject,
+    Room,
+    AcademicYear,
+    Grade,
+    TimeSlot,
+    ScheduleVersion,
+)
 
 
 def in_school(model: type[Any], school_id: int) -> ColumnElement[bool]:
@@ -56,13 +64,9 @@ def in_school(model: type[Any], school_id: int) -> ColumnElement[bool]:
         )
     if model in (Class, GradeSubjectRequirement):
         return model.grade_id.in_(select(Grade.id).where(in_school(Grade, school_id)))
-    if model is ClassSubjectRequirement:
-        return ClassSubjectRequirement.semester_id.in_(
-            select(Semester.id).where(in_school(Semester, school_id))
-        )
-    if model is ScheduleVersion:
-        return ScheduleVersion.semester_id.in_(
-            select(Semester.id).where(in_school(Semester, school_id))
+    if model in (ClassSubjectRequirement, SemesterTeacher, SemesterGradeTimeSlot, Schedule):
+        return model.schedule_version_id.in_(
+            select(ScheduleVersion.id).where(in_school(ScheduleVersion, school_id))
         )
     if model is Lesson:
         return Lesson.class_subject_requirement_id.in_(
@@ -70,12 +74,6 @@ def in_school(model: type[Any], school_id: int) -> ColumnElement[bool]:
                 in_school(ClassSubjectRequirement, school_id)
             )
         )
-    if model is Schedule:
-        return Schedule.schedule_version_id.in_(
-            select(ScheduleVersion.id).where(in_school(ScheduleVersion, school_id))
-        )
-    if model in (SemesterTeacher, SemesterGradeTimeSlot):
-        return model.semester_id.in_(select(Semester.id).where(in_school(Semester, school_id)))
     if model is SemesterTeacherUnavailability:
         return SemesterTeacherUnavailability.semester_teacher_id.in_(
             select(SemesterTeacher.id).where(in_school(SemesterTeacher, school_id))
@@ -126,7 +124,7 @@ def school_id_of_semester(db: Session, semester_id: int) -> int:
 
 
 def school_id_of_version(db: Session, schedule_version: ScheduleVersion) -> int:
-    """The school a version's whole timetable lives in -- every teacher,
+    """The school a record's whole timetable lives in -- every teacher,
     room and time slot a scheduling service may use for it must be from
     this school."""
-    return school_id_of_semester(db, schedule_version.semester_id)
+    return schedule_version.school_id

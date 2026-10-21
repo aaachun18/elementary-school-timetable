@@ -1,17 +1,18 @@
 """Task 63: reassign one course (one ClassSubjectRequirement) to a new
-teacher within a DRAFT ScheduleVersion, then report the version's full
-schedule check.
+teacher, then report the timetable's full schedule check.
+
+v3: 換教師 exists only for a copied timetable (複製自編號 x -- e.g. next
+semester's copy, where some teachers changed): it runs in the working copy
+of a manual edit (EDITING) whose record is COPIED, and 儲存課表 keeps it.
 
 This is a manual adjustment, not re-scheduling: only teachers change --
 no lesson moves to another time slot or room. Two places hold the teacher
-and both are updated:
-- ClassSubjectRequirement.required_teacher_id (shared by every version in
-  the semester -- a known trade-off, see docs/SYSTEM_DESIGN.md);
-- teacher_id on this version's Schedule rows for that requirement's
-  Lessons (other versions' rows are never touched).
+and both are updated, both the working copy's own:
+- ClassSubjectRequirement.required_teacher_id;
+- teacher_id on the Schedule rows for that requirement's Lessons.
 
-Only a missing record, a PUBLISHED/ARCHIVED version, a requirement from another
-semester, or an inactive new teacher is refused. Qualification (H5),
+Only a missing record, a timetable that is not such a working copy, a
+requirement of another record, or an inactive new teacher is refused. Qualification (H5),
 availability (H4), workload (H8) and double-booking (H1) do NOT block: the
 change is still saved, and the returned check lists them. dry_run performs
 exactly the same update and check, then rolls everything back.
@@ -29,12 +30,16 @@ from app.models.schedule_version import ScheduleVersion
 from app.models.teacher import Teacher
 from app.services import schedule_check
 from app.services.school_scope import get_in_school, school_id_of_version
+from app.models.schedule_version import COPIED
 from app.services.exceptions import (
     InactiveTeacherAssignmentError,
     ReassignmentTargetNotFoundError,
-    RequirementSemesterMismatchError,
+    RecordStatusError,
+    RequirementNotInVersionError,
 )
-from app.services.schedule_version import raise_if_version_locked
+from app.services.schedule_version import raise_if_timetable_locked
+
+REASSIGN_ONLY_FOR_COPIES_MESSAGE = "只有複製的課表可以換教師"
 
 # schedule_check returns the engine's own ConstraintViolation objects; the
 # alias keeps this module from importing scheduling_engine directly (see
@@ -53,17 +58,23 @@ def _validate(
     db: Session, schedule_version: ScheduleVersion, requirement_id: int, new_teacher_id: int
 ) -> ClassSubjectRequirement:
     """Every refusal happens here, before anything is changed."""
-    raise_if_version_locked(schedule_version)
+    raise_if_timetable_locked(schedule_version)
+    source = (
+        db.get(ScheduleVersion, schedule_version.editing_source_id)
+        if schedule_version.editing_source_id is not None
+        else None
+    )
+    if source is None or source.status != COPIED:
+        raise RecordStatusError(REASSIGN_ONLY_FOR_COPIES_MESSAGE)
     school_id = school_id_of_version(db, schedule_version)
 
     requirement = get_in_school(db, ClassSubjectRequirement, requirement_id, school_id)
     if requirement is None:
         raise ReassignmentTargetNotFoundError("ClassSubjectRequirement not found")
-    if requirement.semester_id != schedule_version.semester_id:
-        raise RequirementSemesterMismatchError(
-            f"ClassSubjectRequirement {requirement_id} is in semester "
-            f"{requirement.semester_id}, not ScheduleVersion "
-            f"{schedule_version.id}'s semester {schedule_version.semester_id}."
+    if requirement.schedule_version_id != schedule_version.id:
+        raise RequirementNotInVersionError(
+            f"ClassSubjectRequirement {requirement_id} belongs to ScheduleVersion "
+            f"{requirement.schedule_version_id}, not {schedule_version.id}."
         )
 
     new_teacher = get_in_school(db, Teacher, new_teacher_id, school_id)
@@ -116,10 +127,9 @@ def reassign_teacher(
     dry_run: bool,
 ) -> ReassignmentOutcome | None:
     """Returns None if the ScheduleVersion doesn't exist (caller -> 404).
-    Raises PublishedVersionImmutableError / ArchivedVersionImmutableError /
-    ReassignmentTargetNotFoundError
-    / RequirementSemesterMismatchError / InactiveTeacherAssignmentError
-    before changing anything. Otherwise updates the requirement and this
+    Raises TimetableLockedError / RecordStatusError /
+    ReassignmentTargetNotFoundError / RequirementNotInVersionError /
+    InactiveTeacherAssignmentError before changing anything. Otherwise updates the requirement and this
     version's matching Schedule rows, runs the schedule check against the
     updated (flushed) state, and commits -- even when the check finds
     violations -- or rolls back when dry_run is True.

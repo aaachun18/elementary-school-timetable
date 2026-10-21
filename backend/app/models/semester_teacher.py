@@ -7,21 +7,20 @@ from app.database import Base
 from app.models.mixins import TimestampMixin
 
 if TYPE_CHECKING:
-    from app.models.academic_year import Semester
+    from app.models.schedule_version import ScheduleVersion
     from app.models.teacher import Teacher
     from app.models.time_slot import TimeSlot
 
 
 class SemesterTeacher(TimestampMixin, Base):
-    """Task 98: a teacher taking part in one semester's scheduling, with
-    that semester's weekly periods range (wizard steps 4-5). A teacher with
-    no row for a semester is not scheduled in it at all. Replaces the
-    teacher-wide Teacher.min/max_weekly_periods for scheduling (the engine
-    switches over in a later Task)."""
+    """Task 98: a teacher taking part in a semester's scheduling, with that
+    semester's weekly periods range (wizard step 教師設定). A teacher with no
+    row is not scheduled at all. v3: part of one 排課紀錄's settings
+    (schedule_version_id), so every record keeps its own teachers."""
 
     __tablename__ = "semester_teachers"
     __table_args__ = (
-        UniqueConstraint("semester_id", "teacher_id", name="uq_semester_teacher"),
+        UniqueConstraint("schedule_version_id", "teacher_id", name="uq_semester_teacher"),
         CheckConstraint(
             "min_weekly_periods >= 0", name="ck_semester_teachers_min_not_negative"
         ),
@@ -32,12 +31,12 @@ class SemesterTeacher(TimestampMixin, Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    semester_id: Mapped[int] = mapped_column(ForeignKey("semesters.id"))
+    schedule_version_id: Mapped[int] = mapped_column(ForeignKey("schedule_versions.id"))
     teacher_id: Mapped[int] = mapped_column(ForeignKey("teachers.id"))
     min_weekly_periods: Mapped[int] = mapped_column()
     max_weekly_periods: Mapped[int] = mapped_column()
 
-    semester: Mapped["Semester"] = relationship()
+    schedule_version: Mapped["ScheduleVersion"] = relationship()
     teacher: Mapped["Teacher"] = relationship()
     unavailabilities: Mapped[list["SemesterTeacherUnavailability"]] = relationship(
         back_populates="semester_teacher"
@@ -45,8 +44,8 @@ class SemesterTeacher(TimestampMixin, Base):
 
 
 class SemesterTeacherUnavailability(TimestampMixin, Base):
-    """Task 98: a time slot a participating teacher can't teach in this
-    semester (wizard step 6) -- the per-semester replacement for
+    """Task 98: a time slot a participating teacher can't teach in (wizard
+    step 教師設定) -- the per-record replacement for
     TeacherAvailability (H4). A row's existence means unavailable. Hanging
     off SemesterTeacher means only a participating teacher can have one."""
 

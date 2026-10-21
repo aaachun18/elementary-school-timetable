@@ -17,11 +17,20 @@ from app.models.semester_teacher import SemesterTeacher, SemesterTeacherUnavaila
 from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
 from app.services import schedule_check, teacher_reassignment
-from tests.conftest import enroll_in_semester, get_test_school_id, next_free_grade_level, time_slot_at
+from tests.conftest import (
+    enroll_in_semester,
+    get_test_school_id,
+    make_record,
+    mark_status_in_db,
+    next_free_grade_level,
+    time_slot_at,
+)
 
 # Task 63: POST /api/v1/schedule-versions/{id}/reassign-teacher. Test data
 # is written straight to the database through db_session (the same session
-# the client fixtures' requests use).
+# the client fixtures' requests use). v3: 換教師 only works in a manual
+# edit's working copy of a copied timetable -- the Builder's record is such
+# a working copy by default.
 
 
 # --- Builders ---
@@ -29,10 +38,18 @@ from tests.conftest import enroll_in_semester, get_test_school_id, next_free_gra
 
 class Builder:
     """Small helpers for writing one semester's timetable straight to the
-    database. Every helper commits, so each returned id is final."""
+    database. Every helper commits, so each returned id is final.
 
-    def __init__(self, db: Session, year: int = 6001) -> None:
+    v3: settings belong to a 排課紀錄, so the builder starts with one record
+    of its semester (`self.record`): teachers take part in it, and
+    version() hands it out first -- in `status` (default: EDITING, the
+    working copy every manual adjustment runs in, editing a COPIED record
+    so 換教師 is allowed too)."""
+
+    def __init__(self, db: Session, year: int = 6001, *, status: str = "EDITING") -> None:
         self.db = db
+        self.status = status
+        self._record_handed_out = False
         self.academic_year = AcademicYear(school_id=get_test_school_id(db), year=year, is_active=True)
         db.add(self.academic_year)
         db.flush()
@@ -46,6 +63,7 @@ class Builder:
         ]
         db.add_all(self.slots)
         db.commit()
+        self.record = make_record(db, self.semester.id)
 
     def semester_in_year(self, number: int) -> Semester:
         semester = Semester(
@@ -65,7 +83,7 @@ class Builder:
         self, name: str, max_weekly_periods: int = 20, *, takes_part: bool = True
     ) -> Teacher:
         """Task 98: a teacher of the school, taking part in the builder's
-        semester (unless takes_part=False) with this weekly maximum."""
+        record (unless takes_part=False) with this weekly maximum."""
         teacher = Teacher(
             school_id=get_test_school_id(self.db),
             name=name,
@@ -76,21 +94,21 @@ class Builder:
         self.db.add(teacher)
         self.db.commit()
         if takes_part:
-            enroll_in_semester(self.db, self.semester.id, teacher)
+            enroll_in_semester(self.db, self.record.id, teacher)
         return teacher
 
     def semester_teacher(self, teacher: Teacher) -> SemesterTeacher:
-        """The teacher's settings for the builder's semester."""
+        """The teacher's settings in the builder's record."""
         row = self.db.scalars(
             select(SemesterTeacher).where(
-                SemesterTeacher.semester_id == self.semester.id,
+                SemesterTeacher.schedule_version_id == self.record.id,
                 SemesterTeacher.teacher_id == teacher.id,
             )
         ).one()
         return row
 
     def make_unavailable(self, teacher: Teacher, time_slot_id: int) -> None:
-        """Task 98: unavailable in the builder's semester."""
+        """Task 98: unavailable in the builder's record."""
         self.db.add(
             SemesterTeacherUnavailability(
                 semester_teacher_id=self.semester_teacher(teacher).id,
@@ -105,12 +123,20 @@ class Builder:
         self.db.commit()
         return class_
 
-    def version(self, semester: Semester | None = None, number: int = 1) -> ScheduleVersion:
-        version = ScheduleVersion(
-            semester_id=(semester or self.semester).id, version_number=number, status="DRAFT"
-        )
-        self.db.add(version)
-        self.db.commit()
+    def version(
+        self, semester: Semester | None = None, *, status: str | None = None
+    ) -> ScheduleVersion:
+        """The builder's record the first time (for its own semester),
+        another record of `semester` after that -- in `status` (default:
+        the builder's)."""
+        status = status or self.status
+        if semester is None and not self._record_handed_out:
+            self._record_handed_out = True
+            version = self.record
+        else:
+            version = make_record(self.db, (semester or self.semester).id)
+        mark_status_in_db(self.db, version.id, status, source_status="COPIED")
+        self.db.refresh(version)
         return version
 
     def course(
@@ -128,7 +154,7 @@ class Builder:
         Lessons; the first len(slot_indexes) are placed in `version`,
         taught by `teacher`, in those time slots."""
         requirement = ClassSubjectRequirement(
-            semester_id=version.semester_id,
+            schedule_version_id=version.id,
             class_id=class_.id,
             subject_id=subject.id,
             weekly_periods=len(slot_indexes) + unscheduled_periods,
@@ -160,7 +186,7 @@ class Builder:
 
 @dataclass
 class World:
-    """One DRAFT version, valid as built:
+    """One working copy (EDITING, of a COPIED record), valid as built:
     - class 1 English (2 periods, slots 0-1) by old_teacher, who is also
       its required teacher;
     - class 2 Science (1 period, slot 2) by new_teacher.
@@ -569,7 +595,7 @@ def test_reassign_missing_teacher_returns_404(client: TestClient, db_session: Se
     assert _snapshot(db_session) == before
 
 
-def test_reassign_requirement_of_other_semester_returns_409(
+def test_reassign_requirement_of_other_record_returns_409(
     client: TestClient, db_session: Session
 ) -> None:
     world = _build_world(db_session)
@@ -582,18 +608,18 @@ def test_reassign_requirement_of_other_semester_returns_409(
     )
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "此排課需求不屬於該課表的學期"
+    assert response.json()["detail"] == "此排課需求不屬於這筆排課紀錄"
     assert _snapshot(db_session) == before
 
 
-def test_reassign_in_published_version_returns_409(
-    client: TestClient, db_session: Session
+@pytest.mark.parametrize("status", ["AUTO", "MANUAL", "COPIED"])
+def test_reassign_outside_a_manual_edit_returns_409(
+    client: TestClient, db_session: Session, status: str
 ) -> None:
+    """v3: a saved timetable never changes in place -- not even a copied
+    one, whose teachers change in its manual edit."""
     world = _build_world(db_session)
-    version = db_session.get(ScheduleVersion, world.version.id)
-    assert version is not None
-    version.status = "PUBLISHED"
-    db_session.commit()
+    mark_status_in_db(db_session, world.version.id, status, is_published=status == "AUTO")
     before = _snapshot(db_session)
 
     response = _reassign(
@@ -601,7 +627,25 @@ def test_reassign_in_published_version_returns_409(
     )
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "已發布版本不可修改，請建立新草稿版本"
+    assert response.json()["detail"] == "課表不能直接修改，請先按「手動編輯課表」"
+    assert _snapshot(db_session) == before
+
+
+@pytest.mark.parametrize("source_status", ["AUTO", "MANUAL"])
+def test_reassign_in_an_edit_of_a_not_copied_timetable_returns_409(
+    client: TestClient, db_session: Session, source_status: str
+) -> None:
+    """v3: 換教師 is only for a copied timetable (複製自編號 x)."""
+    world = _build_world(db_session)
+    mark_status_in_db(db_session, world.version.id, "EDITING", source_status=source_status)
+    before = _snapshot(db_session)
+
+    response = _reassign(
+        client, world.version.id, world.english_requirement.id, world.new_teacher.id
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "只有複製的課表可以換教師"
     assert _snapshot(db_session) == before
 
 
@@ -627,66 +671,53 @@ def test_reassign_to_inactive_teacher_returns_409(
 # --- Isolation ---
 
 
-def test_reassign_leaves_other_version_of_same_semester_alone(
-    client: TestClient, db_session: Session
-) -> None:
-    world = _build_world(db_session)
-    copy_response = client.post(f"/api/v1/schedule-versions/{world.version.id}/copy")
-    assert copy_response.status_code == 201
-    other_version_id = copy_response.json()["id"]
-    other_before = [
-        (r.id, r.teacher_id)
-        for r in _rows_of(db_session, other_version_id, world.english_requirement.id)
-    ]
-
-    _reassign_ok(client, world.version.id, world.english_requirement.id, world.new_teacher.id)
-
-    assert [
-        (r.id, r.teacher_id)
-        for r in _rows_of(db_session, other_version_id, world.english_requirement.id)
-    ] == other_before
-    assert {teacher_id for _, teacher_id in other_before} == {world.old_teacher.id}
-    # Known trade-off: the requirement is shared by the whole semester, so
-    # its required teacher HAS changed for the other version too.
-    assert _required_teacher_id(db_session, world.english_requirement.id) == world.new_teacher.id
-
-
-def _source_semester_rows(db: Session, world: World) -> list[tuple[object, ...]]:
-    """Every column of the source semester's requirements and the source
-    version's Schedule rows (snapshot rows are (model, id, *columns);
-    Schedule's first column after id is schedule_version_id)."""
-    source_requirement_ids = {world.english_requirement.id, world.science_requirement.id}
+def _record_rows(db: Session, version_id: int) -> list[tuple[object, ...]]:
+    """Every column of one record's requirements and Schedule rows
+    (snapshot rows are (model, id, *columns); both tables' first column
+    after id is schedule_version_id)."""
     return [
         row
         for row in _snapshot(db)
-        if (row[0] == "ClassSubjectRequirement" and row[1] in source_requirement_ids)
-        or (row[0] == "Schedule" and row[2] == world.version.id)
+        if row[0] in ("ClassSubjectRequirement", "Schedule") and row[2] == version_id
     ]
 
 
-def test_reassign_in_cross_semester_copy_leaves_source_alone(
+def test_next_semester_copy_change_teacher_and_save(
     client: TestClient, db_session: Session
 ) -> None:
+    """v3, end to end (item 13): 複製此課表 into the next semester, 手動編輯,
+    換教師 in the working copy, 儲存課表 -> a new 手動排課 record with the
+    new teacher; the copy and its source are left exactly as they were."""
     world = _build_world(db_session)
-    target_semester = world.builder.semester_in_year(number=2)
-    copy_response = client.post(
+    mark_status_in_db(db_session, world.version.id, "AUTO")
+    next_semester = world.builder.semester_in_year(number=2)
+    copied = client.post(
         f"/api/v1/schedule-versions/{world.version.id}/copy",
-        json={"target_semester_id": target_semester.id},
-    )
-    assert copy_response.status_code == 201
-    copy_id = copy_response.json()["id"]
-    copied_english = db_session.scalars(
+        json={"target_semester_id": next_semester.id},
+    ).json()
+    assert copied["status"] == "COPIED"
+    working_copy = client.post(f"/api/v1/schedule-versions/{copied['id']}/edit").json()
+    working_english = db_session.scalars(
         select(ClassSubjectRequirement).where(
-            ClassSubjectRequirement.semester_id == target_semester.id,
+            ClassSubjectRequirement.schedule_version_id == working_copy["id"],
             ClassSubjectRequirement.subject_id == world.english.id,
         )
     ).one()
-    source_before = _source_semester_rows(db_session, world)
+    source_before = _record_rows(db_session, world.version.id)
+    copy_before = _record_rows(db_session, copied["id"])
 
-    _reassign_ok(client, copy_id, copied_english.id, world.new_teacher.id)
+    _reassign_ok(client, working_copy["id"], working_english.id, world.new_teacher.id)
+    saved = client.post(f"/api/v1/schedule-versions/{working_copy['id']}/save").json()
 
-    assert _required_teacher_id(db_session, copied_english.id) == world.new_teacher.id
-    assert _source_semester_rows(db_session, world) == source_before
+    assert saved["id"] == working_copy["id"]
+    assert saved["status"] == "MANUAL"
+    assert saved["semester_id"] == next_semester.id
+    assert _required_teacher_id(db_session, working_english.id) == world.new_teacher.id
+    assert {
+        row.teacher_id for row in _rows_of(db_session, saved["id"], working_english.id)
+    } == {world.new_teacher.id}
+    assert _record_rows(db_session, world.version.id) == source_before
+    assert _record_rows(db_session, copied["id"]) == copy_before
 
 
 # --- Atomicity ---

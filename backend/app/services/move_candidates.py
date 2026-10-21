@@ -1,6 +1,6 @@
-"""Task 83: for one lesson (one Schedule row) of a DRAFT ScheduleVersion,
-what the version's schedule check would report after moving it to each
-time slot -- or swapping it with each lesson it could be swapped with there.
+"""Task 83: for one lesson (one Schedule row) of a manual edit's working
+copy (v3: EDITING), what its schedule check would report after moving it
+to each time slot -- or swapping it with each lesson it could be swapped with there.
 The timetable's edit mode uses this to mark candidate cells while a lesson
 is selected or dragged.
 
@@ -31,7 +31,7 @@ from app.models.time_slot import TimeSlot
 from app.services import block_adjustment, schedule_check
 from app.services.school_scope import in_school, school_id_of_version
 from app.services.exceptions import AdjustmentTargetNotFoundError
-from app.services.schedule_version import raise_if_version_locked
+from app.services.schedule_version import raise_if_timetable_locked
 
 ConstraintViolation = schedule_check.ConstraintViolation
 LessonAssignment = schedule_check.LessonAssignment
@@ -122,13 +122,13 @@ def list_move_candidates(
     schedule_version = db.get(ScheduleVersion, schedule_version_id)
     if schedule_version is None:
         return None
-    raise_if_version_locked(schedule_version)
+    raise_if_timetable_locked(schedule_version)
     schedule = db.get(Schedule, schedule_id)
     if schedule is None or schedule.schedule_version_id != schedule_version_id:
         raise AdjustmentTargetNotFoundError("Schedule not found")
 
     context = schedule_check.load_check_context(
-        db, schedule_version.semester_id, schedule_version_id
+        db, schedule_version_id
     )
     rows = schedule_check.load_assignment_rows(db, schedule_version_id)
     time_slots = db.scalars(

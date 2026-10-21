@@ -69,3 +69,21 @@ export function classNameOptions(level: number, style: ClassNameStyle): string[]
   const prefix = `${chineseNumber(displayedYear(level))}年`;
   return classNameTokens(style).map((token) => `${prefix}${token}班`);
 }
+
+// --- A grade's default open periods (開始排課 > 年級與可排節次) ---
+
+// The same defaults the backend applies (app/services/grade_levels.py), in
+// the words people use: only teaching periods are counted, so 國小's
+// afternoon is 第 5-7 節.
+export function defaultOpenPeriodsText(level: number): string {
+  if (level <= 2) {
+    return "星期二第 1–7 節，其他天第 1–4 節";
+  }
+  if (level <= 4) {
+    return "星期三、五第 1–4 節，其他天第 1–7 節";
+  }
+  if (level <= 6) {
+    return "星期三第 1–4 節，其他天第 1–7 節";
+  }
+  return "每天第 1–8 節";
+}

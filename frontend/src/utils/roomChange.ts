@@ -58,13 +58,13 @@ export function roomChangeLines(
   );
 }
 
-// The 「更改教室」 controls: an ADMIN, in edit mode, on a DRAFT, with a
-// scheduled lesson selected.
+// The 「更改教室」 controls: a 教學組長, in a manual edit's working copy
+// (EDITING), with a scheduled lesson selected.
 export function canChangeRoom(state: {
   isAdmin: boolean;
   versionStatus: string | null;
   isEditModeOn: boolean;
   hasSelectedLesson: boolean;
 }): boolean {
-  return state.isAdmin && state.versionStatus === "DRAFT" && state.isEditModeOn && state.hasSelectedLesson;
+  return state.isAdmin && state.versionStatus === "EDITING" && state.isEditModeOn && state.hasSelectedLesson;
 }

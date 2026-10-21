@@ -18,7 +18,14 @@ from app.models.semester_teacher import SemesterTeacher, SemesterTeacherUnavaila
 from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
 from tests.test_move_swap_lessons import Timetable, _build_timetable, _move, _ok, _swap
-from tests.conftest import enroll_in_semester, get_test_school_id, next_free_grade_level, time_slot_at
+from tests.conftest import (
+    enroll_in_semester,
+    get_test_school_id,
+    make_record,
+    mark_status_in_db,
+    next_free_grade_level,
+    time_slot_at,
+)
 
 # Task 83: GET /api/v1/schedule-versions/{id}/move-candidates/{schedule_id}
 # -- for one lesson, the version's check after moving it to every time slot
@@ -237,29 +244,22 @@ def test_teacher_gets_403(teacher_client: TestClient, db_session: Session) -> No
     assert response.status_code == 403
 
 
-@pytest.mark.parametrize(
-    ("status", "message"),
-    [
-        ("PUBLISHED", "已發布版本不可修改，請建立新草稿版本"),
-        ("ARCHIVED", "已封存的課表無法修改，請先複製成新草稿"),
-    ],
-)
-def test_locked_version_returns_409(
-    client: TestClient, db_session: Session, status: str, message: str
+@pytest.mark.parametrize("status", ["NOT_SCHEDULED", "AUTO", "MANUAL", "COPIED"])
+def test_outside_a_manual_edit_returns_409(
+    client: TestClient, db_session: Session, status: str
 ) -> None:
     timetable = _build_timetable(db_session)
-    timetable.version.status = status
-    db_session.commit()
+    mark_status_in_db(db_session, timetable.version.id, status)
 
     response = _candidates(client, timetable.version.id, timetable.c1_science.id)
 
     assert response.status_code == 409
-    assert response.json()["detail"] == message
+    assert response.json()["detail"] == "課表不能直接修改，請先按「手動編輯課表」"
 
 
 def test_missing_version_or_row_returns_404(client: TestClient, db_session: Session) -> None:
     timetable = _build_timetable(db_session)
-    other_version = timetable.builder.version(number=2)
+    other_version = timetable.builder.version()
     foreign_row = Schedule(
         schedule_version_id=other_version.id,
         lesson_id=timetable.c1_science.lesson_id,
@@ -284,7 +284,7 @@ def test_missing_version_or_row_returns_404(client: TestClient, db_session: Sess
 
 
 def _build_scaled_version(db: Session, *, classes: int, lessons_per_class: int) -> tuple[int, int]:
-    """A DRAFT version with classes x lessons_per_class rows over a 5-day,
+    """A working copy with classes x lessons_per_class rows over a 5-day,
     10-period week (period 0 and 5 non-teaching, like the demo data).
     Returns (version id, one schedule id)."""
     year = AcademicYear(school_id=get_test_school_id(db), year=7000 + classes, is_active=True)
@@ -308,11 +308,9 @@ def _build_scaled_version(db: Session, *, classes: int, lessons_per_class: int) 
     ]
     db.add_all([*subjects, *teachers])
     db.flush()
+    version = make_record(db, semester.id, status="EDITING")
     for teacher in teachers:
-        enroll_in_semester(db, semester.id, teacher)
-    version = ScheduleVersion(semester_id=semester.id, version_number=1, status="DRAFT")
-    db.add(version)
-    db.flush()
+        enroll_in_semester(db, version.id, teacher)
     rows: list[Schedule] = []
     for c in range(classes):
         class_ = Class(name=f"Scale class {c}", grade_id=grade.id)
@@ -320,7 +318,7 @@ def _build_scaled_version(db: Session, *, classes: int, lessons_per_class: int) 
         db.flush()
         for i in range(lessons_per_class):
             requirement = ClassSubjectRequirement(
-                semester_id=semester.id,
+                schedule_version_id=version.id,
                 class_id=class_.id,
                 subject_id=subjects[i].id,
                 weekly_periods=1,

@@ -1,5 +1,5 @@
 from fastapi.testclient import TestClient
-from tests.api_helpers import create_class, create_grade
+from tests.api_helpers import create_class, create_grade, create_record
 
 
 def test_create_subject(client: TestClient) -> None:
@@ -111,7 +111,7 @@ def test_delete_subject_blocked_by_requirement(client: TestClient) -> None:
     client.post(
         "/api/v1/class-subject-requirements/",
         json={
-            "semester_id": semester_id,
+            "schedule_version_id": create_record(client, semester_id),
             "class_id": class_id,
             "subject_id": subject_id,
             "weekly_periods": 2,
