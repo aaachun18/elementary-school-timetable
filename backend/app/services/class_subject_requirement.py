@@ -27,8 +27,10 @@ from app.services.exceptions import (
     InvalidLessonPatternError,
     raise_for_integrity_error,
 )
+from app.services.homeroom import homeroom_subject_ids, homeroom_teachers
 from app.services.lesson_pattern import assign_block_fields, check_pattern_total
 from app.services.schedule_version import (
+    lock_record_for_settings,
     published_version_ids,
     raise_if_settings_locked,
 )
@@ -233,8 +235,9 @@ def sync_version_requirements(
 ) -> RequirementSyncResult | None:
     """Makes the record's requirements follow the school's 科目需求
     (GradeSubjectRequirement), for every class of the school:
-    - a grade rule a class has no requirement for -> created (no pattern,
-      teacher or room yet);
+    - a grade rule a class has no requirement for -> created (no pattern
+      or room yet; no teacher either, except a 國小 class's 國語文 / 數學,
+      which start with the class's 導師 -- services/homeroom.py);
     - weekly_periods differing from the rule -> changed to it; a lesson
       pattern that no longer adds up is cleared, and lessons beyond the new
       count are deleted (missing ones are made by generate-lessons when
@@ -246,7 +249,7 @@ def sync_version_requirements(
     schedule_version = get_in_school(db, ScheduleVersion, schedule_version_id, school_id)
     if schedule_version is None:
         return None
-    raise_if_settings_locked(schedule_version)
+    lock_record_for_settings(db, schedule_version)
 
     rule_periods = {
         (class_id, subject_id): weekly_periods
@@ -283,6 +286,8 @@ def sync_version_requirements(
                 updated += 1
 
         covered = {(requirement.class_id, requirement.subject_id) for requirement in existing}
+        homerooms = homeroom_teachers(db, schedule_version_id)
+        homeroom_subjects = homeroom_subject_ids(db, school_id)
         for (class_id, subject_id), weekly_periods in sorted(rule_periods.items()):
             if (class_id, subject_id) not in covered:
                 db.add(
@@ -291,6 +296,9 @@ def sync_version_requirements(
                         class_id=class_id,
                         subject_id=subject_id,
                         weekly_periods=weekly_periods,
+                        required_teacher_id=(
+                            homerooms.get(class_id) if subject_id in homeroom_subjects else None
+                        ),
                     )
                 )
                 created += 1

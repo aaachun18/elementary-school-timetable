@@ -17,12 +17,16 @@ from typing import Protocol
 
 MIN_BLOCK_SIZE = 1
 MAX_BLOCK_SIZE = 3
+# Different blocks go on different days and a week has 5 school days, so a
+# pattern has at most 5 blocks (6 periods: at most 2+1+1+1+1).
+MAX_BLOCK_COUNT = 5
 
 _PATTERN_RE = re.compile(r"^\d+(\+\d+)*$")
 
 FORMAT_MESSAGE = "連堂樣式格式不正確，請以加號分隔 1 到 3 的數字，例如 2+1"
 BLOCK_SIZE_MESSAGE = "連堂樣式每一組的節數必須介於 1 到 3"
 TOTAL_MESSAGE = "連堂樣式的節數總和必須等於每週節數"
+BLOCK_COUNT_MESSAGE = "連堂樣式最多 5 組（每週只有 5 個上課日，每組排在不同天）"
 
 
 def parse_lesson_pattern(pattern: str) -> tuple[int, ...]:
@@ -40,10 +44,16 @@ def parse_lesson_pattern(pattern: str) -> tuple[int, ...]:
 
 def normalize_lesson_pattern(pattern: str | None) -> str | None:
     """None / blank -> None; otherwise the canonical spelling ("1+2" ->
-    "2+1"). Raises ValueError like parse_lesson_pattern()."""
+    "2+1"). Raises ValueError like parse_lesson_pattern(), and for more
+    than MAX_BLOCK_COUNT blocks (checked here, on input, rather than in
+    parse_lesson_pattern(), so a pattern stored before the limit can still
+    be read)."""
     if pattern is None or pattern.strip() == "":
         return None
-    return "+".join(str(size) for size in parse_lesson_pattern(pattern))
+    sizes = parse_lesson_pattern(pattern)
+    if len(sizes) > MAX_BLOCK_COUNT:
+        raise ValueError(BLOCK_COUNT_MESSAGE)
+    return "+".join(str(size) for size in sizes)
 
 
 def check_pattern_total(pattern: str | None, weekly_periods: int) -> None:

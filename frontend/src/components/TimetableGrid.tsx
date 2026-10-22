@@ -38,12 +38,12 @@ import {
   DROP_STRIP,
   DROP_ZONE,
   DROP_ZONE_BLOCKED,
+  HOMEROOM_TAG,
   LESSON_BUTTON,
   LESSON_BUTTON_DRAGGING,
   LESSON_BUTTON_DROP_OK,
   LESSON_BUTTON_SELECTED,
   MOVE_TARGET_STRIP,
-  TABLE,
   TABLE_HEAD_ROW,
   TABLE_WRAPPER,
   TD,
@@ -55,8 +55,10 @@ import {
   TD_NON_TEACHING,
   TD_NON_TEACHING_BASE,
   TH,
+  TIMETABLE_PERIOD_COLUMN,
   TIMETABLE_ROW_HEADER,
   TIMETABLE_ROW_HEADER_NON_TEACHING,
+  TIMETABLE_TABLE,
   TR_HOVER,
 } from "../styles/ui";
 
@@ -111,6 +113,9 @@ interface TimetableGridProps {
   // passes it in edit mode.
   adjustedTimeSlotId: number | null;
   edit: TimetableGridEditProps | null;
+  // class_id -> its 導師's teacher_id in this record. In class view a lesson
+  // the 導師 teaches shows the teacher's name as a colored tag.
+  homeroomTeacherByClass: ReadonlyMap<number, number>;
 }
 
 // What is under the pointer during a drag: a cell or one lesson button.
@@ -183,6 +188,28 @@ function cellDetailOf(row: EnrichedSchedule, viewMode: TimetableViewMode): strin
   return row.className;
 }
 
+// cellDetailOf() on screen: in class view, the class's 導師 is a tag.
+function CellDetail({
+  row,
+  viewMode,
+  homeroomTeacherByClass,
+}: {
+  row: EnrichedSchedule;
+  viewMode: TimetableViewMode;
+  homeroomTeacherByClass: ReadonlyMap<number, number>;
+}): ReactElement {
+  const isHomeroomTeacher =
+    viewMode === "class" && row.teacherId !== null && homeroomTeacherByClass.get(row.classId) === row.teacherId;
+  if (isHomeroomTeacher) {
+    return (
+      <span className={`${HOMEROOM_TAG} w-fit`} title="導師">
+        {cellDetailOf(row, viewMode)}
+      </span>
+    );
+  }
+  return <span className="text-gray-500">{cellDetailOf(row, viewMode)}</span>;
+}
+
 // Task 98: a lesson held outside its class's own classroom says where (the
 // room view already is that room, so it doesn't repeat it there).
 function SpecialRoomNote({
@@ -222,6 +249,7 @@ const LESSON_CLASS_BY_DRAG_STATE: Record<Exclude<LessonDragState, null>, string>
 function LessonButton({
   lesson,
   viewMode,
+  homeroomTeacherByClass,
   edit,
   dragState,
   isInSelectedGroup,
@@ -233,6 +261,7 @@ function LessonButton({
 }: {
   lesson: EnrichedSchedule;
   viewMode: TimetableViewMode;
+  homeroomTeacherByClass: ReadonlyMap<number, number>;
   edit: TimetableGridEditProps;
   dragState: LessonDragState;
   // Task 90: another lesson of the selected lesson's block -- shown
@@ -274,7 +303,7 @@ function LessonButton({
       className={className}
       data-schedule-id={lesson.scheduleId}
     >
-      <span className="font-medium text-gray-900">
+      <span className="whitespace-nowrap font-medium text-gray-900">
         {lesson.subjectName}
         {isFixed && (
           <span className={`${BADGE_NEUTRAL} ml-1`} title="這堂課設有固定時段">
@@ -282,7 +311,7 @@ function LessonButton({
           </span>
         )}
       </span>
-      <span className="text-gray-500">{cellDetailOf(lesson, viewMode)}</span>
+      <CellDetail row={lesson} viewMode={viewMode} homeroomTeacherByClass={homeroomTeacherByClass} />
       <SpecialRoomNote lesson={lesson} viewMode={viewMode} />
       {isSelected && <span className="text-xs font-semibold text-blue-700">✓ 已選取</span>}
     </button>
@@ -301,6 +330,7 @@ export default function TimetableGrid({
   highlightedTimeSlotId,
   adjustedTimeSlotId,
   edit,
+  homeroomTeacherByClass,
 }: TimetableGridProps): ReactElement {
   // --- Task 71: drag & drop (edit mode only). Native HTML5 events; the
   // drag only carries the scheduleId. Which drop targets are allowed is
@@ -545,7 +575,17 @@ export default function TimetableGrid({
 
   return (
     <div className={TABLE_WRAPPER}>
-      <table className={TABLE} onDragLeave={edit !== null ? handleTableDragLeave : undefined}>
+      <table className={TIMETABLE_TABLE} onDragLeave={edit !== null ? handleTableDragLeave : undefined}>
+        {/* Fixed layout: the five days always share the width equally,
+            whatever each cell holds; every day column is wide enough for
+            the longest subject name on one line (the wrapper scrolls on a
+            narrow screen instead). */}
+        <colgroup>
+          <col className={TIMETABLE_PERIOD_COLUMN} />
+          {WEEKDAYS.map((weekday) => (
+            <col key={weekday} />
+          ))}
+        </colgroup>
         <thead>
           <tr className={TABLE_HEAD_ROW}>
             <th className={TH}>節次</th>
@@ -656,7 +696,7 @@ export default function TimetableGrid({
                       className={`${cellClass}${candidateCellClass} relative align-top`}
                     >
                       {blockLink !== null && <BlockBar link={blockLink} />}
-                      <div className="flex min-h-12 min-w-28 flex-col gap-1">
+                      <div className="flex min-h-12 flex-col gap-1">
                         {isAdjusted && (
                           <span className="text-xs font-semibold text-sky-700">剛調整</span>
                         )}
@@ -665,6 +705,7 @@ export default function TimetableGrid({
                             key={lesson.scheduleId}
                             lesson={lesson}
                             viewMode={viewMode}
+                            homeroomTeacherByClass={homeroomTeacherByClass}
                             edit={edit}
                             dragState={lessonDragState(lesson)}
                             isInSelectedGroup={selectedGroup?.has(lesson.scheduleId) === true}
@@ -745,9 +786,13 @@ export default function TimetableGrid({
                         {matches.length > 1 && (
                           <span title="這個時段出現多筆排課結果，顯示第一筆">⚠️ </span>
                         )}
-                        <span className="font-medium text-gray-900">{schedule.subjectName}</span>
+                        <span className="whitespace-nowrap font-medium text-gray-900">{schedule.subjectName}</span>
                         <br />
-                        <span className="text-gray-500">{cellDetailOf(schedule, viewMode)}</span>
+                        <CellDetail
+                          row={schedule}
+                          viewMode={viewMode}
+                          homeroomTeacherByClass={homeroomTeacherByClass}
+                        />
                         <SpecialRoomNote lesson={schedule} viewMode={viewMode} />
                       </>
                     )}

@@ -152,6 +152,7 @@ def _stage_copy_teachers_and_grade_slots(db: Session, source_id: int, target_id:
             teacher_id=semester_teacher.teacher_id,
             min_weekly_periods=semester_teacher.min_weekly_periods,
             max_weekly_periods=semester_teacher.max_weekly_periods,
+            homeroom_class_id=semester_teacher.homeroom_class_id,
         )
         db.add(copied)
         db.flush()

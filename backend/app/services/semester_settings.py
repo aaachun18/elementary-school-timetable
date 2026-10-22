@@ -12,7 +12,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.grade_class import Grade
+from app.models.grade_class import Class, Grade
 from app.models.schedule_version import ScheduleVersion
 from app.models.semester_grade_time_slot import SemesterGradeTimeSlot
 from app.models.semester_teacher import SemesterTeacher, SemesterTeacherUnavailability
@@ -29,7 +29,8 @@ from app.services.exceptions import (
     raise_for_integrity_error,
 )
 from app.services.grade_levels import SlotPosition, default_open_slot_ids
-from app.services.schedule_version import get_schedule_version, raise_if_settings_locked
+from app.services.homeroom import homeroom_teachers, stage_apply_homeroom_changes
+from app.services.schedule_version import get_schedule_version, lock_record_for_settings
 from app.services.school_scope import (
     ensure_references_in_school,
     get_in_school,
@@ -66,6 +67,7 @@ def _read_semester_teachers(db: Session, version_id: int) -> list[SemesterTeache
             min_weekly_periods=semester_teacher.min_weekly_periods,
             max_weekly_periods=semester_teacher.max_weekly_periods,
             unavailable_time_slot_ids=unavailable.get(semester_teacher.id, []),
+            homeroom_class_id=semester_teacher.homeroom_class_id,
         )
         for semester_teacher, name in rows
     ]
@@ -96,15 +98,16 @@ def _delete_semester_teachers(db: Session, version_id: int) -> None:
 def replace_semester_teachers(
     db: Session, version_id: int, data: SemesterTeachersUpdate, *, school_id: int
 ) -> list[SemesterTeacherRead] | None:
-    """The record's teachers become exactly `data.teachers`. Every teacher
-    and time slot must be of the school (else 422), and every teacher
-    active -- only 啟用 accounts take part (else 409). None if the record
-    doesn't exist in the school; a record that is not 尚未排課 -> 409. One
-    transaction."""
+    """The record's teachers become exactly `data.teachers`, with their
+    導師 classes. Every teacher, time slot and 導師 class must be of the
+    school (else 422), and every teacher active -- only 啟用 accounts take
+    part (else 409). A class whose 導師 changed has its default subjects
+    follow (services/homeroom.py). None if the record doesn't exist in the
+    school; a record that is not 尚未排課 -> 409. One transaction."""
     schedule_version = get_in_school(db, ScheduleVersion, version_id, school_id)
     if schedule_version is None:
         return None
-    raise_if_settings_locked(schedule_version)
+    lock_record_for_settings(db, schedule_version)
     ensure_references_in_school(
         db,
         school_id,
@@ -113,6 +116,11 @@ def replace_semester_teachers(
             (TimeSlot, time_slot_id)
             for entry in data.teachers
             for time_slot_id in entry.unavailable_time_slot_ids
+        ]
+        + [
+            (Class, entry.homeroom_class_id)
+            for entry in data.teachers
+            if entry.homeroom_class_id is not None
         ],
     )
     for entry in data.teachers:
@@ -123,6 +131,7 @@ def replace_semester_teachers(
                 f"Teacher {entry.teacher_id} is inactive and cannot take part."
             )
 
+    homerooms_before = homeroom_teachers(db, version_id)
     try:
         _delete_semester_teachers(db, version_id)
         for entry in data.teachers:
@@ -131,6 +140,7 @@ def replace_semester_teachers(
                 teacher_id=entry.teacher_id,
                 min_weekly_periods=entry.min_weekly_periods,
                 max_weekly_periods=entry.max_weekly_periods,
+                homeroom_class_id=entry.homeroom_class_id,
             )
             db.add(semester_teacher)
             db.flush()
@@ -140,6 +150,17 @@ def replace_semester_teachers(
                 )
                 for time_slot_id in sorted(set(entry.unavailable_time_slot_ids))
             )
+        stage_apply_homeroom_changes(
+            db,
+            version_id,
+            school_id,
+            before=homerooms_before,
+            after={
+                entry.homeroom_class_id: entry.teacher_id
+                for entry in data.teachers
+                if entry.homeroom_class_id is not None
+            },
+        )
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -192,7 +213,7 @@ def replace_grade_time_slots(
     schedule_version = get_in_school(db, ScheduleVersion, version_id, school_id)
     if schedule_version is None or get_in_school(db, Grade, grade_id, school_id) is None:
         return None
-    raise_if_settings_locked(schedule_version)
+    lock_record_for_settings(db, schedule_version)
     ensure_references_in_school(
         db, school_id, [(TimeSlot, time_slot_id) for time_slot_id in time_slot_ids]
     )

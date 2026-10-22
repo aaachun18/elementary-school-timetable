@@ -1,9 +1,10 @@
-import type { ReactElement } from "react";
+import { useEffect, type ReactElement } from "react";
 import { list as listRequirements } from "../../api/classSubjectRequirements";
 import { listGradeTimeSlots, listTeachers as listSemesterTeachers } from "../../api/semesterSettings";
 import AutoScheduleOutcome from "../AutoScheduleOutcome";
 import { useAutoSchedule } from "../../hooks/useAutoSchedule";
 import { useResource } from "../../hooks/useResource";
+import { forgetWizardRecord } from "../../utils/wizardRecord";
 import {
   BUTTON_PRIMARY,
   BUTTON_SECONDARY,
@@ -36,6 +37,13 @@ export default function RunStep({
     [versionId],
   );
   const autoSchedule = useAutoSchedule(versionId);
+  // Scheduled: 開始排課 no longer resumes this record.
+  const isScheduled = autoSchedule.result !== null;
+  useEffect(() => {
+    if (isScheduled) {
+      forgetWizardRecord();
+    }
+  }, [isScheduled]);
 
   const loadError = teachers.errorMessage ?? gradeSlots.errorMessage ?? requirements.errorMessage;
   if (loadError !== null) {
@@ -82,7 +90,7 @@ export default function RunStep({
           {autoSchedule.isRunning ? "排課中…" : "自動排課"}
         </button>
       </div>
-      <AutoScheduleOutcome versionId={versionId} versionNumber={versionNumber} state={autoSchedule} />
+      <AutoScheduleOutcome versionId={versionId} state={autoSchedule} />
     </div>
   );
 }

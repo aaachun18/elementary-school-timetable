@@ -1,16 +1,22 @@
 import { useState, type ReactElement } from "react";
 import { Link } from "react-router-dom";
+import { list as listClasses } from "../../api/classes";
+import { list as listGrades } from "../../api/grades";
 import { list as listTeachers } from "../../api/teachers";
 import { list as listTimeSlots } from "../../api/timeSlots";
 import { listTeachers as listSemesterTeachers, replaceTeachers } from "../../api/semesterSettings";
 import { extractApiErrorMessage } from "../../constants/errorMessages";
 import { useResource } from "../../hooks/useResource";
+import type { Class } from "../../types/class";
 import type { SemesterTeacher, SemesterTeacherEntry } from "../../types/semesterSettings";
 import type { Teacher } from "../../types/teacher";
 import type { TimeSlot } from "../../types/timeSlot";
+import { classesWithoutHomeroom, missingHomeroomMessage, sortClassesByGrade } from "../../utils/homeroom";
 import { DEFAULT_MAX_WEEKLY_PERIODS, periodsRangeError } from "../../utils/wizard";
+import ConfirmDialog from "../ConfirmDialog";
 import TimeSlotPickerDialog from "./TimeSlotPickerDialog";
 import {
+  BUTTON_DANGER_SM,
   BUTTON_PRIMARY,
   BUTTON_SECONDARY_SM,
   CARD,
@@ -19,7 +25,9 @@ import {
   HELP_TEXT,
   INPUT,
   LOADING_TEXT,
+  HOMEROOM_TAG,
   MUTED_TEXT,
+  SELECT,
 } from "../../styles/ui";
 
 interface Draft {
@@ -27,6 +35,8 @@ interface Draft {
   minText: string;
   maxText: string;
   unavailable: number[];
+  // The class this teacher is 導師 of, if any (only kept while checked).
+  homeroomClassId: number | null;
 }
 
 function initialDrafts(teachers: readonly Teacher[], current: readonly SemesterTeacher[]): Map<number, Draft> {
@@ -41,6 +51,7 @@ function initialDrafts(teachers: readonly Teacher[], current: readonly SemesterT
           minText: String(saved?.min_weekly_periods ?? 0),
           maxText: String(saved?.max_weekly_periods ?? DEFAULT_MAX_WEEKLY_PERIODS),
           unavailable: saved?.unavailable_time_slot_ids ?? [],
+          homeroomClassId: saved?.homeroom_class_id ?? null,
         },
       ];
     }),
@@ -51,6 +62,9 @@ function initialDrafts(teachers: readonly Teacher[], current: readonly SemesterT
 // 排課紀錄 (a grid of checkboxes), each one's weekly minimum / maximum, and
 // the slots they can't teach (a timetable-shaped dialog). Saved together
 // with 「儲存並下一步」 (PUT /schedule-versions/{id}/teachers, the complete list).
+// Each teacher can also be made 導師 of one class (a dropdown of the classes
+// still without one; picking a class takes the teacher part). Every class
+// needs a 導師 before 下一步; not every teacher has to be one.
 export default function TeachersStep({
   versionId,
   onNext,
@@ -61,8 +75,15 @@ export default function TeachersStep({
   const teachers = useResource(() => listTeachers(0, 1000), []);
   const current = useResource(() => listSemesterTeachers(versionId), [versionId]);
   const timeSlots = useResource(() => listTimeSlots(0, 1000), []);
+  const classes = useResource(() => listClasses(0, 1000), []);
+  const grades = useResource(() => listGrades(0, 1000), []);
 
-  const errorMessage = teachers.errorMessage ?? current.errorMessage ?? timeSlots.errorMessage;
+  const errorMessage =
+    teachers.errorMessage ??
+    current.errorMessage ??
+    timeSlots.errorMessage ??
+    classes.errorMessage ??
+    grades.errorMessage;
   if (errorMessage !== null) {
     return (
       <p role="alert" className={ERROR_TEXT}>
@@ -70,9 +91,16 @@ export default function TeachersStep({
       </p>
     );
   }
-  if (teachers.data === null || current.data === null || timeSlots.data === null) {
+  if (
+    teachers.data === null ||
+    current.data === null ||
+    timeSlots.data === null ||
+    classes.data === null ||
+    grades.data === null
+  ) {
     return <p className={LOADING_TEXT}>載入中…</p>;
   }
+  const gradeLevelById = new Map(grades.data.map((grade) => [grade.id, grade.level]));
   return (
     <TeachersForm
       key={versionId}
@@ -80,6 +108,7 @@ export default function TeachersStep({
       teachers={teachers.data.filter((teacher) => teacher.is_active)}
       current={current.data}
       timeSlots={timeSlots.data}
+      classes={sortClassesByGrade(classes.data, gradeLevelById)}
       onNext={onNext}
     />
   );
@@ -90,16 +119,19 @@ function TeachersForm({
   teachers,
   current,
   timeSlots,
+  classes,
   onNext,
 }: {
   versionId: number;
   teachers: readonly Teacher[];
   current: readonly SemesterTeacher[];
   timeSlots: readonly TimeSlot[];
+  classes: readonly Class[];
   onNext: () => void;
 }): ReactElement {
   const [drafts, setDrafts] = useState(() => initialDrafts(teachers, current));
   const [pickerTeacher, setPickerTeacher] = useState<Teacher | null>(null);
+  const [removingHomeroomOf, setRemovingHomeroomOf] = useState<Teacher | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -122,7 +154,8 @@ function TeachersForm({
     setDrafts((previous) => {
       const next = new Map(previous);
       for (const [teacherId, draft] of previous) {
-        next.set(teacherId, { ...draft, checked });
+        // Unchecked teachers take no part, so they are no 導師 either.
+        next.set(teacherId, { ...draft, checked, homeroomClassId: checked ? draft.homeroomClassId : null });
       }
       return next;
     });
@@ -135,7 +168,20 @@ function TeachersForm({
   );
   const hasRangeError = [...rangeErrors.values()].some((message) => message !== null);
 
+  const classById = new Map(classes.map((item) => [item.id, item]));
+  const assignedClassIds = new Set(
+    checkedTeachers
+      .map((teacher) => drafts.get(teacher.id)?.homeroomClassId ?? null)
+      .filter((classId): classId is number => classId !== null),
+  );
+  const freeClasses = classesWithoutHomeroom(classes, assignedClassIds);
+
   async function handleSave(): Promise<void> {
+    const homeroomMessage = missingHomeroomMessage(classes, assignedClassIds);
+    if (homeroomMessage !== null) {
+      setError(homeroomMessage);
+      return;
+    }
     setIsSaving(true);
     setError(null);
     const entries: SemesterTeacherEntry[] = checkedTeachers.map((teacher) => {
@@ -145,6 +191,7 @@ function TeachersForm({
         min_weekly_periods: Number(draft.minText),
         max_weekly_periods: Number(draft.maxText),
         unavailable_time_slot_ids: draft.unavailable,
+        homeroom_class_id: draft.homeroomClassId,
       };
     });
     try {
@@ -191,15 +238,54 @@ function TeachersForm({
               const rangeError = rangeErrors.get(teacher.id) ?? null;
               return (
                 <div key={teacher.id} className="rounded border border-gray-200 p-3">
-                  <label className="flex items-center gap-2 font-medium text-gray-900">
-                    <input
-                      type="checkbox"
-                      checked={draft.checked}
-                      onChange={(event) => update(teacher.id, { checked: event.target.checked })}
-                      className={CHECKBOX}
-                    />
-                    {teacher.name}
-                  </label>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="flex items-center gap-2 font-medium text-gray-900">
+                      <input
+                        type="checkbox"
+                        checked={draft.checked}
+                        onChange={(event) =>
+                          update(teacher.id, {
+                            checked: event.target.checked,
+                            homeroomClassId: event.target.checked ? draft.homeroomClassId : null,
+                          })
+                        }
+                        className={CHECKBOX}
+                      />
+                      {teacher.name}
+                      {draft.homeroomClassId !== null && (
+                        <span className={HOMEROOM_TAG}>{classById.get(draft.homeroomClassId)?.name ?? "—"}</span>
+                      )}
+                    </label>
+                    {draft.homeroomClassId === null ? (
+                      <select
+                        value=""
+                        onChange={(event) => {
+                          if (event.target.value !== "") {
+                            update(teacher.id, { checked: true, homeroomClassId: Number(event.target.value) });
+                            setError(null);
+                          }
+                        }}
+                        disabled={freeClasses.length === 0}
+                        aria-label={`${teacher.name}擔任導師的班級`}
+                        className={`${SELECT} text-sm`}
+                      >
+                        <option value="">設定導師班級</option>
+                        {freeClasses.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setRemovingHomeroomOf(teacher)}
+                        className={BUTTON_DANGER_SM}
+                      >
+                        刪除班級
+                      </button>
+                    )}
+                  </div>
                   {draft.checked && (
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
                       <label className="inline-flex items-center gap-1">
@@ -241,7 +327,9 @@ function TeachersForm({
           </div>
         </>
       )}
-      <p className="mt-3 text-sm text-gray-700">已納入 {checkedTeachers.length} 位老師。</p>
+      <p className="mt-3 text-sm text-gray-700">
+        已納入 {checkedTeachers.length} 位老師；{classes.length} 個班級中 {assignedClassIds.size} 個已指派導師。
+      </p>
       {error !== null && (
         <p role="alert" className={ERROR_TEXT}>
           {error}
@@ -257,6 +345,25 @@ function TeachersForm({
           {isSaving ? "儲存中…" : "儲存並下一步"}
         </button>
       </div>
+      {removingHomeroomOf !== null && (
+        <ConfirmDialog
+          open
+          title="刪除導師班級"
+          confirmLabel="刪除"
+          danger
+          onConfirm={() => {
+            update(removingHomeroomOf.id, { homeroomClassId: null });
+            setRemovingHomeroomOf(null);
+          }}
+          onCancel={() => setRemovingHomeroomOf(null)}
+        >
+          <p>
+            確定要取消{removingHomeroomOf.name}擔任
+            {classById.get(drafts.get(removingHomeroomOf.id)?.homeroomClassId ?? -1)?.name ?? "這個班級"}
+            的導師嗎？這個班級會回到導師選單中。
+          </p>
+        </ConfirmDialog>
+      )}
       {pickerTeacher !== null && (
         <TimeSlotPickerDialog
           key={pickerTeacher.id}

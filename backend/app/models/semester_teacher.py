@@ -16,11 +16,16 @@ class SemesterTeacher(TimestampMixin, Base):
     """Task 98: a teacher taking part in a semester's scheduling, with that
     semester's weekly periods range (wizard step 教師設定). A teacher with no
     row is not scheduled at all. v3: part of one 排課紀錄's settings
-    (schedule_version_id), so every record keeps its own teachers."""
+    (schedule_version_id), so every record keeps its own teachers -- and
+    its own 導師 (homeroom_class_id)."""
 
     __tablename__ = "semester_teachers"
     __table_args__ = (
         UniqueConstraint("schedule_version_id", "teacher_id", name="uq_semester_teacher"),
+        # A class has at most one 導師 in a record (NULLs don't collide).
+        UniqueConstraint(
+            "schedule_version_id", "homeroom_class_id", name="uq_semester_teacher_homeroom"
+        ),
         CheckConstraint(
             "min_weekly_periods >= 0", name="ck_semester_teachers_min_not_negative"
         ),
@@ -35,6 +40,8 @@ class SemesterTeacher(TimestampMixin, Base):
     teacher_id: Mapped[int] = mapped_column(ForeignKey("teachers.id"))
     min_weekly_periods: Mapped[int] = mapped_column()
     max_weekly_periods: Mapped[int] = mapped_column()
+    # The class this teacher is 導師 of in this record (at most one), if any.
+    homeroom_class_id: Mapped[int | None] = mapped_column(ForeignKey("classes.id"))
 
     schedule_version: Mapped["ScheduleVersion"] = relationship()
     teacher: Mapped["Teacher"] = relationship()

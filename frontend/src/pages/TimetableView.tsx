@@ -13,6 +13,7 @@ import { list as listAcademicYears } from "../api/academicYears";
 import { list as listClasses } from "../api/classes";
 import { list as listTeachers } from "../api/teachers";
 import { list as listRooms } from "../api/rooms";
+import { listTeachers as listRecordTeachers } from "../api/semesterSettings";
 import AdjustmentPreviewDialog from "../components/AdjustmentPreviewDialog";
 import ConfirmDialog from "../components/ConfirmDialog";
 import ConflictChecklist from "../components/ConflictChecklist";
@@ -78,6 +79,7 @@ import {
   CANDIDATE_LEGEND_UNAVAILABLE_SWATCH,
   CARD,
   ERROR_TEXT,
+  HOMEROOM_TAG,
   LABEL,
   LOADING_TEXT,
   MUTED_TEXT,
@@ -145,6 +147,10 @@ export default function TimetableView(): ReactElement {
   // request below works on it instead of the record itself.
   const [editingId, setEditingId] = useState<number | null>(null);
   const activeVersionId = editingId ?? selectedVersionId;
+  const recordTeachers = useResource(
+    () => (selectedVersionId === null ? Promise.resolve([]) : listRecordTeachers(selectedVersionId)),
+    [selectedVersionId],
+  );
   const [recordAction, setRecordAction] = useState<"publish" | "copy" | null>(null);
   const [isRecordBusy, setIsRecordBusy] = useState(false);
   const [recordError, setRecordError] = useState<string | null>(null);
@@ -842,6 +848,18 @@ export default function TimetableView(): ReactElement {
   );
   const versions = versionsResource.data ?? [];
   const selectedVersion = versions.find((version) => version.id === selectedVersionId);
+  // The record's 導師 (its 教師設定): a tag under a class's grid, and their
+  // name as a tag on the lessons they teach that class.
+  const homeroomByClass = new Map(
+    (recordTeachers.data ?? [])
+      .filter((teacher) => teacher.homeroom_class_id !== null)
+      .map((teacher) => [teacher.homeroom_class_id as number, teacher]),
+  );
+  const homeroomTeacherByClass = new Map(
+    [...homeroomByClass].map(([classId, teacher]) => [classId, teacher.teacher_id]),
+  );
+  const homeroomOfSelectedClass =
+    viewMode === "class" && selectedTargetId !== null ? homeroomByClass.get(selectedTargetId) : undefined;
   // Editing is only ever in effect for a 教學組長 in a working copy.
   const isEditing = isEditModeOn;
   // 換教師 is only for a copied timetable (複製自編號 x).
@@ -1342,6 +1360,7 @@ export default function TimetableView(): ReactElement {
 
           {timetable.data !== null && selectedTargetId !== null && (
             <TimetableGrid
+              homeroomTeacherByClass={homeroomTeacherByClass}
               periods={periods}
               periodDisplay={periodDisplay}
               schedules={schedules}
@@ -1374,6 +1393,11 @@ export default function TimetableView(): ReactElement {
                   : null
               }
             />
+          )}
+          {viewMode === "class" && selectedTargetId !== null && homeroomOfSelectedClass !== undefined && (
+            <p className="mt-2">
+              <span className={HOMEROOM_TAG}>導師：{homeroomOfSelectedClass.teacher_name}</span>
+            </p>
           )}
           {isEditing && shownCandidateSourceId !== null && candidateState.status === "failed" && (
             <p className={`${MUTED_TEXT} mt-2`}>目前無法顯示候選位置，仍可直接放下並預覽</p>

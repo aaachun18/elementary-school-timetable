@@ -11,10 +11,17 @@ import TeachersStep from "../components/wizard/TeachersStep";
 import { extractApiErrorMessage } from "../constants/errorMessages";
 import { formatSemesterLabel } from "../utils/scheduleVersionFormat";
 import { WIZARD_STEPS, isWizardStep, type WizardStepKey } from "../utils/wizard";
-import { readRememberedWizardRecord, rememberWizardRecord } from "../utils/wizardRecord";
+import {
+  forgetWizardRecord,
+  readRememberedWizardRecord,
+  readRememberedWizardStep,
+  rememberWizardRecord,
+  rememberWizardStep,
+} from "../utils/wizardRecord";
 import type { ScheduleVersion } from "../types/scheduleVersion";
 import {
   BUTTON_PRIMARY,
+  BUTTON_SECONDARY_SM,
   ERROR_TEXT,
   HELP_TEXT,
   LINK_TEXT,
@@ -36,9 +43,9 @@ function parseId(raw: string | null): number | null {
   return Number.isInteger(parsed) ? parsed : null;
 }
 
-// The record named by ?record= (檢視排課設定 > 修改排課設定) or, with ?step=,
-// the remembered one -- loaded with its semester's label. A record that is
-// no longer 尚未排課 can't be edited here.
+// The record named by ?record= (檢視排課設定 > 修改排課設定) or else the
+// remembered one -- loaded with its semester's label. A record that is no
+// longer 尚未排課 can't be edited here.
 async function loadRecord(recordId: number): Promise<{ record: WizardRecord; isEditable: boolean }> {
   const [version, semesters, academicYears] = await Promise.all([
     getRecord(recordId),
@@ -65,8 +72,11 @@ async function loadRecord(recordId: number): Promise<{ record: WizardRecord; isE
 export default function SchedulingWizard(): ReactElement {
   const [searchParams] = useSearchParams();
   const requestedStep = searchParams.get("step");
-  const requestedRecordId =
-    parseId(searchParams.get("record")) ?? (isWizardStep(requestedStep) ? readRememberedWizardRecord() : null);
+  const explicitRecordId = parseId(searchParams.get("record"));
+  // Without ?record=, coming back to 開始排課 resumes the record (and the
+  // step) left unfinished.
+  const isResuming = explicitRecordId === null;
+  const requestedRecordId = explicitRecordId ?? readRememberedWizardRecord();
   const [record, setRecord] = useState<WizardRecord | null>(null);
   const [isLoading, setIsLoading] = useState(requestedRecordId !== null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -85,14 +95,31 @@ export default function SchedulingWizard(): ReactElement {
         }
         if (isEditable) {
           rememberWizardRecord(loaded.id);
+          const resumedStep = isResuming ? readRememberedWizardStep() : null;
+          const nextStep =
+            isWizardStep(requestedStep) && requestedStep !== "semester"
+              ? requestedStep
+              : resumedStep !== null && resumedStep !== "semester"
+                ? resumedStep
+                : "teachers";
+          rememberWizardStep(nextStep);
           setRecord(loaded);
-          setStep(isWizardStep(requestedStep) && requestedStep !== "semester" ? requestedStep : "teachers");
+          setStep(nextStep);
+        } else if (isResuming) {
+          // Scheduled since (e.g. from 排課紀錄): nothing left to resume.
+          forgetWizardRecord();
         } else {
           setLockedRecord(loaded);
         }
       })
       .catch((caught: unknown) => {
-        if (isCurrent) {
+        if (!isCurrent) {
+          return;
+        }
+        if (isResuming) {
+          // Deleted since, or another account's record: start afresh.
+          forgetWizardRecord();
+        } else {
           setLoadError(extractApiErrorMessage(caught));
         }
       })
@@ -104,16 +131,22 @@ export default function SchedulingWizard(): ReactElement {
     return () => {
       isCurrent = false;
     };
-  }, [requestedRecordId, requestedStep]);
+  }, [requestedRecordId, requestedStep, isResuming]);
 
   function go(next: WizardStepKey): void {
+    if (next !== "semester") {
+      rememberWizardStep(next);
+    }
     setStep(next);
     window.scrollTo({ top: 0 });
   }
 
+  // 另開新的排課: the unfinished record stays in 排課紀錄 (尚未排課).
   function startNew(): void {
+    forgetWizardRecord();
     setRecord(null);
     setLockedRecord(null);
+    setLoadError(null);
     go("semester");
   }
 
@@ -154,7 +187,7 @@ export default function SchedulingWizard(): ReactElement {
       {step === null ? (
         <div>
           <p className={HELP_TEXT}>
-            依序設定學年度與學期、參與的老師、年級可排節次與科目需求，最後由系統自動排課。每次開始排課都會新增一筆「尚未排課」的排課紀錄，每一步都會先存進這筆紀錄，可以隨時離開，之後從排課紀錄的「檢視排課設定」繼續。班級與各年級的科目節數請先在「學校資料」維護。
+            依序設定學年度與學期、參與的老師、年級可排節次與科目需求，最後由系統自動排課。每次開始排課都會新增一筆「尚未排課」的排課紀錄，每一步都會先存進這筆紀錄，可以隨時離開，回到「開始排課」會自動接續上次的步驟（也可以從排課紀錄的「檢視排課設定」繼續）。班級與各年級的科目節數請先在「學校資料」維護。
           </p>
           <button type="button" onClick={startNew} className={BUTTON_PRIMARY}>
             開始排課 →
@@ -189,9 +222,14 @@ export default function SchedulingWizard(): ReactElement {
             })}
           </ol>
           {record !== null && step !== "semester" && (
-            <p className="mb-2 text-sm text-gray-700">
-              排課紀錄編號 {record.versionNumber}・{record.semesterLabel}（尚未排課）
-            </p>
+            <div className="mb-2 flex flex-wrap items-center gap-3 text-sm text-gray-700">
+              <span>
+                排課紀錄編號 {record.versionNumber}・{record.semesterLabel}（尚未排課）
+              </span>
+              <button type="button" onClick={startNew} className={BUTTON_SECONDARY_SM}>
+                另開新的排課
+              </button>
+            </div>
           )}
           <h2 className={SECTION_TITLE}>{WIZARD_STEPS[stepIndex]?.label}</h2>
           {step === "semester" && (

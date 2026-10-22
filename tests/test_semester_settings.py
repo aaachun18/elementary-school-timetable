@@ -92,9 +92,10 @@ def test_teachers_taking_part_are_saved_with_their_settings(client: TestClient) 
     assert response.json() == client.get(f"{RECORDS}/{record_id}/teachers").json()
     assert response.json() == [
         {"teacher_id": wang, "teacher_name": "王老師", "min_weekly_periods": 0,
-         "max_weekly_periods": 10, "unavailable_time_slot_ids": []},
+         "max_weekly_periods": 10, "unavailable_time_slot_ids": [], "homeroom_class_id": None},
         {"teacher_id": lin, "teacher_name": "林老師", "min_weekly_periods": 2,
-         "max_weekly_periods": 18, "unavailable_time_slot_ids": sorted([slot_a, slot_b])},
+         "max_weekly_periods": 18, "unavailable_time_slot_ids": sorted([slot_a, slot_b]),
+         "homeroom_class_id": None},
     ]
 
 

@@ -318,9 +318,12 @@ def run_scheduler(
     assert result is not None  # exactly one of the two fields is populated
 
     if result.success:
+        preferred = outcome.preferred_periods
         return SchedulerRunResult(
             scheduled_count=len(result.state.assignments) if result.state else 0,
             backtrack_count=result.backtrack_count,
+            preferred_period_score=preferred.score_after if preferred else 0,
+            preferred_period_lesson_count=preferred.preferred_lesson_count if preferred else 0,
         )
 
     # failure_type is None only in the one non-search-level failure case:

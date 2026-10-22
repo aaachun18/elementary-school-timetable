@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react";
+import { useId, useState, type ReactElement } from "react";
 import {
   create as createRequirement,
   list as listRequirements,
@@ -6,18 +6,21 @@ import {
   update as updateRequirement,
 } from "../../api/gradeSubjectRequirements";
 import { list as listGrades } from "../../api/grades";
-import { list as listSubjects } from "../../api/subjects";
+import { create as createSubject, list as listSubjects } from "../../api/subjects";
 import { extractApiErrorMessage } from "../../constants/errorMessages";
 import { useResource } from "../../hooks/useResource";
 import type { Grade } from "../../types/grade";
 import type { GradeSubjectRequirement } from "../../types/gradeSubjectRequirement";
 import type { Subject } from "../../types/subject";
+import { findSubjectByName, normalizeSubjectName } from "../../utils/subjectName";
 import { WEEKLY_PERIOD_OPTIONS } from "../../utils/wizard";
+import ConfirmDialog from "../ConfirmDialog";
 import {
   BUTTON_DANGER_SM,
   BUTTON_PRIMARY,
   ERROR_TEXT,
   HELP_TEXT,
+  INPUT,
   LABEL,
   LOADING_TEXT,
   SELECT,
@@ -34,6 +37,8 @@ const DEFAULT_WEEKLY_PERIODS = 1;
 // 學校資料 > 科目需求: how many periods a week every class of a grade
 // needs of each subject (1-6). 開始排課's 科目需求 step copies these into
 // the semester; there only the lesson pattern, teacher and room are set.
+// 「新增科目需求」 opens a dialog where the subject's name is typed freely:
+// a name the school doesn't have yet also creates that subject.
 export default function GradeRequirementsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
   const grades = useResource(() => listGrades(0, 1000), []);
   const subjects = useResource(() => listSubjects(0, 1000), []);
@@ -61,6 +66,7 @@ export default function GradeRequirementsTab({ isAdmin }: { isAdmin: boolean }):
       subjects={subjects.data}
       requirements={requirements.data}
       onChanged={requirements.reload}
+      onSubjectsChanged={subjects.reload}
     />
   );
 }
@@ -71,23 +77,24 @@ function GradeRequirementsEditor({
   subjects,
   requirements,
   onChanged,
+  onSubjectsChanged,
 }: {
   isAdmin: boolean;
   grades: readonly Grade[];
   subjects: readonly Subject[];
   requirements: readonly GradeSubjectRequirement[];
   onChanged: () => void;
+  onSubjectsChanged: () => void;
 }): ReactElement {
   const [gradeId, setGradeId] = useState<number>(grades[0].id);
-  const [newSubjectId, setNewSubjectId] = useState<number | null>(null);
-  const [newWeeklyPeriods, setNewWeeklyPeriods] = useState(DEFAULT_WEEKLY_PERIODS);
+  const [isAdding, setIsAdding] = useState(false);
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const subjectName = new Map(subjects.map((subject) => [subject.id, subject.name]));
   const gradeRequirements = requirements.filter((requirement) => requirement.grade_id === gradeId);
   const usedSubjectIds = new Set(gradeRequirements.map((requirement) => requirement.subject_id));
-  const addableSubjects = subjects.filter((subject) => subject.is_active && !usedSubjectIds.has(subject.id));
+  const gradeName = grades.find((grade) => grade.id === gradeId)?.name ?? "";
 
   async function run(action: () => Promise<unknown>): Promise<boolean> {
     setIsPending(true);
@@ -101,19 +108,6 @@ function GradeRequirementsEditor({
       return false;
     } finally {
       setIsPending(false);
-    }
-  }
-
-  async function handleAdd(): Promise<void> {
-    if (newSubjectId === null) {
-      return;
-    }
-    const added = await run(() =>
-      createRequirement({ grade_id: gradeId, subject_id: newSubjectId, weekly_periods: newWeeklyPeriods }),
-    );
-    if (added) {
-      setNewSubjectId(null);
-      setNewWeeklyPeriods(DEFAULT_WEEKLY_PERIODS);
     }
   }
 
@@ -133,10 +127,7 @@ function GradeRequirementsEditor({
         <span className={LABEL}>年級</span>
         <select
           value={gradeId}
-          onChange={(event) => {
-            setGradeId(Number(event.target.value));
-            setNewSubjectId(null);
-          }}
+          onChange={(event) => setGradeId(Number(event.target.value))}
           aria-label="年級"
           className={`${SELECT} w-40`}
         >
@@ -213,50 +204,130 @@ function GradeRequirementsEditor({
         </table>
       </div>
       {isAdmin && (
-        <div className="mt-3 flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1">
-            <span className={LABEL}>科目</span>
-            <select
-              value={newSubjectId ?? ""}
-              onChange={(event) => setNewSubjectId(event.target.value === "" ? null : Number(event.target.value))}
-              disabled={isPending}
-              aria-label="新增科目"
-              className={`${SELECT} w-40`}
-            >
-              <option value="">請選擇科目</option>
-              {addableSubjects.map((subject) => (
-                <option key={subject.id} value={subject.id}>
-                  {subject.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className={LABEL}>每週節數</span>
-            <select
-              value={newWeeklyPeriods}
-              onChange={(event) => setNewWeeklyPeriods(Number(event.target.value))}
-              disabled={isPending}
-              aria-label="新增每週節數"
-              className={`${SELECT} w-24`}
-            >
-              {WEEKLY_PERIOD_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option} 節
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            onClick={() => void handleAdd()}
-            disabled={isPending || newSubjectId === null}
-            className={BUTTON_PRIMARY}
-          >
+        <p className="mt-3">
+          <button type="button" onClick={() => setIsAdding(true)} disabled={isPending} className={BUTTON_PRIMARY}>
             新增科目需求
           </button>
-        </div>
+        </p>
+      )}
+      {isAdding && (
+        <RequirementCreateDialog
+          gradeId={gradeId}
+          gradeName={gradeName}
+          subjects={subjects}
+          usedSubjectIds={usedSubjectIds}
+          onSaved={() => {
+            setIsAdding(false);
+            onSubjectsChanged();
+            onChanged();
+          }}
+          onCancel={() => setIsAdding(false)}
+        />
       )}
     </div>
+  );
+}
+
+// 「新增科目需求」's dialog: the subject's name -- typed freely, the school's
+// subjects this grade doesn't have yet offered as suggestions -- and its
+// weekly periods. A new name creates that subject first.
+function RequirementCreateDialog({
+  gradeId,
+  gradeName,
+  subjects,
+  usedSubjectIds,
+  onSaved,
+  onCancel,
+}: {
+  gradeId: number;
+  gradeName: string;
+  subjects: readonly Subject[];
+  usedSubjectIds: ReadonlySet<number>;
+  onSaved: () => void;
+  onCancel: () => void;
+}): ReactElement {
+  const suggestionsId = useId();
+  const [name, setName] = useState("");
+  const [weeklyPeriods, setWeeklyPeriods] = useState(DEFAULT_WEEKLY_PERIODS);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const suggestions = subjects.filter((subject) => subject.is_active && !usedSubjectIds.has(subject.id));
+
+  async function handleSave(): Promise<void> {
+    const subjectName = normalizeSubjectName(name);
+    const existing = findSubjectByName(subjects, subjectName);
+    if (existing !== undefined && usedSubjectIds.has(existing.id)) {
+      setError(`${gradeName}已經有「${subjectName}」的科目需求。`);
+      return;
+    }
+    if (existing !== undefined && !existing.is_active) {
+      setError(`科目「${subjectName}」已停用，請先到「科目」頁籤啟用。`);
+      return;
+    }
+    setIsSaving(true);
+    setError(null);
+    try {
+      const subject = existing ?? (await createSubject({ name: subjectName }));
+      await createRequirement({ grade_id: gradeId, subject_id: subject.id, weekly_periods: weeklyPeriods });
+      onSaved();
+    } catch (caught) {
+      setError(extractApiErrorMessage(caught));
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <ConfirmDialog
+      open
+      title={`新增${gradeName}的科目需求`}
+      confirmLabel="儲存"
+      busy={isSaving}
+      busyLabel="儲存中…"
+      confirmDisabled={normalizeSubjectName(name) === ""}
+      onConfirm={() => void handleSave()}
+      onCancel={onCancel}
+    >
+      <label className="flex flex-col gap-1">
+        <span className={LABEL}>科目名稱</span>
+        <input
+          value={name}
+          onChange={(event) => {
+            setName(event.target.value);
+            setError(null);
+          }}
+          disabled={isSaving}
+          list={suggestionsId}
+          placeholder="可直接輸入新科目，例如：書法"
+          aria-label="科目名稱"
+          className={INPUT}
+        />
+        <datalist id={suggestionsId}>
+          {suggestions.map((subject) => (
+            <option key={subject.id} value={subject.name} />
+          ))}
+        </datalist>
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className={LABEL}>每週節數</span>
+        <select
+          value={weeklyPeriods}
+          onChange={(event) => setWeeklyPeriods(Number(event.target.value))}
+          disabled={isSaving}
+          aria-label="每週節數"
+          className={`${SELECT} w-24`}
+        >
+          {WEEKLY_PERIOD_OPTIONS.map((option) => (
+            <option key={option} value={option}>
+              {option} 節
+            </option>
+          ))}
+        </select>
+      </label>
+      {error !== null && (
+        <p role="alert" className={ERROR_TEXT}>
+          {error}
+        </p>
+      )}
+    </ConfirmDialog>
   );
 }

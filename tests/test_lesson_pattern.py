@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models.lesson import Lesson
 from app.services.lesson_pattern import (
+    BLOCK_COUNT_MESSAGE,
     BLOCK_SIZE_MESSAGE,
     FORMAT_MESSAGE,
     TOTAL_MESSAGE,
@@ -57,6 +58,14 @@ def test_normalize_rejects_bad_format(bad: str) -> None:
 def test_normalize_rejects_blocks_outside_1_to_3(bad: str) -> None:
     with pytest.raises(ValueError, match=re.escape(BLOCK_SIZE_MESSAGE)):
         normalize_lesson_pattern(bad)
+
+
+def test_normalize_allows_at_most_five_blocks() -> None:
+    """A week has 5 school days and every block goes on its own day."""
+    assert normalize_lesson_pattern("2+1+1+1+1") == "2+1+1+1+1"
+    assert normalize_lesson_pattern("1+1+1+1+1") == "1+1+1+1+1"
+    with pytest.raises(ValueError, match=re.escape(BLOCK_COUNT_MESSAGE)):
+        normalize_lesson_pattern("1+1+1+1+1+1")
 
 
 def test_check_pattern_total() -> None:

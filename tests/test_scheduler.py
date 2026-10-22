@@ -118,6 +118,26 @@ def test_run_scheduler_success(client: TestClient) -> None:
         assert schedule["time_slot_id"] is not None
 
 
+def test_run_scheduler_moves_the_record_to_newest(client: TestClient) -> None:
+    """A 尚未排課 record made earlier becomes the newest once scheduled: the
+    next serial (編號 1 on screen) and a fresh 建立時間."""
+    _, version_id = _build_schedulable_semester(client, year=3002)
+    semester_id = client.get(f"/api/v1/schedule-versions/{version_id}").json()["semester_id"]
+    later_id = create_record(client, semester_id)
+    before = client.get(f"/api/v1/schedule-versions/{version_id}").json()
+    later = client.get(f"/api/v1/schedule-versions/{later_id}").json()
+    assert before["display_number"] == 2
+
+    response = client.post(f"/api/v1/schedule-versions/{version_id}/run-scheduler")
+
+    assert response.status_code == 200
+    after = client.get(f"/api/v1/schedule-versions/{version_id}").json()
+    assert after["display_number"] == 1
+    assert after["version_number"] > later["version_number"]
+    assert after["created_at"] >= later["created_at"]
+    assert client.get(f"/api/v1/schedule-versions/{later_id}").json()["display_number"] == 2
+
+
 # --- Failure path: no qualified teacher -> DEFINITELY_INFEASIBLE, atomic ---
 
 

@@ -30,8 +30,15 @@ describe("lessonPatternOptions", () => {
   it("leaves out patterns with more blocks than teaching days", () => {
     expect(values(3, 2)).toEqual([NO_PATTERN, "2+1", "3"]);
     expect(values(5, 2)).toEqual([NO_PATTERN, "3+2"]);
-    // Unknown days: nothing is filtered.
+    // Unknown days: only the 5-day week limit applies.
     expect(values(5, null)).toContain("1+1+1+1+1");
+  });
+
+  it("never offers more than 5 blocks, one per school day", () => {
+    const six = values(6, null);
+    expect(six).not.toContain("1+1+1+1+1+1");
+    expect(six).toContain("2+1+1+1+1");
+    expect(values(6, 7)).not.toContain("1+1+1+1+1+1");
   });
 
   it("offers nothing for one lesson a week or no valid number", () => {

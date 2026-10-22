@@ -45,10 +45,14 @@ class LessonFailureDetail(BaseModel):
 
 
 class SchedulerRunResult(BaseModel):
-    """200 response: the scheduler placed every Lesson successfully."""
+    """200 response: the scheduler placed every Lesson successfully.
+    preferred_period_*: the soft constraint -- how many of the 國語文 / 數學
+    lessons ended up in 第 1–2 節, out of how many there are."""
 
     scheduled_count: int
     backtrack_count: int
+    preferred_period_score: int = 0
+    preferred_period_lesson_count: int = 0
 
 
 class SchedulerFailureDetail(BaseModel):

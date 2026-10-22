@@ -93,12 +93,17 @@ export const LOCK_BADGE =
   "inline-flex items-center gap-1 rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-700";
 export const BADGE_SUCCESS = "inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700";
 export const BADGE_NEUTRAL = "inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600";
+// A 導師's class next to the teacher (教師設定), and the 導師's name on the
+// timetable (導師 tag below a class's grid, and on every lesson they teach
+// that class).
+export const HOMEROOM_TAG =
+  "inline-flex items-center rounded-full bg-teal-50 px-2 py-0.5 text-xs font-medium text-teal-700";
 // 排課紀錄 status pills (utils/scheduleVersionFormat.ts): 自動排課 uses the
-// accent blue (BADGE_INFO), 手動排課 amber yellow (BADGE_MANUAL), 已發布
-// BADGE_SUCCESS, 尚未排課 BADGE_WARNING.
+// accent blue (BADGE_INFO), 手動排課 pale violet (BADGE_MANUAL), 已發布
+// BADGE_SUCCESS, 尚未排課 BADGE_WARNING -- all the same light shade.
 export const BADGE_INFO = "inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700";
-// A solid amber yellow, clearly stronger than BADGE_WARNING's pale amber.
-export const BADGE_MANUAL = "inline-flex items-center rounded-full bg-amber-400 px-2 py-0.5 text-xs font-medium text-amber-950";
+// Pale violet: as light as the other status pills, and a hue none of them use.
+export const BADGE_MANUAL = "inline-flex items-center rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700";
 // Task 90: a WARNING (e.g. a teacher below the minimum weekly periods) --
 // amber like NOTICE, never the red of an error.
 export const BADGE_WARNING = "inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800";
@@ -173,6 +178,11 @@ export const DROP_ZONE_BLOCKED =
 
 // Task 78: the row header (節次) column. Full constants rather than TH plus
 // extra classes, so two background/text colors never compete.
+// The weekly grid: fixed layout so Monday-Friday are always equally wide,
+// each at least 11rem -- wide enough for 「本土語文／臺灣手語」 on one line in
+// a lesson button -- after a 5rem 節次 column.
+export const TIMETABLE_TABLE = "w-full min-w-[60rem] table-fixed border-collapse text-sm";
+export const TIMETABLE_PERIOD_COLUMN = "w-20";
 export const TIMETABLE_ROW_HEADER =
   "border-b border-gray-200 bg-white px-3 py-2 text-left font-medium text-gray-600 whitespace-nowrap";
 // Non-teaching rows (早自習/午休/放學): a clearly darker gray than the

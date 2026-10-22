@@ -61,6 +61,7 @@ def enroll_teacher(
             "min_weekly_periods": item["min_weekly_periods"],
             "max_weekly_periods": item["max_weekly_periods"],
             "unavailable_time_slot_ids": item["unavailable_time_slot_ids"],
+            "homeroom_class_id": item["homeroom_class_id"],
         }
         for item in current
         if item["teacher_id"] != teacher_id

@@ -6,6 +6,8 @@ export interface SemesterTeacherEntry {
   min_weekly_periods: number;
   max_weekly_periods: number;
   unavailable_time_slot_ids: number[];
+  // The class this teacher is 導師 of in the record, if any.
+  homeroom_class_id: number | null;
 }
 
 export interface SemesterTeacher extends SemesterTeacherEntry {

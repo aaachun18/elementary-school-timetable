@@ -46,6 +46,18 @@ PUBLISH_WITHOUT_TIMETABLE_MESSAGE = "這筆排課紀錄還沒有課表，無法�
 # --- the two locks ---
 
 
+def lock_record_for_settings(db: Session, schedule_version: ScheduleVersion) -> None:
+    """Re-reads the record with a row lock (SELECT ... FOR UPDATE) held until
+    the transaction ends, then checks it is still 尚未排課. A settings write
+    that replaces rows (delete + insert, or the requirement sync) calls this
+    first: two such requests for the same record -- e.g. the wizard step
+    opened twice at once -- then run one after the other, the second seeing
+    what the first committed, instead of both inserting the same rows and
+    one failing on the unique constraint."""
+    db.refresh(schedule_version, with_for_update=True)
+    raise_if_settings_locked(schedule_version)
+
+
 def raise_if_settings_locked(schedule_version: ScheduleVersion) -> None:
     """Settings change only while the record is 尚未排課."""
     if schedule_version.status != NOT_SCHEDULED:
@@ -83,6 +95,27 @@ def next_version_number(db: Session, school_id: int) -> int:
         )
     )
     return 1 if current_max is None else current_max + 1
+
+
+def stage_move_to_newest(db: Session, schedule_version: ScheduleVersion) -> None:
+    """Staged, not committed: the record becomes the school's newest -- the
+    next serial and a fresh 建立時間 -- so 排課紀錄 lists it first with 編號 1.
+    Used when a 尚未排課 record gets its timetable: the record was made when
+    the wizard started, but what people look for is when it was scheduled.
+    Copies pointing at its old serial follow it (copied_from_number), so
+    「複製自編號 x」 still names this record."""
+    old_number = schedule_version.version_number
+    new_number = next_version_number(db, schedule_version.school_id)
+    if old_number is not None and old_number + 1 != new_number:
+        for copy in db.scalars(
+            select(ScheduleVersion).where(
+                ScheduleVersion.school_id == schedule_version.school_id,
+                ScheduleVersion.copied_from_number == old_number,
+            )
+        ).all():
+            copy.copied_from_number = new_number
+        schedule_version.version_number = new_number
+    schedule_version.created_at = func.now()
 
 
 # --- standard CRUD ---

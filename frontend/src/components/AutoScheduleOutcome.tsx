@@ -6,14 +6,15 @@ import { ERROR_TEXT, LINK_TEXT, MUTED_TEXT, SUCCESS_TEXT } from "../styles/ui";
 
 // v3: what 自動排課 (hooks/useAutoSchedule.ts) came back with -- the
 // timetable's link on success, the reasons on failure (the record stays
-// 尚未排課, so its settings can be fixed and the run tried again).
+// 尚未排課, so its settings can be fixed and the run tried again). A
+// scheduled record becomes the school's newest, so its 編號 is then 1.
+const NEWEST_DISPLAY_NUMBER = 1;
+
 export default function AutoScheduleOutcome({
   versionId,
-  versionNumber,
   state,
 }: {
   versionId: number;
-  versionNumber: number | null;
   state: AutoScheduleState;
 }): ReactElement | null {
   if (state.isRunning) {
@@ -30,8 +31,14 @@ export default function AutoScheduleOutcome({
     return (
       <div className="mt-3">
         <p className={SUCCESS_TEXT}>
-          ✓ 排課完成：排定 {state.result.scheduled_count} 堂課（排課紀錄編號 {versionNumber}，自動排課）
+          ✓ 排課完成：排定 {state.result.scheduled_count} 堂課（已移到最新，排課紀錄編號 {NEWEST_DISPLAY_NUMBER}，自動排課）
         </p>
+        {state.result.preferred_period_lesson_count > 0 && (
+          <p className={`${MUTED_TEXT} mt-1`}>
+            國語文、數學排在第 1–2 節：{state.result.preferred_period_score} /{" "}
+            {state.result.preferred_period_lesson_count} 堂（在符合所有排課規則下盡量排在早上）
+          </p>
+        )}
         <p className="mt-1 flex flex-wrap gap-4 text-sm">
           <Link to={`/timetable?scheduleVersionId=${versionId}`} className={LINK_TEXT}>
             檢視課表

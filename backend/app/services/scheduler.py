@@ -36,6 +36,10 @@ from scheduling_engine.algorithms.backtracking import (  # noqa: E402
     BacktrackingResult,
     schedule_backtracking,
 )
+from scheduling_engine.algorithms.preferred_periods import (  # noqa: E402
+    PreferredPeriodsResult,
+    optimize_preferred_periods,
+)
 from scheduling_engine.algorithms.resources import (  # noqa: E402
     LessonFailure,
     SchedulingResources,
@@ -74,6 +78,8 @@ from app.models.subject import Subject
 from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
 from app.services.school_scope import in_school, school_id_of_version
+from app.services.schedule_version import stage_move_to_newest
+from app.services.school_structure import MANDARIN, MATHEMATICS
 from app.services.exceptions import (
     ScheduleVersionAlreadyScheduledError,
     raise_for_integrity_error,
@@ -426,6 +432,25 @@ class SchedulerRunOutcome:
     static_violations: list[ConstraintViolation] | None
     static_lesson_failures: list[LessonFailure] | None
     search_result: BacktrackingResult | None
+    # On success only: the soft constraint pass (國語文、數學 in 第 1–2 節)
+    # that improved the search's timetable before it was written.
+    preferred_periods: PreferredPeriodsResult | None = None
+
+
+# The soft constraint's subjects, found by name (any school type).
+PREFERRED_PERIOD_SUBJECT_NAMES = (MANDARIN, MATHEMATICS)
+
+
+def preferred_subject_ids(db: Session, school_id: int) -> frozenset[int]:
+    """The school's subjects that should be in 第 1–2 節: 國語文 and 數學."""
+    return frozenset(
+        db.scalars(
+            select(Subject.id).where(
+                Subject.school_id == school_id,
+                Subject.name.in_(PREFERRED_PERIOD_SUBJECT_NAMES),
+            )
+        ).all()
+    )
 
 
 def run_scheduler(
@@ -480,8 +505,19 @@ def run_scheduler(
         )
 
     result = schedule_backtracking(lessons, resources)
+    preferred_periods: PreferredPeriodsResult | None = None
 
     if result.success and result.state is not None:
+        # Every hard constraint holds; now the soft one, school-wide: as
+        # many 國語文 / 數學 lessons as possible in 第 1–2 節, without
+        # breaking any hard constraint (engine: preferred_periods.py).
+        preferred_periods = optimize_preferred_periods(
+            result.state.assignments,
+            lessons,
+            resources,
+            preferred_subject_ids(db, school_id_of_version(db, schedule_version)),
+        )
+        result.state.assignments = preferred_periods.assignments
         # Task 81: never write a schedule that moved a fixed Lesson. Cannot
         # happen with the current candidate generation; an engine bug, not
         # a user-facing infeasibility, so it is raised (nothing written).
@@ -503,6 +539,8 @@ def run_scheduler(
         ]
         db.add_all(schedule_rows)
         schedule_version.status = AUTO
+        # Listed as made now: newest 編號 and 建立時間.
+        stage_move_to_newest(db, schedule_version)
         try:
             db.commit()
         except IntegrityError as exc:
@@ -510,5 +548,8 @@ def run_scheduler(
             raise_for_integrity_error(exc)
 
     return SchedulerRunOutcome(
-        static_violations=None, static_lesson_failures=None, search_result=result
+        static_violations=None,
+        static_lesson_failures=None,
+        search_result=result,
+        preferred_periods=preferred_periods,
     )

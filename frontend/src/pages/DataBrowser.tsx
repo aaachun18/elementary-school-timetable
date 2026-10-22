@@ -24,6 +24,7 @@ import { isCurrentUserCoordinator } from "../utils/auth";
 import { SCHOOL_TYPES, SCHOOL_TYPE_LABELS, type SchoolType } from "../utils/schoolStructure";
 import ClassesTab from "../components/schoolData/ClassesTab";
 import GradeRequirementsTab from "../components/schoolData/GradeRequirementsTab";
+import NameCreateDialog from "../components/schoolData/NameCreateDialog";
 import TimeSlotsTab from "../components/schoolData/TimeSlotsTab";
 import type { School, SchoolCreate, SchoolUpdate } from "../types/school";
 import type { Subject, SubjectCreate, SubjectUpdate } from "../types/subject";
@@ -345,49 +346,6 @@ export function SchoolsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
   );
 }
 
-function SubjectNewRow({
-  isPending,
-  errorMessage,
-  onConfirm,
-  onCancel,
-}: {
-  isPending: boolean;
-  errorMessage: string | null;
-  onConfirm: (data: SubjectCreate) => void;
-  onCancel: () => void;
-}): ReactElement {
-  const [name, setName] = useState("");
-
-  return (
-    <tr data-row-key="new" className={TR_HOVER}>
-      <td className={TD}>
-        <input
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          disabled={isPending}
-          aria-label="科目名稱"
-        className={INPUT}
-        />
-      </td>
-      <td className={`${TD} text-gray-400`}>啟用中（新增時固定）</td>
-      <td className={TD}>
-        <button
-          type="button"
-          onClick={() => onConfirm({ name })}
-          disabled={isPending || name.trim() === ""}
-          className={BUTTON_PRIMARY_SM}
-        >
-          {isPending ? "送出中…" : "確認"}
-        </button>
-        <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
-          取消
-        </button>
-        {errorMessage !== null && <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>}
-      </td>
-    </tr>
-  );
-}
-
 function SubjectRow({
   subject,
   isAdmin,
@@ -527,14 +485,6 @@ function SubjectsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
               </tr>
             </thead>
             <tbody onChange={crud.handleRowChange}>
-              {crud.isAdding && (
-                <SubjectNewRow
-                  isPending={crud.pendingKey === "new"}
-                  errorMessage={crud.rowErrors.get("new") ?? null}
-                  onConfirm={(data) => void crud.submitCreate(data)}
-                  onCancel={crud.cancelAdding}
-                />
-              )}
               {crud.items.map((subject) => (
                 <SubjectRow
                   key={subject.id}
@@ -552,57 +502,19 @@ function SubjectsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
             </tbody>
           </table>
           </div>
+          {crud.isAdding && (
+            <NameCreateDialog
+              title="新增科目"
+              label="科目名稱"
+              busy={crud.pendingKey === "new"}
+              errorMessage={crud.rowErrors.get("new") ?? null}
+              onSave={(name) => void crud.submitCreate({ name })}
+              onCancel={crud.cancelAdding}
+            />
+          )}
         </>
       )}
     </div>
-  );
-}
-
-function RoomNewRow({
-  isPending,
-  errorMessage,
-  onConfirm,
-  onCancel,
-}: {
-  isPending: boolean;
-  errorMessage: string | null;
-  onConfirm: (data: RoomCreate) => void;
-  onCancel: () => void;
-}): ReactElement {
-  const [name, setName] = useState("");
-
-  function handleConfirm(): void {
-    onConfirm({ name });
-  }
-
-  return (
-    <tr data-row-key="new" className={TR_HOVER}>
-      <td className={TD}>
-        <input
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          disabled={isPending}
-          aria-label="教室名稱"
-          placeholder="這間教室自己的名字"
-        className={INPUT}
-        />
-      </td>
-      <td className={`${TD} text-gray-400`}>啟用中（新增時固定）</td>
-      <td className={TD}>
-        <button
-          type="button"
-          onClick={handleConfirm}
-          disabled={isPending || name.trim() === ""}
-          className={BUTTON_PRIMARY_SM}
-        >
-          {isPending ? "送出中…" : "確認"}
-        </button>
-        <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
-          取消
-        </button>
-        {errorMessage !== null && <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>}
-      </td>
-    </tr>
   );
 }
 
@@ -753,14 +665,6 @@ function RoomsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
               </tr>
             </thead>
             <tbody onChange={crud.handleRowChange}>
-              {crud.isAdding && (
-                <RoomNewRow
-                  isPending={crud.pendingKey === "new"}
-                  errorMessage={crud.rowErrors.get("new") ?? null}
-                  onConfirm={(data) => void crud.submitCreate(data)}
-                  onCancel={crud.cancelAdding}
-                />
-              )}
               {crud.items.map((room) => (
                 <RoomRow
                   key={room.id}
@@ -778,6 +682,17 @@ function RoomsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
             </tbody>
           </table>
           </div>
+          {crud.isAdding && (
+            <NameCreateDialog
+              title="新增教室"
+              label="教室名稱"
+              placeholder="這間教室自己的名字"
+              busy={crud.pendingKey === "new"}
+              errorMessage={crud.rowErrors.get("new") ?? null}
+              onSave={(name) => void crud.submitCreate({ name })}
+              onCancel={crud.cancelAdding}
+            />
+          )}
         </>
       )}
     </div>

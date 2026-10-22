@@ -22,6 +22,10 @@ export interface GenerateLessonsResponse {
 export interface RunSchedulerSuccessResponse {
   scheduled_count: number;
   backtrack_count: number;
+  // The soft constraint: 國語文 / 數學 lessons placed in 第 1–2 節, out of
+  // how many there are.
+  preferred_period_score: number;
+  preferred_period_lesson_count: number;
 }
 
 // Mirrors scheduling_engine.constraints.base.ConstraintViolation via

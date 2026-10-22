@@ -12,6 +12,7 @@ from app.services.teacher_periods import (
 # slots, and the slots each grade is open for.
 
 DUPLICATE_TEACHER_MESSAGE = "同一位教師只能出現一次"
+DUPLICATE_HOMEROOM_MESSAGE = "同一個班級只能有一位導師"
 EMPTY_GRADE_SLOTS_MESSAGE = "每個年級至少要開放一個可排節次"
 
 
@@ -20,6 +21,8 @@ class SemesterTeacherEntry(BaseModel):
     min_weekly_periods: int
     max_weekly_periods: int
     unavailable_time_slot_ids: list[int] = Field(default_factory=list)
+    # The class this teacher is 導師 of in the record, if any.
+    homeroom_class_id: int | None = None
 
     @field_validator("min_weekly_periods")
     @classmethod
@@ -50,6 +53,13 @@ class SemesterTeachersUpdate(BaseModel):
         teacher_ids = [entry.teacher_id for entry in self.teachers]
         if len(teacher_ids) != len(set(teacher_ids)):
             raise ValueError(DUPLICATE_TEACHER_MESSAGE)
+        homeroom_class_ids = [
+            entry.homeroom_class_id
+            for entry in self.teachers
+            if entry.homeroom_class_id is not None
+        ]
+        if len(homeroom_class_ids) != len(set(homeroom_class_ids)):
+            raise ValueError(DUPLICATE_HOMEROOM_MESSAGE)
         return self
 
 
@@ -59,6 +69,7 @@ class SemesterTeacherRead(BaseModel):
     min_weekly_periods: int
     max_weekly_periods: int
     unavailable_time_slot_ids: list[int]
+    homeroom_class_id: int | None
 
 
 class GradeTimeSlotsUpdate(BaseModel):
