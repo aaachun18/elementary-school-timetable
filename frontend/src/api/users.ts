@@ -1,5 +1,12 @@
 import { apiClient } from "./client";
-import type { PasswordReset, SameNameTeacher, User, UserCreate, UserUpdate } from "../types/user";
+import type {
+  PasswordReset,
+  SameNameTeacher,
+  User,
+  UserCreate,
+  UsernameAvailability,
+  UserUpdate,
+} from "../types/user";
 
 // Task 59: the account-management calls (backend/app/routers/users.py --
 // Task 98: the 系統管理員 and the 教學組長, each seeing only the accounts
@@ -13,7 +20,8 @@ export async function list(): Promise<User[]> {
 
 // Creating an account deliberately reuses POST /api/v1/auth/register
 // (Task 57) rather than a separate users endpoint. Its response has no
-// teacher_name, so the name the form sent is used for the new row.
+// teacher_name, so the name the form sent is used for the new row (the
+// page reloads the list afterwards for the rest of the teacher fields).
 interface RegisterResponse {
   id: number;
   username: string;
@@ -25,7 +33,17 @@ interface RegisterResponse {
 export async function create(data: UserCreate): Promise<User> {
   const response = await apiClient.post<RegisterResponse>("/api/v1/auth/register", data);
   const { id, username, role, is_active, school_id } = response.data;
-  return { id, username, role, is_active, school_id, teacher_name: data.teacher_name ?? null };
+  return {
+    id,
+    username,
+    role,
+    is_active,
+    school_id,
+    teacher_name: data.teacher_name ?? null,
+    teacher_id: null,
+    national_id_masked: null,
+    national_id_missing: false,
+  };
 }
 
 export async function update(userId: number, data: UserUpdate): Promise<User> {
@@ -51,7 +69,16 @@ export async function listSameNameTeachers(
   return response.data;
 }
 
-export async function setTeacherNationalId(teacherId: number, nationalId: string): Promise<SameNameTeacher> {
+// 新增帳號 checks the 帳號名稱 while it is typed (unique across schools).
+export async function isUsernameAvailable(username: string): Promise<boolean> {
+  const response = await apiClient.get<UsernameAvailability>("/api/v1/users/username-available", {
+    params: { username },
+  });
+  return response.data.available;
+}
+
+// null clears it (refused while the school has another teacher of the name).
+export async function setTeacherNationalId(teacherId: number, nationalId: string | null): Promise<SameNameTeacher> {
   const response = await apiClient.patch<SameNameTeacher>(`/api/v1/users/teachers/${teacherId}/national-id`, {
     national_id: nationalId,
   });

@@ -96,7 +96,7 @@ describe("combinedForDisplay", () => {
     expect(a.teacherName).toBe("王老師*、李老師");
     expect(a.specialRoomName).toBeNull();
     expect(b.teacherName).toBe("李老師*、王老師");
-    expect(b.specialRoomName).toBe("一年甲班原班教室");
+    expect(b.specialRoomName).toBe("一年甲班");
     expect(other).toEqual(single);
   });
 

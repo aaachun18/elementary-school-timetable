@@ -73,6 +73,7 @@ def test_create_class_duplicate_name_in_grade_is_409(client: TestClient) -> None
     response = _post_class(client, grade_id, "四年甲班")
 
     assert response.status_code == 409
+    assert response.json()["detail"] == "班級名稱重複，這個年級已經有同名的班級"
 
 
 def test_get_class_list_filters_by_grade(client: TestClient) -> None:
@@ -134,3 +135,61 @@ def test_create_class_invalid_grade_id(client: TestClient) -> None:
     response = _post_class(client, 999999, "一年甲班")
 
     assert response.status_code == 422
+
+
+# --- 批次新增 ---
+
+BATCH_URL = "/api/v1/classes/batch"
+
+
+def _batch(client: TestClient, grade_id: int, count: int, name_style: str = "HEAVENLY_STEM"):  # type: ignore[no-untyped-def]
+    return client.post(
+        BATCH_URL, json={"grade_id": grade_id, "name_style": name_style, "count": count}
+    )
+
+
+def test_batch_creates_the_next_names_after_existing_ones(client: TestClient) -> None:
+    grade_id = create_grade(client, "二年級", level=2)
+    assert _post_class(client, grade_id, "二年甲班").status_code == 201
+    assert _post_class(client, grade_id, "二年乙班").status_code == 201
+
+    response = _batch(client, grade_id, 3)
+
+    assert response.status_code == 201
+    assert [item["name"] for item in response.json()] == ["二年丙班", "二年丁班", "二年戊班"]
+
+
+def test_batch_fills_a_gap_first(client: TestClient) -> None:
+    grade_id = create_grade(client, "二年級", level=2)
+    assert _post_class(client, grade_id, "二年乙班").status_code == 201
+
+    response = _batch(client, grade_id, 2)
+
+    assert [item["name"] for item in response.json()] == ["二年甲班", "二年丙班"]
+
+
+def test_batch_limits_per_name_style(client: TestClient) -> None:
+    grade_id = create_grade(client, "一年級", level=1)
+
+    assert _batch(client, grade_id, 9, "VIRTUE").status_code == 422
+    assert _batch(client, grade_id, 8, "VIRTUE").status_code == 201
+    assert _batch(client, grade_id, 30, "NUMBER").status_code == 201
+    assert _batch(client, grade_id, 10, "HEAVENLY_STEM").status_code == 201
+
+
+def test_batch_more_than_left_creates_nothing(client: TestClient) -> None:
+    grade_id = create_grade(client, "一年級", level=1)
+    assert _batch(client, grade_id, 8).status_code == 201
+
+    response = _batch(client, grade_id, 3)
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "這個年級的此名稱類型最多只能再新增 2 班"
+    names = [item["name"] for item in client.get("/api/v1/classes/").json()]
+    assert len(names) == 8
+
+
+def test_batch_count_must_be_positive(client: TestClient) -> None:
+    grade_id = create_grade(client, "一年級", level=1)
+
+    assert _batch(client, grade_id, 0).status_code == 422

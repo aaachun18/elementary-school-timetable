@@ -11,6 +11,18 @@ export interface User {
   is_active: boolean;
   school_id: number | null;
   teacher_name: string | null;
+  // The account's Teacher (一般老師), for editing its 身分證字號.
+  teacher_id: number | null;
+  // 身分證字號 masked (A12****789) -- the API never sends the number.
+  national_id_masked: string | null;
+  // Another teacher of the school has the same name and this one has no
+  // 身分證字號 yet: shown as a warning next to the name.
+  national_id_missing: boolean;
+}
+
+// Mirrors backend/app/schemas/user.py::UsernameAvailability.
+export interface UsernameAvailability {
+  available: boolean;
 }
 
 // Mirrors backend/app/schemas/user.py::UserCreate -- the body of

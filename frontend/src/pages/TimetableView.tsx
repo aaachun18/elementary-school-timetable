@@ -912,11 +912,11 @@ export default function TimetableView(): ReactElement {
       : viewMode === "teacher"
         ? (teachersResource.data ?? []).map((item) => ({ id: item.id, label: item.name }))
         : [
-            // Every class's own classroom first (原班上課, no Room record),
-            // then the school's rooms.
+            // Every class's own classroom first (原班上課, no Room record;
+            // shown by the class's name alone), then the school's rooms.
             ...(classesResource.data ?? []).map((item) => ({
               id: homeroomTargetId(item.id),
-              label: `${item.name}（原班教室）`,
+              label: item.name,
             })),
             ...(roomsResource.data ?? []).map((item) => ({ id: item.id, label: item.name })),
           ];

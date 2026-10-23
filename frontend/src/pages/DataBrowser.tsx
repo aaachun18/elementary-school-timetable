@@ -18,6 +18,7 @@ import {
   update as updateRoom,
   remove as removeRoom,
 } from "../api/rooms";
+import { RowErrorText } from "../components/DeleteStepsHint";
 import { useResource } from "../hooks/useResource";
 import { useCrudList } from "../hooks/useCrudList";
 import { deleteConfirmOptions, useConfirm } from "../hooks/useConfirm";
@@ -112,6 +113,7 @@ function SchoolRow({
   isEditing,
   isPending,
   errorMessage,
+  deleteSteps,
   onStartEdit,
   onCancelEdit,
   onConfirmEdit,
@@ -122,6 +124,7 @@ function SchoolRow({
   isEditing: boolean;
   isPending: boolean;
   errorMessage: string | undefined;
+  deleteSteps: readonly string[] | undefined;
   onStartEdit: () => void;
   onCancelEdit: () => void;
   onConfirmEdit: (data: SchoolUpdate) => void;
@@ -190,9 +193,7 @@ function SchoolRow({
             </button>
           </div>
         )}
-        {errorMessage !== undefined && (
-          <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
-        )}
+        {errorMessage !== undefined && <RowErrorText message={errorMessage} deleteSteps={deleteSteps} />}
       </td>
     </tr>
   );
@@ -249,6 +250,7 @@ export function SchoolsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
                   isEditing={crud.editingId === school.id}
                   isPending={crud.pendingKey === school.id}
                   errorMessage={crud.rowErrors.get(school.id)}
+                  deleteSteps={crud.rowDeleteSteps.get(school.id)}
                   onStartEdit={() => crud.startEditing(school.id)}
                   onCancelEdit={crud.cancelEditing}
                   onConfirmEdit={(data) => void crud.submitUpdate(school.id, data)}
@@ -279,6 +281,7 @@ function SubjectRow({
   isEditing,
   isPending,
   errorMessage,
+  deleteSteps,
   onStartEdit,
   onCancelEdit,
   onConfirmEdit,
@@ -289,6 +292,7 @@ function SubjectRow({
   isEditing: boolean;
   isPending: boolean;
   errorMessage: string | undefined;
+  deleteSteps: readonly string[] | undefined;
   onStartEdit: () => void;
   onCancelEdit: () => void;
   onConfirmEdit: (data: SubjectUpdate) => void;
@@ -365,9 +369,7 @@ function SubjectRow({
             </button>
           </div>
         )}
-        {errorMessage !== undefined && (
-          <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
-        )}
+        {errorMessage !== undefined && <RowErrorText message={errorMessage} deleteSteps={deleteSteps} />}
       </td>
     </tr>
   );
@@ -423,6 +425,7 @@ function SubjectsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
                   isEditing={crud.editingId === subject.id}
                   isPending={crud.pendingKey === subject.id}
                   errorMessage={crud.rowErrors.get(subject.id)}
+                  deleteSteps={crud.rowDeleteSteps.get(subject.id)}
                   onStartEdit={() => crud.startEditing(subject.id)}
                   onCancelEdit={crud.cancelEditing}
                   onConfirmEdit={(data) => void crud.submitUpdate(subject.id, data)}
@@ -455,6 +458,7 @@ function RoomRow({
   isEditing,
   isPending,
   errorMessage,
+  deleteSteps,
   onStartEdit,
   onCancelEdit,
   onConfirmEdit,
@@ -465,6 +469,7 @@ function RoomRow({
   isEditing: boolean;
   isPending: boolean;
   errorMessage: string | undefined;
+  deleteSteps: readonly string[] | undefined;
   onStartEdit: () => void;
   onCancelEdit: () => void;
   onConfirmEdit: (data: RoomUpdate) => void;
@@ -565,9 +570,7 @@ function RoomRow({
             </button>
           </div>
         )}
-        {errorMessage !== undefined && (
-          <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
-        )}
+        {errorMessage !== undefined && <RowErrorText message={errorMessage} deleteSteps={deleteSteps} />}
       </td>
     </tr>
   );
@@ -627,6 +630,7 @@ function RoomsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
                   isEditing={crud.editingId === room.id}
                   isPending={crud.pendingKey === room.id}
                   errorMessage={crud.rowErrors.get(room.id)}
+                  deleteSteps={crud.rowDeleteSteps.get(room.id)}
                   onStartEdit={() => crud.startEditing(room.id)}
                   onCancelEdit={crud.cancelEditing}
                   onConfirmEdit={(data) => void crud.submitUpdate(room.id, data)}

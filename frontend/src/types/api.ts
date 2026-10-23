@@ -5,4 +5,6 @@
 // piece every error-handling call site can rely on).
 export interface ApiErrorResponse {
   detail: string;
+  // Only on 「此資料仍被其他資料參照，無法刪除」: what to delete first.
+  delete_steps?: unknown;
 }

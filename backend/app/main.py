@@ -109,7 +109,8 @@ def handle_dependent_records_exist(
 ) -> JSONResponse:
     return JSONResponse(
         status_code=409,
-        content={"detail": "此資料仍被其他資料參照，無法刪除"},
+        # delete_steps: what to delete first, in order (may be empty).
+        content={"detail": "此資料仍被其他資料參照，無法刪除", "delete_steps": exc.steps},
     )
 
 
@@ -162,10 +163,8 @@ def handle_invalid_reference(
 def handle_duplicate_value(
     request: Request, exc: DuplicateValueError
 ) -> JSONResponse:
-    return JSONResponse(
-        status_code=409,
-        content={"detail": "資料重複或違反欄位限制，請確認輸入內容"},
-    )
+    # The message names what is wrong (services/integrity_messages.py).
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 
 @app.exception_handler(LessonOverProvisionedError)

@@ -9,6 +9,7 @@ from app.schemas.user import (
     SameNameTeacher,
     TeacherNationalIdUpdate,
     UserListItem,
+    UsernameAvailability,
     UserUpdate,
 )
 from app.services import user as user_service
@@ -36,10 +37,15 @@ def _not_found() -> HTTPException:
 def list_users(
     db: Session = Depends(get_db), current_user: User = Depends(require_manager)
 ) -> list[UserListItem]:
-    return [
-        UserListItem.model_validate(user).model_copy(update={"teacher_name": teacher_name})
-        for user, teacher_name in user_service.get_users(db, current_user)
-    ]
+    return user_service.get_users(db, current_user)
+
+
+# 新增帳號 checks the 帳號名稱 while it is typed, before 儲存.
+@router.get("/username-available", response_model=UsernameAvailability)
+def check_username_available(
+    username: str, db: Session = Depends(get_db)
+) -> UsernameAvailability:
+    return UsernameAvailability(available=not user_service.is_username_taken(db, username))
 
 
 # 帳號管理 asks for a 身分證字號 when the school already has a teacher of
@@ -54,8 +60,9 @@ def list_same_name_teachers(
     return user_service.find_same_name_teachers(db, current_user, name, school_id)
 
 
-# DuplicateValueError (the number is another teacher's of the school) is
-# converted to 409 by the global handler in main.py.
+# DuplicateValueError (the number is another teacher's of the school) and
+# DuplicateTeacherNameError (clearing it while the name is shared) are
+# converted to 409 / 422 by the global handlers in main.py.
 @router.patch("/teachers/{teacher_id}/national-id", response_model=SameNameTeacher)
 def set_teacher_national_id(
     teacher_id: int,
@@ -83,9 +90,7 @@ def update_user(
     user = user_service.update_user(db, user_id, user_data, current_user)
     if user is None:
         raise _not_found()
-    return UserListItem.model_validate(user).model_copy(
-        update={"teacher_name": user_service.get_teacher_name(db, user.id)}
-    )
+    return user_service.get_user_list_item(db, user)
 
 
 @router.patch("/{user_id}/password", status_code=status.HTTP_204_NO_CONTENT)

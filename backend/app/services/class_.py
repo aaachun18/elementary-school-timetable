@@ -3,7 +3,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.grade_class import Class, Grade
-from app.schemas.class_ import ClassCreate
+from app.schemas.class_ import ClassBatchCreate, ClassCreate
+from app.services.delete_guidance import class_delete_steps
 from app.services.exceptions import (
     DependentRecordsExistError,
     SchoolStructureViolationError,
@@ -14,9 +15,10 @@ from app.services.school_scope import (
     get_in_school,
     in_school,
 )
-from app.services.school_structure import class_name_options
+from app.services.school_structure import ClassNameStyle, class_name_options
 
 INVALID_CLASS_NAME_MESSAGE = "班級名稱必須是該年級與名稱類型提供的選項"
+BATCH_TOO_MANY_MESSAGE = "這個年級的此名稱類型最多只能再新增 {available} 班"
 
 # A class is only created and deleted (學校資料 > 班級), never edited.
 
@@ -43,6 +45,39 @@ def create_class(db: Session, class_data: ClassCreate, *, school_id: int) -> Cla
         raise_for_integrity_error(exc)
     db.refresh(class_obj)
     return class_obj
+
+
+def unused_class_names(db: Session, grade: Grade, name_style: ClassNameStyle) -> list[str]:
+    """The style's names (in order) no class of the grade has yet."""
+    used = set(db.scalars(select(Class.name).where(Class.grade_id == grade.id)).all())
+    return [name for name in class_name_options(grade.level, name_style) if name not in used]
+
+
+def create_classes_batch(
+    db: Session, batch: ClassBatchCreate, *, school_id: int
+) -> list[Class]:
+    """批次新增: the first `count` unused names of the style, all or none
+    (one transaction). More than the style has left -> 422."""
+    ensure_references_in_school(db, school_id, [(Grade, batch.grade_id)])
+    grade = db.get(Grade, batch.grade_id)
+    assert grade is not None  # checked just above
+    names = unused_class_names(db, grade, batch.name_style)
+    if batch.count > len(names):
+        raise SchoolStructureViolationError(BATCH_TOO_MANY_MESSAGE.format(available=len(names)))
+
+    classes = [
+        Class(grade_id=grade.id, name=name, name_style=batch.name_style.value)
+        for name in names[: batch.count]
+    ]
+    db.add_all(classes)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise_for_integrity_error(exc)
+    for class_obj in classes:
+        db.refresh(class_obj)
+    return classes
 
 
 def get_class(db: Session, class_id: int, *, school_id: int) -> Class | None:
@@ -76,7 +111,8 @@ def delete_class(db: Session, class_id: int, *, school_id: int) -> bool:
         db.rollback()
         raise DependentRecordsExistError(
             f"Class {class_id} cannot be deleted: other records still "
-            "reference it."
+            "reference it.",
+            class_delete_steps(db, class_id),
         ) from exc
 
     return True

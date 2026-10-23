@@ -15,7 +15,9 @@ import type { PasswordReset, SameNameTeacher, User, UserCreate, UserUpdate } fro
 import { getCurrentUserRole, getCurrentUsername, ROLE_LABELS } from "../utils/auth";
 import { getPasswordRuleError } from "../utils/passwordRule";
 import AccountCreateDialog from "../components/accounts/AccountCreateDialog";
+import NationalIdEditDialog from "../components/accounts/NationalIdEditDialog";
 import NationalIdFollowUpDialog from "../components/accounts/NationalIdFollowUpDialog";
+import { RowErrorText } from "../components/DeleteStepsHint";
 import {
   BADGE_NEUTRAL,
   BADGE_SUCCESS,
@@ -24,6 +26,7 @@ import {
   BUTTON_PRIMARY_SM,
   BUTTON_SECONDARY_SM,
   ERROR_TEXT,
+  ROW_ACTIONS,
   HELP_TEXT,
   INPUT,
   LOADING_TEXT,
@@ -104,10 +107,13 @@ function UserRow({
   isResettingPassword,
   isPending,
   errorMessage,
+  deleteSteps,
   onStartResetPassword,
   onCancelResetPassword,
   onConfirmResetPassword,
-  onUpdateAccount,
+  onToggleActive,
+  onChangeSchool,
+  onEditNationalId,
   onDelete,
 }: {
   user: User;
@@ -117,10 +123,14 @@ function UserRow({
   isResettingPassword: boolean;
   isPending: boolean;
   errorMessage: string | undefined;
+  deleteSteps: readonly string[] | undefined;
   onStartResetPassword: () => void;
   onCancelResetPassword: () => void;
   onConfirmResetPassword: (data: PasswordReset) => void;
-  onUpdateAccount: (data: UserUpdate) => void;
+  onToggleActive: () => void;
+  onChangeSchool: (schoolId: number) => void;
+  // Only for an account with a teacher (一般老師).
+  onEditNationalId: (() => void) | null;
   onDelete: () => void;
 }): ReactElement {
   return (
@@ -130,7 +140,11 @@ function UserRow({
         {isSelf && <span className="ml-2 text-xs text-gray-500">（目前登入中）</span>}
       </td>
       <td className={TD}>{ROLE_LABELS[user.role]}</td>
-      <td className={TD}>{user.teacher_name ?? <span className={MUTED_TEXT}>—</span>}</td>
+      <td className={TD}>
+        {user.teacher_name ?? <span className={MUTED_TEXT}>—</span>}
+        {user.national_id_missing && <NationalIdMissingWarning />}
+      </td>
+      <td className={TD}>{user.national_id_masked ?? <span className={MUTED_TEXT}>—</span>}</td>
       {isAdminActor && (
         <td className={TD}>
           {user.role === "ADMIN" ? (
@@ -139,7 +153,7 @@ function UserRow({
             // 綁定學校: changing the selection saves right away.
             <select
               value={user.school_id ?? ""}
-              onChange={(event) => onUpdateAccount({ school_id: Number(event.target.value) })}
+              onChange={(event) => onChangeSchool(Number(event.target.value))}
               disabled={isPending}
               aria-label={`${user.username} 的所屬學校`}
               className={`${SELECT} w-full`}
@@ -166,7 +180,7 @@ function UserRow({
             onCancel={onCancelResetPassword}
           />
         ) : (
-          <div className="flex flex-wrap items-center gap-2">
+          <div className={ROW_ACTIONS}>
             <button
               type="button"
               onClick={onStartResetPassword}
@@ -175,12 +189,17 @@ function UserRow({
             >
               重設密碼
             </button>
+            {onEditNationalId !== null && (
+              <button type="button" onClick={onEditNationalId} disabled={isPending} className={BUTTON_SECONDARY_SM}>
+                編輯
+              </button>
+            )}
             {/* The backend refuses deactivating / deleting one's own
                 account regardless; these just don't offer a button that
                 can only ever fail. */}
             <button
               type="button"
-              onClick={() => onUpdateAccount({ is_active: !user.is_active })}
+              onClick={onToggleActive}
               disabled={isPending || isSelf}
               title={isSelf ? "不能停用目前登入中的帳號" : undefined}
               className={BUTTON_SECONDARY_SM}
@@ -200,14 +219,32 @@ function UserRow({
             )}
           </div>
         )}
-        {errorMessage !== undefined && (
-          <p role="alert" className={ERROR_TEXT}>
-            {errorMessage}
-          </p>
-        )}
+        {errorMessage !== undefined && <RowErrorText message={errorMessage} deleteSteps={deleteSteps} />}
       </td>
     </tr>
   );
+}
+
+// Next to a teacher's name: the school has another teacher of this name
+// and this one's 身分證字號 is still missing.
+function NationalIdMissingWarning(): ReactElement {
+  return (
+    <span
+      title="有同名同姓的教師，請按「編輯」填寫身分證字號以供識別"
+      className="ml-2 inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 align-middle text-xs font-medium text-amber-800"
+    >
+      <svg aria-hidden="true" viewBox="0 0 20 20" className="h-3.5 w-3.5 fill-amber-500">
+        <path d="M10 2 19 18H1L10 2Zm-1 6v4h2V8H9Zm0 6v2h2v-2H9Z" />
+      </svg>
+      同名同姓，未填身分證字號
+    </span>
+  );
+}
+
+function isEditableTeacher(
+  user: User,
+): user is User & { teacher_id: number; teacher_name: string; school_id: number } {
+  return user.teacher_id !== null && user.teacher_name !== null && user.school_id !== null;
 }
 
 // Task 59: account management, reusing useCrudList's state machine. Task
@@ -248,8 +285,12 @@ export default function UserManagement(): ReactElement {
   // After saving a teacher whose name was taken: the earlier same-name
   // teachers still without a 身分證字號, asked for one at a time.
   const [nationalIdQueue, setNationalIdQueue] = useState<SameNameTeacher[]>([]);
+  // 編輯: the account whose 身分證字號 is being edited.
+  const [nationalIdUser, setNationalIdUser] = useState<User | null>(null);
 
-  if (usersResource.isLoading || schoolsResource.isLoading) {
+  // Only the first load: a reload (after 新增 / 編輯) keeps the table and
+  // any open dialog on screen.
+  if ((usersResource.isLoading && usersResource.data === null) || schoolsResource.isLoading) {
     return (
       <div className={PAGE}>
         <p className={LOADING_TEXT}>載入中…</p>
@@ -271,15 +312,55 @@ export default function UserManagement(): ReactElement {
   async function handleCreate(data: UserCreate, sameNameTeachers: readonly SameNameTeacher[]): Promise<void> {
     if (await crud.submitCreate(data)) {
       setNationalIdQueue(sameNameTeachers.filter((teacher) => !teacher.has_national_id));
+      // The new row's 身分證字號 column and warnings come from the backend.
+      usersResource.reload();
     }
   }
 
+  // 儲存 and 稍後再填 both move on; the list then shows who still lacks one.
   function nextNationalId(): void {
     setNationalIdQueue((queue) => queue.slice(1));
+    usersResource.reload();
+  }
+
+  function skipNationalIds(): void {
+    setNationalIdQueue([]);
+    usersResource.reload();
+  }
+
+  async function handleStartResetPassword(user: User): Promise<void> {
+    const confirmed = await confirm({
+      title: "重設密碼",
+      message: `確定要重設帳號「${user.username}」的密碼嗎？`,
+      confirmLabel: "確定重設",
+      cancelLabel: "取消",
+      danger: true,
+    });
+    if (confirmed) {
+      crud.startEditing(user.id);
+    }
+  }
+
+  // 停用 asks first; 啟用 doesn't.
+  async function handleToggleActive(user: User): Promise<void> {
+    if (user.is_active) {
+      const confirmed = await confirm({
+        title: "停用帳號",
+        message: `確定要停用帳號「${user.username}」嗎？停用後該帳號無法登入，教師也不會出現在新的排課名單中。`,
+        confirmLabel: "確定停用",
+        cancelLabel: "取消",
+        danger: true,
+      });
+      if (!confirmed) {
+        return;
+      }
+    }
+    void crud.submitUpdate(user.id, { kind: "account", data: { is_active: !user.is_active } });
   }
 
   async function handleDelete(user: User): Promise<void> {
-    if (await confirm(deleteConfirmOptions(`帳號 ${user.username}`))) {
+    const options = { ...deleteConfirmOptions(`帳號 ${user.username}`), confirmLabel: "確定刪除", cancelLabel: "取消" };
+    if (await confirm(options)) {
       void crud.submitDelete(user.id);
     }
   }
@@ -311,6 +392,7 @@ export default function UserManagement(): ReactElement {
               <th className={TH}>帳號名稱</th>
               <th className={TH}>角色</th>
               <th className={TH}>教師姓名</th>
+              <th className={TH}>身分證字號</th>
               {isAdminActor && <th className={TH}>所屬學校</th>}
               <th className={TH}>狀態</th>
               <th className={TH}>操作</th>
@@ -327,12 +409,17 @@ export default function UserManagement(): ReactElement {
                 isResettingPassword={crud.editingId === user.id}
                 isPending={crud.pendingKey === user.id}
                 errorMessage={crud.rowErrors.get(user.id)}
-                onStartResetPassword={() => crud.startEditing(user.id)}
+                deleteSteps={crud.rowDeleteSteps.get(user.id)}
+                onStartResetPassword={() => void handleStartResetPassword(user)}
                 onCancelResetPassword={crud.cancelEditing}
                 onConfirmResetPassword={(data) =>
                   void crud.submitUpdate(user.id, { kind: "password", data })
                 }
-                onUpdateAccount={(data) => void crud.submitUpdate(user.id, { kind: "account", data })}
+                onToggleActive={() => void handleToggleActive(user)}
+                onChangeSchool={(schoolId) =>
+                  void crud.submitUpdate(user.id, { kind: "account", data: { school_id: schoolId } })
+                }
+                onEditNationalId={user.teacher_id !== null ? () => setNationalIdUser(user) : null}
                 onDelete={() => void handleDelete(user)}
               />
             ))}
@@ -356,7 +443,18 @@ export default function UserManagement(): ReactElement {
           schools={schools}
           remainingCount={nationalIdQueue.length - 1}
           onDone={nextNationalId}
-          onSkip={() => setNationalIdQueue([])}
+          onSkip={skipNationalIds}
+        />
+      )}
+      {nationalIdUser !== null && isEditableTeacher(nationalIdUser) && (
+        <NationalIdEditDialog
+          key={nationalIdUser.id}
+          user={nationalIdUser}
+          onSaved={() => {
+            setNationalIdUser(null);
+            usersResource.reload();
+          }}
+          onCancel={() => setNationalIdUser(null)}
         />
       )}
     </div>

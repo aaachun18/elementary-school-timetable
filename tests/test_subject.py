@@ -88,6 +88,7 @@ def test_create_subject_duplicate_name_conflict(client: TestClient) -> None:
     response = client.post("/api/v1/subjects/", json={"name": "重複科目"})
 
     assert response.status_code == 409
+    assert response.json()["detail"] == "科目名稱重複，這所學校已經有同名的科目"
 
 
 # --- Task 49 (Task 98: teaching qualifications are gone, so there is no
@@ -122,4 +123,28 @@ def test_delete_subject_blocked_by_requirement(client: TestClient) -> None:
 
     assert response.status_code == 409
     assert response.json()["detail"] == "此資料仍被其他資料參照，無法刪除"
+    # What to delete first, shown behind the error's ? icon.
+    assert response.json()["delete_steps"] == [
+        "到「排課紀錄」刪除排課紀錄編號 1（2102 學年度第 1 學期）"
+    ]
     assert client.get(f"/api/v1/subjects/{subject_id}").status_code == 200
+
+
+def test_delete_subject_blocked_by_grade_requirement_says_which_grades(
+    client: TestClient,
+) -> None:
+    subject_id = client.post("/api/v1/subjects/", json={"name": "書法"}).json()["id"]
+    for level, name in ((2, "二年級"), (1, "一年級")):
+        grade_id = create_grade(client, name, level=level)
+        created = client.post(
+            "/api/v1/grade-subject-requirements/",
+            json={"grade_id": grade_id, "subject_id": subject_id, "weekly_periods": 1},
+        )
+        assert created.status_code == 201, created.text
+
+    response = client.delete(f"/api/v1/subjects/{subject_id}")
+
+    assert response.status_code == 409
+    assert response.json()["delete_steps"] == [
+        "到「學校資料 > 科目需求」刪除一年級、二年級的這個科目"
+    ]

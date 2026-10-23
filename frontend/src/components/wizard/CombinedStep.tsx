@@ -538,7 +538,7 @@ function CombineDialog({
         >
           {memberClassIds.map((memberClassId) => (
             <option key={`class-${memberClassId}`} value={`${HOMEROOM_PREFIX}${memberClassId}`}>
-              {lookups.className.get(memberClassId) ?? "—"}原班教室
+              {lookups.className.get(memberClassId) ?? "—"}
             </option>
           ))}
           {lookups.rooms.map((room) => (

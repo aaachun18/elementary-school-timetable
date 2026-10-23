@@ -1,4 +1,4 @@
-import { useId, useState, type ReactElement } from "react";
+import { useState, type ReactElement } from "react";
 import {
   create as createRequirement,
   list as listRequirements,
@@ -16,13 +16,13 @@ import type { Subject } from "../../types/subject";
 import { findSubjectByName, normalizeSubjectName } from "../../utils/subjectName";
 import { WEEKLY_PERIOD_OPTIONS } from "../../utils/wizard";
 import ConfirmDialog from "../ConfirmDialog";
+import SuggestionInput from "../SuggestionInput";
 import {
   BUTTON_DANGER_SM,
   BUTTON_PRIMARY,
   ERROR_TEXT,
   FIELD_PAGE,
   HELP_TEXT,
-  INPUT,
   LABEL,
   LOADING_TEXT,
   SELECT,
@@ -256,7 +256,6 @@ function RequirementCreateDialog({
   onSaved: () => void;
   onCancel: () => void;
 }): ReactElement {
-  const suggestionsId = useId();
   const [name, setName] = useState("");
   const [weeklyPeriods, setWeeklyPeriods] = useState(DEFAULT_WEEKLY_PERIODS);
   const [isSaving, setIsSaving] = useState(false);
@@ -297,26 +296,20 @@ function RequirementCreateDialog({
       onConfirm={() => void handleSave()}
       onCancel={onCancel}
     >
-      <label className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1">
         <span className={LABEL}>科目名稱</span>
-        <input
+        <SuggestionInput
           value={name}
-          onChange={(event) => {
-            setName(event.target.value);
+          suggestions={suggestions.map((subject) => subject.name)}
+          onChange={(value) => {
+            setName(value);
             setError(null);
           }}
           disabled={isSaving}
-          list={suggestionsId}
           placeholder="可直接輸入新科目，例如：書法"
-          aria-label="科目名稱"
-          className={`${INPUT} w-full`}
+          ariaLabel="科目名稱"
         />
-        <datalist id={suggestionsId}>
-          {suggestions.map((subject) => (
-            <option key={subject.id} value={subject.name} />
-          ))}
-        </datalist>
-      </label>
+      </div>
       <label className="flex flex-col gap-1">
         <span className={LABEL}>每週節數</span>
         <select

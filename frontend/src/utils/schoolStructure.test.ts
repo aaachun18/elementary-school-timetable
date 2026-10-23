@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { chineseNumber, classNameOptions, defaultOpenPeriodsText, gradeName } from "./schoolStructure";
+import {
+  chineseNumber,
+  classNameOptions,
+  defaultOpenPeriodsText,
+  gradeName,
+  unusedClassNames,
+} from "./schoolStructure";
 
 describe("chineseNumber", () => {
   it("writes 1-30 the way class names use them", () => {
@@ -56,6 +62,25 @@ describe("classNameOptions", () => {
 
   it("uses 一到三年 for 高中", () => {
     expect(classNameOptions(10, "HEAVENLY_STEM")[0]).toBe("一年甲班");
+  });
+});
+
+describe("unusedClassNames", () => {
+  it("continues after the classes the grade already has", () => {
+    const names = unusedClassNames(2, "HEAVENLY_STEM", new Set(["二年甲班", "二年乙班"]));
+    expect(names).toHaveLength(8);
+    expect(names.slice(0, 2)).toEqual(["二年丙班", "二年丁班"]);
+  });
+
+  it("allows 10 甲乙丙, 8 忠孝仁 and 30 一二三 names", () => {
+    const none = new Set<string>();
+    expect(unusedClassNames(1, "HEAVENLY_STEM", none)).toHaveLength(10);
+    expect(unusedClassNames(1, "VIRTUE", none)).toHaveLength(8);
+    expect(unusedClassNames(1, "NUMBER", none)).toHaveLength(30);
+  });
+
+  it("fills a gap first", () => {
+    expect(unusedClassNames(1, "VIRTUE", new Set(["一年孝班"]))[0]).toBe("一年忠班");
   });
 });
 

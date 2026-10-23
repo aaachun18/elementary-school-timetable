@@ -70,6 +70,17 @@ export function classNameOptions(level: number, style: ClassNameStyle): string[]
   return classNameTokens(style).map((token) => `${prefix}${token}班`);
 }
 
+// The style's names (in order) the grade doesn't use yet -- what 批次新增
+// creates, first ones first (一年甲班、一年乙班 exist -> 一年丙班 ...).
+// Its length is how many more classes the style allows.
+export function unusedClassNames(
+  level: number,
+  style: ClassNameStyle,
+  usedNames: ReadonlySet<string>,
+): string[] {
+  return classNameOptions(level, style).filter((name) => !usedNames.has(name));
+}
+
 // --- A grade's default open periods (開始排課 > 年級與可排節次) ---
 
 // The same defaults the backend applies (app/services/grade_levels.py), in

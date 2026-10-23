@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.models.subject import Subject
 from app.models.teacher import TeacherSubject
 from app.schemas.subject import SubjectCreate, SubjectUpdate
+from app.services.delete_guidance import subject_delete_steps
 from app.services.exceptions import (
     DependentRecordsExistError,
     raise_for_integrity_error,
@@ -92,7 +93,8 @@ def delete_subject(db: Session, subject_id: int, *, school_id: int) -> bool:
         db.rollback()
         raise DependentRecordsExistError(
             f"Subject {subject_id} cannot be deleted: other records still "
-            "reference it."
+            "reference it.",
+            subject_delete_steps(db, subject_id),
         ) from exc
 
     return True

@@ -5,7 +5,8 @@ from sqlalchemy.orm import Session
 from app.core.security import hash_password
 from app.models.teacher import Teacher
 from app.models.user import ADMIN, COORDINATOR, TEACHER, User
-from app.schemas.user import SameNameTeacher, UserCreate, UserUpdate
+from app.schemas.user import SameNameTeacher, UserCreate, UserListItem, UserUpdate
+from app.services.delete_guidance import user_delete_steps
 from app.services.exceptions import (
     AccountPermissionError,
     CannotDeleteSelfError,
@@ -31,6 +32,11 @@ SCHOOL_REQUIRED_MESSAGE = "教學組長與一般老師帳號必須指定所屬�
 ADMIN_HAS_NO_SCHOOL_MESSAGE = "系統管理員帳號不屬於任何學校"
 DEACTIVATE_SELF_MESSAGE = "不能停用目前登入中的帳號"
 DUPLICATE_TEACHER_NAME_MESSAGE = "這所學校已有同名同姓的教師，請填寫身分證字號以供識別"
+NATIONAL_ID_REQUIRED_MESSAGE = "這所學校有同名同姓的教師，這位教師的身分證字號不能清除"
+
+# 身分證字號 as 帳號管理 lists it: the first and last 3 characters only.
+NATIONAL_ID_SHOWN_CHARS = 3
+NATIONAL_ID_MASK = "****"
 
 
 def _resolve_new_account_school(actor: User | None, user_data: UserCreate) -> int | None:
@@ -145,21 +151,67 @@ def _teacher_of(db: Session, user_id: int) -> Teacher | None:
     return db.scalars(select(Teacher).where(Teacher.user_id == user_id)).first()
 
 
-def get_teacher_name(db: Session, user_id: int) -> str | None:
-    return db.scalars(select(Teacher.name).where(Teacher.user_id == user_id)).first()
+def is_username_taken(db: Session, username: str) -> bool:
+    """帳號名稱 are unique across every school (users.username)."""
+    return get_user_by_username(db, username.strip()) is not None
 
 
-def get_users(db: Session, actor: User) -> list[tuple[User, str | None]]:
-    """Every account the actor may manage, each with its Teacher's name
-    (None for a non-TEACHER account, or a TEACHER one without a Teacher)."""
+def mask_national_id(national_id: str) -> str:
+    """A123456789 -> A12****789."""
+    return (
+        national_id[:NATIONAL_ID_SHOWN_CHARS]
+        + NATIONAL_ID_MASK
+        + national_id[-NATIONAL_ID_SHOWN_CHARS:]
+    )
+
+
+def _shared_teacher_names(db: Session) -> set[tuple[int, str]]:
+    """(school_id, name) of every name more than one teacher of a school
+    has."""
     stmt = (
-        select(User, Teacher.name)
+        select(Teacher.school_id, Teacher.name)
+        .group_by(Teacher.school_id, Teacher.name)
+        .having(func.count() > 1)
+    )
+    return {(school_id, name) for school_id, name in db.execute(stmt).all()}
+
+
+def _list_item(
+    user: User, teacher: Teacher | None, shared_names: set[tuple[int, str]]
+) -> UserListItem:
+    item = UserListItem.model_validate(user)
+    if teacher is None:
+        return item
+    return item.model_copy(
+        update={
+            "teacher_name": teacher.name,
+            "teacher_id": teacher.id,
+            "national_id_masked": (
+                mask_national_id(teacher.national_id) if teacher.national_id is not None else None
+            ),
+            "national_id_missing": teacher.national_id is None
+            and (teacher.school_id, teacher.name) in shared_names,
+        }
+    )
+
+
+def get_users(db: Session, actor: User) -> list[UserListItem]:
+    """Every account the actor may manage, each with its Teacher (name,
+    masked 身分證字號, whether one is missing) for a TEACHER account."""
+    stmt = (
+        select(User, Teacher)
         .outerjoin(Teacher, Teacher.user_id == User.id)
         .order_by(User.id)
     )
     if actor.role != ADMIN:
         stmt = stmt.where(User.role == TEACHER, User.school_id == actor.school_id)
-    return [(user, teacher_name) for user, teacher_name in db.execute(stmt).all()]
+    shared_names = _shared_teacher_names(db)
+    return [_list_item(user, teacher, shared_names) for user, teacher in db.execute(stmt).all()]
+
+
+def get_user_list_item(db: Session, user: User) -> UserListItem:
+    """One row of get_users(), e.g. after an update."""
+    return _list_item(user, _teacher_of(db, user.id), _shared_teacher_names(db))
 
 
 # --- 同名同姓 teachers: told apart by 身分證字號 ---
@@ -203,14 +255,18 @@ def find_same_name_teachers(
 
 
 def set_teacher_national_id(
-    db: Session, teacher_id: int, national_id: str, actor: User
+    db: Session, teacher_id: int, national_id: str | None, actor: User
 ) -> SameNameTeacher | None:
-    """Sets a teacher's 身分證字號. Returns None if the teacher doesn't
-    exist or is another school's and the actor is a 教學組長 (caller
-    should 404). The same number twice in one school -> DuplicateValueError."""
+    """Sets (or, with None, clears) a teacher's 身分證字號. Returns None if
+    the teacher doesn't exist or is another school's and the actor is a
+    教學組長 (caller should 404). The same number twice in one school ->
+    DuplicateValueError; clearing it while the school has another teacher
+    of the same name -> DuplicateTeacherNameError."""
     teacher = db.get(Teacher, teacher_id)
     if teacher is None or (actor.role != ADMIN and teacher.school_id != actor.school_id):
         return None
+    if national_id is None and len(_same_name_teachers(db, teacher.school_id, teacher.name)) > 1:
+        raise DuplicateTeacherNameError(NATIONAL_ID_REQUIRED_MESSAGE)
     teacher.national_id = national_id
     try:
         db.commit()
@@ -228,7 +284,7 @@ def set_teacher_national_id(
         teacher_name=teacher.name,
         school_id=teacher.school_id,
         username=username,
-        has_national_id=True,
+        has_national_id=teacher.national_id is not None,
     )
 
 
@@ -313,7 +369,8 @@ def delete_user(db: Session, user_id: int, current_user_id: int) -> bool:
         db.rollback()
         raise DependentRecordsExistError(
             f"User {user_id} cannot be deleted: other records still "
-            "reference it."
+            "reference it.",
+            user_delete_steps(db, user_id),
         ) from exc
 
     return True

@@ -1,7 +1,9 @@
 import { useState, type ReactElement } from "react";
 import { create as createClass, list as listClasses, remove as removeClass } from "../../api/classes";
 import { list as listGrades } from "../../api/grades";
-import { extractApiErrorMessage } from "../../constants/errorMessages";
+import { extractApiErrorMessage, extractDeleteSteps } from "../../constants/errorMessages";
+import { RowErrorText } from "../DeleteStepsHint";
+import ClassBatchCreateDialog from "./ClassBatchCreateDialog";
 import { deleteConfirmOptions, useConfirm } from "../../hooks/useConfirm";
 import { useResource } from "../../hooks/useResource";
 import type { Class } from "../../types/class";
@@ -16,6 +18,7 @@ import {
   BUTTON_DANGER_SM,
   BUTTON_PRIMARY,
   BUTTON_PRIMARY_SM,
+  BUTTON_SECONDARY,
   BUTTON_SECONDARY_SM,
   ERROR_TEXT,
   FIELD_PAGE,
@@ -35,7 +38,8 @@ import {
 const ALL_GRADES = "all";
 
 // 學校資料 > 班級: a class is only added (grade -> name style -> one of the
-// names expanded from the grade, e.g. 一年甲班) and deleted, never edited.
+// names expanded from the grade, e.g. 一年甲班; or 批次新增 several at once)
+// and deleted, never edited.
 // The grade list is the school's own (國小 1-6 / 國中 7-9 / 高中 1-3), and
 // names already used in a grade are not offered again -- the backend
 // refuses both anyway.
@@ -77,8 +81,9 @@ function ClassesTable({
 }): ReactElement {
   const [gradeFilter, setGradeFilter] = useState<string>(ALL_GRADES);
   const [isAdding, setIsAdding] = useState(false);
+  const [isBatchAdding, setIsBatchAdding] = useState(false);
   const [pendingId, setPendingId] = useState<number | null>(null);
-  const [rowError, setRowError] = useState<{ id: number; message: string } | null>(null);
+  const [rowError, setRowError] = useState<{ id: number; message: string; steps: string[] } | null>(null);
   const { confirm, dialog: confirmDialog } = useConfirm();
 
   const gradeById = new Map(grades.map((grade) => [grade.id, grade]));
@@ -97,7 +102,7 @@ function ClassesTable({
       await removeClass(classItem.id);
       onChanged();
     } catch (caught) {
-      setRowError({ id: classItem.id, message: extractApiErrorMessage(caught) });
+      setRowError({ id: classItem.id, message: extractApiErrorMessage(caught), steps: extractDeleteSteps(caught) });
     } finally {
       setPendingId(null);
     }
@@ -124,14 +129,19 @@ function ClassesTable({
           </select>
         </label>
         {isAdmin && (
-          <button
-            type="button"
-            onClick={() => setIsAdding(true)}
-            disabled={isAdding}
-            className={BUTTON_PRIMARY}
-          >
-            新增
-          </button>
+          <div className={ROW_ACTIONS}>
+            <button
+              type="button"
+              onClick={() => setIsAdding(true)}
+              disabled={isAdding}
+              className={BUTTON_PRIMARY}
+            >
+              新增
+            </button>
+            <button type="button" onClick={() => setIsBatchAdding(true)} className={BUTTON_SECONDARY}>
+              批次新增
+            </button>
+          </div>
         )}
       </div>
       <div className={TABLE_WRAPPER}>
@@ -173,9 +183,7 @@ function ClassesTable({
                       {pendingId === classItem.id ? "刪除中…" : "刪除"}
                     </button>
                     {rowError?.id === classItem.id && (
-                      <p role="alert" className={ERROR_TEXT}>
-                        {rowError.message}
-                      </p>
+                      <RowErrorText message={rowError.message} deleteSteps={rowError.steps} />
                     )}
                   </td>
                 )}
@@ -191,6 +199,18 @@ function ClassesTable({
           </tbody>
         </table>
       </div>
+      {isBatchAdding && (
+        <ClassBatchCreateDialog
+          grades={grades}
+          classes={classes}
+          initialGradeId={gradeFilter === ALL_GRADES ? null : Number(gradeFilter)}
+          onCreated={() => {
+            setIsBatchAdding(false);
+            onChanged();
+          }}
+          onCancel={() => setIsBatchAdding(false)}
+        />
+      )}
     </div>
   );
 }

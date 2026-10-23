@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { extractApiErrorMessage } from "../constants/errorMessages";
+import { extractApiErrorMessage, extractDeleteSteps } from "../constants/errorMessages";
 
 // One row's create()/update()/remove() functions -- exactly the shape
 // every resource's api/*.ts module already exports (see teachers.ts's
@@ -47,6 +47,15 @@ function rowKeyOf(element: EventTarget): RowKey | null {
   return Number.isInteger(id) ? id : null;
 }
 
+function withoutKey<V>(map: Map<RowKey, V>, key: RowKey): Map<RowKey, V> {
+  if (!map.has(key)) {
+    return map;
+  }
+  const next = new Map(map);
+  next.delete(key);
+  return next;
+}
+
 export interface CrudListController<T, TCreate, TUpdate> {
   items: T[];
   isAdding: boolean;
@@ -62,6 +71,9 @@ export interface CrudListController<T, TCreate, TUpdate> {
   // that row's own Confirm/Cancel/Edit/Delete buttons.
   pendingKey: RowKey | null;
   rowErrors: Map<RowKey, string>;
+  // A delete refused because other data still uses the row: what to delete
+  // first (shown behind the error's ? icon). Cleared with the row's error.
+  rowDeleteSteps: Map<RowKey, string[]>;
   // Resolves true once created, false if it failed (the error is in
   // rowErrors under "new").
   submitCreate: (data: TCreate) => Promise<boolean>;
@@ -101,16 +113,11 @@ export function useCrudList<T extends { id: number }, TCreate, TUpdate>(
   const [editingId, setEditingId] = useState<number | null>(null);
   const [pendingKey, setPendingKey] = useState<RowKey | null>(null);
   const [rowErrors, setRowErrors] = useState<Map<RowKey, string>>(new Map());
+  const [rowDeleteSteps, setRowDeleteSteps] = useState<Map<RowKey, string[]>>(new Map());
 
   function clearRowError(key: RowKey): void {
-    setRowErrors((previous) => {
-      if (!previous.has(key)) {
-        return previous;
-      }
-      const next = new Map(previous);
-      next.delete(key);
-      return next;
-    });
+    setRowErrors((previous) => withoutKey(previous, key));
+    setRowDeleteSteps((previous) => withoutKey(previous, key));
   }
 
   function startAdding(): void {
@@ -186,6 +193,7 @@ export function useCrudList<T extends { id: number }, TCreate, TUpdate>(
     } catch (error) {
       await waitUntil(startedAt, MIN_FAILED_SUBMIT_FEEDBACK_MS);
       setRowErrors((previous) => new Map(previous).set(id, extractApiErrorMessage(error)));
+      setRowDeleteSteps((previous) => new Map(previous).set(id, extractDeleteSteps(error)));
     } finally {
       setPendingKey(null);
     }
@@ -201,6 +209,7 @@ export function useCrudList<T extends { id: number }, TCreate, TUpdate>(
     cancelEditing,
     pendingKey,
     rowErrors,
+    rowDeleteSteps,
     submitCreate,
     submitUpdate,
     submitDelete,

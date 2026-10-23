@@ -155,7 +155,7 @@ export type DisplayViewMode = "class" | "teacher" | "room";
 // The rows as the timetable shows them, 共同排課 taken into account:
 // - class view: every row stays; its teacher line lists all the
 //   合併節's teachers (the class's own marked *), and a 合併節 held in
-//   another member class's own room says so (「＠一年甲班原班教室」);
+//   another member class's own room says so by that class's name (「＠一年甲班」);
 // - teacher / room view: a 合併節 is one lesson -- one row per cell
 //   (per teacher; in a class's own room, the row of that class), whose
 //   class line names every class of it.
@@ -190,7 +190,7 @@ export function combinedForDisplay<T extends DisplayRow>(
       return {
         ...row,
         teacherName: combinedTeacherText(row, others),
-        specialRoomName: homeroom === undefined ? row.specialRoomName : `${homeroom.className}原班教室`,
+        specialRoomName: homeroom === undefined ? row.specialRoomName : homeroom.className,
       };
     });
   }

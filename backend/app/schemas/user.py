@@ -99,8 +99,22 @@ class UserListItem(UserBase):
     is_active: bool
     school_id: int | None
     teacher_name: str | None = None
+    # The account's Teacher (一般老師), for editing its 身分證字號.
+    teacher_id: int | None = None
+    # 身分證字號 masked (A12****789), never the number itself; None = not set.
+    national_id_masked: str | None = None
+    # The school has another teacher of the same name and this one has no
+    # 身分證字號 yet -- 帳號管理 shows a warning next to the name.
+    national_id_missing: bool = False
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class UsernameAvailability(BaseModel):
+    """GET /api/v1/users/username-available: whether a new account may
+    take this 帳號名稱 (usernames are unique across every school)."""
+
+    available: bool
 
 
 class SameNameTeacher(BaseModel):
@@ -116,9 +130,11 @@ class SameNameTeacher(BaseModel):
 
 
 class TeacherNationalIdUpdate(BaseModel):
-    """Body of PATCH /api/v1/users/teachers/{teacher_id}/national-id."""
+    """Body of PATCH /api/v1/users/teachers/{teacher_id}/national-id.
+    None clears it -- refused while the school has another teacher of the
+    same name (DuplicateTeacherNameError)."""
 
-    national_id: NationalId
+    national_id: NationalId | None
 
 
 class PasswordReset(BaseModel):

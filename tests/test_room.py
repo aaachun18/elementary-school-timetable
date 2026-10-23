@@ -133,6 +133,9 @@ def test_delete_room_still_required_by_a_requirement_returns_409(client: TestCli
     response = client.delete(f"/api/v1/rooms/{room_id}")
 
     assert response.status_code == 409
+    assert response.json()["delete_steps"] == [
+        "到「排課紀錄」刪除排課紀錄編號 1（115 學年度第 1 學期）"
+    ]
 
 
 # --- How many classes a room holds at once (1-10) ---

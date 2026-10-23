@@ -8,6 +8,7 @@ from app.models.school import School
 from app.models.subject import Subject
 from app.models.time_slot import TimeSlot
 from app.schemas.school import SchoolCreate, SchoolUpdate
+from app.services.delete_guidance import school_delete_steps
 from app.services.exceptions import (
     DependentRecordsExistError,
     raise_for_integrity_error,
@@ -126,7 +127,8 @@ def delete_school(db: Session, school_id: int) -> bool:
         db.rollback()
         raise DependentRecordsExistError(
             f"School {school_id} cannot be deleted: other records still "
-            "reference it."
+            "reference it.",
+            school_delete_steps(db, school_id),
         ) from exc
 
     return True

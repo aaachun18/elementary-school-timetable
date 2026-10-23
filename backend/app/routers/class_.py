@@ -8,7 +8,7 @@ from app.core.dependencies import (
 )
 from app.database import get_db
 from app.models.grade_class import Class
-from app.schemas.class_ import ClassCreate, ClassRead
+from app.schemas.class_ import ClassBatchCreate, ClassCreate, ClassRead
 from app.services import class_ as class_service
 
 # No PATCH: a class is only created and deleted.
@@ -26,6 +26,16 @@ def create_class(
     school_id: int = Depends(coordinator_school_id),
 ) -> Class:
     return class_service.create_class(db, class_data, school_id=school_id)
+
+
+# 學校資料 > 班級 > 批次新增.
+@router.post("/batch", response_model=list[ClassRead], status_code=status.HTTP_201_CREATED)
+def create_classes_batch(
+    batch: ClassBatchCreate,
+    db: Session = Depends(get_db),
+    school_id: int = Depends(coordinator_school_id),
+) -> list[Class]:
+    return class_service.create_classes_batch(db, batch, school_id=school_id)
 
 
 @router.get("/", response_model=list[ClassRead])

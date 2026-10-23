@@ -18,3 +18,11 @@ export interface ClassCreate {
   name_style: ClassNameStyle;
   name: string;
 }
+
+// 批次新增: `count` more classes -- the style's first names the grade
+// doesn't use yet (unusedClassNames()).
+export interface ClassBatchCreate {
+  grade_id: number;
+  name_style: ClassNameStyle;
+  count: number;
+}

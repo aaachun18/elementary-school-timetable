@@ -123,6 +123,17 @@ export function extractApiErrorMessage(error: unknown): string {
   return NO_RESPONSE_MESSAGE;
 }
 
+// 「此資料仍被其他資料參照，無法刪除」 (409) also carries `delete_steps`:
+// what to delete first, in order (backend/app/services/delete_guidance.py).
+// [] for any other error, or when the backend has no steps to offer.
+export function extractDeleteSteps(error: unknown): string[] {
+  if (!axios.isAxiosError<ApiErrorResponse>(error)) {
+    return [];
+  }
+  const steps = error.response?.data?.delete_steps;
+  return Array.isArray(steps) ? steps.filter((step): step is string => typeof step === "string") : [];
+}
+
 // --- Task 60: FastAPI 422 validation-error array -------------------------
 
 // One item of FastAPI's 422 `detail` array (pydantic's ValidationError

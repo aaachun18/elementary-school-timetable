@@ -6,11 +6,21 @@ from psycopg.errors import (
 )
 from sqlalchemy.exc import IntegrityError
 
+from app.services.integrity_messages import integrity_violation_message
+
 
 class DependentRecordsExistError(Exception):
     """Raised by a delete_xxx() service function when the row cannot be
     deleted because other tables still hold a foreign key reference to it.
+
+    `steps` (optional) is what to do first, in order, so the delete can
+    succeed -- Chinese sentences from services/delete_guidance.py, shown
+    behind the error's ? icon.
     """
+
+    def __init__(self, message: str, steps: list[str] | None = None) -> None:
+        self.steps = steps or []
+        super().__init__(message)
 
 
 class AccountPermissionError(Exception):
@@ -87,7 +97,8 @@ class LessonAlreadyScheduledError(Exception):
 class DuplicateValueError(Exception):
     """Raised by a create/update service function when a value violates a
     UNIQUE constraint (e.g. duplicate Subject.name) or a CHECK constraint
-    (e.g. Teacher.min_weekly_periods > max_weekly_periods).
+    (e.g. Teacher.min_weekly_periods > max_weekly_periods). The message is
+    the Chinese sentence for the user (services/integrity_messages.py).
     """
 
 
@@ -302,8 +313,7 @@ def raise_for_integrity_error(exc: IntegrityError) -> None:
             "One or more referenced records do not exist."
         ) from exc
     if isinstance(orig, (UniqueViolation, CheckViolation, NotNullViolation)):
-        raise DuplicateValueError(
-            "This value conflicts with an existing record or violates a "
-            "data rule."
-        ) from exc
+        # The message names what is wrong (身分證字號重複, 帳號名稱已被使用
+        # ...), from the violated constraint's name.
+        raise DuplicateValueError(integrity_violation_message(orig)) from exc
     raise exc

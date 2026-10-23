@@ -12,6 +12,7 @@ import {
   toUserCreate,
 } from "../../utils/accountForm";
 import { getPasswordRuleError } from "../../utils/passwordRule";
+import { USERNAME_TAKEN_MESSAGE, useUsernameTaken } from "../../hooks/useUsernameTaken";
 import ConfirmDialog from "../ConfirmDialog";
 import { ERROR_TEXT, INPUT, LABEL, NOTICE, SELECT } from "../../styles/ui";
 
@@ -48,6 +49,9 @@ export default function AccountCreateDialog({
   const [checkError, setCheckError] = useState<string | null>(null);
   // Set when 儲存 found a same-name teacher and the 身分證字號 is still empty.
   const [showNationalIdError, setShowNationalIdError] = useState(false);
+
+  // Checked while typed: a taken 帳號名稱 is said right under the field.
+  const isUsernameTaken = useUsernameTaken(username) === true;
 
   const draft = { username, password, role, schoolId, teacherName, nationalId };
   const passwordRuleError = password === "" ? null : getPasswordRuleError(password);
@@ -107,7 +111,7 @@ export default function AccountCreateDialog({
       confirmLabel="儲存"
       busy={busy || isChecking}
       busyLabel={isChecking ? "檢查中…" : "儲存中…"}
-      confirmDisabled={missingFieldMessage !== null || passwordRuleError !== null}
+      confirmDisabled={missingFieldMessage !== null || passwordRuleError !== null || isUsernameTaken}
       onConfirm={() => void handleSave()}
       onCancel={onCancel}
     >
@@ -117,8 +121,14 @@ export default function AccountCreateDialog({
           value={username}
           onChange={(event) => setUsername(event.target.value)}
           disabled={busy}
+          aria-invalid={isUsernameTaken}
           className={`${INPUT} w-full`}
         />
+        {isUsernameTaken && (
+          <span role="alert" className={ERROR_TEXT}>
+            {USERNAME_TAKEN_MESSAGE}
+          </span>
+        )}
       </label>
       <label className="flex flex-col gap-1">
         <span className={LABEL}>密碼</span>

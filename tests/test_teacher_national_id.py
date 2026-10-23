@@ -134,6 +134,7 @@ def test_national_id_unique_within_school(
     )
 
     assert response.status_code == 409
+    assert response.json()["detail"].startswith("身分證字號重複")
 
 
 def test_coordinator_cannot_set_other_schools_teacher(
@@ -153,3 +154,98 @@ def test_coordinator_cannot_set_other_schools_teacher(
 
 def test_teacher_cannot_use_lookup(teacher_client: TestClient) -> None:
     assert teacher_client.get(SAME_NAME_URL, params={"name": "王小明"}).status_code == 403
+
+
+# --- 帳號管理's 身分證字號 column and 編輯 ---
+
+
+def _row(client: TestClient, username: str) -> dict:  # type: ignore[type-arg]
+    rows = client.get("/api/v1/users/").json()
+    return next(row for row in rows if row["username"] == username)
+
+
+def test_list_shows_masked_national_id_never_the_number(coordinator_client: TestClient) -> None:
+    _register(coordinator_client, "wang1", "王小明", teacher_national_id="A123456789")
+
+    row = _row(coordinator_client, "wang1")
+
+    assert row["national_id_masked"] == "A12****789"
+    assert "national_id" not in row
+    assert row["national_id_missing"] is False
+
+
+def test_same_name_teacher_without_national_id_is_flagged(
+    coordinator_client: TestClient,
+) -> None:
+    _register(coordinator_client, "wang1", "王小明")
+    _register(coordinator_client, "wang2", "王小明", teacher_national_id="A123456789")
+    _register(coordinator_client, "lee1", "李小華")
+
+    assert _row(coordinator_client, "wang1")["national_id_missing"] is True
+    assert _row(coordinator_client, "wang2")["national_id_missing"] is False
+    # No one else is named 李小華: no 身分證字號 is fine.
+    assert _row(coordinator_client, "lee1")["national_id_missing"] is False
+    assert _row(coordinator_client, "lee1")["national_id_masked"] is None
+
+
+def test_any_teacher_may_get_a_national_id(coordinator_client: TestClient) -> None:
+    _register(coordinator_client, "lee1", "李小華")
+    teacher_id = _row(coordinator_client, "lee1")["teacher_id"]
+
+    response = coordinator_client.patch(
+        _national_id_url(teacher_id), json={"national_id": "C123456789"}
+    )
+
+    assert response.status_code == 200
+    assert _row(coordinator_client, "lee1")["national_id_masked"] == "C12****789"
+
+
+def test_national_id_may_be_cleared_without_same_name(coordinator_client: TestClient) -> None:
+    _register(coordinator_client, "lee1", "李小華", teacher_national_id="C123456789")
+    teacher_id = _row(coordinator_client, "lee1")["teacher_id"]
+
+    response = coordinator_client.patch(_national_id_url(teacher_id), json={"national_id": None})
+
+    assert response.status_code == 200
+    assert response.json()["has_national_id"] is False
+    assert _row(coordinator_client, "lee1")["national_id_masked"] is None
+
+
+def test_national_id_cannot_be_cleared_with_same_name(coordinator_client: TestClient) -> None:
+    _register(coordinator_client, "wang1", "王小明")
+    _register(coordinator_client, "wang2", "王小明", teacher_national_id="A123456789")
+    teacher_id = _row(coordinator_client, "wang2")["teacher_id"]
+
+    response = coordinator_client.patch(_national_id_url(teacher_id), json={"national_id": None})
+
+    assert response.status_code == 422
+    assert "同名同姓" in response.json()["detail"]
+    assert _row(coordinator_client, "wang2")["national_id_masked"] == "A12****789"
+
+
+# --- 新增帳號: the 帳號名稱 is checked while typed ---
+
+USERNAME_URL = "/api/v1/users/username-available"
+
+
+def test_username_availability(coordinator_client: TestClient) -> None:
+    _register(coordinator_client, "wang1", "王小明")
+
+    taken = coordinator_client.get(USERNAME_URL, params={"username": " wang1 "})
+    free = coordinator_client.get(USERNAME_URL, params={"username": "wang2"})
+
+    assert taken.json() == {"available": False}
+    assert free.json() == {"available": True}
+
+
+def test_teacher_cannot_check_usernames(teacher_client: TestClient) -> None:
+    assert teacher_client.get(USERNAME_URL, params={"username": "x"}).status_code == 403
+
+
+def test_duplicate_username_says_so(coordinator_client: TestClient) -> None:
+    _register(coordinator_client, "wang1", "王小明")
+
+    response = coordinator_client.post(REGISTER_URL, json=_teacher_body("wang1", name="李小華"))
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "帳號名稱已被使用，請更換"

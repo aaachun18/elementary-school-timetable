@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.models.room import Room
 from app.schemas.room import RoomCreate, RoomUpdate
+from app.services.delete_guidance import room_delete_steps
 from app.services.exceptions import (
     DependentRecordsExistError,
     raise_for_integrity_error,
@@ -70,7 +71,8 @@ def delete_room(db: Session, room_id: int, *, school_id: int) -> bool:
         db.rollback()
         raise DependentRecordsExistError(
             f"Room {room_id} cannot be deleted: other records still "
-            "reference it."
+            "reference it.",
+            room_delete_steps(db, room_id),
         ) from exc
 
     return True

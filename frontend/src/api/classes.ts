@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { Class, ClassCreate } from "../types/class";
+import type { Class, ClassBatchCreate, ClassCreate } from "../types/class";
 
 // Mirrors backend/app/routers/class_.py. No update: a class is only
 // created and deleted.
@@ -18,6 +18,12 @@ export async function get(classId: number): Promise<Class> {
 
 export async function create(data: ClassCreate): Promise<Class> {
   const response = await apiClient.post<Class>("/api/v1/classes/", data);
+  return response.data;
+}
+
+// All of them or none (one transaction on the backend).
+export async function createBatch(data: ClassBatchCreate): Promise<Class[]> {
+  const response = await apiClient.post<Class[]>("/api/v1/classes/batch", data);
   return response.data;
 }
 

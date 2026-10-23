@@ -25,7 +25,8 @@ def test_list_users_as_admin(admin_client: TestClient, teacher_user: User) -> No
     assert [item["username"] for item in data] == ["admin_test", "teacher_test"]
     assert [item["role"] for item in data] == ["ADMIN", "TEACHER"]
     for item in data:
-        # Task 98 added is_active, school_id and teacher_name.
+        # Task 98 added is_active, school_id and teacher_name; 帳號管理's
+        # 身分證字號 column the teacher_id / masked number / missing flag.
         assert set(item.keys()) == {
             "id",
             "username",
@@ -33,6 +34,9 @@ def test_list_users_as_admin(admin_client: TestClient, teacher_user: User) -> No
             "is_active",
             "school_id",
             "teacher_name",
+            "teacher_id",
+            "national_id_masked",
+            "national_id_missing",
         }
         assert "hashed_password" not in item
 
