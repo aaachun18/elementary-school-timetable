@@ -13,6 +13,7 @@ import { list as listAcademicYears } from "../api/academicYears";
 import { list as listClasses } from "../api/classes";
 import { list as listTeachers } from "../api/teachers";
 import { list as listRooms } from "../api/rooms";
+import { list as listCombinedLessons } from "../api/combinedLessons";
 import { listTeachers as listRecordTeachers } from "../api/semesterSettings";
 import AdjustmentPreviewDialog from "../components/AdjustmentPreviewDialog";
 import ConfirmDialog from "../components/ConfirmDialog";
@@ -36,6 +37,7 @@ import { useUnscheduledLessons } from "../hooks/useUnscheduledLessons";
 import { extractApiErrorMessage } from "../constants/errorMessages";
 import { isCurrentUserCoordinator } from "../utils/auth";
 import { getViolationSentence, resolveTimeSlotLabel } from "../utils/failureDiagnostics";
+import { combinedForDisplay } from "../utils/combinedLessons";
 import { blockGroupMemberIds } from "../utils/lessonBlocks";
 import { homeroomTargetId, lessonTargetId } from "../utils/lessonDrop";
 import { buildCandidateMarks, swapMarkKey, type CandidateMark } from "../utils/moveCandidates";
@@ -79,6 +81,7 @@ import {
   CANDIDATE_LEGEND_UNAVAILABLE_SWATCH,
   CARD,
   ERROR_TEXT,
+  FIELD_PAGE,
   HOMEROOM_TAG,
   LABEL,
   LOADING_TEXT,
@@ -147,6 +150,12 @@ export default function TimetableView(): ReactElement {
   // request below works on it instead of the record itself.
   const [editingId, setEditingId] = useState<number | null>(null);
   const activeVersionId = editingId ?? selectedVersionId;
+  // 共同排課 of the version being shown (a working copy has its own
+  // lessons, so its own combined lessons): how a 合併節 reads on the grid.
+  const combinedLessons = useResource(
+    () => (activeVersionId === null ? Promise.resolve([]) : listCombinedLessons(activeVersionId)),
+    [activeVersionId],
+  );
   const recordTeachers = useResource(
     () => (selectedVersionId === null ? Promise.resolve([]) : listRecordTeachers(selectedVersionId)),
     [selectedVersionId],
@@ -459,6 +468,7 @@ export default function TimetableView(): ReactElement {
   }
 
   const schedules = timetable.data?.schedules ?? [];
+  const displaySchedules = combinedForDisplay(schedules, combinedLessons.data ?? [], viewMode);
   const selectedLesson =
     schedules.find((schedule) => schedule.scheduleId === adjustment.selectedScheduleId) ?? null;
 
@@ -996,7 +1006,7 @@ export default function TimetableView(): ReactElement {
               onChange={(event) =>
                 handleSelectVersion(event.target.value === "" ? null : Number(event.target.value))
               }
-              className={SELECT}
+              className={`${SELECT} ${FIELD_PAGE}`}
             >
               <option value="">請選擇…</option>
               {versions.map((version) => (
@@ -1289,7 +1299,7 @@ export default function TimetableView(): ReactElement {
               );
               setHighlightedTimeSlotId(null);
             }}
-            className={`${SELECT} mb-4`}
+            className={`${SELECT} ${FIELD_PAGE} mb-4`}
           >
             <option value="">請選擇…</option>
             {targetOptions.map((option) => (
@@ -1298,6 +1308,11 @@ export default function TimetableView(): ReactElement {
               </option>
             ))}
           </select>
+          {viewMode === "class" && selectedTargetId !== null && homeroomOfSelectedClass !== undefined && (
+            <p className="-mt-2 mb-4">
+              <span className={HOMEROOM_TAG}>導師：{homeroomOfSelectedClass.teacher_name}</span>
+            </p>
+          )}
 
           {isEditing && lessonCount(placementCards) > 0 && (
             <UnscheduledLessonsPanel
@@ -1363,7 +1378,7 @@ export default function TimetableView(): ReactElement {
               homeroomTeacherByClass={homeroomTeacherByClass}
               periods={periods}
               periodDisplay={periodDisplay}
-              schedules={schedules}
+              schedules={displaySchedules}
               viewMode={viewMode}
               targetId={selectedTargetId}
               timeSlotByWeekdayAndPeriod={timeSlotByWeekdayAndPeriod}
@@ -1393,11 +1408,6 @@ export default function TimetableView(): ReactElement {
                   : null
               }
             />
-          )}
-          {viewMode === "class" && selectedTargetId !== null && homeroomOfSelectedClass !== undefined && (
-            <p className="mt-2">
-              <span className={HOMEROOM_TAG}>導師：{homeroomOfSelectedClass.teacher_name}</span>
-            </p>
           )}
           {isEditing && shownCandidateSourceId !== null && candidateState.status === "failed" && (
             <p className={`${MUTED_TEXT} mt-2`}>目前無法顯示候選位置，仍可直接放下並預覽</p>
@@ -1479,7 +1489,7 @@ export default function TimetableView(): ReactElement {
               onChange={(event) =>
                 setCopyTargetSemesterId(event.target.value === "" ? null : Number(event.target.value))
               }
-              className={SELECT}
+              className={`${SELECT} w-full`}
             >
               {copyTargetSemesters.map((semester) => (
                 <option key={semester.id} value={semester.id}>

@@ -25,6 +25,7 @@ describe("isWizardStep", () => {
       "teachers",
       "grades",
       "requirements",
+      "combined",
       "run",
     ]);
   });

@@ -37,19 +37,23 @@ from scheduling_engine.constraints.teacher_participation import (
     TeacherParticipationConstraint,
 )
 from scheduling_engine.constraints.teacher_workload import TeacherWorkloadConstraint
+from scheduling_engine.constraints.combined_lesson import CombinedLessonConstraint
 from scheduling_engine.models.domain import (
     ActiveStatusInfo,
     ClassAllowedTimeSlots,
+    CombinedLesson,
     DefaultRoom,
     LessonAssignment,
     LessonBlock,
     RequiredRoomRule,
     RequiredTeacherRule,
     RequirementPeriods,
+    RoomCapacity,
     TeacherUnavailability,
     TeacherWorkloadLimit,
     TimeSlotInfo,
     TimeSlotPosition,
+    joint_keys,
 )
 
 
@@ -89,6 +93,11 @@ class SchedulingResources:
     default_rooms: list[DefaultRoom] = field(default_factory=list)
     # Task 98 (H13): optional -- empty means no class is restricted.
     class_allowed_time_slots: list[ClassAllowedTimeSlots] = field(default_factory=list)
+    # 共同排課: optional -- every 合併節 (lessons of several classes taught
+    # together). Empty means none, and nothing behaves differently.
+    combined_lessons: list[CombinedLesson] = field(default_factory=list)
+    # H3: how many classes each room holds at once (no entry = 1).
+    room_capacities: list[RoomCapacity] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -104,6 +113,10 @@ class LookupTables:
     default_room_by_requirement: dict[int, int] = field(default_factory=dict)
     # Task 98 (H13): class -> the time slots it may use (absent = any).
     allowed_slots_by_class: dict[int, frozenset[int]] = field(default_factory=dict)
+    # 共同排課: lesson -> the room of its combined lesson (lessons of no
+    # combined lesson are absent; a combined lesson in a class's own room
+    # maps to None).
+    combined_room_by_lesson: dict[int, int | None] = field(default_factory=dict)
 
 
 def room_by_requirement(resources: SchedulingResources) -> dict[int, int]:
@@ -129,6 +142,12 @@ def build_lookup_tables(resources: SchedulingResources) -> LookupTables:
         default_room_by_requirement=room_by_requirement(resources),
         allowed_slots_by_class={
             item.class_id: item.time_slot_ids for item in resources.class_allowed_time_slots
+        },
+        combined_room_by_lesson={
+            lesson_id: combined.room_id
+            for combined in resources.combined_lessons
+            for lesson_ids in combined.member_lesson_ids
+            for lesson_id in lesson_ids
         },
     )
 
@@ -219,8 +238,16 @@ def candidate_room_ids(
     """H9: the one room this Lesson's requirement is held in -- its required
     room (Task 98), else the class's homeroom (Task 92B), else room_id=None
     when the class has none. Always one candidate: the room is fixed, not a
-    search variable -- H3 then keeps two lessons sharing it apart."""
-    return [tables.default_room_by_requirement.get(lesson.class_subject_requirement_id)]
+    search variable -- H3 then keeps two lessons sharing it apart.
+    共同排課: a lesson of a combined lesson is held in that one's room."""
+    return [room_of_lesson(lesson, tables)]
+
+
+def room_of_lesson(lesson: LessonAssignment, tables: LookupTables) -> int | None:
+    """The one room `lesson` is held in -- see candidate_room_ids()."""
+    if lesson.lesson_id in tables.combined_room_by_lesson:
+        return tables.combined_room_by_lesson[lesson.lesson_id]
+    return tables.default_room_by_requirement.get(lesson.class_subject_requirement_id)
 
 
 def build_real_time_constraints(
@@ -241,21 +268,24 @@ def build_real_time_constraints(
     (see weekly_periods.py's docstring) and is always a separate,
     whole-batch, post-hoc step in both algorithms.
     """
+    keys = joint_keys(resources.combined_lessons)
     constraints: list[BaseConstraint] = [
-        TeacherConflictConstraint(),
+        TeacherConflictConstraint(keys),
         ClassConflictConstraint(),
-        RoomConflictConstraint(),
+        RoomConflictConstraint(resources.room_capacities, keys),
         TeacherAvailabilityConstraint(resources.teacher_unavailability),
         TeacherParticipationConstraint(resources.teacher_ids),
         RequiredTeacherConstraint(resources.required_teacher_rules),
-        RequiredRoomConstraint(resources.required_room_rules),
+        RequiredRoomConstraint(resources.required_room_rules, frozenset(keys)),
         NonTeachingPeriodConstraint(resources.time_slots),
         ActiveStatusConstraint(resources.active_statuses),
         ClassTimeSlotConstraint(resources.class_allowed_time_slots),
     ]
+    if resources.combined_lessons:
+        constraints.append(CombinedLessonConstraint(resources.combined_lessons))
     if include_teacher_workload:
         constraints.append(
-            TeacherWorkloadConstraint(resources.teacher_workload_limits)
+            TeacherWorkloadConstraint(resources.teacher_workload_limits, keys)
         )
     return constraints
 

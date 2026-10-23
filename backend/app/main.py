@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.routers.academic_year import router as academic_year_router
+from app.routers.combined_lesson import router as combined_lesson_router
 from app.routers.auth import router as auth_router
 from app.routers.class_ import router as class_router
 from app.routers.class_subject_requirement import (
@@ -30,6 +31,8 @@ from app.services.exceptions import (
     CannotDeleteSelfError,
     BlockAdjustmentRefusedError,
     CannotSwapWithSelfError,
+    CombinedLessonInUseError,
+    CombinedLessonRuleError,
     CopyAcrossAcademicYearsError,
     CopySourceInconsistentError,
     DependentRecordsExistError,
@@ -84,6 +87,7 @@ app.include_router(semester_settings_router)
 app.include_router(teacher_router)
 app.include_router(grade_subject_requirement_router)
 app.include_router(class_subject_requirement_router)
+app.include_router(combined_lesson_router)
 app.include_router(lesson_router)
 app.include_router(schedule_version_router)
 app.include_router(schedule_router)
@@ -106,6 +110,20 @@ def handle_dependent_records_exist(
         status_code=409,
         content={"detail": "此資料仍被其他資料參照，無法刪除"},
     )
+
+
+@app.exception_handler(CombinedLessonRuleError)
+def handle_combined_lesson_rule(
+    request: Request, exc: CombinedLessonRuleError
+) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+
+@app.exception_handler(CombinedLessonInUseError)
+def handle_combined_lesson_in_use(
+    request: Request, exc: CombinedLessonInUseError
+) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 
 @app.exception_handler(InvalidLessonPatternError)

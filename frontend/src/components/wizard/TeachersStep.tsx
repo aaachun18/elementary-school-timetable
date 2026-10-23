@@ -267,7 +267,7 @@ function TeachersForm({
                         }}
                         disabled={freeClasses.length === 0}
                         aria-label={`${teacher.name}擔任導師的班級`}
-                        className={`${SELECT} text-sm`}
+                        className={`${SELECT} w-36 text-sm`}
                       >
                         <option value="">設定導師班級</option>
                         {freeClasses.map((item) => (

@@ -28,6 +28,10 @@ Rules (docs/SYSTEM_DESIGN.md, decision 26):
   one lesson each swap exactly as two lessons always did.
 - A fixed lesson does not stop anything: moving it off its fixed slot is
   reported by the check (FIXED_TIME_SLOT_MISMATCH), as for single lessons.
+- 共同排課: every planned row takes the other members' rows of its 合併節
+  (the lessons that sit in the same slot with it) to the same slot -- a
+  combined lesson always moves as one. A clash this causes for another
+  member's class is reported by the check (H2), not refused.
 
 Task 92: placing a lesson that has no row in the version yet (place-lesson,
 place-candidates) is planned here too, by plan_place() -- decision 28:
@@ -137,6 +141,14 @@ class Layout:
         }
         schedule_of_lesson = {assignment.lesson_id: schedule_id for schedule_id, assignment in rows}
         self._schedule_of_lesson = schedule_of_lesson
+        # 共同排課: lesson -> the other members' lessons of its 合併節 that
+        # share its slot.
+        self._partners: dict[int, list[int]] = {}
+        for combined in resources.combined_lessons:
+            for index in range(min(len(ids) for ids in combined.member_lesson_ids)):
+                same_slot = [ids[index] for ids in combined.member_lesson_ids]
+                for lesson_id in same_slot:
+                    self._partners[lesson_id] = [other for other in same_slot if other != lesson_id]
         self._group_of: dict[int, _Group] = {}
         self._block_of_lesson: dict[int, tuple[int, ...]] = {}
         for block in resources.lesson_blocks:
@@ -171,7 +183,47 @@ class Layout:
     def is_in_block(self, schedule_id: int) -> bool:
         return schedule_id in self._group_of
 
+    def partner_rows(self, schedule_id: int) -> list[int]:
+        """共同排課: the rows of the other members' lessons that share this
+        row's slot (none for a lesson of no combined lesson)."""
+        lesson_id = self.assignment[schedule_id].lesson_id
+        return [
+            self._schedule_of_lesson[partner]
+            for partner in self._partners.get(lesson_id, [])
+            if partner in self._schedule_of_lesson
+        ]
+
+    def with_partner_rows(self, schedule_ids: list[int]) -> list[int]:
+        """The rows plus their partners (partner_rows()), each once, in id
+        order."""
+        rows = set(schedule_ids)
+        for schedule_id in schedule_ids:
+            rows.update(self.partner_rows(schedule_id))
+        return sorted(rows)
+
+    def _with_partners(self, plan: Plan) -> Plan:
+        """Every planned row's partners go to the same slot with it."""
+        if plan.slots is None or not self._partners:
+            return plan
+        planned = list(plan.slots)
+        seen = {item.schedule_id for item in planned}
+        for item in plan.slots:
+            for partner in self.partner_rows(item.schedule_id):
+                if partner not in seen:
+                    seen.add(partner)
+                    planned.append(PlannedSlot(partner, item.time_slot_id))
+        return Plan(slots=tuple(planned), refusal=None)
+
     def plan_move(self, schedule_id: int, target_time_slot_id: int) -> Plan:
+        return self._with_partners(self._plan_move(schedule_id, target_time_slot_id))
+
+    def plan_swap(self, schedule_id: int, other_schedule_id: int) -> Plan:
+        if other_schedule_id in self.partner_rows(schedule_id):
+            # Two members of one 合併節 already share their slot.
+            return Plan(slots=(), refusal=None)
+        return self._with_partners(self._plan_swap(schedule_id, other_schedule_id))
+
+    def _plan_move(self, schedule_id: int, target_time_slot_id: int) -> Plan:
         group = self.group(schedule_id)
         if group.key is None:
             return Plan(slots=(PlannedSlot(schedule_id, target_time_slot_id),), refusal=None)
@@ -198,7 +250,7 @@ class Layout:
             refusal=None,
         )
 
-    def plan_swap(self, schedule_id: int, other_schedule_id: int) -> Plan:
+    def _plan_swap(self, schedule_id: int, other_schedule_id: int) -> Plan:
         first, second = self.group(schedule_id), self.group(other_schedule_id)
         if first.key is None and second.key is None:
             return Plan(

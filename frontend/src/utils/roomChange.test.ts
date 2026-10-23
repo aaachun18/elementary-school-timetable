@@ -10,7 +10,7 @@ import type { Room } from "../types/room";
 import type { RoomChangeDetail } from "../types/scheduler";
 
 function room(id: number, name: string, isActive = true): Room {
-  return { id, name, is_active: isActive, created_at: "", updated_at: "" };
+  return { id, name, is_active: isActive, max_classes: 1, created_at: "", updated_at: "" };
 }
 
 const ROOMS = [

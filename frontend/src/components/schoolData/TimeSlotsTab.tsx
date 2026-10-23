@@ -187,7 +187,7 @@ function TimeSlotGridEditor({
                             disabled={isSaving}
                             placeholder="標籤"
                             aria-label={`${where}標籤`}
-                            className={`${INPUT} w-24`}
+                            className={`${INPUT} w-full`}
                           />
                           <label className="flex items-center gap-1 text-xs text-gray-600">
                             <input

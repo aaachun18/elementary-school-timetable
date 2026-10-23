@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { get as getRecord } from "../api/scheduleVersions";
 import { list as listAcademicYears } from "../api/academicYears";
 import { list as listSemesters } from "../api/semesters";
+import CombinedStep from "../components/wizard/CombinedStep";
 import GradesStep from "../components/wizard/GradesStep";
 import RequirementsStep from "../components/wizard/RequirementsStep";
 import RunStep from "../components/wizard/RunStep";
@@ -65,7 +66,7 @@ async function loadRecord(recordId: number): Promise<{ record: WizardRecord; isE
 }
 
 // Task 98 / v3: 開始排課 -- 學年度與學期 (creates a 尚未排課 排課紀錄) ->
-// 教師設定 -> 年級與可排節次 -> 科目需求 -> 確認並自動排課. Every step saves
+// 教師設定 -> 年級與可排節次 -> 科目需求 -> 共同排課 -> 確認並自動排課. Every step saves
 // its part into the record, so it can be left and resumed (排課紀錄 >
 // 檢視排課設定 > 修改排課設定 opens it again). Classes and the school's
 // 科目需求 are kept on 學校資料.
@@ -243,14 +244,17 @@ export default function SchedulingWizard(): ReactElement {
             <GradesStep versionId={record.id} onBack={() => go("teachers")} onNext={() => go("requirements")} />
           )}
           {record !== null && step === "requirements" && (
-            <RequirementsStep versionId={record.id} onBack={() => go("grades")} onNext={() => go("run")} />
+            <RequirementsStep versionId={record.id} onBack={() => go("grades")} onNext={() => go("combined")} />
+          )}
+          {record !== null && step === "combined" && (
+            <CombinedStep versionId={record.id} onBack={() => go("requirements")} onNext={() => go("run")} />
           )}
           {record !== null && step === "run" && (
             <RunStep
               versionId={record.id}
               versionNumber={record.versionNumber}
               semesterLabel={record.semesterLabel}
-              onBack={() => go("requirements")}
+              onBack={() => go("combined")}
             />
           )}
         </>

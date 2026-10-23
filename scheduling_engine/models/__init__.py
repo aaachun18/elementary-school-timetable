@@ -1,12 +1,14 @@
 from scheduling_engine.models.domain import (
     ActiveStatusInfo,
     ClassAllowedTimeSlots,
+    CombinedLesson,
     DefaultRoom,
     LessonAssignment,
     LessonBlock,
     RequiredRoomRule,
     RequiredTeacherRule,
     RequirementPeriods,
+    RoomCapacity,
     TeacherMinimumWorkload,
     TeacherUnavailability,
     TeacherWorkloadLimit,
@@ -28,4 +30,6 @@ __all__ = [
     "RequirementPeriods",
     "TeacherWorkloadLimit",
     "TeacherMinimumWorkload",
+    "CombinedLesson",
+    "RoomCapacity",
 ]

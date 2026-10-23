@@ -6,6 +6,7 @@ from app.models.class_subject_requirement import ClassSubjectRequirement
 from app.models.lesson import Lesson
 from app.models.schedule_version import ScheduleVersion
 from app.models.time_slot import TimeSlot
+from app.services import combined_lesson as combined_lesson_service
 from app.services.exceptions import raise_for_integrity_error
 from app.services.schedule_version import (
     published_version_ids,
@@ -90,6 +91,13 @@ def fix_lesson_time_slot(
     raise_if_settings_locked(_version_of(db, lesson))
 
     lesson.fixed_time_slot_id = time_slot_id
+    # 共同排課: the other members of the lesson's 合併節 are fixed with it.
+    for partner_id in combined_lesson_service.partner_lessons(
+        db, _version_of(db, lesson).id
+    ).get(lesson.id, []):
+        partner = db.get(Lesson, partner_id)
+        if partner is not None:
+            partner.fixed_time_slot_id = time_slot_id
     try:
         db.commit()
     except IntegrityError as exc:

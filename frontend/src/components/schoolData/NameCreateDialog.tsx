@@ -44,7 +44,7 @@ export default function NameCreateDialog({
           disabled={busy}
           aria-label={label}
           placeholder={placeholder}
-          className={INPUT}
+          className={`${INPUT} w-full`}
         />
       </label>
       {errorMessage !== null && (

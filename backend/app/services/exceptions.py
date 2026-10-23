@@ -251,6 +251,16 @@ class InactiveTeacherAssignmentError(Exception):
     """
 
 
+class CombinedLessonRuleError(Exception):
+    """共同排課: a combined lesson that breaks one of its rules
+    (services/combined_lesson.py) -> 422 with the Chinese message."""
+
+
+class CombinedLessonInUseError(Exception):
+    """共同排課: a change to a requirement that is in a combined lesson and
+    would break it (its lesson pattern) -> 409 with the Chinese message."""
+
+
 def raise_for_integrity_error(exc: IntegrityError) -> None:
     """Classify a SQLAlchemy IntegrityError raised during create/update into
     one of our domain-specific exceptions above, and raise it.

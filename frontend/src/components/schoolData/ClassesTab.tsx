@@ -17,6 +17,7 @@ import {
   BUTTON_PRIMARY_SM,
   BUTTON_SECONDARY_SM,
   ERROR_TEXT,
+  FIELD_PAGE,
   HELP_TEXT,
   LABEL,
   LOADING_TEXT,
@@ -108,7 +109,7 @@ function ClassesTable({
             value={gradeFilter}
             onChange={(event) => setGradeFilter(event.target.value)}
             aria-label="篩選年級"
-            className={SELECT}
+            className={`${SELECT} ${FIELD_PAGE}`}
           >
             <option value={ALL_GRADES}>全部年級</option>
             {grades.map((grade) => (
@@ -242,7 +243,7 @@ function ClassNewRow({
           }}
           disabled={isPending}
           aria-label="年級"
-          className={SELECT}
+          className={`${SELECT} w-full`}
         >
           <option value="">請選擇年級</option>
           {grades.map((item) => (
@@ -261,7 +262,7 @@ function ClassNewRow({
           }}
           disabled={isPending || gradeId === null}
           aria-label="名稱類型"
-          className={SELECT}
+          className={`${SELECT} w-full`}
         >
           <option value="">請選擇名稱類型</option>
           {CLASS_NAME_STYLES.map((style) => (
@@ -277,7 +278,7 @@ function ClassNewRow({
           onChange={(event) => setName(event.target.value)}
           disabled={isPending || nameStyle === null}
           aria-label="班級名稱"
-          className={SELECT}
+          className={`${SELECT} w-full`}
         >
           <option value="">請選擇班級名稱</option>
           {nameOptions.map((option) => (

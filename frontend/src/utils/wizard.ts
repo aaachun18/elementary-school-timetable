@@ -12,6 +12,7 @@ export type WizardStepKey =
   | "teachers"
   | "grades"
   | "requirements"
+  | "combined"
   | "run";
 
 export const WIZARD_STEPS: readonly { key: WizardStepKey; label: string }[] = [
@@ -19,6 +20,7 @@ export const WIZARD_STEPS: readonly { key: WizardStepKey; label: string }[] = [
   { key: "teachers", label: "教師設定" },
   { key: "grades", label: "年級與可排節次" },
   { key: "requirements", label: "科目需求" },
+  { key: "combined", label: "共同排課" },
   { key: "run", label: "確認並排課" },
 ];
 

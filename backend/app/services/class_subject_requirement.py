@@ -22,7 +22,9 @@ from app.schemas.class_subject_requirement import (
     ClassSubjectRequirementUpdate,
     RequirementSyncResult,
 )
+from app.services import combined_lesson as combined_lesson_service
 from app.services.exceptions import (
+    CombinedLessonInUseError,
     DependentRecordsExistError,
     InvalidLessonPatternError,
     raise_for_integrity_error,
@@ -146,6 +148,9 @@ def update_class_subject_requirement(
     except ValueError as exc:
         raise InvalidLessonPatternError(str(exc)) from exc
     pattern_changed = new_pattern != requirement.lesson_pattern
+    # 共同排課: the merged lessons are chosen by the pattern's blocks.
+    if pattern_changed and combined_lesson_service.is_combined(db, requirement_id):
+        raise CombinedLessonInUseError(COMBINED_PATTERN_MESSAGE)
 
     for field, value in requested.items():
         setattr(requirement, field, value)
@@ -169,6 +174,9 @@ def update_class_subject_requirement(
         raise_for_integrity_error(exc)
     db.refresh(requirement)
     return requirement
+
+
+COMBINED_PATTERN_MESSAGE = "這個科目已設定共同排課，請先到「共同排課」取消合併再修改連堂"
 
 
 def _stage_delete_lessons(db: Session, lesson_ids: list[int]) -> None:
@@ -205,6 +213,7 @@ def delete_class_subject_requirement(
     _raise_if_locked(db, requirement.schedule_version_id)
 
     try:
+        combined_lesson_service.stage_delete_for_requirements(db, [requirement_id])
         _stage_delete_lessons(db, _lesson_ids(db, requirement_id))
         db.delete(requirement)
         db.commit()
@@ -273,6 +282,17 @@ def sync_version_requirements(
 
     created = updated = removed = 0
     try:
+        # 共同排課: a member removed or resized no longer lines up with the
+        # others, so its combined lesson goes.
+        combined_lesson_service.stage_delete_for_requirements(
+            db,
+            [
+                requirement.id
+                for requirement in existing
+                if rule_periods.get((requirement.class_id, requirement.subject_id))
+                != requirement.weekly_periods
+            ],
+        )
         for requirement in existing:
             key = (requirement.class_id, requirement.subject_id)
             if key not in rule_periods:

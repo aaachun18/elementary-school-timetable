@@ -193,3 +193,54 @@ class TeacherMinimumWorkload:
 
     teacher_id: int
     min_weekly_periods: int | None
+
+
+@dataclass(frozen=True)
+class CombinedLesson:
+    """共同排課: one 合併節 -- the lessons of several classes taught together.
+    member_lesson_ids has one tuple per member requirement (the class that
+    started the merge first), each the member's lessons of this 合併節 in
+    period order: one lesson, or a whole block (連堂). Lesson i of every
+    member goes to the same time slot, all of them in room_id (None = a
+    class's own room, not a school room).
+
+    teacher_ids: the members' required teachers, in member order without
+    repeats -- they teach the 合併節 together (each member's lessons keep
+    their own required teacher; a member without one gets the first of
+    them). Empty: the scheduler picks one teacher for every member.
+
+    Whoever shares a 合併節 is not in conflict with each other: one teacher
+    on two members' lessons at that slot is one lesson, and the room is used
+    once (constraints read joint_keys())."""
+
+    key: str
+    member_lesson_ids: tuple[tuple[int, ...], ...]
+    room_id: int | None
+    teacher_ids: tuple[int, ...]
+
+
+def joint_keys(combined_lessons: "list[CombinedLesson]") -> dict[int, str]:
+    """lesson_id -> the key it shares with the other members' lessons that
+    must sit in the same time slot ("<合併節 key>:<position>"). A lesson in
+    no combined lesson is absent."""
+    keys: dict[int, str] = {}
+    for combined in combined_lessons:
+        for lesson_ids in combined.member_lesson_ids:
+            for index, lesson_id in enumerate(lesson_ids):
+                keys[lesson_id] = f"{combined.key}:{index}"
+    return keys
+
+
+def occupancy_key(assignment: LessonAssignment, keys: dict[int, str]) -> str:
+    """What one lesson occupies: its 合併節 position, shared with the other
+    members' lessons there, or the lesson itself."""
+    return keys.get(assignment.lesson_id, f"lesson:{assignment.lesson_id}")
+
+
+@dataclass(frozen=True)
+class RoomCapacity:
+    """H3: how many classes may use the room at the same time (a combined
+    lesson counts once). Sparse: a room with no entry holds one."""
+
+    room_id: int
+    max_classes: int

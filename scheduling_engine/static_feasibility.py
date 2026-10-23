@@ -53,9 +53,10 @@ from scheduling_engine.algorithms.resources import (
     candidate_teacher_ids,
     no_candidate_teacher_violation,
     room_by_requirement,
+    room_of_lesson,
 )
 from scheduling_engine.constraints.base import ConstraintViolation, Severity
-from scheduling_engine.models.domain import LessonAssignment
+from scheduling_engine.models.domain import LessonAssignment, joint_keys, occupancy_key
 
 
 @dataclass
@@ -94,7 +95,9 @@ def _lesson_counts_by_required_teacher(
         rule.class_subject_requirement_id: rule.required_teacher_id
         for rule in resources.required_teacher_rules
     }
-    counts: dict[int, int] = {}
+    # 共同排課: a 合併節 is one period for a teacher named by several members.
+    keys = joint_keys(resources.combined_lessons)
+    periods: dict[int, set[str]] = {}
     requirement_ids: dict[int, set[int]] = {}
     for lesson in lessons:
         teacher_id = required_teacher_by_requirement.get(
@@ -102,13 +105,13 @@ def _lesson_counts_by_required_teacher(
         )
         if teacher_id is None:
             continue
-        counts[teacher_id] = counts.get(teacher_id, 0) + 1
+        periods.setdefault(teacher_id, set()).add(occupancy_key(lesson, keys))
         requirement_ids.setdefault(teacher_id, set()).add(
             lesson.class_subject_requirement_id
         )
     return {
-        teacher_id: (count, sorted(requirement_ids[teacher_id]))
-        for teacher_id, count in counts.items()
+        teacher_id: (len(keys_of_teacher), sorted(requirement_ids[teacher_id]))
+        for teacher_id, keys_of_teacher in periods.items()
     }
 
 
@@ -528,12 +531,12 @@ def _check_fixed_time_slots(
                 )
             )
 
-    violations.extend(_fixed_slot_clashes(placeable, tables))
+    violations.extend(_fixed_slot_clashes(placeable, tables, resources))
     return violations
 
 
 def _fixed_slot_clashes(
-    fixed: list[LessonAssignment], tables: LookupTables
+    fixed: list[LessonAssignment], tables: LookupTables, resources: SchedulingResources
 ) -> list[ConstraintViolation]:
     by_class_slot: dict[tuple[int, int | None], list[LessonAssignment]] = {}
     by_teacher_slot: dict[tuple[int, int | None], list[LessonAssignment]] = {}
@@ -543,10 +546,13 @@ def _fixed_slot_clashes(
         candidates = candidate_teacher_ids(lesson, tables)
         if len(candidates) == 1:
             by_teacher_slot.setdefault((candidates[0], lesson.time_slot_id), []).append(lesson)
-        room_id = tables.default_room_by_requirement.get(lesson.class_subject_requirement_id)
+        room_id = room_of_lesson(lesson, tables)
         if room_id is not None:
             by_room_slot.setdefault((room_id, lesson.time_slot_id), []).append(lesson)
 
+    # 共同排課: the lessons of one 合併節 share their teacher and room.
+    keys = joint_keys(resources.combined_lessons)
+    capacity = {item.room_id: item.max_classes for item in resources.room_capacities}
     violations: list[ConstraintViolation] = []
     for (class_id, slot_id), group in by_class_slot.items():
         if len(group) < 2:
@@ -563,7 +569,7 @@ def _fixed_slot_clashes(
                 )
             )
     for (teacher_id, slot_id), group in by_teacher_slot.items():
-        if len(group) < 2:
+        if len({occupancy_key(lesson, keys) for lesson in group}) < 2:
             continue
         lesson_ids = [lesson.lesson_id for lesson in group]
         for lesson in group:
@@ -580,7 +586,8 @@ def _fixed_slot_clashes(
             )
     for (room_id, slot_id), group in by_room_slot.items():
         class_ids = sorted({lesson.class_id for lesson in group})
-        if len(class_ids) < 2:
+        uses = len({occupancy_key(lesson, keys) for lesson in group})
+        if len(class_ids) < 2 or uses <= capacity.get(room_id, 1):
             continue
         lesson_ids = [lesson.lesson_id for lesson in group]
         for lesson in group:
@@ -588,7 +595,7 @@ def _fixed_slot_clashes(
                 FIXED_SLOT_ROOM_CLASH,
                 lesson,
                 f"班級 {_join(class_ids)} 都在教室 {room_id} 上課，而課程 {_join(lesson_ids)} 都固定在時段 "
-                f"{slot_id}，這間教室同一時段只能上一堂課",
+                f"{slot_id}，超過這間教室同一時段能容納的班級數",
                 "只把其中一堂課固定在這個時段，或替其中一班改設教室",
             )
             violations.append(replace(violation, room_id=room_id))
@@ -823,15 +830,21 @@ def _check_rooms(
     """
     tables = build_lookup_tables(resources)
     teaching_slots = len(_teaching_slot_ids(resources))
+    keys = joint_keys(resources.combined_lessons)
+    capacity = {item.room_id: item.max_classes for item in resources.room_capacities}
     by_room: dict[int, list[LessonAssignment]] = {}
     for lesson in lessons:
-        room_id = tables.default_room_by_requirement.get(lesson.class_subject_requirement_id)
+        room_id = room_of_lesson(lesson, tables)
         if room_id is not None:
             by_room.setdefault(room_id, []).append(lesson)
 
     violations: list[ConstraintViolation] = []
     for room_id, group in by_room.items():
-        if len(group) <= teaching_slots:
+        # A 合併節 is one use; a room holding several classes at once
+        # has that many uses per period.
+        uses = len({occupancy_key(lesson, keys) for lesson in group})
+        room_slots = teaching_slots * capacity.get(room_id, 1)
+        if uses <= room_slots:
             continue
         class_ids = sorted({lesson.class_id for lesson in group})
         violations.append(
@@ -845,8 +858,14 @@ def _check_rooms(
                 time_slot_id=None,
                 room_id=room_id,
                 message=(
-                    f"教室 {room_id} 要上 {len(group)} 堂課，"
-                    f"但一週只有 {teaching_slots} 個教學時段（班級 {_join(class_ids)}）"
+                    f"教室 {room_id} 要上 {uses} 堂課，"
+                    f"但一週只有 {teaching_slots} 個教學時段"
+                    + (
+                        f"、每個時段最多 {capacity[room_id]} 班"
+                        if capacity.get(room_id, 1) > 1
+                        else ""
+                    )
+                    + f"（班級 {_join(class_ids)}）"
                 ),
                 suggested_action="減少指定這間教室的課程，或替共用這間教室的班級改設不同的教室",
             )
@@ -892,6 +911,48 @@ def _check_class_time_slots(
     return violations
 
 
+COMBINED_FIXED_CONFLICT = "STATIC_COMBINED_FIXED_CONFLICT"
+
+
+def _check_combined_fixed_slots(
+    lessons: list[LessonAssignment], resources: SchedulingResources
+) -> list[ConstraintViolation]:
+    """共同排課: the members of a 合併節 are fixed to different time slots
+    for the same period -- they can never all be honored together."""
+    fixed_slot = {
+        lesson.lesson_id: lesson.time_slot_id for lesson in lessons if lesson.time_slot_id is not None
+    }
+    by_id = {lesson.lesson_id: lesson for lesson in lessons}
+    violations: list[ConstraintViolation] = []
+    for combined in resources.combined_lessons:
+        size = min(len(lesson_ids) for lesson_ids in combined.member_lesson_ids)
+        for index in range(size):
+            fixed_ids = [
+                lesson_ids[index]
+                for lesson_ids in combined.member_lesson_ids
+                if lesson_ids[index] in fixed_slot
+            ]
+            if len({fixed_slot[lesson_id] for lesson_id in fixed_ids}) <= 1:
+                continue
+            for lesson_id in fixed_ids:
+                lesson = by_id[lesson_id]
+                violations.append(
+                    ConstraintViolation(
+                        type=COMBINED_FIXED_CONFLICT,
+                        severity=Severity.ERROR,
+                        lesson_id=lesson_id,
+                        teacher_id=None,
+                        class_id=lesson.class_id,
+                        subject_id=lesson.subject_id,
+                        time_slot_id=fixed_slot[lesson_id],
+                        class_subject_requirement_id=lesson.class_subject_requirement_id,
+                        message="共同排課的各班這一節固定在不同的時段，無法一起上課",
+                        suggested_action="把合併的各班這一節固定在同一個時段，或取消其中的固定時段",
+                    )
+                )
+    return violations
+
+
 def check_static_feasibility(
     lessons: list[LessonAssignment], resources: SchedulingResources
 ) -> StaticFeasibilityResult:
@@ -917,6 +978,7 @@ def check_static_feasibility(
         + _check_lesson_blocks(lessons, resources)
         + _check_rooms(lessons, resources)
         + _check_class_time_slots(lessons, resources)
+        + _check_combined_fixed_slots(lessons, resources)
     )
     lesson_failures = _check_zero_candidate_teacher_lessons(lessons, resources)
     return StaticFeasibilityResult(

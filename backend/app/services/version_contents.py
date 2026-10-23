@@ -24,7 +24,16 @@ from app.models.lesson import Lesson
 from app.models.schedule import Schedule
 from app.models.semester_grade_time_slot import SemesterGradeTimeSlot
 from app.models.semester_teacher import SemesterTeacher, SemesterTeacherUnavailability
+from app.models.combined_lesson import CombinedLesson
 from app.services.exceptions import CopySourceInconsistentError
+
+
+def _combined_lesson_service():  # type: ignore[no-untyped-def]
+    """services/combined_lesson.py, imported when first used: it needs
+    services/schedule_version.py, which imports this module."""
+    from app.services import combined_lesson
+
+    return combined_lesson
 
 # Every business column of ClassSubjectRequirement, copied verbatim
 # (required_teacher_id included even if that teacher is now inactive -- the
@@ -70,6 +79,7 @@ def stage_delete_timetable(db: Session, version_id: int) -> None:
 def stage_delete_contents(db: Session, version_id: int) -> None:
     """The record's timetable and every setting it owns, children first."""
     stage_delete_timetable(db, version_id)
+    _combined_lesson_service().stage_delete_for_version(db, version_id)
     db.execute(
         delete(Lesson).where(Lesson.class_subject_requirement_id.in_(_requirement_ids(version_id)))
     )
@@ -114,6 +124,13 @@ def _stage_copy_requirements_and_lessons(
     }
     db.add_all(new_requirement_by_old_id.values())
     db.flush()  # the new requirement ids the Lessons need
+    # 共同排課 travels with the requirements.
+    _combined_lesson_service().stage_copy(
+        db,
+        source_id,
+        target_id,
+        {old_id: requirement.id for old_id, requirement in new_requirement_by_old_id.items()},
+    )
 
     source_lessons = (
         db.scalars(
@@ -221,7 +238,13 @@ def stage_move_contents(db: Session, from_id: int, to_id: int) -> None:
     """Every setting and Schedule row of `from_id` now belongs to `to_id`
     (which owns nothing at this point). Lessons and unavailable slots hang
     off rows that move, so they follow."""
-    for model in (ClassSubjectRequirement, SemesterTeacher, SemesterGradeTimeSlot, Schedule):
+    for model in (
+        ClassSubjectRequirement,
+        SemesterTeacher,
+        SemesterGradeTimeSlot,
+        Schedule,
+        CombinedLesson,
+    ):
         db.execute(
             update(model)
             .where(model.schedule_version_id == from_id)

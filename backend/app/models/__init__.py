@@ -1,5 +1,6 @@
 from app.models.academic_year import AcademicYear, Semester
 from app.models.class_subject_requirement import ClassSubjectRequirement
+from app.models.combined_lesson import CombinedLesson, CombinedLessonMember
 from app.models.grade_class import Class, Grade
 from app.models.grade_subject_requirement import GradeSubjectRequirement
 from app.models.lesson import Lesson
@@ -18,6 +19,8 @@ __all__ = [
     "AcademicYear",
     "Semester",
     "ClassSubjectRequirement",
+    "CombinedLesson",
+    "CombinedLessonMember",
     "Grade",
     "GradeSubjectRequirement",
     "Class",

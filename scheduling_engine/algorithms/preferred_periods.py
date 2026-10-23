@@ -23,7 +23,8 @@ taken only when it raises the score, keeps every real-time hard constraint
 rules) satisfied for the whole timetable, and doesn't put more of a
 requirement's separate (non-block) lessons on one day than it already had
 -- so the spread across the week never gets worse. Fixed lessons (a fixed
-time slot) never move. Steps are tried in a fixed order, so the same input
+time slot) and the lessons of a combined lesson (共同排課, several classes
+at once) never move. Steps are tried in a fixed order, so the same input
 always gives the same result; max_checks / timeout_seconds bound the work.
 
 Pure: no database, no FastAPI (AGENTS.md section 4).
@@ -43,7 +44,7 @@ from scheduling_engine.algorithms.resources import (
     SchedulingResources,
     build_real_time_constraints,
 )
-from scheduling_engine.models.domain import LessonAssignment
+from scheduling_engine.models.domain import LessonAssignment, joint_keys
 
 # 第 1–2 節: how many of each day's first teaching periods are preferred.
 PREFERRED_PERIODS_PER_DAY = 2
@@ -119,7 +120,7 @@ class _Optimizer:
         ]
         self.fixed_lesson_ids = {
             lesson.lesson_id for lesson in pending_lessons if lesson.time_slot_id is not None
-        }
+        } | set(joint_keys(resources.combined_lessons))
         # lesson_id -> its current assignment (the timetable being improved).
         self.placed = {assignment.lesson_id: assignment for assignment in assignments}
         self.order = [assignment.lesson_id for assignment in assignments]

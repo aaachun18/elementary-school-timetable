@@ -113,7 +113,7 @@ function UserNewRow({
             onChange={(event) => setRole(event.target.value as UserRole)}
             disabled={isPending}
             aria-label="角色"
-            className={SELECT}
+            className={`${SELECT} w-full`}
           >
             {roles.map((option) => (
               <option key={option} value={option}>
@@ -131,7 +131,7 @@ function UserNewRow({
             disabled={isPending}
             aria-label="教師姓名"
             placeholder="教師姓名"
-            className={`${INPUT} w-28`}
+            className={`${INPUT} w-full`}
           />
         ) : (
           <span className={MUTED_TEXT}>—</span>
@@ -147,7 +147,7 @@ function UserNewRow({
               }
               disabled={isPending}
               aria-label="所屬學校"
-              className={SELECT}
+              className={`${SELECT} w-full`}
             >
               <option value="">請選擇學校</option>
               {schools.map((school) => (
@@ -289,7 +289,7 @@ function UserRow({
               onChange={(event) => onUpdateAccount({ school_id: Number(event.target.value) })}
               disabled={isPending}
               aria-label={`${user.username} 的所屬學校`}
-              className={SELECT}
+              className={`${SELECT} w-full`}
             >
               {schools.map((school) => (
                 <option key={school.id} value={school.id}>

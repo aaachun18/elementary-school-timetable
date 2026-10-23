@@ -25,10 +25,11 @@ import { SCHOOL_TYPES, SCHOOL_TYPE_LABELS, type SchoolType } from "../utils/scho
 import ClassesTab from "../components/schoolData/ClassesTab";
 import GradeRequirementsTab from "../components/schoolData/GradeRequirementsTab";
 import NameCreateDialog from "../components/schoolData/NameCreateDialog";
+import RoomCreateDialog from "../components/schoolData/RoomCreateDialog";
 import TimeSlotsTab from "../components/schoolData/TimeSlotsTab";
 import type { School, SchoolCreate, SchoolUpdate } from "../types/school";
 import type { Subject, SubjectCreate, SubjectUpdate } from "../types/subject";
-import type { Room, RoomCreate, RoomUpdate } from "../types/room";
+import { ROOM_MAX_CLASSES_OPTIONS, type Room, type RoomCreate, type RoomUpdate } from "../types/room";
 import {
   BUTTON_DANGER_SM,
   BUTTON_PRIMARY,
@@ -124,7 +125,7 @@ function SchoolNewRow({
           onChange={(event) => setName(event.target.value)}
           disabled={isPending}
           aria-label="學校名稱"
-        className={INPUT}
+        className={`${INPUT} w-full`}
         />
       </td>
       <td className={TD}>
@@ -135,7 +136,7 @@ function SchoolNewRow({
           onChange={(event) => setSchoolType(event.target.value as SchoolType)}
           disabled={isPending}
           aria-label="學校類型"
-          className={SELECT}
+          className={`${SELECT} w-full`}
         >
           {SCHOOL_TYPES.map((type) => (
             <option key={type} value={type}>
@@ -212,7 +213,7 @@ function SchoolRow({
             onChange={(event) => setDraftName(event.target.value)}
             disabled={isPending}
             aria-label="學校名稱"
-          className={INPUT}
+          className={`${INPUT} w-full`}
           />
         </td>
         <td className={`${TD} text-gray-500`}>{SCHOOL_TYPE_LABELS[school.school_type]}</td>
@@ -386,7 +387,7 @@ function SubjectRow({
             onChange={(event) => setDraftName(event.target.value)}
             disabled={isPending}
             aria-label="科目名稱"
-          className={INPUT}
+          className={`${INPUT} w-full`}
           />
         </td>
         <td className={TD}>
@@ -541,11 +542,13 @@ function RoomRow({
 }): ReactElement {
   const [draftName, setDraftName] = useState(room.name);
   const [draftIsActive, setDraftIsActive] = useState(room.is_active);
+  const [draftMaxClasses, setDraftMaxClasses] = useState(room.max_classes);
 
   useEffect(() => {
     if (isEditing) {
       setDraftName(room.name);
       setDraftIsActive(room.is_active);
+      setDraftMaxClasses(room.max_classes);
     }
   }, [isEditing, room]);
 
@@ -558,8 +561,23 @@ function RoomRow({
             onChange={(event) => setDraftName(event.target.value)}
             disabled={isPending}
             aria-label="教室名稱"
-          className={INPUT}
+          className={`${INPUT} w-full`}
           />
+        </td>
+        <td className={TD}>
+          <select
+            value={draftMaxClasses}
+            onChange={(event) => setDraftMaxClasses(Number(event.target.value))}
+            disabled={isPending}
+            aria-label="一次最多幾班同時使用"
+            className={`${SELECT} w-full`}
+          >
+            {ROOM_MAX_CLASSES_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option} 班
+              </option>
+            ))}
+          </select>
         </td>
         <td className={TD}>
           <label>
@@ -580,6 +598,7 @@ function RoomRow({
               onConfirmEdit({
                 name: draftName,
                 is_active: draftIsActive,
+                max_classes: draftMaxClasses,
               })
             }
             disabled={isPending || draftName.trim() === ""}
@@ -601,6 +620,7 @@ function RoomRow({
   return (
     <tr className={TR_HOVER}>
       <td className={TD}>{room.name}</td>
+      <td className={TD}>{room.max_classes} 班</td>
       <td className={TD}>{room.is_active ? "是" : "否"}</td>
       <td className={TD}>
         {isAdmin && (
@@ -660,6 +680,7 @@ function RoomsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
             <thead>
               <tr className={TABLE_HEAD_ROW}>
                 <th className={TH}>名稱</th>
+                <th className={TH}>一次最多幾班同時使用</th>
                 <th className={TH}>啟用中</th>
                 {isAdmin && <th className={TH}>操作</th>}
               </tr>
@@ -683,13 +704,10 @@ function RoomsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
           </table>
           </div>
           {crud.isAdding && (
-            <NameCreateDialog
-              title="新增教室"
-              label="教室名稱"
-              placeholder="這間教室自己的名字"
+            <RoomCreateDialog
               busy={crud.pendingKey === "new"}
               errorMessage={crud.rowErrors.get("new") ?? null}
-              onSave={(name) => void crud.submitCreate({ name })}
+              onSave={(data) => void crud.submitCreate(data)}
               onCancel={crud.cancelAdding}
             />
           )}

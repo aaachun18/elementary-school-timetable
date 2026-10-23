@@ -7,6 +7,8 @@ import {
   update as updateRequirement,
 } from "../../api/classSubjectRequirements";
 import { list as listGrades } from "../../api/grades";
+import { list as listLessons } from "../../api/lessons";
+import { list as listTimeSlots } from "../../api/timeSlots";
 import { list as listRooms } from "../../api/rooms";
 import { listTeachers as listSemesterTeachers } from "../../api/semesterSettings";
 import { list as listSubjects } from "../../api/subjects";
@@ -22,12 +24,17 @@ import type { Grade } from "../../types/grade";
 import type { Room } from "../../types/room";
 import type { SemesterTeacher } from "../../types/semesterSettings";
 import type { Subject } from "../../types/subject";
+import type { TimeSlot } from "../../types/timeSlot";
 import { NO_PATTERN, lessonPatternOptions } from "../../utils/lessonPattern";
+import { buildPeriodDisplay } from "../../utils/periodDisplay";
+import FixedSlotsDialog from "./FixedSlotsDialog";
 import {
   BUTTON_PRIMARY,
   BUTTON_SECONDARY,
+  BUTTON_SECONDARY_SM,
   CARD,
   ERROR_TEXT,
+  FIELD_PAGE,
   HELP_TEXT,
   LABEL,
   LOADING_TEXT,
@@ -35,11 +42,11 @@ import {
   MUTED_TEXT,
   NOTICE,
   SELECT,
-  TAB_BUTTON,
-  TAB_BUTTON_ACTIVE,
   TABLE,
   TABLE_HEAD_ROW,
   TABLE_WRAPPER,
+  TAB_BUTTON,
+  TAB_BUTTON_ACTIVE,
   TD,
   TH,
 } from "../../styles/ui";
@@ -53,7 +60,9 @@ const CLASS_BUTTON_ACTIVE = `${TAB_BUTTON_ACTIVE} text-left`;
 // the lesson pattern (連堂, offered by the number of periods; optional), the
 // teacher (one taking part in the record; optional -- then any teacher
 // still under their maximum) and the special room (one of the school's
-// rooms; 原班教室 otherwise) are set. Each change is saved right away.
+// rooms; 原班教室 otherwise) are set, and -- 固定時段, the column after
+// 連堂 -- which of its lessons are pinned to a time slot. Each change is
+// saved right away.
 // Classes are picked per grade: a grade dropdown, then that grade's classes
 // listed on the left.
 export default function RequirementsStep({
@@ -72,6 +81,7 @@ export default function RequirementsStep({
   const subjects = useResource(() => listSubjects(0, 1000), []);
   const rooms = useResource(() => listRooms(0, 1000), []);
   const teachers = useResource(() => listSemesterTeachers(versionId), [versionId]);
+  const timeSlots = useResource(() => listTimeSlots(0, 1000), []);
 
   const errorMessage =
     synced.errorMessage ??
@@ -79,7 +89,8 @@ export default function RequirementsStep({
     classes.errorMessage ??
     subjects.errorMessage ??
     rooms.errorMessage ??
-    teachers.errorMessage;
+    teachers.errorMessage ??
+    timeSlots.errorMessage;
   if (errorMessage !== null) {
     return (
       <p role="alert" className={ERROR_TEXT}>
@@ -93,7 +104,8 @@ export default function RequirementsStep({
     classes.data === null ||
     subjects.data === null ||
     rooms.data === null ||
-    teachers.data === null
+    teachers.data === null ||
+    timeSlots.data === null
   ) {
     return <p className={LOADING_TEXT}>正在帶入學校的科目需求…</p>;
   }
@@ -110,6 +122,7 @@ export default function RequirementsStep({
       subjects={subjects.data}
       rooms={rooms.data.filter((room) => room.is_active)}
       teachers={teachers.data}
+      timeSlots={timeSlots.data}
       onBack={onBack}
       onNext={onNext}
     />
@@ -127,6 +140,7 @@ function SyncedRequirements({
   subjects: readonly Subject[];
   rooms: readonly Room[];
   teachers: readonly SemesterTeacher[];
+  timeSlots: readonly TimeSlot[];
   onBack: () => void;
   onNext: () => void;
 }): ReactElement {
@@ -144,7 +158,7 @@ function SyncedRequirements({
   if (requirements.data === null) {
     return <p className={LOADING_TEXT}>載入中…</p>;
   }
-  return <RequirementsForm initialRequirements={requirements.data} {...props} />;
+  return <RequirementsForm versionId={versionId} initialRequirements={requirements.data} {...props} />;
 }
 
 function syncSummary(result: RequirementSyncResult): string | null {
@@ -157,6 +171,8 @@ function syncSummary(result: RequirementSyncResult): string | null {
 }
 
 function RequirementsForm({
+  versionId,
+  timeSlots,
   syncResult,
   grades,
   classes,
@@ -167,6 +183,8 @@ function RequirementsForm({
   onBack,
   onNext,
 }: {
+  versionId: number;
+  timeSlots: readonly TimeSlot[];
   syncResult: RequirementSyncResult;
   grades: readonly Grade[];
   classes: readonly Class[];
@@ -182,6 +200,23 @@ function RequirementsForm({
   const [gradeId, setGradeId] = useState<number | null>(gradesWithClasses[0]?.id ?? null);
   const gradeClasses = classes.filter((item) => item.grade_id === gradeId);
   const [classId, setClassId] = useState<number | null>(gradeClasses[0]?.id ?? null);
+  // 固定時段: how many of each requirement's lessons are pinned (reloaded
+  // after the dialog closes), and the requirement the dialog is open for.
+  const lessons = useResource(() => listLessons(0, 1000, { schedule_version_id: versionId }), [versionId]);
+  const [fixing, setFixing] = useState<ClassSubjectRequirement | null>(null);
+  const fixedCountOf = new Map<number, number>();
+  for (const lesson of lessons.data ?? []) {
+    if (lesson.fixed_time_slot_id !== null) {
+      fixedCountOf.set(
+        lesson.class_subject_requirement_id,
+        (fixedCountOf.get(lesson.class_subject_requirement_id) ?? 0) + 1,
+      );
+    }
+  }
+  const teachingTimeSlots = [...timeSlots]
+    .filter((slot) => slot.is_teaching_period)
+    .sort((a, b) => a.weekday - b.weekday || a.period - b.period);
+  const periodDisplay = buildPeriodDisplay(timeSlots);
 
   function selectGrade(nextGradeId: number): void {
     setGradeId(nextGradeId);
@@ -226,7 +261,7 @@ function RequirementsForm({
             <select
               value={gradeId ?? ""}
               onChange={(event) => selectGrade(Number(event.target.value))}
-              className={SELECT}
+              className={`${SELECT} ${FIELD_PAGE}`}
             >
               {gradesWithClasses.map((grade) => (
                 <option key={grade.id} value={grade.id}>
@@ -261,6 +296,7 @@ function RequirementsForm({
                       <th className={TH}>科目</th>
                       <th className={TH}>每週節數</th>
                       <th className={TH}>連堂</th>
+                      <th className={TH}>固定時段</th>
                       <th className={TH}>指定老師</th>
                       <th className={TH}>特殊教室</th>
                     </tr>
@@ -273,12 +309,14 @@ function RequirementsForm({
                         subjectName={subjectName.get(requirement.subject_id) ?? "—"}
                         rooms={rooms}
                         teachers={teachers}
+                        fixedCount={fixedCountOf.get(requirement.id) ?? 0}
+                        onOpenFixed={() => setFixing(requirement)}
                         onSaved={replaceRequirement}
                       />
                     ))}
                     {classRequirements.length === 0 && (
                       <tr>
-                        <td className={TD} colSpan={5}>
+                        <td className={TD} colSpan={6}>
                           <span className={MUTED_TEXT}>這個班級的年級還沒有科目需求。</span>
                         </td>
                       </tr>
@@ -294,6 +332,20 @@ function RequirementsForm({
             </p>
           )}
         </>
+      )}
+      {fixing !== null && (
+        <FixedSlotsDialog
+          versionId={versionId}
+          requirementId={fixing.id}
+          lessonPattern={fixing.lesson_pattern ?? null}
+          title={`${classes.find((item) => item.id === fixing.class_id)?.name ?? ""}${subjectName.get(fixing.subject_id) ?? ""}的固定時段`}
+          teachingTimeSlots={teachingTimeSlots}
+          periodDisplay={periodDisplay}
+          onClose={() => {
+            setFixing(null);
+            lessons.reload();
+          }}
+        />
       )}
       <div className="mt-4 flex gap-2">
         <button type="button" onClick={onBack} className={BUTTON_SECONDARY}>
@@ -312,12 +364,16 @@ function RequirementRow({
   subjectName,
   rooms,
   teachers,
+  fixedCount,
+  onOpenFixed,
   onSaved,
 }: {
   requirement: ClassSubjectRequirement;
   subjectName: string;
   rooms: readonly Room[];
   teachers: readonly SemesterTeacher[];
+  fixedCount: number;
+  onOpenFixed: () => void;
   onSaved: (saved: ClassSubjectRequirement) => void;
 }): ReactElement {
   const [isBusy, setIsBusy] = useState(false);
@@ -366,7 +422,7 @@ function RequirementRow({
             }
             disabled={disabled}
             aria-label={`${subjectName}連堂`}
-            className={SELECT}
+            className={`${SELECT} w-full`}
           >
             {patternOptions.map((option) => (
               <option key={option.value} value={option.value}>
@@ -377,6 +433,11 @@ function RequirementRow({
         )}
       </td>
       <td className={TD}>
+        <button type="button" onClick={onOpenFixed} disabled={disabled} className={BUTTON_SECONDARY_SM}>
+          {fixedCount === 0 ? "設定" : `已固定 ${fixedCount} 堂`}
+        </button>
+      </td>
+      <td className={TD}>
         <select
           value={requirement.required_teacher_id ?? ""}
           onChange={(event) =>
@@ -384,7 +445,7 @@ function RequirementRow({
           }
           disabled={disabled}
           aria-label={`${subjectName}指定老師`}
-          className={SELECT}
+          className={`${SELECT} w-full`}
         >
           <option value="">不指定</option>
           {teachers.map((teacher) => (
@@ -402,7 +463,7 @@ function RequirementRow({
           }
           disabled={disabled}
           aria-label={`${subjectName}特殊教室`}
-          className={SELECT}
+          className={`${SELECT} w-full`}
         >
           <option value="">原班教室</option>
           {rooms.map((room) => (

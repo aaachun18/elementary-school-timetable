@@ -12,7 +12,6 @@ import { list as listSubjects } from "../api/subjects";
 import { list as listTeachers } from "../api/teachers";
 import { list as listTimeSlots } from "../api/timeSlots";
 import AutoScheduleOutcome from "../components/AutoScheduleOutcome";
-import FixedTimeSlotEditor from "../components/FixedTimeSlotEditor";
 import { extractApiErrorMessage } from "../constants/errorMessages";
 import { useAutoSchedule } from "../hooks/useAutoSchedule";
 import { useResource } from "../hooks/useResource";
@@ -35,6 +34,7 @@ import {
   BUTTON_SECONDARY,
   CARD,
   ERROR_TEXT,
+  FIELD_PAGE,
   HELP_TEXT,
   LABEL,
   LOADING_TEXT,
@@ -45,11 +45,11 @@ import {
   SECTION_TITLE,
   SELECT,
   SUCCESS_TEXT,
-  TAB_BUTTON,
-  TAB_BUTTON_ACTIVE,
   TABLE,
   TABLE_HEAD_ROW,
   TABLE_WRAPPER,
+  TAB_BUTTON,
+  TAB_BUTTON_ACTIVE,
   TD,
   TH,
 } from "../styles/ui";
@@ -246,7 +246,6 @@ function SettingsView({ record, onChanged }: { record: ScheduleVersion; onChange
         <AutoScheduleOutcome versionId={record.id} state={autoSchedule} />
       </section>
 
-      {isNotScheduled && autoSchedule.result === null && <FixedTimeSlotEditor versionId={record.id} />}
 
       <section className={SECTION}>
         <h2 className={SECTION_TITLE}>參與教師（{teachers.length} 位）</h2>
@@ -367,7 +366,7 @@ function RequirementsSection({
             <select
               value={gradeId ?? ""}
               onChange={(event) => selectGrade(Number(event.target.value))}
-              className={SELECT}
+              className={`${SELECT} ${FIELD_PAGE}`}
             >
               {gradesWithRequirements.map((grade) => (
                 <option key={grade.id} value={grade.id}>

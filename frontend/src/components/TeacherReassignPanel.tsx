@@ -20,6 +20,7 @@ import {
   BUTTON_PRIMARY_SM,
   CARD,
   ERROR_TEXT,
+  FIELD_PAGE,
   HELP_TEXT,
   LABEL,
   LOADING_TEXT,
@@ -180,7 +181,7 @@ export default function TeacherReassignPanel({
           value={originalTeacherId}
           onChange={(event) => handleSelectOriginalTeacher(event.target.value)}
           disabled={isBusy}
-          className={`${SELECT} mb-3`}
+          className={`${SELECT} ${FIELD_PAGE} mb-3`}
         >
           <option value="">請選擇…</option>
           {originalTeacherOptions.map((teacherId) => (
@@ -258,7 +259,7 @@ export default function TeacherReassignPanel({
                             handleSelectNewTeacher(requirement.id, event.target.value)
                           }
                           disabled={isBusy}
-                          className={SELECT}
+                          className={`${SELECT} w-full`}
                         >
                           <option value="">請選擇…</option>
                           {newTeacherOptions.map((teacherId) => (

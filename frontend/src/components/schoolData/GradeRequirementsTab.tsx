@@ -19,6 +19,7 @@ import {
   BUTTON_DANGER_SM,
   BUTTON_PRIMARY,
   ERROR_TEXT,
+  FIELD_PAGE,
   HELP_TEXT,
   INPUT,
   LABEL,
@@ -129,7 +130,7 @@ function GradeRequirementsEditor({
           value={gradeId}
           onChange={(event) => setGradeId(Number(event.target.value))}
           aria-label="年級"
-          className={`${SELECT} w-40`}
+          className={`${SELECT} ${FIELD_PAGE}`}
         >
           {grades.map((grade) => (
             <option key={grade.id} value={grade.id}>
@@ -167,7 +168,7 @@ function GradeRequirementsEditor({
                       }
                       disabled={isPending}
                       aria-label={`${subjectName.get(requirement.subject_id) ?? ""}每週節數`}
-                      className={`${SELECT} w-24`}
+                      className={`${SELECT} w-full`}
                     >
                       {WEEKLY_PERIOD_OPTIONS.map((option) => (
                         <option key={option} value={option}>
@@ -299,7 +300,7 @@ function RequirementCreateDialog({
           list={suggestionsId}
           placeholder="可直接輸入新科目，例如：書法"
           aria-label="科目名稱"
-          className={INPUT}
+          className={`${INPUT} w-full`}
         />
         <datalist id={suggestionsId}>
           {suggestions.map((subject) => (
@@ -314,7 +315,7 @@ function RequirementCreateDialog({
           onChange={(event) => setWeeklyPeriods(Number(event.target.value))}
           disabled={isSaving}
           aria-label="每週節數"
-          className={`${SELECT} w-24`}
+          className={`${SELECT} w-full`}
         >
           {WEEKLY_PERIOD_OPTIONS.map((option) => (
             <option key={option} value={option}>

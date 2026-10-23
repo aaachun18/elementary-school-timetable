@@ -38,7 +38,7 @@ export const BUTTON_DANGER =
   "inline-flex items-center justify-center rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-600 shadow-sm hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50";
 // v3: 發布此課表 -- amber, set apart from every other action.
 export const BUTTON_PUBLISH =
-  "inline-flex items-center justify-center rounded-md bg-amber-500 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex items-center justify-center rounded-md border border-amber-300 bg-amber-100 px-3 py-1.5 text-sm font-medium text-amber-900 shadow-sm hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-50";
 
 // Small size (in-row actions: 編輯/刪除/確認/取消/移除 inside a table row).
 export const BUTTON_PRIMARY_SM =
@@ -56,6 +56,10 @@ export const BUTTON_LINK =
 export const INPUT =
   "rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500";
 export const SELECT = INPUT;
+// Fields stacked in one column are equally wide: in a table cell or a
+// dialog's form a field fills its column (`w-full`); the pickers a page
+// stacks above its content (年級, 版本, 班級 / 教師 / 教室 ...) share this width.
+export const FIELD_PAGE = "w-64 max-w-full";
 export const CHECKBOX = "h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500";
 export const LABEL = "text-sm font-medium text-gray-700";
 
@@ -192,7 +196,7 @@ export const TIMETABLE_ROW_HEADER_NON_TEACHING =
   "border-b border-gray-300 bg-gray-200 px-3 py-2 text-left font-medium text-gray-600 whitespace-nowrap";
 // A non-teaching cell without background, for combining with one marker
 // (TD_HIGHLIGHT / TD_ADJUSTED / DROP_TARGET_BLOCKED), which brings its own.
-export const TD_NON_TEACHING_BASE = "border-b border-gray-300 px-3 py-2 text-gray-600";
+export const TD_NON_TEACHING_BASE = "border-b border-gray-300 px-3 py-2 text-center text-gray-600";
 export const TD_NON_TEACHING = `${TD_NON_TEACHING_BASE} bg-gray-200`;
 
 // --- Timetable edit mode (Task 69) ---

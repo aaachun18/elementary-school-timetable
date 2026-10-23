@@ -133,3 +133,27 @@ def test_delete_room_still_required_by_a_requirement_returns_409(client: TestCli
     response = client.delete(f"/api/v1/rooms/{room_id}")
 
     assert response.status_code == 409
+
+
+# --- How many classes a room holds at once (1-10) ---
+
+
+def test_room_holds_one_class_by_default_and_up_to_ten(client: TestClient) -> None:
+    default = client.post("/api/v1/rooms/", json={"name": "音樂教室"})
+    assert default.status_code == 201
+    assert default.json()["max_classes"] == 1
+
+    created = client.post("/api/v1/rooms/", json={"name": "禮堂", "max_classes": 10})
+    assert created.status_code == 201
+    assert created.json()["max_classes"] == 10
+
+    updated = client.patch(f"/api/v1/rooms/{created.json()['id']}", json={"max_classes": 3})
+    assert updated.status_code == 200
+    assert updated.json()["max_classes"] == 3
+
+
+def test_room_max_classes_outside_1_to_10_is_refused(client: TestClient) -> None:
+    assert client.post("/api/v1/rooms/", json={"name": "A", "max_classes": 0}).status_code == 422
+    assert client.post("/api/v1/rooms/", json={"name": "B", "max_classes": 11}).status_code == 422
+    room_id = client.post("/api/v1/rooms/", json={"name": "C"}).json()["id"]
+    assert client.patch(f"/api/v1/rooms/{room_id}", json={"max_classes": 11}).status_code == 422

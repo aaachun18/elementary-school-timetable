@@ -16,6 +16,8 @@ Which rows change (`scope`):
   (services/block_adjustment.py's Layout.group(), the grouping moves use).
 - "requirement": every row of this version for the chosen row's
   requirement.
+共同排課: either way the rows of the other members' lessons of the same
+合併節 change too -- a combined lesson has one room.
 
 Only Schedule.room_id changes; teacher and time slot never do. room_id None
 clears the room. A missing row or room is refused (404), as is an inactive
@@ -72,14 +74,16 @@ def _rows_in_scope(
 ) -> list[int]:
     """The Schedule ids the change applies to, in id order."""
     rows = schedule_check.load_assignment_rows(db, schedule_version.id)
-    if scope == "requirement":
-        requirement_id = next(a.class_subject_requirement_id for sid, a in rows if sid == schedule_id)
-        return [sid for sid, a in rows if a.class_subject_requirement_id == requirement_id]
     layout = block_adjustment.Layout(
         rows,
         schedule_check.load_check_context(db, schedule_version.id),
     )
-    return sorted(member for _, member in layout.group(schedule_id).members)
+    if scope == "requirement":
+        requirement_id = next(a.class_subject_requirement_id for sid, a in rows if sid == schedule_id)
+        chosen = [sid for sid, a in rows if a.class_subject_requirement_id == requirement_id]
+    else:
+        chosen = [member for _, member in layout.group(schedule_id).members]
+    return layout.with_partner_rows(chosen)
 
 
 def _apply_room(schedule: Schedule, room_id: int | None) -> RoomChange | None:

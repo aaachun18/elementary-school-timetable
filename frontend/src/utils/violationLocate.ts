@@ -24,6 +24,7 @@ const VIEW_BY_TYPE: Record<string, TimetableViewMode> = {
   H6_REQUIRED_TEACHER: "teacher",
   H8_TEACHER_MAX_WORKLOAD: "teacher",
   H2_CLASS_CONFLICT: "class",
+  H14_COMBINED_LESSON_SPLIT: "class",
   H11_NON_TEACHING_PERIOD: "class",
   H3_ROOM_CONFLICT: "room",
   H9_REQUIRED_ROOM: "room",

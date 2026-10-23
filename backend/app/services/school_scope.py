@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from app.models.academic_year import AcademicYear, Semester
 from app.models.class_subject_requirement import ClassSubjectRequirement
+from app.models.combined_lesson import CombinedLesson
 from app.models.grade_class import Class, Grade
 from app.models.grade_subject_requirement import GradeSubjectRequirement
 from app.models.lesson import Lesson
@@ -64,7 +65,13 @@ def in_school(model: type[Any], school_id: int) -> ColumnElement[bool]:
         )
     if model in (Class, GradeSubjectRequirement):
         return model.grade_id.in_(select(Grade.id).where(in_school(Grade, school_id)))
-    if model in (ClassSubjectRequirement, SemesterTeacher, SemesterGradeTimeSlot, Schedule):
+    if model in (
+        ClassSubjectRequirement,
+        SemesterTeacher,
+        SemesterGradeTimeSlot,
+        Schedule,
+        CombinedLesson,
+    ):
         return model.schedule_version_id.in_(
             select(ScheduleVersion.id).where(in_school(ScheduleVersion, school_id))
         )

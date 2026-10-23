@@ -272,7 +272,9 @@ export function translateFailureType(failureType: string): string {
 export const VIOLATION_TYPE_TEMPLATES: Record<string, string> = {
   H1_TEACHER_CONFLICT: "{teacherName}在{timeSlotLabel}被同時排定兩堂課！",
   H2_CLASS_CONFLICT: "{className}在{timeSlotLabel}被同時排定兩堂課！",
-  H3_ROOM_CONFLICT: "{roomName}在{timeSlotLabel}被同時排定兩堂課！",
+  H3_ROOM_CONFLICT: "{roomName}在{timeSlotLabel}排的班級超過這間教室能同時容納的數量！",
+  H14_COMBINED_LESSON_SPLIT: "{className}的{subjectName}是共同排課，但和合併的班級沒有排在同一個時段！",
+  STATIC_COMBINED_FIXED_CONFLICT: "{className}的{subjectName}是共同排課，但各班固定在不同的時段！",
   H4_TEACHER_AVAILABILITY:
     "{teacherName}在{timeSlotLabel}已標記為不可排課，但仍被排入該時段！",
   H5_TEACHER_NOT_PARTICIPATING: "{teacherName}沒有參與本學期排課，卻被排入{className}的{subjectName}！",
@@ -360,6 +362,8 @@ export const VIOLATION_TYPE_HEADINGS: Record<string, string> = {
   H1_TEACHER_CONFLICT: "老師衝堂",
   H2_CLASS_CONFLICT: "班級衝堂",
   H3_ROOM_CONFLICT: "教室衝堂",
+  H14_COMBINED_LESSON_SPLIT: "共同排課被拆開",
+  STATIC_COMBINED_FIXED_CONFLICT: "共同排課的固定時段不一致",
   H4_TEACHER_AVAILABILITY: "排在老師不可排課的時段",
   H5_TEACHER_NOT_PARTICIPATING: "老師沒有參與本學期排課",
   H6_REQUIRED_TEACHER: "與指定教師不符",
@@ -389,6 +393,8 @@ export const VIOLATION_TYPE_SUGGESTIONS: Record<string, string> = {
   H1_TEACHER_CONFLICT: "把其中一堂課移到這位老師沒有課的節次，或改由其他老師授課。",
   H2_CLASS_CONFLICT: "把其中一堂課移到這個班級沒有課的節次。",
   H3_ROOM_CONFLICT: "把其中一堂課移到其他節次，或改用其他教室。",
+  H14_COMBINED_LESSON_SPLIT: "把合併的各班這一節移回同一個時段。",
+  STATIC_COMBINED_FIXED_CONFLICT: "把合併的各班這一節固定在同一個時段，或取消固定時段。",
   H4_TEACHER_AVAILABILITY:
     "把這堂課移到老師可排課的節次，或到開始排課的教師設定調整不可排課時段。",
   H5_TEACHER_NOT_PARTICIPATING:
@@ -455,7 +461,7 @@ export function getBlockRefusalReason(error: unknown): string | null {
 export const LESSON_FAILURE_REASON_TEMPLATES: Record<string, string> = {
   H1_TEACHER_CONFLICT: "{teacherName}在{timeSlotLabel}被同時排定兩堂課",
   H2_CLASS_CONFLICT: "在{timeSlotLabel}被同時排定兩堂課",
-  H3_ROOM_CONFLICT: "{roomName}在{timeSlotLabel}被同時排定兩堂課",
+  H3_ROOM_CONFLICT: "{roomName}在{timeSlotLabel}排的班級超過能同時容納的數量",
   H4_TEACHER_AVAILABILITY: "{teacherName}在{timeSlotLabel}已標記為不可排課，但仍被排入該時段",
   H5_TEACHER_NOT_PARTICIPATING: "{teacherName}沒有參與本學期排課",
   H6_REQUIRED_TEACHER: "指定了特定教師，但實際排定的教師（{teacherName}）與指定教師不符",

@@ -49,11 +49,13 @@ from scheduling_engine.constraints.base import ConstraintViolation  # noqa: E402
 from scheduling_engine.models.domain import (  # noqa: E402
     ActiveStatusInfo,
     ClassAllowedTimeSlots,
+    CombinedLesson as EngineCombinedLesson,
     LessonAssignment,
     LessonBlock,
     RequiredRoomRule,
     RequiredTeacherRule,
     RequirementPeriods,
+    RoomCapacity,
     TeacherUnavailability,
     TeacherWorkloadLimit,
     TimeSlotInfo,
@@ -77,6 +79,7 @@ from app.models.semester_teacher import SemesterTeacher, SemesterTeacherUnavaila
 from app.models.subject import Subject
 from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
+from app.services import combined_lesson as combined_lesson_service
 from app.services.school_scope import in_school, school_id_of_version
 from app.services.schedule_version import stage_move_to_newest
 from app.services.school_structure import MANDARIN, MATHEMATICS
@@ -225,6 +228,30 @@ def _class_allowed_time_slots(
     ]
 
 
+def load_engine_combined_lessons(
+    db: Session, schedule_version_id: int
+) -> list[EngineCombinedLesson]:
+    """共同排課: every 合併節 of the record, for the engine. Its teachers are
+    the members' required teachers, in member order without repeats."""
+    combined_lessons: list[EngineCombinedLesson] = []
+    for combined in combined_lesson_service.combined_lessons_of_version(db, schedule_version_id):
+        teacher_ids: list[int] = []
+        for member in combined.members:
+            teacher_id = member.class_subject_requirement.required_teacher_id
+            if teacher_id is not None and teacher_id not in teacher_ids:
+                teacher_ids.append(teacher_id)
+        for instance in combined_lesson_service.instances_of(db, combined):
+            combined_lessons.append(
+                EngineCombinedLesson(
+                    key=instance.key,
+                    member_lesson_ids=instance.member_lesson_ids,
+                    room_id=combined.room_id,
+                    teacher_ids=tuple(teacher_ids),
+                )
+            )
+    return combined_lessons
+
+
 def build_scheduling_resources(
     db: Session,
     requirements: list[ClassSubjectRequirement],
@@ -364,6 +391,12 @@ def build_scheduling_resources(
         class_allowed_time_slots=_class_allowed_time_slots(
             db, schedule_version_id, all_classes
         ),
+        combined_lessons=load_engine_combined_lessons(db, schedule_version_id),
+        room_capacities=[
+            RoomCapacity(room_id=room.id, max_classes=room.max_classes)
+            for room in all_rooms
+            if room.max_classes != 1
+        ],
     )
 
 

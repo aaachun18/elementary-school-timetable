@@ -50,6 +50,7 @@ from scheduling_engine.constraints.weekly_periods import (  # noqa: E402
 from scheduling_engine.models.domain import (  # noqa: E402
     LessonAssignment,
     TeacherMinimumWorkload,
+    joint_keys,
 )
 
 from app.models.class_subject_requirement import ClassSubjectRequirement
@@ -232,11 +233,14 @@ def _missing_room_violations(
         rule.class_subject_requirement_id: rule.room_id
         for rule in context.resources.required_room_rules
     }
+    # 共同排課: a combined lesson's room is its own, not the requirement's.
+    combined_ids = set(joint_keys(context.resources.combined_lessons))
     violations: list[ConstraintViolation] = []
     for assignment in assignments:
         required_room_id = required_room_of.get(assignment.class_subject_requirement_id)
         if (
             required_room_id is None
+            or assignment.lesson_id in combined_ids
             or assignment.room_id is not None
             or assignment.teacher_id is None
             or assignment.time_slot_id is None
@@ -433,7 +437,9 @@ def check_assignments(
         violations.extend(constraint.explain_violations(assignments))
     # Task 88: a WARNING only -- see TeacherMinWorkloadConstraint.
     violations.extend(
-        TeacherMinWorkloadConstraint(context.teacher_minimums).explain_violations(assignments)
+        TeacherMinWorkloadConstraint(
+            context.teacher_minimums, joint_keys(context.resources.combined_lessons)
+        ).explain_violations(assignments)
     )
     # Task 94: also a WARNING only.
     violations.extend(_missing_room_violations(assignments, context))

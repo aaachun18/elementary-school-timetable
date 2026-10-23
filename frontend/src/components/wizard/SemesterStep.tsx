@@ -81,7 +81,7 @@ export default function SemesterStep({
           <select
             value={number}
             onChange={(event) => setNumber(Number(event.target.value))}
-            className={SELECT}
+            className={`${SELECT} w-32`}
           >
             {SEMESTER_OPTIONS.map((option) => (
               <option key={option} value={option}>
