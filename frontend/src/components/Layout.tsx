@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { TOKEN_KEY } from "../api/client";
+import { useConfirm } from "../hooks/useConfirm";
 import { getCurrentUserRole, isCurrentUserManager } from "../utils/auth";
 import { BUTTON_SECONDARY_SM, NAV_BAR, NAV_LINK, NAV_LINK_ACTIVE } from "../styles/ui";
 
@@ -22,8 +23,18 @@ export default function Layout(): ReactElement {
   const isAdmin = role === "ADMIN";
   const isTeacher = role === "TEACHER";
   const canManageAccounts = isCurrentUserManager();
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
-  function handleLogout(): void {
+  // Asked first in the middle of the screen: 確定登出 or 取消.
+  async function handleLogout(): Promise<void> {
+    const confirmed = await confirm({
+      title: "登出",
+      message: "確定要登出嗎？",
+      confirmLabel: "確定登出",
+    });
+    if (!confirmed) {
+      return;
+    }
     sessionStorage.removeItem(TOKEN_KEY);
     navigate("/login");
   }
@@ -77,13 +88,14 @@ export default function Layout(): ReactElement {
             課表
           </NavLink>
         )}
-        <button type="button" onClick={handleLogout} className={`${BUTTON_SECONDARY_SM} ml-auto`}>
+        <button type="button" onClick={() => void handleLogout()} className={`${BUTTON_SECONDARY_SM} ml-auto`}>
           登出
         </button>
       </nav>
       <main>
         <Outlet />
       </main>
+      {confirmDialog}
     </div>
   );
 }

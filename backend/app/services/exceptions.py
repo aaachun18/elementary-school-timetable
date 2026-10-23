@@ -20,6 +20,12 @@ class AccountPermissionError(Exception):
     the user."""
 
 
+class DuplicateTeacherNameError(Exception):
+    """A new teacher account has the same name as a teacher already in the
+    school, but no 身分證字號 to tell them apart (-> 422). The message is
+    Chinese text for the user."""
+
+
 class InvalidReferenceError(Exception):
     """Raised by a create/update service function when a foreign key column
     (e.g. grade_id) points at a row that does not exist.

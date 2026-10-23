@@ -20,12 +20,14 @@ import {
 } from "../api/rooms";
 import { useResource } from "../hooks/useResource";
 import { useCrudList } from "../hooks/useCrudList";
+import { deleteConfirmOptions, useConfirm } from "../hooks/useConfirm";
 import { isCurrentUserCoordinator } from "../utils/auth";
-import { SCHOOL_TYPES, SCHOOL_TYPE_LABELS, type SchoolType } from "../utils/schoolStructure";
+import { SCHOOL_TYPE_LABELS } from "../utils/schoolStructure";
 import ClassesTab from "../components/schoolData/ClassesTab";
 import GradeRequirementsTab from "../components/schoolData/GradeRequirementsTab";
 import NameCreateDialog from "../components/schoolData/NameCreateDialog";
 import RoomCreateDialog from "../components/schoolData/RoomCreateDialog";
+import SchoolCreateDialog from "../components/schoolData/SchoolCreateDialog";
 import TimeSlotsTab from "../components/schoolData/TimeSlotsTab";
 import type { School, SchoolCreate, SchoolUpdate } from "../types/school";
 import type { Subject, SubjectCreate, SubjectUpdate } from "../types/subject";
@@ -41,6 +43,7 @@ import {
   LOADING_TEXT,
   PAGE,
   PAGE_TITLE,
+  ROW_ACTIONS,
   SELECT,
   TAB_BUTTON,
   TAB_BUTTON_ACTIVE,
@@ -103,71 +106,6 @@ function LoadingOrError({
 // that this one row's failure is scoped to this one row, with every other
 // row (and the rest of the page) staying exactly as it was.
 
-function SchoolNewRow({
-  isPending,
-  errorMessage,
-  onConfirm,
-  onCancel,
-}: {
-  isPending: boolean;
-  errorMessage: string | null;
-  onConfirm: (data: SchoolCreate) => void;
-  onCancel: () => void;
-}): ReactElement {
-  const [name, setName] = useState("");
-  const [schoolType, setSchoolType] = useState<SchoolType>("ELEMENTARY");
-
-  return (
-    <tr data-row-key="new" className={TR_HOVER}>
-      <td className={TD}>
-        <input
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          disabled={isPending}
-          aria-label="學校名稱"
-        className={`${INPUT} w-full`}
-        />
-      </td>
-      <td className={TD}>
-        {/* Fixes the school's grades and time slots, built with it -- so
-            it can only be chosen here, never changed later. */}
-        <select
-          value={schoolType}
-          onChange={(event) => setSchoolType(event.target.value as SchoolType)}
-          disabled={isPending}
-          aria-label="學校類型"
-          className={`${SELECT} w-full`}
-        >
-          {SCHOOL_TYPES.map((type) => (
-            <option key={type} value={type}>
-              {SCHOOL_TYPE_LABELS[type]}
-            </option>
-          ))}
-        </select>
-      </td>
-      {/* SchoolCreate has no is_active field -- a new School is always
-          created active (Task 7/8's existing decision); only editing an
-          existing row can change it, so this column has nothing to input
-          here. */}
-      <td className={`${TD} text-gray-400`}>啟用中（新增時固定）</td>
-      <td className={TD}>
-        <button
-          type="button"
-          onClick={() => onConfirm({ name, school_type: schoolType })}
-          disabled={isPending || name.trim() === ""}
-          className={BUTTON_PRIMARY_SM}
-        >
-          {isPending ? "送出中…" : "確認"}
-        </button>
-        <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
-          取消
-        </button>
-        {errorMessage !== null && <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>}
-      </td>
-    </tr>
-  );
-}
-
 function SchoolRow({
   school,
   isAdmin,
@@ -190,7 +128,6 @@ function SchoolRow({
   onDelete: () => void;
 }): ReactElement {
   const [draftName, setDraftName] = useState(school.name);
-  const [draftIsActive, setDraftIsActive] = useState(school.is_active);
 
   // Re-seeds the draft from the row's current values every time inline
   // editing starts (and harmlessly again if `school` itself changes while
@@ -200,7 +137,6 @@ function SchoolRow({
   useEffect(() => {
     if (isEditing) {
       setDraftName(school.name);
-      setDraftIsActive(school.is_active);
     }
   }, [isEditing, school]);
 
@@ -218,21 +154,10 @@ function SchoolRow({
         </td>
         <td className={`${TD} text-gray-500`}>{SCHOOL_TYPE_LABELS[school.school_type]}</td>
         <td className={TD}>
-          <label>
-            <input
-              type="checkbox"
-              checked={draftIsActive}
-              onChange={(event) => setDraftIsActive(event.target.checked)}
-              disabled={isPending}
-            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
-            啟用中
-          </label>
-        </td>
-        <td className={TD}>
+          <div className={ROW_ACTIONS}>
           <button
             type="button"
-            onClick={() => onConfirmEdit({ name: draftName, is_active: draftIsActive })}
+            onClick={() => onConfirmEdit({ name: draftName })}
             disabled={isPending || draftName.trim() === ""}
             className={BUTTON_PRIMARY_SM}
           >
@@ -241,6 +166,7 @@ function SchoolRow({
           <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
             取消
           </button>
+          </div>
           {errorMessage !== undefined && (
             <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
           )}
@@ -253,17 +179,16 @@ function SchoolRow({
     <tr className={TR_HOVER}>
       <td className={TD}>{school.name}</td>
       <td className={TD}>{SCHOOL_TYPE_LABELS[school.school_type]}</td>
-      <td className={TD}>{school.is_active ? "是" : "否"}</td>
       <td className={TD}>
         {isAdmin && (
-          <>
+          <div className={ROW_ACTIONS}>
             <button type="button" onClick={onStartEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
               編輯
             </button>
             <button type="button" onClick={onDelete} disabled={isPending} className={BUTTON_DANGER_SM}>
               刪除
             </button>
-          </>
+          </div>
         )}
         {errorMessage !== undefined && (
           <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
@@ -281,9 +206,10 @@ export function SchoolsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
     update: updateSchool,
     remove: removeSchool,
   });
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
-  function handleDelete(id: number, name: string): void {
-    if (window.confirm(`確定要刪除「${name}」嗎？此操作無法復原。`)) {
+  async function handleDelete(id: number, name: string): Promise<void> {
+    if (await confirm(deleteConfirmOptions(name))) {
       void crud.submitDelete(id);
     }
   }
@@ -311,19 +237,10 @@ export function SchoolsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
               <tr className={TABLE_HEAD_ROW}>
                 <th className={TH}>名稱</th>
                 <th className={TH}>類型</th>
-                <th className={TH}>啟用中</th>
                 {isAdmin && <th className={TH}>操作</th>}
               </tr>
             </thead>
             <tbody onChange={crud.handleRowChange}>
-              {crud.isAdding && (
-                <SchoolNewRow
-                  isPending={crud.pendingKey === "new"}
-                  errorMessage={crud.rowErrors.get("new") ?? null}
-                  onConfirm={(data) => void crud.submitCreate(data)}
-                  onCancel={crud.cancelAdding}
-                />
-              )}
               {crud.items.map((school) => (
                 <SchoolRow
                   key={school.id}
@@ -335,12 +252,21 @@ export function SchoolsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
                   onStartEdit={() => crud.startEditing(school.id)}
                   onCancelEdit={crud.cancelEditing}
                   onConfirmEdit={(data) => void crud.submitUpdate(school.id, data)}
-                  onDelete={() => handleDelete(school.id, school.name)}
+                  onDelete={() => void handleDelete(school.id, school.name)}
                 />
               ))}
             </tbody>
           </table>
           </div>
+          {crud.isAdding && (
+            <SchoolCreateDialog
+              busy={crud.pendingKey === "new"}
+              errorMessage={crud.rowErrors.get("new") ?? null}
+              onSave={(data) => void crud.submitCreate(data)}
+              onCancel={crud.cancelAdding}
+            />
+          )}
+          {confirmDialog}
         </>
       )}
     </div>
@@ -403,6 +329,7 @@ function SubjectRow({
           </label>
         </td>
         <td className={TD}>
+          <div className={ROW_ACTIONS}>
           <button
             type="button"
             onClick={() => onConfirmEdit({ name: draftName, is_active: draftIsActive })}
@@ -414,6 +341,7 @@ function SubjectRow({
           <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
             取消
           </button>
+          </div>
           {errorMessage !== undefined && (
             <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
           )}
@@ -428,14 +356,14 @@ function SubjectRow({
       <td className={TD}>{subject.is_active ? "是" : "否"}</td>
       <td className={TD}>
         {isAdmin && (
-          <>
+          <div className={ROW_ACTIONS}>
             <button type="button" onClick={onStartEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
               編輯
             </button>
             <button type="button" onClick={onDelete} disabled={isPending} className={BUTTON_DANGER_SM}>
               刪除
             </button>
-          </>
+          </div>
         )}
         {errorMessage !== undefined && (
           <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
@@ -452,9 +380,10 @@ function SubjectsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
     update: updateSubject,
     remove: removeSubject,
   });
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
-  function handleDelete(id: number, name: string): void {
-    if (window.confirm(`確定要刪除「${name}」嗎？此操作無法復原。`)) {
+  async function handleDelete(id: number, name: string): Promise<void> {
+    if (await confirm(deleteConfirmOptions(name))) {
       void crud.submitDelete(id);
     }
   }
@@ -497,12 +426,13 @@ function SubjectsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
                   onStartEdit={() => crud.startEditing(subject.id)}
                   onCancelEdit={crud.cancelEditing}
                   onConfirmEdit={(data) => void crud.submitUpdate(subject.id, data)}
-                  onDelete={() => handleDelete(subject.id, subject.name)}
+                  onDelete={() => void handleDelete(subject.id, subject.name)}
                 />
               ))}
             </tbody>
           </table>
           </div>
+          {confirmDialog}
           {crud.isAdding && (
             <NameCreateDialog
               title="新增科目"
@@ -592,6 +522,7 @@ function RoomRow({
           </label>
         </td>
         <td className={TD}>
+          <div className={ROW_ACTIONS}>
           <button
             type="button"
             onClick={() =>
@@ -609,6 +540,7 @@ function RoomRow({
           <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
             取消
           </button>
+          </div>
           {errorMessage !== undefined && (
             <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
           )}
@@ -624,14 +556,14 @@ function RoomRow({
       <td className={TD}>{room.is_active ? "是" : "否"}</td>
       <td className={TD}>
         {isAdmin && (
-          <>
+          <div className={ROW_ACTIONS}>
             <button type="button" onClick={onStartEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
               編輯
             </button>
             <button type="button" onClick={onDelete} disabled={isPending} className={BUTTON_DANGER_SM}>
               刪除
             </button>
-          </>
+          </div>
         )}
         {errorMessage !== undefined && (
           <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
@@ -651,9 +583,10 @@ function RoomsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
     update: updateRoom,
     remove: removeRoom,
   });
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
-  function handleDelete(id: number, name: string): void {
-    if (window.confirm(`確定要刪除「${name}」嗎？此操作無法復原。`)) {
+  async function handleDelete(id: number, name: string): Promise<void> {
+    if (await confirm(deleteConfirmOptions(name))) {
       void crud.submitDelete(id);
     }
   }
@@ -697,12 +630,13 @@ function RoomsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
                   onStartEdit={() => crud.startEditing(room.id)}
                   onCancelEdit={crud.cancelEditing}
                   onConfirmEdit={(data) => void crud.submitUpdate(room.id, data)}
-                  onDelete={() => handleDelete(room.id, room.name)}
+                  onDelete={() => void handleDelete(room.id, room.name)}
                 />
               ))}
             </tbody>
           </table>
           </div>
+          {confirmDialog}
           {crud.isAdding && (
             <RoomCreateDialog
               busy={crud.pendingKey === "new"}

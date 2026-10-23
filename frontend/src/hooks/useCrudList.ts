@@ -62,7 +62,9 @@ export interface CrudListController<T, TCreate, TUpdate> {
   // that row's own Confirm/Cancel/Edit/Delete buttons.
   pendingKey: RowKey | null;
   rowErrors: Map<RowKey, string>;
-  submitCreate: (data: TCreate) => Promise<void>;
+  // Resolves true once created, false if it failed (the error is in
+  // rowErrors under "new").
+  submitCreate: (data: TCreate) => Promise<boolean>;
   submitUpdate: (id: number, data: TUpdate) => Promise<void>;
   submitDelete: (id: number) => Promise<void>;
   // Task 73: attach to the table's <tbody> as onChange. Editing any field of
@@ -140,7 +142,7 @@ export function useCrudList<T extends { id: number }, TCreate, TUpdate>(
     }
   }
 
-  async function submitCreate(data: TCreate): Promise<void> {
+  async function submitCreate(data: TCreate): Promise<boolean> {
     const startedAt = Date.now();
     setPendingKey("new");
     clearRowError("new");
@@ -148,9 +150,11 @@ export function useCrudList<T extends { id: number }, TCreate, TUpdate>(
       const created = await api.create(data);
       setItems((previous) => [...previous, created]);
       setIsAdding(false);
+      return true;
     } catch (error) {
       await waitUntil(startedAt, MIN_FAILED_SUBMIT_FEEDBACK_MS);
       setRowErrors((previous) => new Map(previous).set("new", extractApiErrorMessage(error)));
+      return false;
     } finally {
       setPendingKey(null);
     }

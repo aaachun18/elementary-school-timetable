@@ -5,11 +5,12 @@ from sqlalchemy.orm import Session
 from app.core.security import hash_password
 from app.models.teacher import Teacher
 from app.models.user import ADMIN, COORDINATOR, TEACHER, User
-from app.schemas.user import UserCreate, UserUpdate
+from app.schemas.user import SameNameTeacher, UserCreate, UserUpdate
 from app.services.exceptions import (
     AccountPermissionError,
     CannotDeleteSelfError,
     DependentRecordsExistError,
+    DuplicateTeacherNameError,
     raise_for_integrity_error,
 )
 from app.services.teacher_periods import (
@@ -29,6 +30,7 @@ SCHOOL_BINDING_MESSAGE = "只有系統管理員可以變更帳號所屬的學校
 SCHOOL_REQUIRED_MESSAGE = "教學組長與一般老師帳號必須指定所屬學校"
 ADMIN_HAS_NO_SCHOOL_MESSAGE = "系統管理員帳號不屬於任何學校"
 DEACTIVATE_SELF_MESSAGE = "不能停用目前登入中的帳號"
+DUPLICATE_TEACHER_NAME_MESSAGE = "這所學校已有同名同姓的教師，請填寫身分證字號以供識別"
 
 
 def _resolve_new_account_school(actor: User | None, user_data: UserCreate) -> int | None:
@@ -72,20 +74,29 @@ def create_user(db: Session, user_data: UserCreate, actor: User | None = None) -
             # UserCreate guarantees teacher_name for a TEACHER account (and
             # _resolve_new_account_school() a school for it).
             assert school_id is not None
+            teacher_name = user_data.teacher_name.strip()
+            if user_data.teacher_national_id is None and _same_name_teachers(
+                db, school_id, teacher_name
+            ):
+                raise DuplicateTeacherNameError(DUPLICATE_TEACHER_NAME_MESSAGE)
             db.add(
                 Teacher(
                     school_id=school_id,
-                    name=user_data.teacher_name.strip(),
+                    name=teacher_name,
                     is_active=True,
                     min_weekly_periods=ACCOUNT_DEFAULT_MIN_WEEKLY_PERIODS,
                     max_weekly_periods=ACCOUNT_DEFAULT_MAX_WEEKLY_PERIODS,
                     user_id=user.id,
+                    national_id=user_data.teacher_national_id,
                 )
             )
         db.commit()
     except IntegrityError as exc:
         db.rollback()
         raise_for_integrity_error(exc)
+    except DuplicateTeacherNameError:
+        db.rollback()
+        raise
     db.refresh(user)
     return user
 
@@ -149,6 +160,76 @@ def get_users(db: Session, actor: User) -> list[tuple[User, str | None]]:
     if actor.role != ADMIN:
         stmt = stmt.where(User.role == TEACHER, User.school_id == actor.school_id)
     return [(user, teacher_name) for user, teacher_name in db.execute(stmt).all()]
+
+
+# --- 同名同姓 teachers: told apart by 身分證字號 ---
+
+
+def _same_name_teachers(db: Session, school_id: int, name: str) -> list[Teacher]:
+    stmt = (
+        select(Teacher)
+        .where(Teacher.school_id == school_id, Teacher.name == name.strip())
+        .order_by(Teacher.id)
+    )
+    return list(db.scalars(stmt).all())
+
+
+def find_same_name_teachers(
+    db: Session, actor: User, name: str, school_id: int | None
+) -> list[SameNameTeacher]:
+    """The teachers of the school already named `name` -- what 帳號管理
+    checks before creating a TEACHER account. A 教學組長 always gets their
+    own school's (school_id is ignored); the 系統管理員 names the school,
+    and gets nothing without one."""
+    target_school_id = actor.school_id if actor.role != ADMIN else school_id
+    if target_school_id is None or name.strip() == "":
+        return []
+    stmt = (
+        select(Teacher, User.username)
+        .outerjoin(User, User.id == Teacher.user_id)
+        .where(Teacher.school_id == target_school_id, Teacher.name == name.strip())
+        .order_by(Teacher.id)
+    )
+    return [
+        SameNameTeacher(
+            teacher_id=teacher.id,
+            teacher_name=teacher.name,
+            school_id=teacher.school_id,
+            username=username,
+            has_national_id=teacher.national_id is not None,
+        )
+        for teacher, username in db.execute(stmt).all()
+    ]
+
+
+def set_teacher_national_id(
+    db: Session, teacher_id: int, national_id: str, actor: User
+) -> SameNameTeacher | None:
+    """Sets a teacher's 身分證字號. Returns None if the teacher doesn't
+    exist or is another school's and the actor is a 教學組長 (caller
+    should 404). The same number twice in one school -> DuplicateValueError."""
+    teacher = db.get(Teacher, teacher_id)
+    if teacher is None or (actor.role != ADMIN and teacher.school_id != actor.school_id):
+        return None
+    teacher.national_id = national_id
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise_for_integrity_error(exc)
+    db.refresh(teacher)
+    username = (
+        db.scalar(select(User.username).where(User.id == teacher.user_id))
+        if teacher.user_id is not None
+        else None
+    )
+    return SameNameTeacher(
+        teacher_id=teacher.id,
+        teacher_name=teacher.name,
+        school_id=teacher.school_id,
+        username=username,
+        has_national_id=True,
+    )
 
 
 def update_user(

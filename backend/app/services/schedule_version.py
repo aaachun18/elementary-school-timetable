@@ -329,7 +329,11 @@ def generate_lessons(
     schedule_version = db.get(ScheduleVersion, schedule_version_id)
     if schedule_version is None:
         return None
-    raise_if_settings_locked(schedule_version)
+    # Two calls at once (e.g. the 固定時段 dialog opened twice) would both
+    # count the same existing lessons and insert the same ones -- the
+    # second failing on the unique constraint. The row lock runs them one
+    # after the other; the second then finds nothing left to create.
+    lock_record_for_settings(db, schedule_version)
 
     requirements = list(
         db.scalars(

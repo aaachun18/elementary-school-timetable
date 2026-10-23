@@ -36,6 +36,7 @@ from app.services.exceptions import (
     CopyAcrossAcademicYearsError,
     CopySourceInconsistentError,
     DependentRecordsExistError,
+    DuplicateTeacherNameError,
     DuplicateValueError,
     InactiveRoomAssignmentError,
     InactiveTeacherAssignmentError,
@@ -208,6 +209,13 @@ def handle_timetable_locked(request: Request, exc: TimetableLockedError) -> JSON
 @app.exception_handler(RecordStatusError)
 def handle_record_status(request: Request, exc: RecordStatusError) -> JSONResponse:
     return JSONResponse(status_code=409, content={"detail": exc.message})
+
+
+@app.exception_handler(DuplicateTeacherNameError)
+def handle_duplicate_teacher_name(
+    request: Request, exc: DuplicateTeacherNameError
+) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
 
 
 @app.exception_handler(AccountPermissionError)

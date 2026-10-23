@@ -48,6 +48,10 @@ export const BUTTON_SECONDARY_SM =
 export const BUTTON_DANGER_SM =
   "inline-flex items-center justify-center rounded-md border border-red-300 bg-white px-2 py-1 text-xs font-medium text-red-600 shadow-sm hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50";
 
+// A row of buttons (e.g. 編輯 / 刪除 in a table cell): never touching each
+// other -- every group of buttons sits in this or another gap-* container.
+export const ROW_ACTIONS = "flex flex-wrap items-center gap-2";
+
 // Plain text-link-styled button, e.g. toggling a collapsible section.
 export const BUTTON_LINK =
   "text-sm font-medium text-blue-600 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50";
@@ -205,7 +209,7 @@ export const TD_NON_TEACHING = `${TD_NON_TEACHING_BASE} bg-gray-200`;
 // variants share one base so border/background never come from two
 // competing classes.
 const LESSON_BUTTON_BASE =
-  "flex w-full flex-col items-start rounded-md px-2 py-1 text-left text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60";
+  "flex w-full flex-col items-center rounded-md px-2 py-1 text-center text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60";
 export const LESSON_BUTTON = `${LESSON_BUTTON_BASE} border border-gray-300 bg-white hover:border-blue-400 hover:bg-blue-50`;
 export const LESSON_BUTTON_SELECTED = `${LESSON_BUTTON_BASE} border-2 border-blue-600 bg-blue-50`;
 // Task 71: drag & drop. The lesson being dragged is faded with a dashed

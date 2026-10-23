@@ -24,6 +24,7 @@ import RoomChangePreviewDialog from "../components/RoomChangePreviewDialog";
 import TeacherReassignPanel from "../components/TeacherReassignPanel";
 import TimetableGrid from "../components/TimetableGrid";
 import UnscheduledLessonsPanel from "../components/UnscheduledLessonsPanel";
+import { useConfirm } from "../hooks/useConfirm";
 import { useFlashMessage } from "../hooks/useFlashMessage";
 import { useLessonAdjustment, type SavedAdjustment } from "../hooks/useLessonAdjustment";
 import { useMoveCandidates } from "../hooks/useMoveCandidates";
@@ -116,6 +117,7 @@ const VIEW_MODES: { key: TimetableViewMode; label: string }[] = [
 // A 一般老師 picks among the published records only.
 export default function TimetableView(): ReactElement {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   const versionsResource = useResource(() => listScheduleVersions(), []);
   const semesters = useResource(() => listSemesters(), []);
@@ -380,7 +382,14 @@ export default function TimetableView(): ReactElement {
     if (editingId === null) {
       return;
     }
-    if (!window.confirm("確定要取消編輯嗎？這次手動編輯的變更都不會儲存。")) {
+    const confirmed = await confirm({
+      title: "取消編輯",
+      message: "確定要取消編輯嗎？這次手動編輯的變更都不會儲存。",
+      confirmLabel: "取消編輯",
+      cancelLabel: "繼續編輯",
+      danger: true,
+    });
+    if (!confirmed) {
       return;
     }
     setIsRecordBusy(true);
@@ -870,6 +879,13 @@ export default function TimetableView(): ReactElement {
   );
   const homeroomOfSelectedClass =
     viewMode === "class" && selectedTargetId !== null ? homeroomByClass.get(selectedTargetId) : undefined;
+  // The class has a 合併節 listing several teachers (its own marked *).
+  const showsCombinedTeacherNote =
+    viewMode === "class" &&
+    selectedTargetId !== null &&
+    displaySchedules.some(
+      (row) => row.classId === selectedTargetId && row.teacherName !== null && row.teacherName.includes("*"),
+    );
   // Editing is only ever in effect for a 教學組長 in a working copy.
   const isEditing = isEditModeOn;
   // 換教師 is only for a copied timetable (複製自編號 x).
@@ -938,6 +954,7 @@ export default function TimetableView(): ReactElement {
 
   return (
     <div className={PAGE}>
+      {confirmDialog}
       {isAdmin && !isEditing && (
         <p className="mb-3">
           <Link to="/records" className={BUTTON_SECONDARY}>
@@ -1308,9 +1325,16 @@ export default function TimetableView(): ReactElement {
               </option>
             ))}
           </select>
-          {viewMode === "class" && selectedTargetId !== null && homeroomOfSelectedClass !== undefined && (
-            <p className="-mt-2 mb-4">
-              <span className={HOMEROOM_TAG}>導師：{homeroomOfSelectedClass.teacher_name}</span>
+          {(homeroomOfSelectedClass !== undefined || showsCombinedTeacherNote) && (
+            <p className="-mt-2 mb-4 flex flex-wrap items-center gap-x-3 gap-y-1">
+              {homeroomOfSelectedClass !== undefined && (
+                <span className={HOMEROOM_TAG}>導師：{homeroomOfSelectedClass.teacher_name}</span>
+              )}
+              {showsCombinedTeacherNote && (
+                <span className="text-sm text-gray-600">
+                  課表中多位老師共同上課時，名稱註記*者，為該節課本班授課老師。
+                </span>
+              )}
             </p>
           )}
 

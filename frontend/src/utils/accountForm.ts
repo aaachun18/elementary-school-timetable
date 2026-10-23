@@ -25,6 +25,8 @@ export interface NewAccountDraft {
   role: UserRole;
   schoolId: number | null;
   teacherName: string;
+  // 身分證字號: asked for only when the name is already taken (else "").
+  nationalId: string;
 }
 
 // The first missing field, as a short Chinese hint, or null when the draft
@@ -59,6 +61,27 @@ export function toUserCreate(draft: NewAccountDraft, actorRole: UserRole | null)
   }
   if (draft.role === "TEACHER") {
     body.teacher_name = draft.teacherName.trim();
+    if (draft.nationalId.trim() !== "") {
+      body.teacher_national_id = normalizeNationalId(draft.nationalId);
+    }
   }
   return body;
+}
+
+// --- 身分證字號 (same rule as backend/app/schemas/user.py) ---
+
+const NATIONAL_ID_PATTERN = /^[A-Z][A-Z0-9][0-9]{8}$/;
+
+export const NATIONAL_ID_FORMAT_MESSAGE = "身分證字號格式不正確，應為 1 個英文字母加 9 碼（例：A123456789）";
+
+export function normalizeNationalId(value: string): string {
+  return value.trim().toUpperCase();
+}
+
+// null when valid, otherwise the message to show.
+export function getNationalIdError(value: string): string | null {
+  if (value.trim() === "") {
+    return "請輸入身分證字號";
+  }
+  return NATIONAL_ID_PATTERN.test(normalizeNationalId(value)) ? null : NATIONAL_ID_FORMAT_MESSAGE;
 }

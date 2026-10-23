@@ -1,6 +1,7 @@
 import { useMemo, useState, type DragEvent, type ReactElement } from "react";
 import { timeSlotKey, type EnrichedSchedule } from "../hooks/useTimetableData";
 import { canMoveLessonTo, canSwapLessons, lessonTargetId } from "../utils/lessonDrop";
+import { nameLines } from "../utils/combinedLessons";
 import {
   blockGroupKey,
   blockGroupMemberIds,
@@ -200,14 +201,20 @@ function CellDetail({
 }): ReactElement {
   const isHomeroomTeacher =
     viewMode === "class" && row.teacherId !== null && homeroomTeacherByClass.get(row.classId) === row.teacherId;
+  // Several names (a 合併節's teachers or classes): three to a line.
+  const lines = nameLines(cellDetailOf(row, viewMode)).map((line) => (
+    <span key={line} className="block">
+      {line}
+    </span>
+  ));
   if (isHomeroomTeacher) {
     return (
-      <span className={`${HOMEROOM_TAG} w-fit`} title="導師">
-        {cellDetailOf(row, viewMode)}
+      <span className={`${HOMEROOM_TAG} w-fit flex-col`} title="導師">
+        {lines}
       </span>
     );
   }
-  return <span className="text-gray-500">{cellDetailOf(row, viewMode)}</span>;
+  return <span className="block text-gray-500">{lines}</span>;
 }
 
 // Task 98: a lesson held outside its class's own classroom says where (the
@@ -222,7 +229,7 @@ function SpecialRoomNote({
   if (lesson.specialRoomName === null || viewMode === "room") {
     return null;
   }
-  return <span className="text-xs text-indigo-700">＠{lesson.specialRoomName}</span>;
+  return <span className="block text-xs text-indigo-700">＠{lesson.specialRoomName}</span>;
 }
 
 function lessonAriaLabel(lesson: EnrichedSchedule, selected: EnrichedSchedule | null): string {
@@ -778,23 +785,28 @@ export default function TimetableGrid({
                 }
 
                 const schedule = matches[0];
+                // Subject, teacher(s), room: each on its own line, centered.
                 return (
-                  <td key={weekday} className={blockLink !== null ? `${cellClass} relative` : cellClass}>
+                  <td
+                    key={weekday}
+                    className={blockLink !== null ? `${cellClass} relative text-center` : `${cellClass} text-center`}
+                  >
                     {blockLink !== null && <BlockBar link={blockLink} />}
                     {schedule !== undefined && (
-                      <>
-                        {matches.length > 1 && (
-                          <span title="這個時段出現多筆排課結果，顯示第一筆">⚠️ </span>
-                        )}
-                        <span className="whitespace-nowrap font-medium text-gray-900">{schedule.subjectName}</span>
-                        <br />
+                      <div className="flex flex-col items-center">
+                        <span className="whitespace-nowrap font-medium text-gray-900">
+                          {matches.length > 1 && (
+                            <span title="這個時段出現多筆排課結果，顯示第一筆">⚠️ </span>
+                          )}
+                          {schedule.subjectName}
+                        </span>
                         <CellDetail
                           row={schedule}
                           viewMode={viewMode}
                           homeroomTeacherByClass={homeroomTeacherByClass}
                         />
                         <SpecialRoomNote lesson={schedule} viewMode={viewMode} />
-                      </>
+                      </div>
                     )}
                   </td>
                 );

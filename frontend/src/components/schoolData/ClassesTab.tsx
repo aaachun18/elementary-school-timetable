@@ -2,6 +2,7 @@ import { useState, type ReactElement } from "react";
 import { create as createClass, list as listClasses, remove as removeClass } from "../../api/classes";
 import { list as listGrades } from "../../api/grades";
 import { extractApiErrorMessage } from "../../constants/errorMessages";
+import { deleteConfirmOptions, useConfirm } from "../../hooks/useConfirm";
 import { useResource } from "../../hooks/useResource";
 import type { Class } from "../../types/class";
 import type { Grade } from "../../types/grade";
@@ -21,6 +22,7 @@ import {
   HELP_TEXT,
   LABEL,
   LOADING_TEXT,
+  ROW_ACTIONS,
   SELECT,
   TABLE,
   TABLE_HEAD_ROW,
@@ -77,6 +79,7 @@ function ClassesTable({
   const [isAdding, setIsAdding] = useState(false);
   const [pendingId, setPendingId] = useState<number | null>(null);
   const [rowError, setRowError] = useState<{ id: number; message: string } | null>(null);
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   const gradeById = new Map(grades.map((grade) => [grade.id, grade]));
   const levelOf = (classItem: Class): number => gradeById.get(classItem.grade_id)?.level ?? 0;
@@ -85,7 +88,7 @@ function ClassesTable({
     .sort((a, b) => levelOf(a) - levelOf(b) || a.id - b.id);
 
   async function handleDelete(classItem: Class): Promise<void> {
-    if (!window.confirm(`確定要刪除「${classItem.name}」嗎？此操作無法復原。`)) {
+    if (!(await confirm(deleteConfirmOptions(classItem.name)))) {
       return;
     }
     setPendingId(classItem.id);
@@ -102,6 +105,7 @@ function ClassesTable({
 
   return (
     <div>
+      {confirmDialog}
       <div className="mb-3 flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1">
           <span className={LABEL}>年級</span>
@@ -289,17 +293,19 @@ function ClassNewRow({
         </select>
       </td>
       <td className={TD}>
-        <button
-          type="button"
-          onClick={() => void handleConfirm()}
-          disabled={isPending || name === ""}
-          className={BUTTON_PRIMARY_SM}
-        >
-          {isPending ? "送出中…" : "確認"}
-        </button>
-        <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
-          取消
-        </button>
+        <div className={ROW_ACTIONS}>
+          <button
+            type="button"
+            onClick={() => void handleConfirm()}
+            disabled={isPending || name === ""}
+            className={BUTTON_PRIMARY_SM}
+          >
+            {isPending ? "送出中…" : "確認"}
+          </button>
+          <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
+            取消
+          </button>
+        </div>
         {error !== null && (
           <p role="alert" className={ERROR_TEXT}>
             {error}

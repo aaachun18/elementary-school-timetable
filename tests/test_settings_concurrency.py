@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models.schedule_version import ScheduleVersion
 from app.services.class_subject_requirement import sync_version_requirements
+from app.services.schedule_version import generate_lessons
 from app.services.semester_settings import replace_grade_time_slots
 from tests.api_helpers import create_class, create_grade
 from tests.conftest import TestSessionLocal, get_test_school_id, time_slot_at
@@ -89,3 +90,30 @@ def test_two_grade_slot_saves_at_once_both_succeed(
     assert first.time_slot_ids == sorted(slot_ids)
     assert not isinstance(second, Exception), second
     assert second.time_slot_ids == sorted(slot_ids)
+
+
+def test_two_generate_lessons_at_once_both_succeed(
+    client: TestClient, db_session: Session
+) -> None:
+    """Regression: 開始排課 > 科目需求's 「固定時段」 dialog runs
+    generate-lessons when it opens, and React's StrictMode opened it twice
+    at once -- the first time it was opened the dialog showed the 409
+    「資料重複或違反欄位限制」 instead of the lessons."""
+    grade_id = create_grade(client, level=1)
+    create_class(client, grade_id, "一年甲班")
+    _rule(client, grade_id, _subject(client, "國語文"), 6)
+    record_id = _record(client)
+    school_id = get_test_school_id(db_session)
+    sync_version_requirements(db_session, record_id, school_id=school_id)
+
+    def generate(session: Session):  # type: ignore[no-untyped-def]
+        return generate_lessons(session, record_id)
+
+    first, second = _run_while_record_is_locked(record_id, generate, generate)
+
+    assert first is not None
+    assert len(first[0]) == 6
+    assert not isinstance(second, Exception), second
+    assert second is not None
+    assert second[0] == []
+    assert second[1] == 6

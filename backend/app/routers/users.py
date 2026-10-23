@@ -4,7 +4,13 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import require_admin, require_manager
 from app.database import get_db
 from app.models.user import User
-from app.schemas.user import PasswordReset, UserListItem, UserUpdate
+from app.schemas.user import (
+    PasswordReset,
+    SameNameTeacher,
+    TeacherNationalIdUpdate,
+    UserListItem,
+    UserUpdate,
+)
 from app.services import user as user_service
 
 # Task 59: account management for the frontend's 帳號管理 page. Creating an
@@ -34,6 +40,35 @@ def list_users(
         UserListItem.model_validate(user).model_copy(update={"teacher_name": teacher_name})
         for user, teacher_name in user_service.get_users(db, current_user)
     ]
+
+
+# 帳號管理 asks for a 身分證字號 when the school already has a teacher of
+# the name being entered (and then for the earlier one's, if missing).
+@router.get("/same-name-teachers", response_model=list[SameNameTeacher])
+def list_same_name_teachers(
+    name: str,
+    school_id: int | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_manager),
+) -> list[SameNameTeacher]:
+    return user_service.find_same_name_teachers(db, current_user, name, school_id)
+
+
+# DuplicateValueError (the number is another teacher's of the school) is
+# converted to 409 by the global handler in main.py.
+@router.patch("/teachers/{teacher_id}/national-id", response_model=SameNameTeacher)
+def set_teacher_national_id(
+    teacher_id: int,
+    data: TeacherNationalIdUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_manager),
+) -> SameNameTeacher:
+    teacher = user_service.set_teacher_national_id(
+        db, teacher_id, data.national_id, current_user
+    )
+    if teacher is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Teacher not found")
+    return teacher
 
 
 # AccountPermissionError is intentionally not caught here -- the global

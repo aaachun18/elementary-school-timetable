@@ -7,6 +7,7 @@ import {
   combinedLessonOf,
   combinedTeacherText,
   partnerLessonsOf,
+  nameLines,
 } from "./combinedLessons";
 import type { CombinedLesson } from "../types/combinedLesson";
 
@@ -108,5 +109,20 @@ describe("combinedForDisplay", () => {
     const sameTeacher = { ...rowB, teacherId: 1, teacherName: "王老師" };
     expect(combinedForDisplay([rowA, sameTeacher], [combined], "teacher")).toHaveLength(1);
     expect(combinedForDisplay([rowA, rowB], [combined], "teacher")).toHaveLength(2);
+  });
+});
+
+describe("nameLines", () => {
+  it("keeps up to three names on one line", () => {
+    expect(nameLines("王老師*、李老師、陳老師")).toEqual(["王老師*、李老師、陳老師"]);
+  });
+
+  it("starts a new line after every three names", () => {
+    expect(nameLines("甲*、乙、丙、丁、戊、己、庚")).toEqual(["甲*、乙、丙", "丁、戊、己", "庚"]);
+  });
+
+  it("has no lines without names", () => {
+    expect(nameLines(null)).toEqual([]);
+    expect(nameLines("")).toEqual([]);
   });
 });

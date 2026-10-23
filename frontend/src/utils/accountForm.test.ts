@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   creatableRoles,
   getMissingFieldMessage,
+  getNationalIdError,
+  NATIONAL_ID_FORMAT_MESSAGE,
   needsSchoolChoice,
   toUserCreate,
   type NewAccountDraft,
@@ -13,6 +15,7 @@ const COMPLETE_TEACHER: NewAccountDraft = {
   role: "TEACHER",
   schoolId: 3,
   teacherName: " 王老師 ",
+  nationalId: "",
 };
 
 describe("creatableRoles", () => {
@@ -71,5 +74,31 @@ describe("toUserCreate", () => {
     const body = toUserCreate({ ...COMPLETE_TEACHER, role: "ADMIN" }, "ADMIN");
     expect(body.school_id).toBeUndefined();
     expect(body.teacher_name).toBeUndefined();
+  });
+});
+
+describe("身分證字號", () => {
+  it("is sent upper-cased only when filled in", () => {
+    expect(toUserCreate(COMPLETE_TEACHER, "ADMIN").teacher_national_id).toBeUndefined();
+    expect(toUserCreate({ ...COMPLETE_TEACHER, nationalId: " a123456789 " }, "ADMIN").teacher_national_id).toBe(
+      "A123456789",
+    );
+  });
+
+  it("is never sent for a non-teacher account", () => {
+    const body = toUserCreate({ ...COMPLETE_TEACHER, role: "COORDINATOR", nationalId: "A123456789" }, "ADMIN");
+    expect(body.teacher_national_id).toBeUndefined();
+  });
+
+  it("accepts an ID card or resident certificate number", () => {
+    expect(getNationalIdError("A123456789")).toBeNull();
+    expect(getNationalIdError("a823456789")).toBeNull();
+    expect(getNationalIdError("AB12345678")).toBeNull();
+  });
+
+  it("explains a missing or malformed number", () => {
+    expect(getNationalIdError("  ")).toBe("請輸入身分證字號");
+    expect(getNationalIdError("123456789")).toBe(NATIONAL_ID_FORMAT_MESSAGE);
+    expect(getNationalIdError("A12345678")).toBe(NATIONAL_ID_FORMAT_MESSAGE);
   });
 });

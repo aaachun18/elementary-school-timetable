@@ -9,21 +9,13 @@ import {
 import { list as listSchools } from "../api/schools";
 import { useResource } from "../hooks/useResource";
 import { useCrudList } from "../hooks/useCrudList";
+import { deleteConfirmOptions, useConfirm } from "../hooks/useConfirm";
 import type { School } from "../types/school";
-import type { PasswordReset, User, UserCreate, UserUpdate } from "../types/user";
-import {
-  getCurrentUserRole,
-  getCurrentUsername,
-  ROLE_LABELS,
-  type UserRole,
-} from "../utils/auth";
-import {
-  creatableRoles,
-  getMissingFieldMessage,
-  needsSchoolChoice,
-  toUserCreate,
-} from "../utils/accountForm";
+import type { PasswordReset, SameNameTeacher, User, UserCreate, UserUpdate } from "../types/user";
+import { getCurrentUserRole, getCurrentUsername, ROLE_LABELS } from "../utils/auth";
 import { getPasswordRuleError } from "../utils/passwordRule";
+import AccountCreateDialog from "../components/accounts/AccountCreateDialog";
+import NationalIdFollowUpDialog from "../components/accounts/NationalIdFollowUpDialog";
 import {
   BADGE_NEUTRAL,
   BADGE_SUCCESS,
@@ -54,145 +46,6 @@ import {
 type UserRowUpdate =
   | { kind: "password"; data: PasswordReset }
   | { kind: "account"; data: UserUpdate };
-
-function UserNewRow({
-  actorRole,
-  schools,
-  isPending,
-  errorMessage,
-  onConfirm,
-  onCancel,
-}: {
-  actorRole: UserRole | null;
-  schools: School[];
-  isPending: boolean;
-  errorMessage: string | null;
-  onConfirm: (data: UserCreate) => void;
-  onCancel: () => void;
-}): ReactElement {
-  const roles = creatableRoles(actorRole);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [role, setRole] = useState<UserRole>(roles[0]);
-  const [schoolId, setSchoolId] = useState<number | null>(null);
-  const [teacherName, setTeacherName] = useState("");
-  const draft = { username, password, role, schoolId, teacherName };
-  // Only shown once something has been typed -- an untouched, empty field
-  // just keeps 確認 disabled, same as the username field.
-  const passwordRuleError = password === "" ? null : getPasswordRuleError(password);
-  const missingFieldMessage = getMissingFieldMessage(draft, actorRole);
-
-  return (
-    <tr>
-      <td className={TD}>
-        <input
-          value={username}
-          onChange={(event) => setUsername(event.target.value)}
-          disabled={isPending}
-          aria-label="帳號名稱"
-          placeholder="帳號名稱"
-          className={`${INPUT} w-36`}
-        />
-        <input
-          type="password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          disabled={isPending}
-          aria-label="密碼"
-          placeholder="密碼"
-          autoComplete="new-password"
-          className={`${INPUT} mt-1 w-36`}
-        />
-      </td>
-      <td className={TD}>
-        {roles.length === 1 ? (
-          ROLE_LABELS[roles[0]]
-        ) : (
-          <select
-            value={role}
-            onChange={(event) => setRole(event.target.value as UserRole)}
-            disabled={isPending}
-            aria-label="角色"
-            className={`${SELECT} w-full`}
-          >
-            {roles.map((option) => (
-              <option key={option} value={option}>
-                {ROLE_LABELS[option]}
-              </option>
-            ))}
-          </select>
-        )}
-      </td>
-      <td className={TD}>
-        {role === "TEACHER" ? (
-          <input
-            value={teacherName}
-            onChange={(event) => setTeacherName(event.target.value)}
-            disabled={isPending}
-            aria-label="教師姓名"
-            placeholder="教師姓名"
-            className={`${INPUT} w-full`}
-          />
-        ) : (
-          <span className={MUTED_TEXT}>—</span>
-        )}
-      </td>
-      {actorRole === "ADMIN" && (
-        <td className={TD}>
-          {needsSchoolChoice(actorRole, role) ? (
-            <select
-              value={schoolId ?? ""}
-              onChange={(event) =>
-                setSchoolId(event.target.value === "" ? null : Number(event.target.value))
-              }
-              disabled={isPending}
-              aria-label="所屬學校"
-              className={`${SELECT} w-full`}
-            >
-              <option value="">請選擇學校</option>
-              {schools.map((school) => (
-                <option key={school.id} value={school.id}>
-                  {school.name}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <span className={MUTED_TEXT}>不屬於任何學校</span>
-          )}
-        </td>
-      )}
-      <td className={TD}>
-        <span className={BADGE_SUCCESS}>啟用</span>
-      </td>
-      <td className={TD}>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => onConfirm(toUserCreate(draft, actorRole))}
-            disabled={isPending || missingFieldMessage !== null || passwordRuleError !== null}
-            title={missingFieldMessage ?? undefined}
-            className={BUTTON_PRIMARY_SM}
-          >
-            確認
-          </button>
-          <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
-            取消
-          </button>
-        </div>
-        {passwordRuleError !== null && (
-          <p role="alert" className={ERROR_TEXT}>
-            {passwordRuleError}
-          </p>
-        )}
-        {errorMessage !== null && (
-          <p role="alert" className={ERROR_TEXT}>
-            {errorMessage}
-          </p>
-        )}
-      </td>
-    </tr>
-  );
-}
 
 // Rendered only while the row is in reset-password mode, so its draft
 // password is discarded (unmounted) every time the form closes, rather
@@ -391,6 +244,10 @@ export default function UserManagement(): ReactElement {
     },
     remove: removeUser,
   });
+  const { confirm, dialog: confirmDialog } = useConfirm();
+  // After saving a teacher whose name was taken: the earlier same-name
+  // teachers still without a 身分證字號, asked for one at a time.
+  const [nationalIdQueue, setNationalIdQueue] = useState<SameNameTeacher[]>([]);
 
   if (usersResource.isLoading || schoolsResource.isLoading) {
     return (
@@ -411,14 +268,25 @@ export default function UserManagement(): ReactElement {
   }
   const schools = schoolsResource.data ?? [];
 
-  function handleDelete(user: User): void {
-    if (window.confirm(`確定要刪除帳號「${user.username}」嗎？此操作無法復原。`)) {
+  async function handleCreate(data: UserCreate, sameNameTeachers: readonly SameNameTeacher[]): Promise<void> {
+    if (await crud.submitCreate(data)) {
+      setNationalIdQueue(sameNameTeachers.filter((teacher) => !teacher.has_national_id));
+    }
+  }
+
+  function nextNationalId(): void {
+    setNationalIdQueue((queue) => queue.slice(1));
+  }
+
+  async function handleDelete(user: User): Promise<void> {
+    if (await confirm(deleteConfirmOptions(`帳號 ${user.username}`))) {
       void crud.submitDelete(user.id);
     }
   }
 
   return (
     <div className={PAGE}>
+      {confirmDialog}
       <h1 className={PAGE_TITLE}>帳號管理</h1>
       <p className={HELP_TEXT}>
         {isAdminActor
@@ -449,16 +317,6 @@ export default function UserManagement(): ReactElement {
             </tr>
           </thead>
           <tbody>
-            {crud.isAdding && (
-              <UserNewRow
-                actorRole={actorRole}
-                schools={schools}
-                isPending={crud.pendingKey === "new"}
-                errorMessage={crud.rowErrors.get("new") ?? null}
-                onConfirm={(data) => void crud.submitCreate(data)}
-                onCancel={crud.cancelAdding}
-              />
-            )}
             {crud.items.map((user) => (
               <UserRow
                 key={user.id}
@@ -475,12 +333,32 @@ export default function UserManagement(): ReactElement {
                   void crud.submitUpdate(user.id, { kind: "password", data })
                 }
                 onUpdateAccount={(data) => void crud.submitUpdate(user.id, { kind: "account", data })}
-                onDelete={() => handleDelete(user)}
+                onDelete={() => void handleDelete(user)}
               />
             ))}
           </tbody>
         </table>
       </div>
+      {crud.isAdding && (
+        <AccountCreateDialog
+          actorRole={actorRole}
+          schools={schools}
+          busy={crud.pendingKey === "new"}
+          errorMessage={crud.rowErrors.get("new") ?? null}
+          onSave={(data, sameNameTeachers) => void handleCreate(data, sameNameTeachers)}
+          onCancel={crud.cancelAdding}
+        />
+      )}
+      {nationalIdQueue[0] !== undefined && (
+        <NationalIdFollowUpDialog
+          key={nationalIdQueue[0].teacher_id}
+          teacher={nationalIdQueue[0]}
+          schools={schools}
+          remainingCount={nationalIdQueue.length - 1}
+          onDone={nextNationalId}
+          onSkip={() => setNationalIdQueue([])}
+        />
+      )}
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from typing import Annotated, Literal
 
@@ -32,6 +33,22 @@ def validate_password(password: str) -> str:
 Password = Annotated[str, AfterValidator(validate_password)]
 
 
+# 身分證字號: one letter, then a letter or digit (1/2 on an ID card, 8/9
+# or a letter on a resident certificate), then 8 digits. Stored upper case.
+NATIONAL_ID_PATTERN = re.compile(r"^[A-Z][A-Z0-9][0-9]{8}$")
+NATIONAL_ID_FORMAT_MESSAGE = "身分證字號格式不正確，應為 1 個英文字母加 9 碼（例：A123456789）"
+
+
+def normalize_national_id(value: str) -> str:
+    normalized = value.strip().upper()
+    if not NATIONAL_ID_PATTERN.fullmatch(normalized):
+        raise ValueError(NATIONAL_ID_FORMAT_MESSAGE)
+    return normalized
+
+
+NationalId = Annotated[str, AfterValidator(normalize_national_id)]
+
+
 UserRole = Literal["ADMIN", "COORDINATOR", "TEACHER"]
 
 TEACHER_NAME_REQUIRED_MESSAGE = "建立一般老師帳號時必須填寫教師姓名"
@@ -46,11 +63,14 @@ class UserCreate(UserBase):
     """Task 98: school_id is required for a COORDINATOR or TEACHER account
     created by the 系統管理員; a 教學組長 may leave it out (their own school
     is used). teacher_name is required for a TEACHER account -- creating
-    the account also creates its Teacher with this name."""
+    the account also creates its Teacher with this name.
+    teacher_national_id (身分證字號) is required only when the school
+    already has a teacher of that name (DuplicateTeacherNameError)."""
 
     password: Password
     school_id: int | None = None
     teacher_name: str | None = None
+    teacher_national_id: NationalId | None = None
 
     @model_validator(mode="after")
     def _teacher_needs_name(self) -> "UserCreate":
@@ -81,6 +101,24 @@ class UserListItem(UserBase):
     teacher_name: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SameNameTeacher(BaseModel):
+    """One row of GET /api/v1/users/same-name-teachers: a teacher of the
+    school with the name being entered -- whether their 身分證字號 is set,
+    never the number itself."""
+
+    teacher_id: int
+    teacher_name: str
+    school_id: int
+    username: str | None
+    has_national_id: bool
+
+
+class TeacherNationalIdUpdate(BaseModel):
+    """Body of PATCH /api/v1/users/teachers/{teacher_id}/national-id."""
+
+    national_id: NationalId
 
 
 class PasswordReset(BaseModel):

@@ -23,6 +23,19 @@ export interface UserCreate {
   role: UserRole;
   school_id?: number;
   teacher_name?: string;
+  // 身分證字號: only when the school already has a teacher of this name.
+  teacher_national_id?: string;
+}
+
+// Mirrors backend/app/schemas/user.py::SameNameTeacher -- a teacher of the
+// school with the name being entered; whether their 身分證字號 is set,
+// never the number itself.
+export interface SameNameTeacher {
+  teacher_id: number;
+  teacher_name: string;
+  school_id: number;
+  username: string | null;
+  has_national_id: boolean;
 }
 
 // Mirrors backend/app/schemas/user.py::UserUpdate -- the body of

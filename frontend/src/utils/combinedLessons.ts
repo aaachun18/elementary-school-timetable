@@ -120,6 +120,24 @@ export function combinedTeacherText(
   return names.length === 0 ? null : names.join("、");
 }
 
+// How many names one line of a timetable cell holds before wrapping.
+export const NAMES_PER_LINE = 3;
+
+// A 「、」-joined list of names (a 合併節's teachers, or classes) split into
+// lines of at most `perLine` names each, for showing in a timetable cell:
+// 「王*、李、陳、林」 -> ["王*、李、陳", "林"]. null -> no lines.
+export function nameLines(text: string | null, perLine: number = NAMES_PER_LINE): string[] {
+  if (text === null || text === "") {
+    return [];
+  }
+  const names = text.split("、");
+  const lines: string[] = [];
+  for (let index = 0; index < names.length; index += perLine) {
+    lines.push(names.slice(index, index + perLine).join("、"));
+  }
+  return lines;
+}
+
 // What combinedForDisplay() reads and changes of a timetable row.
 export interface DisplayRow {
   scheduleId: number;

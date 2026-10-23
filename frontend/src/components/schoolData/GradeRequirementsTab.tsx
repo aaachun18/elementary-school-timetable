@@ -8,6 +8,7 @@ import {
 import { list as listGrades } from "../../api/grades";
 import { create as createSubject, list as listSubjects } from "../../api/subjects";
 import { extractApiErrorMessage } from "../../constants/errorMessages";
+import { useConfirm } from "../../hooks/useConfirm";
 import { useResource } from "../../hooks/useResource";
 import type { Grade } from "../../types/grade";
 import type { GradeSubjectRequirement } from "../../types/gradeSubjectRequirement";
@@ -91,6 +92,7 @@ function GradeRequirementsEditor({
   const [isAdding, setIsAdding] = useState(false);
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   const subjectName = new Map(subjects.map((subject) => [subject.id, subject.name]));
   const gradeRequirements = requirements.filter((requirement) => requirement.grade_id === gradeId);
@@ -112,15 +114,22 @@ function GradeRequirementsEditor({
     }
   }
 
-  function handleDelete(requirement: GradeSubjectRequirement): void {
+  async function handleDelete(requirement: GradeSubjectRequirement): Promise<void> {
     const name = subjectName.get(requirement.subject_id) ?? "這個科目";
-    if (window.confirm(`確定要刪除「${name}」的科目需求嗎？`)) {
+    const confirmed = await confirm({
+      title: "確認刪除",
+      message: `確定要刪除「${name}」的科目需求嗎？`,
+      confirmLabel: "刪除",
+      danger: true,
+    });
+    if (confirmed) {
       void run(() => removeRequirement(requirement.id));
     }
   }
 
   return (
     <div>
+      {confirmDialog}
       <p className={HELP_TEXT}>
         設定每個年級各科目每週需要的節數，同年級的每個班級都適用。開始排課的「科目需求」步驟會自動帶入這裡的設定。
       </p>
@@ -184,7 +193,7 @@ function GradeRequirementsEditor({
                   <td className={TD}>
                     <button
                       type="button"
-                      onClick={() => handleDelete(requirement)}
+                      onClick={() => void handleDelete(requirement)}
                       disabled={isPending}
                       className={BUTTON_DANGER_SM}
                     >
