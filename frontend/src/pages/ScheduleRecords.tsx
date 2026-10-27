@@ -8,23 +8,22 @@ import {
 } from "../api/scheduleVersions";
 import { list as listSemesters } from "../api/semesters";
 import ConfirmDialog from "../components/ConfirmDialog";
+import { RecordStatusBadge } from "../components/StatusBadge";
 import { extractApiErrorMessage } from "../constants/errorMessages";
 import { useFlashMessage } from "../hooks/useFlashMessage";
 import { useResource } from "../hooks/useResource";
 import { formatDateTime } from "../utils/dashboard";
 import { sortRecords } from "../utils/scheduleRecords";
 import {
-  formatRecordStatus,
   formatVersionLabel,
   hasTimetable,
-  recordStatusBadgeClass,
   semesterLabelOf,
 } from "../utils/scheduleVersionFormat";
 import { DELETE_WARNING, PUBLISHED_DELETE_HINT, canDeleteRecord } from "../utils/versionDelete";
 import type { ScheduleVersion } from "../types/scheduleVersion";
 import {
-  BUTTON_DANGER_SM,
-  BUTTON_LINK,
+  BUTTON_GHOST_SM,
+  BUTTON_SECONDARY_SM,
   CARD,
   ERROR_TEXT,
   HELP_TEXT,
@@ -139,17 +138,17 @@ export default function ScheduleRecords(): ReactElement {
                   <td className={`${TD} font-medium`}>{version.display_number}</td>
                   <td className={TD}>{semesterLabelOf(version, semesterById, academicYearById)}</td>
                   <td className={TD}>
-                    <span className={recordStatusBadgeClass(version)}>{formatRecordStatus(version)}</span>
+                    <RecordStatusBadge record={version} />
                   </td>
                   <td className={`${TD} whitespace-nowrap`}>{formatDateTime(version.created_at)}</td>
                   <td className={TD}>
                     <div className="flex flex-col items-start gap-1">
                       {hasTimetable(version.status) && (
-                        <Link to={`/timetable?scheduleVersionId=${version.id}`} className={LINK_TEXT}>
+                        <Link to={`/timetable?scheduleVersionId=${version.id}`} className={BUTTON_GHOST_SM}>
                           檢視課表
                         </Link>
                       )}
-                      <Link to={`/records/${version.id}/settings`} className={LINK_TEXT}>
+                      <Link to={`/records/${version.id}/settings`} className={BUTTON_GHOST_SM}>
                         檢視排課設定
                       </Link>
                       {canDeleteRecord(version) ? (
@@ -159,7 +158,7 @@ export default function ScheduleRecords(): ReactElement {
                             setDeleteError(null);
                             setDeleting(version);
                           }}
-                          className={BUTTON_DANGER_SM}
+                          className={BUTTON_SECONDARY_SM}
                         >
                           刪除
                         </button>
@@ -184,7 +183,7 @@ export default function ScheduleRecords(): ReactElement {
         open={deleting !== null}
         title="刪除這筆排課紀錄？"
         confirmLabel="刪除"
-        danger
+        tone="danger"
         busy={isDeleting}
         busyLabel="刪除中…"
         onConfirm={() => void handleConfirmDelete()}
@@ -262,7 +261,7 @@ function NoteCell({ record }: { record: ScheduleVersion }): ReactElement {
         </span>
       )}
       {/* Enter submits the form (no visible button needed). */}
-      <button type="submit" className={`${BUTTON_LINK} sr-only`} tabIndex={-1}>
+      <button type="submit" className="sr-only" tabIndex={-1}>
         儲存備註
       </button>
     </form>

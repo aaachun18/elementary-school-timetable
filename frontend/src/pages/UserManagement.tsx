@@ -18,10 +18,8 @@ import AccountCreateDialog from "../components/accounts/AccountCreateDialog";
 import NationalIdEditDialog from "../components/accounts/NationalIdEditDialog";
 import NationalIdFollowUpDialog from "../components/accounts/NationalIdFollowUpDialog";
 import { RowErrorText } from "../components/DeleteStepsHint";
+import StatusBadge from "../components/StatusBadge";
 import {
-  BADGE_NEUTRAL,
-  BADGE_SUCCESS,
-  BUTTON_DANGER_SM,
   BUTTON_PRIMARY,
   BUTTON_PRIMARY_SM,
   BUTTON_SECONDARY_SM,
@@ -168,9 +166,7 @@ function UserRow({
         </td>
       )}
       <td className={TD}>
-        <span className={user.is_active ? BADGE_SUCCESS : BADGE_NEUTRAL}>
-          {user.is_active ? "啟用" : "停用"}
-        </span>
+        <StatusBadge tone={user.is_active ? "success" : "neutral"}>{user.is_active ? "啟用" : "停用"}</StatusBadge>
       </td>
       <td className={TD}>
         {isResettingPassword ? (
@@ -212,7 +208,7 @@ function UserRow({
                 onClick={onDelete}
                 disabled={isPending || isSelf}
                 title={isSelf ? "不能刪除目前登入中的帳號" : undefined}
-                className={BUTTON_DANGER_SM}
+                className={BUTTON_SECONDARY_SM}
               >
                 刪除
               </button>
@@ -334,7 +330,7 @@ export default function UserManagement(): ReactElement {
       message: `確定要重設帳號「${user.username}」的密碼嗎？`,
       confirmLabel: "確定重設",
       cancelLabel: "取消",
-      danger: true,
+      tone: "danger",
     });
     if (confirmed) {
       crud.startEditing(user.id);
@@ -349,7 +345,7 @@ export default function UserManagement(): ReactElement {
         message: `確定要停用帳號「${user.username}」嗎？停用後該帳號無法登入，教師也不會出現在新的排課名單中。`,
         confirmLabel: "確定停用",
         cancelLabel: "取消",
-        danger: true,
+        tone: "danger",
       });
       if (!confirmed) {
         return;

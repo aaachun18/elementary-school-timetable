@@ -20,7 +20,7 @@ import type {
   ConstraintViolationDetail,
   RunSchedulerFailureResponse,
 } from "../types/scheduler";
-import { ERROR_TEXT, LOADING_TEXT, MUTED_TEXT, SUBSECTION_TITLE } from "../styles/ui";
+import { ERROR_TEXT, LINK_TEXT, LOADING_TEXT, MUTED_TEXT, SUBSECTION_TITLE } from "../styles/ui";
 
 interface FailureDiagnosticsProps {
   response: RunSchedulerFailureResponse;
@@ -58,7 +58,7 @@ function PageTargetLine({
       {target.kind === "link" ? (
         <>
           請至{" "}
-          <Link to={target.path} className="text-blue-600 hover:underline">
+          <Link to={target.path} className={LINK_TEXT}>
             {target.label}
           </Link>{" "}
           修正

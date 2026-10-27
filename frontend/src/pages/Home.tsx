@@ -11,6 +11,7 @@ import {
 import { list as listSemesters } from "../api/semesters";
 import { list as listSubjects } from "../api/subjects";
 import { list as listTeachers } from "../api/teachers";
+import { RecordStatusBadge } from "../components/StatusBadge";
 import { useResource } from "../hooks/useResource";
 import { getCurrentUserRole, getCurrentUsername, isCurrentUserCoordinator, ROLE_LABELS } from "../utils/auth";
 import {
@@ -26,12 +27,13 @@ import { formatSemesterLabel } from "../utils/scheduleVersionFormat";
 import type { ScheduleVersion } from "../types/scheduleVersion";
 import type { Semester } from "../types/semester";
 import {
+  BUTTON_PRIMARY,
+  BUTTON_SECONDARY,
   BUTTON_SECONDARY_SM,
   CARD,
   DASHBOARD_CARD_TITLE,
   DASHBOARD_GRID,
   ERROR_TEXT,
-  LINK_BUTTON,
   LINK_TEXT,
   LOADING_TEXT,
   MUTED_TEXT,
@@ -148,8 +150,9 @@ function SemesterCard({ data }: { data: ReturnType<typeof useSemesterData> }): R
         <div className="flex flex-col gap-3">
           <p className="text-sm text-gray-700">目前學期：{semesterLabel}</p>
           {versions.published !== null ? (
-            <p className="text-sm text-gray-700">
-              已發布：編號 {versions.published.display_number}（最後更新 {formatDateTime(versions.published.updated_at)}）
+            <p className="flex flex-wrap items-center gap-2 text-sm text-gray-700">
+              <RecordStatusBadge record={versions.published} />
+              編號 {versions.published.display_number}（最後更新 {formatDateTime(versions.published.updated_at)}）
             </p>
           ) : (
             <p className={NOTICE}>這個學期還沒有已發布的課表，請到排課紀錄檢視課表後發布。</p>
@@ -194,8 +197,9 @@ function DraftHealthCard({ data }: { data: ReturnType<typeof useSemesterData> })
         <p className={LOADING_TEXT}>載入中…</p>
       ) : (
         <div className="flex flex-col gap-3">
-          <p className="text-sm text-gray-700">
+          <p className="flex flex-wrap items-center gap-2 text-sm text-gray-700">
             {data.labelOf(draft.semester_id)} 編號 {draft.display_number}
+            <RecordStatusBadge record={draft} />
           </p>
           <div className={STAT_ROW}>
             <Stat value={summary.errorCount} label="錯誤" tone={summary.errorCount > 0 ? "problem" : "normal"} />
@@ -270,13 +274,13 @@ function QuickLinksCard(): ReactElement {
     <section className={CARD} aria-label="快速入口">
       <h2 className={DASHBOARD_CARD_TITLE}>快速入口</h2>
       <div className="flex flex-wrap gap-2">
-        <Link to="/wizard" className={LINK_BUTTON}>
+        <Link to="/wizard" className={BUTTON_SECONDARY}>
           開始排課
         </Link>
-        <Link to="/records" className={LINK_BUTTON}>
+        <Link to="/records" className={BUTTON_SECONDARY}>
           排課紀錄
         </Link>
-        <Link to="/data" className={LINK_BUTTON}>
+        <Link to="/data" className={BUTTON_SECONDARY}>
           學校資料
         </Link>
       </div>
@@ -307,8 +311,9 @@ function TeacherHome(): ReactElement {
         <div className="flex flex-col gap-3">
           {data.semester !== null && <p className="text-sm text-gray-700">目前學期：{data.semesterLabel}</p>}
           {published !== null ? (
-            <p className="text-sm text-gray-700">
-              已發布：編號 {published.display_number}（最後更新 {formatDateTime(published.updated_at)}）
+            <p className="flex flex-wrap items-center gap-2 text-sm text-gray-700">
+              <RecordStatusBadge record={published} />
+              編號 {published.display_number}（最後更新 {formatDateTime(published.updated_at)}）
             </p>
           ) : (
             <p className={NOTICE}>目前學期還沒有已發布的課表，發布後就能在課表查看。</p>
@@ -316,7 +321,7 @@ function TeacherHome(): ReactElement {
           <div>
             <Link
               to={published === null ? "/timetable" : `/timetable?scheduleVersionId=${published.id}`}
-              className={LINK_BUTTON}
+              className={BUTTON_PRIMARY}
             >
               前往課表
             </Link>

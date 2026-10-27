@@ -18,8 +18,8 @@ import { WEEKLY_PERIOD_OPTIONS } from "../../utils/wizard";
 import ConfirmDialog from "../ConfirmDialog";
 import SuggestionInput from "../SuggestionInput";
 import {
-  BUTTON_DANGER_SM,
   BUTTON_PRIMARY,
+  BUTTON_SECONDARY_SM,
   ERROR_TEXT,
   FIELD_PAGE,
   HELP_TEXT,
@@ -120,7 +120,7 @@ function GradeRequirementsEditor({
       title: "確認刪除",
       message: `確定要刪除「${name}」的科目需求嗎？`,
       confirmLabel: "刪除",
-      danger: true,
+      tone: "danger",
     });
     if (confirmed) {
       void run(() => removeRequirement(requirement.id));
@@ -195,7 +195,7 @@ function GradeRequirementsEditor({
                       type="button"
                       onClick={() => void handleDelete(requirement)}
                       disabled={isPending}
-                      className={BUTTON_DANGER_SM}
+                      className={BUTTON_SECONDARY_SM}
                     >
                       刪除
                     </button>

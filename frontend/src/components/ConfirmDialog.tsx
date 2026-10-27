@@ -4,10 +4,23 @@ import {
   BUTTON_DANGER,
   BUTTON_PRIMARY,
   BUTTON_SECONDARY,
+  BUTTON_SUCCESS,
   DIALOG,
   DIALOG_TITLE,
   DIALOG_WIDE,
 } from "../styles/ui";
+
+// Task 98: the confirm button's color. danger = solid red (the only place
+// a solid red button appears: deleting, discarding changes...), success =
+// green (發布), primary = everything else. The cancel button is always
+// Secondary, and always where focus starts.
+export type ConfirmTone = "danger" | "success" | "primary";
+
+const CONFIRM_BUTTON_CLASSES: Record<ConfirmTone, string> = {
+  danger: BUTTON_DANGER,
+  success: BUTTON_SUCCESS,
+  primary: BUTTON_PRIMARY,
+};
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -15,10 +28,12 @@ interface ConfirmDialogProps {
   // The explanation, and any extra inputs (e.g. the copy dialog's target
   // semester choice) or an error message -- the dialog itself stays generic.
   children: ReactNode;
+  // Task 98: say the action (「刪除班級」「發布課表」), never a generic
+  // 「確定」 / 「取消」 -- the defaults only remain until every call site
+  // passes its own (Task 98 Phase B).
   confirmLabel?: string;
   cancelLabel?: string;
-  // Red confirm button for an action the user should think twice about.
-  danger?: boolean;
+  tone?: ConfirmTone;
   // An action is in flight: both buttons are disabled and Esc does nothing,
   // so the same request can't be sent twice or abandoned half way.
   busy?: boolean;
@@ -74,7 +89,7 @@ export default function ConfirmDialog({
   children,
   confirmLabel = "確定",
   cancelLabel = "取消",
-  danger = false,
+  tone = "primary",
   busy = false,
   busyLabel = "處理中…",
   confirmDisabled = false,
@@ -313,7 +328,7 @@ export default function ConfirmDialog({
                 type="button"
                 onClick={onConfirm}
                 disabled={busy || confirmDisabled}
-                className={danger ? BUTTON_DANGER : BUTTON_PRIMARY}
+                className={CONFIRM_BUTTON_CLASSES[tone]}
               >
                 {busy ? busyLabel : confirmLabel}
               </button>

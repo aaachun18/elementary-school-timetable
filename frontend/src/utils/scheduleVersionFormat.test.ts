@@ -5,9 +5,8 @@ import {
   formatStatusOnly,
   formatVersionLabel,
   hasTimetable,
-  recordStatusBadgeClass,
+  recordStatusTone,
 } from "./scheduleVersionFormat";
-import { BADGE_INFO, BADGE_MANUAL, BADGE_NEUTRAL, BADGE_SUCCESS, BADGE_WARNING } from "../styles/ui";
 import type { ScheduleVersion } from "../types/scheduleVersion";
 import type { Semester } from "../types/semester";
 
@@ -66,13 +65,23 @@ describe("formatRecordStatus", () => {
   });
 });
 
-describe("recordStatusBadgeClass", () => {
-  it("is green when published, amber when not scheduled, blue with a timetable", () => {
-    expect(recordStatusBadgeClass(record({ is_published: true }))).toBe(BADGE_SUCCESS);
-    expect(recordStatusBadgeClass(record({ status: "NOT_SCHEDULED" }))).toBe(BADGE_WARNING);
-    expect(recordStatusBadgeClass(record({ status: "AUTO" }))).toBe(BADGE_INFO);
-    expect(recordStatusBadgeClass(record({ status: "MANUAL" }))).toBe(BADGE_MANUAL);
-    expect(recordStatusBadgeClass(record({ status: "COPIED" }))).toBe(BADGE_NEUTRAL);
+describe("recordStatusTone", () => {
+  it("is green when published, amber when not scheduled, blue / violet with a timetable", () => {
+    expect(recordStatusTone(record({ is_published: true }))).toBe("success");
+    expect(recordStatusTone(record({ status: "NOT_SCHEDULED" }))).toBe("warning");
+    expect(recordStatusTone(record({ status: "AUTO" }))).toBe("info");
+    expect(recordStatusTone(record({ status: "MANUAL" }))).toBe("manual");
+    expect(recordStatusTone(record({ status: "COPIED" }))).toBe("neutral");
+  });
+
+  it("is success for a published record whatever its status", () => {
+    expect(recordStatusTone(record({ status: "MANUAL", is_published: true }))).toBe("success");
+  });
+
+  it("is neutral for 編輯中 and for an unknown status", () => {
+    expect(recordStatusTone(record({ status: "EDITING" }))).toBe("neutral");
+    expect(recordStatusTone(record({ status: "SOMETHING_NEW" as ScheduleVersion["status"] }))).toBe("neutral");
+    expect(recordStatusTone(record({ status: "toString" as ScheduleVersion["status"] }))).toBe("neutral");
   });
 });
 

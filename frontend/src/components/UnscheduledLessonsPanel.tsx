@@ -6,6 +6,7 @@ import {
   type PlacementCard,
 } from "../utils/placement";
 import {
+  BUTTON_GHOST_SM,
   ERROR_TEXT,
   PLACE_CARD,
   PLACE_CARD_BUTTON,
@@ -17,7 +18,6 @@ import {
   PLACE_PANEL,
   PLACE_PANEL_TITLE,
   PLACE_TEACHER_SELECT,
-  PLACE_TOGGLE,
 } from "../styles/ui";
 
 interface UnscheduledLessonsPanelProps {
@@ -73,7 +73,7 @@ export default function UnscheduledLessonsPanel({
         {showAllToggle !== null && (
           <button
             type="button"
-            className={PLACE_TOGGLE}
+            className={BUTTON_GHOST_SM}
             aria-pressed={showAllToggle.showAll}
             onClick={showAllToggle.onToggle}
           >

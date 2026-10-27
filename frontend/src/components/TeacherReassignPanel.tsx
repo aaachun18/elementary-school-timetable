@@ -1,4 +1,5 @@
 import { useRef, useState, type ReactElement } from "react";
+import StatusBadge from "./StatusBadge";
 import TeacherReassignPreviewDialog from "./TeacherReassignPreviewDialog";
 import { useFlashMessage } from "../hooks/useFlashMessage";
 import { useTeacherReassignment } from "../hooks/useTeacherReassignment";
@@ -16,8 +17,7 @@ import {
 } from "../utils/teacherReassignment";
 import type { TeacherReassignmentResult } from "../types/scheduler";
 import {
-  BADGE_INFO,
-  BUTTON_PRIMARY_SM,
+  BUTTON_SECONDARY_SM,
   CARD,
   ERROR_TEXT,
   FIELD_PAGE,
@@ -246,9 +246,9 @@ export default function TeacherReassignPanel({
                       <td className={TD}>
                         {currentNames.length === 0 ? "未指定" : currentNames.join("、")}
                         {handedTo !== undefined && (
-                          <span className={`${BADGE_INFO} ml-2`}>
+                          <StatusBadge tone="info" className="ml-2">
                             剛換給{teacherName(handedTo.toTeacherId)}
-                          </span>
+                          </StatusBadge>
                         )}
                       </td>
                       <td className={TD}>
@@ -275,7 +275,7 @@ export default function TeacherReassignPanel({
                           onClick={() => handlePreview(requirement.id)}
                           disabled={isBusy || selectedNewTeacher === undefined}
                           aria-label={`預覽把 ${courseName} 換給新教師`}
-                          className={BUTTON_PRIMARY_SM}
+                          className={BUTTON_SECONDARY_SM}
                         >
                           預覽
                         </button>

@@ -8,7 +8,8 @@ import { formatBlockPosition, parseLessonPattern } from "../../utils/lessonPatte
 import type { PeriodDisplayMap } from "../../utils/periodDisplay";
 import { formatTimeSlotLabel } from "../../utils/timeSlotFormat";
 import ConfirmDialog from "../ConfirmDialog";
-import { BADGE_SUCCESS, ERROR_TEXT, HELP_TEXT, LABEL, LOADING_TEXT, SELECT } from "../../styles/ui";
+import StatusBadge from "../StatusBadge";
+import { ERROR_TEXT, HELP_TEXT, LABEL, LOADING_TEXT, SELECT } from "../../styles/ui";
 
 // 開始排課 > 科目需求's 「固定時段」 (選填): pin some of one requirement's
 // lessons to a time slot before 自動排課. Opening it makes the record's
@@ -127,7 +128,7 @@ export default function FixedSlotsDialog({
                   </option>
                 ))}
               </select>
-              {lesson.fixed_time_slot_id !== null ? <span className={BADGE_SUCCESS}>已固定</span> : <span />}
+              {lesson.fixed_time_slot_id !== null ? <StatusBadge tone="success">已固定</StatusBadge> : <span />}
               {rowErrors.get(lesson.id) !== undefined && (
                 <p role="alert" className={`${ERROR_TEXT} col-span-3`}>
                   {rowErrors.get(lesson.id)}

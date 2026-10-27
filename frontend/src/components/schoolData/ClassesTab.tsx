@@ -15,7 +15,6 @@ import {
   type ClassNameStyle,
 } from "../../utils/schoolStructure";
 import {
-  BUTTON_DANGER_SM,
   BUTTON_PRIMARY,
   BUTTON_PRIMARY_SM,
   BUTTON_SECONDARY,
@@ -178,7 +177,7 @@ function ClassesTable({
                       type="button"
                       onClick={() => void handleDelete(classItem)}
                       disabled={pendingId !== null}
-                      className={BUTTON_DANGER_SM}
+                      className={BUTTON_SECONDARY_SM}
                     >
                       {pendingId === classItem.id ? "刪除中…" : "刪除"}
                     </button>

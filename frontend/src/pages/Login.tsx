@@ -3,36 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { login } from "../api/auth";
 import { TOKEN_KEY } from "../api/client";
 import { extractApiErrorMessage } from "../constants/errorMessages";
-import { BUTTON_PRIMARY, ERROR_TEXT, INPUT, LABEL } from "../styles/ui";
-
-// Minimal inline SVGs -- no icon library added just for two static shapes
-// (see Task 29.5's explicit "smallest sufficient dependency" instruction).
-function EyeIcon(): ReactElement {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"
-        stroke="currentColor"
-        strokeWidth="2"
-      />
-      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2" />
-    </svg>
-  );
-}
-
-function EyeOffIcon(): ReactElement {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"
-        stroke="currentColor"
-        strokeWidth="2"
-      />
-      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2" />
-      <line x1="2" y1="22" x2="22" y2="2" stroke="currentColor" strokeWidth="2" />
-    </svg>
-  );
-}
+import { EyeIcon, EyeOffIcon } from "../components/icons";
+import { BUTTON_PRIMARY, ERROR_TEXT, ICON_BUTTON, INPUT, LABEL } from "../styles/ui";
 
 export default function Login(): ReactElement {
   const [username, setUsername] = useState("");
@@ -124,7 +96,8 @@ export default function Login(): ReactElement {
                 onClick={() => setIsPasswordVisible((visible) => !visible)}
                 aria-label={isPasswordVisible ? "隱藏密碼" : "顯示密碼"}
                 aria-pressed={isPasswordVisible}
-                className="shrink-0 rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                title={isPasswordVisible ? "隱藏密碼" : "顯示密碼"}
+                className={ICON_BUTTON}
               >
                 {isPasswordVisible ? <EyeOffIcon /> : <EyeIcon />}
               </button>

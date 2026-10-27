@@ -28,43 +28,69 @@ export const PAGE = "p-6 max-w-6xl mx-auto";
 export const SECTION = "mb-6";
 export const CARD = "rounded-lg border border-gray-200 bg-white p-4 shadow-sm";
 
-// --- Buttons ---
-// Normal size (page-level actions: 新增/登入/開始自動排課/展開課程清單...).
-export const BUTTON_PRIMARY =
-  "inline-flex items-center justify-center rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50";
-export const BUTTON_SECONDARY =
-  "inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50";
-export const BUTTON_DANGER =
-  "inline-flex items-center justify-center rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-600 shadow-sm hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50";
-// v3: 發布此課表 -- amber, set apart from every other action.
-export const BUTTON_PUBLISH =
-  "inline-flex items-center justify-center rounded-md border border-amber-300 bg-amber-100 px-3 py-1.5 text-sm font-medium text-amber-900 shadow-sm hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-50";
+// --- Buttons (Task 98, decision 34) ---
+// Six variants, colors from the @theme tokens in index.css:
+//   Primary   -- the ONE most important action of a screen (下一步, 自動排課,
+//                儲存課表). Never two on one screen.
+//   Secondary -- everything else (上一步, 取消, 複製, 手動編輯課表...).
+//   Success   -- only the last step of a flow (發布此課表).
+//   Danger    -- solid red, only on a confirmation dialog's confirm button;
+//                lists never show a red button.
+//   Ghost     -- no frame, primary text: a setting entry that carries its
+//                own content (「設定可排節次」), back links, show-more toggles.
+//   Icon      -- 32×32 with a 20px icon; always aria-label + title.
+// Every button is at least 32px tall (min-h-8) and gets the global
+// focus-visible ring (index.css). Disabled is never just faded: the
+// reason sits next to it (DisabledReason) or in its title.
+const BUTTON_BASE =
+  "inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md font-medium disabled:cursor-not-allowed disabled:opacity-50";
+const BUTTON_SIZE = "px-3 py-1.5 text-sm";
+// Small size (in-row actions inside a table row or a card).
+const BUTTON_SIZE_SM = "px-2.5 py-1 text-xs";
 
-// Small size (in-row actions: 編輯/刪除/確認/取消/移除 inside a table row).
-export const BUTTON_PRIMARY_SM =
-  "inline-flex items-center justify-center rounded-md bg-blue-600 px-2 py-1 text-xs font-medium text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50";
-export const BUTTON_SECONDARY_SM =
-  "inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50";
-export const BUTTON_DANGER_SM =
-  "inline-flex items-center justify-center rounded-md border border-red-300 bg-white px-2 py-1 text-xs font-medium text-red-600 shadow-sm hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50";
+const PRIMARY_COLORS = "bg-primary text-on-accent shadow-sm hover:bg-primary-hover";
+const SECONDARY_COLORS = "bg-secondary text-on-secondary hover:bg-secondary-hover";
+const SUCCESS_COLORS = "bg-success text-on-accent shadow-sm hover:bg-success-hover";
+const DANGER_COLORS = "bg-danger text-on-accent shadow-sm hover:bg-danger-hover";
+const GHOST_COLORS = "text-primary hover:bg-primary-soft hover:text-primary-hover";
+
+export const BUTTON_PRIMARY = `${BUTTON_BASE} ${BUTTON_SIZE} ${PRIMARY_COLORS}`;
+export const BUTTON_SECONDARY = `${BUTTON_BASE} ${BUTTON_SIZE} ${SECONDARY_COLORS}`;
+export const BUTTON_SUCCESS = `${BUTTON_BASE} ${BUTTON_SIZE} ${SUCCESS_COLORS}`;
+export const BUTTON_DANGER = `${BUTTON_BASE} ${BUTTON_SIZE} ${DANGER_COLORS}`;
+export const BUTTON_GHOST = `${BUTTON_BASE} px-2 py-1.5 text-sm ${GHOST_COLORS}`;
+
+export const BUTTON_PRIMARY_SM = `${BUTTON_BASE} ${BUTTON_SIZE_SM} ${PRIMARY_COLORS}`;
+export const BUTTON_SECONDARY_SM = `${BUTTON_BASE} ${BUTTON_SIZE_SM} ${SECONDARY_COLORS}`;
+export const BUTTON_GHOST_SM = `${BUTTON_BASE} px-2 py-1 text-xs ${GHOST_COLORS}`;
+
+// Neutral gray icon, darker with a light gray square on hover.
+export const ICON_BUTTON =
+  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-icon hover:bg-secondary hover:text-icon-hover disabled:cursor-not-allowed disabled:opacity-50";
+
+// InfoPopover's panel (components/InfoPopover.tsx); its position, width
+// (at most 360px) and max height are set inline from the (i) button.
+export const INFO_POPOVER_PANEL =
+  "fixed z-50 overflow-y-auto rounded-md border border-gray-200 bg-surface p-3 text-left text-sm font-normal text-gray-700 shadow-lg";
+
+// The one line under (or next to) a disabled button saying why.
+export const DISABLED_REASON = "text-xs text-text-muted";
 
 // A row of buttons (e.g. 編輯 / 刪除 in a table cell): never touching each
 // other -- every group of buttons sits in this or another gap-* container.
 export const ROW_ACTIONS = "flex flex-wrap items-center gap-2";
 
-// Plain text-link-styled button, e.g. toggling a collapsible section.
-export const BUTTON_LINK =
-  "text-sm font-medium text-blue-600 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50";
-
 // --- Form controls ---
+// The focus ring comes from index.css (2px primary); the border turns
+// primary too.
 export const INPUT =
-  "rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500";
+  "rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-900 focus:border-primary disabled:bg-gray-100 disabled:text-gray-500";
 export const SELECT = INPUT;
 // Fields stacked in one column are equally wide: in a table cell or a
 // dialog's form a field fills its column (`w-full`); the pickers a page
 // stacks above its content (年級, 版本, 班級 / 教師 / 教室 ...) share this width.
 export const FIELD_PAGE = "w-64 max-w-full";
-export const CHECKBOX = "h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500";
+export const CHECKBOX = "h-4 w-4 rounded border-gray-300 accent-primary";
 export const LABEL = "text-sm font-medium text-gray-700";
 
 // --- Tables ---
@@ -86,35 +112,43 @@ export const TD_LOCKED_NOWRAP = `${TD_LOCKED} whitespace-nowrap`;
 // --- Nav ---
 export const NAV_BAR =
   "flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-gray-200 bg-white px-6 py-3";
-export const NAV_LINK = "text-sm font-medium text-gray-600 hover:text-blue-600";
-export const NAV_LINK_ACTIVE = "text-sm font-medium text-blue-600";
+export const NAV_LINK = "inline-flex min-h-8 items-center text-sm font-medium text-gray-600 hover:text-primary";
+export const NAV_LINK_ACTIVE = "inline-flex min-h-8 items-center text-sm font-medium text-primary";
 
-// --- Tabs (DataBrowser's own secondary nav) ---
+// --- Tabs (DataBrowser's own secondary nav, and the class / grade lists
+// that switch what a page shows) ---
 export const TAB_BUTTON =
-  "rounded-md px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-100";
-export const TAB_BUTTON_ACTIVE = "rounded-md bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700";
+  "inline-flex min-h-8 items-center rounded-md px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-secondary hover:text-on-secondary";
+export const TAB_BUTTON_ACTIVE =
+  "inline-flex min-h-8 items-center rounded-md bg-primary-soft px-3 py-1.5 text-sm font-medium text-primary";
+
+// --- Wizard step pills (Task 98 Phase C replaces them with a Stepper) ---
+const STEP_PILL_BASE = "inline-flex min-h-8 items-center rounded-full px-3 py-1 disabled:cursor-default";
+export const STEP_PILL_CURRENT = `${STEP_PILL_BASE} bg-primary text-on-accent`;
+export const STEP_PILL_DONE = `${STEP_PILL_BASE} bg-primary-soft text-primary`;
+export const STEP_PILL_TODO = `${STEP_PILL_BASE} bg-gray-100 text-gray-600`;
 
 // --- Badges / status pills ---
 // Task 73: marks a row that can't be edited or deleted (shown with an
 // explanation line next to it, not only as a tooltip).
 export const LOCK_BADGE =
   "inline-flex items-center gap-1 rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-700";
-export const BADGE_SUCCESS = "inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700";
-export const BADGE_NEUTRAL = "inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600";
 // A 導師's class next to the teacher (教師設定), and the 導師's name on the
 // timetable (導師 tag below a class's grid, and on every lesson they teach
 // that class).
 export const HOMEROOM_TAG =
   "inline-flex items-center rounded-full bg-teal-50 px-2 py-0.5 text-xs font-medium text-teal-700";
-// 排課紀錄 status pills (utils/scheduleVersionFormat.ts): 自動排課 uses the
-// accent blue (BADGE_INFO), 手動排課 pale violet (BADGE_MANUAL), 已發布
-// BADGE_SUCCESS, 尚未排課 BADGE_WARNING -- all the same light shade.
-export const BADGE_INFO = "inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700";
-// Pale violet: as light as the other status pills, and a hue none of them use.
-export const BADGE_MANUAL = "inline-flex items-center rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700";
-// Task 90: a WARNING (e.g. a teacher below the minimum weekly periods) --
-// amber like NOTICE, never the red of an error.
-export const BADGE_WARNING = "inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800";
+// Task 98: StatusBadge's tones (components/StatusBadge.tsx), light
+// background + dark text from the badge tokens. 排課紀錄: 自動排課 = info,
+// 手動排課 = manual, 尚未排課 = warning, 已發布 = success, anything else
+// neutral. The same tones serve the other status pills (啟用 / 停用,
+// 已固定, the 警告 tag in the conflict list).
+const BADGE_BASE = "inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium";
+export const BADGE_INFO = `${BADGE_BASE} bg-badge-info-bg text-badge-info-fg`;
+export const BADGE_MANUAL = `${BADGE_BASE} bg-badge-manual-bg text-badge-manual-fg`;
+export const BADGE_WARNING = `${BADGE_BASE} bg-badge-warning-bg text-badge-warning-fg`;
+export const BADGE_SUCCESS = `${BADGE_BASE} bg-badge-success-bg text-badge-success-fg`;
+export const BADGE_NEUTRAL = `${BADGE_BASE} bg-badge-neutral-bg text-badge-neutral-fg`;
 
 // --- Notices ---
 // Task 67: a short, non-error heads-up shown above content (e.g. "this is
@@ -267,7 +301,7 @@ export const PREVIEW_TAG_RESOLVED = `${PREVIEW_TAG_BASE} bg-green-50 text-green-
 // The one small footnote line, and 「另有 N 項既有問題…」.
 export const PREVIEW_NOTE = "text-xs text-gray-500";
 // 「另外 N 項」/「影響範圍」 toggles.
-export const PREVIEW_TOGGLE = "self-start text-xs font-medium text-blue-600 hover:text-blue-700";
+export const PREVIEW_TOGGLE = `${BUTTON_GHOST_SM} self-start`;
 
 // --- Task 93: the 「未排入課程」 panel (edit mode) ---
 export const PLACE_PANEL = "mb-4 rounded-lg border border-amber-200 bg-amber-50/40 p-3";
@@ -286,7 +320,6 @@ export const PLACE_CARD_BUTTON_DRAGGING = `${PLACE_CARD_BUTTON_BASE} cursor-grab
 export const PLACE_CARD_BUTTON_NEEDS_TEACHER = `${PLACE_CARD_BUTTON_BASE} cursor-not-allowed text-gray-400`;
 export const PLACE_TEACHER_SELECT =
   "rounded border border-gray-300 bg-white px-1 py-0.5 text-xs text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50";
-export const PLACE_TOGGLE = "text-xs font-medium text-blue-600 hover:text-blue-700";
 
 // --- Task 94: room type forms ---
 // A short help line under a form input.
@@ -304,7 +337,6 @@ export const STAT_VALUE = "text-2xl font-semibold text-gray-900";
 export const STAT_VALUE_PROBLEM = "text-2xl font-semibold text-red-600";
 export const STAT_VALUE_WARNING = "text-2xl font-semibold text-amber-700";
 export const STAT_LABEL = "text-xs text-gray-500";
-// A link styled as the page's main action button.
-export const LINK_BUTTON =
-  "inline-flex items-center justify-center rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700";
-export const LINK_TEXT = "text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline";
+// A text link inside a sentence (「請到學校資料新增」): the inline form of
+// Ghost. A link that stands on its own uses a BUTTON_* class instead.
+export const LINK_TEXT = "font-medium text-primary underline-offset-2 hover:text-primary-hover hover:underline";

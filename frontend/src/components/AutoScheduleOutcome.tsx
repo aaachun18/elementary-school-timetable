@@ -2,7 +2,7 @@ import type { ReactElement } from "react";
 import { Link } from "react-router-dom";
 import FailureDiagnostics from "./FailureDiagnostics";
 import type { AutoScheduleState } from "../hooks/useAutoSchedule";
-import { ERROR_TEXT, LINK_TEXT, MUTED_TEXT, SUCCESS_TEXT } from "../styles/ui";
+import { BUTTON_PRIMARY, BUTTON_SECONDARY, ERROR_TEXT, MUTED_TEXT, SUCCESS_TEXT } from "../styles/ui";
 
 // v3: what 自動排課 (hooks/useAutoSchedule.ts) came back with -- the
 // timetable's link on success, the reasons on failure (the record stays
@@ -39,14 +39,14 @@ export default function AutoScheduleOutcome({
             {state.result.preferred_period_lesson_count} 堂（在符合所有排課規則下盡量排在早上）
           </p>
         )}
-        <p className="mt-1 flex flex-wrap gap-4 text-sm">
-          <Link to={`/timetable?scheduleVersionId=${versionId}`} className={LINK_TEXT}>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Link to={`/timetable?scheduleVersionId=${versionId}`} className={BUTTON_PRIMARY}>
             檢視課表
           </Link>
-          <Link to="/records" className={LINK_TEXT}>
+          <Link to="/records" className={BUTTON_SECONDARY}>
             回到排課紀錄
           </Link>
-        </p>
+        </div>
       </div>
     );
   }

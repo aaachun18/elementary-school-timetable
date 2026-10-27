@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react";
+import { useId, useState, type ReactElement } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { list as listAcademicYears } from "../api/academicYears";
 import { list as listRequirements } from "../api/classSubjectRequirements";
@@ -12,16 +12,17 @@ import { list as listSubjects } from "../api/subjects";
 import { list as listTeachers } from "../api/teachers";
 import { list as listTimeSlots } from "../api/timeSlots";
 import AutoScheduleOutcome from "../components/AutoScheduleOutcome";
+import DisabledReason from "../components/DisabledReason";
+import { RecordStatusBadge } from "../components/StatusBadge";
 import { extractApiErrorMessage } from "../constants/errorMessages";
 import { useAutoSchedule } from "../hooks/useAutoSchedule";
 import { useResource } from "../hooks/useResource";
+import { autoScheduleDisabledReason } from "../utils/disabledReason";
 import { rememberWizardRecord } from "../utils/wizardRecord";
 import { buildPeriodDisplay } from "../utils/periodDisplay";
 import { summarizeSlots } from "../utils/recordSettings";
 import {
-  formatRecordStatus,
   hasTimetable,
-  recordStatusBadgeClass,
   semesterLabelOf,
 } from "../utils/scheduleVersionFormat";
 import { describeLessonPattern } from "../utils/lessonPattern";
@@ -30,6 +31,7 @@ import type { ClassSubjectRequirement } from "../types/classSubjectRequirement";
 import type { Grade } from "../types/grade";
 import type { ScheduleVersion } from "../types/scheduleVersion";
 import {
+  BUTTON_GHOST,
   BUTTON_PRIMARY,
   BUTTON_SECONDARY,
   CARD,
@@ -89,7 +91,7 @@ export default function RecordSettings(): ReactElement {
 function BackLink(): ReactElement {
   return (
     <p className="mb-3">
-      <Link to="/records" className={BUTTON_SECONDARY}>
+      <Link to="/records" className={BUTTON_GHOST}>
         ← 返回排課紀錄
       </Link>
     </p>
@@ -116,6 +118,7 @@ function SettingsView({ record, onChanged }: { record: ScheduleVersion; onChange
     [record.id],
   );
   const autoSchedule = useAutoSchedule(record.id);
+  const runReasonId = useId();
   const [isCopying, setIsCopying] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
   const isNotScheduled = record.status === "NOT_SCHEDULED";
@@ -194,6 +197,12 @@ function SettingsView({ record, onChanged }: { record: ScheduleVersion; onChange
     (a, b) => (gradeById.get(a.grade_id)?.level ?? 0) - (gradeById.get(b.grade_id)?.level ?? 0),
   );
   const lessonCount = requirements.reduce((sum, item) => sum + item.weekly_periods, 0);
+  const runDisabledReason = autoScheduleDisabledReason({
+    isRunning: autoSchedule.isRunning,
+    isDone: autoSchedule.result !== null,
+    teacherCount: teachers.length,
+    requirementCount: requirements.length,
+  });
   const sortedGrades = [...grades].sort((a, b) => a.level - b.level);
 
   return (
@@ -202,7 +211,7 @@ function SettingsView({ record, onChanged }: { record: ScheduleVersion; onChange
       <h1 className={PAGE_TITLE}>排課設定・編號 {record.display_number}</h1>
       <p className="mb-3 flex flex-wrap items-center gap-2 text-sm text-gray-700">
         {semesterLabelOf(record, semesterById, academicYearById)}
-        <span className={recordStatusBadgeClass(record)}>{formatRecordStatus(record)}</span>
+        <RecordStatusBadge record={record} />
         {record.note !== null && <span className={MUTED_TEXT}>備註：{record.note}</span>}
       </p>
       <FlashFromNavigation />
@@ -220,7 +229,9 @@ function SettingsView({ record, onChanged }: { record: ScheduleVersion; onChange
               <button
                 type="button"
                 onClick={() => void handleRun()}
-                disabled={autoSchedule.isRunning || teachers.length === 0 || requirements.length === 0}
+                disabled={autoSchedule.isRunning || runDisabledReason !== null}
+                title={runDisabledReason ?? undefined}
+                aria-describedby={runDisabledReason !== null ? runReasonId : undefined}
                 className={BUTTON_PRIMARY}
               >
                 {autoSchedule.isRunning ? "排課中…" : "自動排課"}
@@ -233,6 +244,7 @@ function SettingsView({ record, onChanged }: { record: ScheduleVersion; onChange
             </Link>
           )}
         </div>
+        {isNotScheduled && <DisabledReason id={runReasonId} reason={runDisabledReason} />}
         <p className={`${HELP_TEXT} mt-2`}>
           {isNotScheduled
             ? "這筆紀錄還沒排課，可以「修改排課設定」，確定後按「自動排課」。"

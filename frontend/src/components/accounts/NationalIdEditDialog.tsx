@@ -4,7 +4,7 @@ import { extractApiErrorMessage } from "../../constants/errorMessages";
 import type { User } from "../../types/user";
 import { getNationalIdError, normalizeNationalId } from "../../utils/accountForm";
 import ConfirmDialog from "../ConfirmDialog";
-import { BUTTON_LINK, ERROR_TEXT, HELP_TEXT, INPUT, LABEL, NOTICE } from "../../styles/ui";
+import { BUTTON_GHOST_SM, ERROR_TEXT, HELP_TEXT, INPUT, LABEL, NOTICE } from "../../styles/ui";
 
 // 帳號管理 > 編輯: a teacher account's 身分證字號. Any teacher may have one;
 // it may stay empty (or be cleared) unless the school has another teacher
@@ -102,7 +102,7 @@ export default function NationalIdEditDialog({
       </label>
       {canClear && (
         <p>
-          <button type="button" onClick={() => void save(null)} disabled={isSaving} className={BUTTON_LINK}>
+          <button type="button" onClick={() => void save(null)} disabled={isSaving} className={BUTTON_GHOST_SM}>
             清除身分證字號
           </button>
         </p>

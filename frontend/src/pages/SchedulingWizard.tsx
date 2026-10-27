@@ -31,6 +31,9 @@ import {
   PAGE,
   PAGE_TITLE,
   SECTION_TITLE,
+  STEP_PILL_CURRENT,
+  STEP_PILL_DONE,
+  STEP_PILL_TODO,
 } from "../styles/ui";
 
 interface WizardRecord {
@@ -208,13 +211,9 @@ export default function SchedulingWizard(): ReactElement {
                     onClick={() => go(item.key)}
                     disabled={!canJump}
                     aria-current={isCurrent ? "step" : undefined}
-                    className={`rounded-full px-3 py-1 ${
-                      isCurrent
-                        ? "bg-blue-600 text-white"
-                        : index < stepIndex
-                          ? "bg-blue-50 text-blue-700"
-                          : "bg-gray-100 text-gray-600"
-                    }`}
+                    className={
+                      isCurrent ? STEP_PILL_CURRENT : index < stepIndex ? STEP_PILL_DONE : STEP_PILL_TODO
+                    }
                   >
                     {index + 1}. {item.label}
                   </button>

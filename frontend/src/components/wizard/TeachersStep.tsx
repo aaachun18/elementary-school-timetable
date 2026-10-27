@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react";
+import { useId, useState, type ReactElement } from "react";
 import { Link } from "react-router-dom";
 import { list as listClasses } from "../../api/classes";
 import { list as listGrades } from "../../api/grades";
@@ -12,20 +12,22 @@ import type { SemesterTeacher, SemesterTeacherEntry } from "../../types/semester
 import type { Teacher } from "../../types/teacher";
 import type { TimeSlot } from "../../types/timeSlot";
 import { classesWithoutHomeroom, missingHomeroomMessage, sortClassesByGrade } from "../../utils/homeroom";
+import { saveTeachersDisabledReason } from "../../utils/disabledReason";
 import { DEFAULT_MAX_WEEKLY_PERIODS, periodsRangeError } from "../../utils/wizard";
 import ConfirmDialog from "../ConfirmDialog";
+import DisabledReason from "../DisabledReason";
 import TimeSlotPickerDialog from "./TimeSlotPickerDialog";
 import {
-  BUTTON_DANGER_SM,
   BUTTON_PRIMARY,
   BUTTON_SECONDARY_SM,
   CARD,
   CHECKBOX,
   ERROR_TEXT,
   HELP_TEXT,
-  INPUT,
-  LOADING_TEXT,
   HOMEROOM_TAG,
+  INPUT,
+  LINK_TEXT,
+  LOADING_TEXT,
   MUTED_TEXT,
   SELECT,
 } from "../../styles/ui";
@@ -134,6 +136,7 @@ function TeachersForm({
   const [removingHomeroomOf, setRemovingHomeroomOf] = useState<Teacher | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const saveReasonId = useId();
 
   function update(teacherId: number, change: Partial<Draft>): void {
     setDrafts((previous) => {
@@ -167,6 +170,11 @@ function TeachersForm({
     }),
   );
   const hasRangeError = [...rangeErrors.values()].some((message) => message !== null);
+  const saveDisabledReason = saveTeachersDisabledReason({
+    isSaving,
+    checkedCount: checkedTeachers.length,
+    hasRangeError,
+  });
 
   const classById = new Map(classes.map((item) => [item.id, item]));
   const assignedClassIds = new Set(
@@ -209,7 +217,7 @@ function TeachersForm({
       <p className={HELP_TEXT}>
         勾選要納入這次排課的老師，設定每週最低與最高節數，並標出沒辦法排課的時間。沒有指定老師的課程，會分給還沒超過上限的老師。
         名單是所有啟用中的一般老師帳號，要新增老師請到
-        <Link to="/users" className="font-medium text-blue-600 hover:underline">
+        <Link to="/users" className={LINK_TEXT}>
           帳號管理
         </Link>
         。
@@ -280,7 +288,7 @@ function TeachersForm({
                       <button
                         type="button"
                         onClick={() => setRemovingHomeroomOf(teacher)}
-                        className={BUTTON_DANGER_SM}
+                        className={BUTTON_SECONDARY_SM}
                       >
                         刪除班級
                       </button>
@@ -339,18 +347,21 @@ function TeachersForm({
         <button
           type="button"
           onClick={() => void handleSave()}
-          disabled={isSaving || hasRangeError || checkedTeachers.length === 0}
+          disabled={isSaving || saveDisabledReason !== null}
+          title={saveDisabledReason ?? undefined}
+          aria-describedby={saveDisabledReason !== null ? saveReasonId : undefined}
           className={BUTTON_PRIMARY}
         >
           {isSaving ? "儲存中…" : "儲存並下一步"}
         </button>
       </div>
+      <DisabledReason id={saveReasonId} reason={saveDisabledReason} />
       {removingHomeroomOf !== null && (
         <ConfirmDialog
           open
           title="刪除導師班級"
           confirmLabel="刪除"
-          danger
+          tone="danger"
           onConfirm={() => {
             update(removingHomeroomOf.id, { homeroomClassId: null });
             setRemovingHomeroomOf(null);

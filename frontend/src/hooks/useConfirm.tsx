@@ -1,12 +1,12 @@
 import { useCallback, useRef, useState, type ReactElement } from "react";
-import ConfirmDialog from "../components/ConfirmDialog";
+import ConfirmDialog, { type ConfirmTone } from "../components/ConfirmDialog";
 
 export interface ConfirmOptions {
   title?: string;
   message: string;
   confirmLabel?: string;
   cancelLabel?: string;
-  danger?: boolean;
+  tone?: ConfirmTone;
 }
 
 export interface ConfirmApi {
@@ -22,7 +22,7 @@ export function deleteConfirmOptions(name: string): ConfirmOptions {
     title: "確認刪除",
     message: `確定要刪除「${name}」嗎？此操作無法復原。`,
     confirmLabel: "刪除",
-    danger: true,
+    tone: "danger",
   };
 }
 
@@ -57,7 +57,7 @@ export function useConfirm(): ConfirmApi {
       title={options?.title ?? "請確認"}
       confirmLabel={options?.confirmLabel}
       cancelLabel={options?.cancelLabel}
-      danger={options?.danger ?? false}
+      tone={options?.tone ?? "primary"}
       onConfirm={handleConfirm}
       onCancel={handleCancel}
     >

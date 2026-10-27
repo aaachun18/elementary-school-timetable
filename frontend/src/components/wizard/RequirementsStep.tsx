@@ -37,6 +37,7 @@ import {
   FIELD_PAGE,
   HELP_TEXT,
   LABEL,
+  LINK_TEXT,
   LOADING_TEXT,
   LOCK_BADGE,
   MUTED_TEXT,
@@ -240,7 +241,7 @@ function RequirementsForm({
     <div className={CARD}>
       <p className={HELP_TEXT}>
         每個班級的科目與每週節數會自動帶入
-        <Link to="/data?tab=gradeRequirements" className="font-medium text-blue-600 hover:underline">
+        <Link to="/data?tab=gradeRequirements" className={LINK_TEXT}>
           學校資料的科目需求
         </Link>
         ，要調整請到那裡修改。這裡只需要視情況指定連堂、老師與特殊教室，修改後會立即儲存；不指定特殊教室就在原班教室上課（課表上不顯示），指定了會在課表上註記。
@@ -249,7 +250,7 @@ function RequirementsForm({
       {classes.length === 0 ? (
         <p className={MUTED_TEXT}>
           還沒有班級，請先到
-          <Link to="/data?tab=classes" className="font-medium text-blue-600 hover:underline">
+          <Link to="/data?tab=classes" className={LINK_TEXT}>
             學校資料
           </Link>
           建立。

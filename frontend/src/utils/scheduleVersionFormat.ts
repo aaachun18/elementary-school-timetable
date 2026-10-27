@@ -1,6 +1,6 @@
 import type { ScheduleVersion, ScheduleVersionStatus } from "../types/scheduleVersion";
 import type { Semester } from "../types/semester";
-import { BADGE_INFO, BADGE_MANUAL, BADGE_NEUTRAL, BADGE_SUCCESS, BADGE_WARNING } from "../styles/ui";
+import type { BadgeTone } from "./badgeTone";
 
 // The one place a 排課紀錄's status becomes Chinese text and a badge, and
 // a record becomes a one-line label (semester_id -> Semester ->
@@ -17,17 +17,19 @@ const STATUS_LABELS: Record<string, string> = {
   EDITING: "編輯中",
 };
 
-const STATUS_BADGES: Record<string, string> = {
-  NOT_SCHEDULED: BADGE_WARNING,
-  AUTO: BADGE_INFO,
-  MANUAL: BADGE_MANUAL,
-  COPIED: BADGE_NEUTRAL,
-  EDITING: BADGE_NEUTRAL,
+// Task 98: 自動排課 = info (blue), 手動排課 = manual (violet), 尚未排課 =
+// warning (amber); a copy, 編輯中 or anything unknown is neutral.
+const STATUS_TONES: Record<string, BadgeTone> = {
+  NOT_SCHEDULED: "warning",
+  AUTO: "info",
+  MANUAL: "manual",
+  COPIED: "neutral",
+  EDITING: "neutral",
 };
 
 const PUBLISHED_LABEL = "已發布";
 
-function known(table: Record<string, string>, key: string): boolean {
+function known(table: Record<string, unknown>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(table, key);
 }
 
@@ -47,11 +49,13 @@ export function formatRecordStatus(record: RecordStatusSource): string {
   return record.is_published ? PUBLISHED_LABEL : formatStatusOnly(record);
 }
 
-export function recordStatusBadgeClass(record: Pick<RecordStatusSource, "status" | "is_published">): string {
+// The StatusBadge tone next to formatRecordStatus()'s text: 已發布 is
+// success (green) whatever the status.
+export function recordStatusTone(record: Pick<RecordStatusSource, "status" | "is_published">): BadgeTone {
   if (record.is_published) {
-    return BADGE_SUCCESS;
+    return "success";
   }
-  return known(STATUS_BADGES, record.status) ? STATUS_BADGES[record.status] : BADGE_NEUTRAL;
+  return known(STATUS_TONES, record.status) ? STATUS_TONES[record.status] : "neutral";
 }
 
 // Records with a timetable: 檢視課表, 發布, 複製此課表, 手動編輯.

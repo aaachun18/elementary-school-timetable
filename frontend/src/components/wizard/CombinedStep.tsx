@@ -20,7 +20,6 @@ import type { Room } from "../../types/room";
 import { blockChoiceLabel, blockChoices, canMergeWith } from "../../utils/combinedLessons";
 import ConfirmDialog from "../ConfirmDialog";
 import {
-  BUTTON_DANGER_SM,
   BUTTON_PRIMARY,
   BUTTON_SECONDARY,
   BUTTON_SECONDARY_SM,
@@ -550,7 +549,7 @@ function CombineDialog({
       </label>
       {existing !== null && (
         <p>
-          <button type="button" onClick={() => void handleDelete()} disabled={isSaving} className={BUTTON_DANGER_SM}>
+          <button type="button" onClick={() => void handleDelete()} disabled={isSaving} className={BUTTON_SECONDARY_SM}>
             取消這個合併
           </button>
         </p>

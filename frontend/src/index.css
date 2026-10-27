@@ -7,11 +7,63 @@
    every page's actual layout/spacing/color is done via className, not
    here. */
 
+/* Task 98 (decision 34): the design tokens -- the ONLY place these colors
+   are written down. Tailwind turns each --color-* into utilities
+   (bg-primary, text-on-secondary, ...); styles/ui.ts uses those, and
+   src/styles/tokens.test.ts reads this block to check every text /
+   background pair reaches a contrast of 4.5. The timetable's functional
+   colors (candidate green / red / gray, amber warnings, the sky
+   「剛調整」 ring, the teal 導師 tag) stay plain Tailwind colors on purpose:
+   no token here replaces them. */
+@theme {
+  --color-page: #f9fafb;
+  --color-surface: #ffffff;
+  --color-on-accent: #ffffff;
+
+  --color-primary: #00749b;
+  --color-primary-hover: #005f7f;
+  --color-primary-soft: #e6f3f7;
+  --color-success: #2e7d32;
+  --color-success-hover: #1b5e20;
+  --color-danger: #d32f2f;
+  --color-danger-hover: #b71c1c;
+  --color-secondary: #e7e7e7;
+  --color-secondary-hover: #dcdcdc;
+  --color-on-secondary: #1f2937;
+
+  --color-icon: #6b7280;
+  --color-icon-hover: #374151;
+  --color-text-muted: #6b7280;
+
+  /* Status badges: light background, dark text. */
+  --color-badge-info-bg: #e3f2fd;
+  --color-badge-info-fg: #0d47a1;
+  --color-badge-manual-bg: #ede7f6;
+  --color-badge-manual-fg: #4527a0;
+  --color-badge-warning-bg: #fff8e1;
+  --color-badge-warning-fg: #8a5a00;
+  --color-badge-success-bg: #e8f5e9;
+  --color-badge-success-fg: #1b5e20;
+  --color-badge-neutral-bg: #f3f4f6;
+  --color-badge-neutral-fg: #374151;
+}
+
 body {
   margin: 0;
-  background-color: #f9fafb; /* gray-50 */
+  background-color: var(--color-page);
   color: #111827; /* gray-900 */
   font-family: system-ui, "Segoe UI", Roboto, -apple-system, sans-serif;
+}
+
+/* Task 98: every keyboard-focused control gets the same visible ring --
+   2px primary, 2px away from the element. A component that draws its own
+   focus ring (the timetable's lesson buttons) opts out with
+   focus:outline-none, a utility, which wins over this base rule. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
 }
 
 /* Everything clickable shows the pointing hand (Tailwind's preflight resets

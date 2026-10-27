@@ -1,9 +1,11 @@
-import { useEffect, type ReactElement } from "react";
+import { useEffect, useId, type ReactElement } from "react";
 import { list as listRequirements } from "../../api/classSubjectRequirements";
 import { listGradeTimeSlots, listTeachers as listSemesterTeachers } from "../../api/semesterSettings";
 import AutoScheduleOutcome from "../AutoScheduleOutcome";
+import DisabledReason from "../DisabledReason";
 import { useAutoSchedule } from "../../hooks/useAutoSchedule";
 import { useResource } from "../../hooks/useResource";
+import { autoScheduleDisabledReason } from "../../utils/disabledReason";
 import { forgetWizardRecord } from "../../utils/wizardRecord";
 import {
   BUTTON_PRIMARY,
@@ -37,6 +39,7 @@ export default function RunStep({
     [versionId],
   );
   const autoSchedule = useAutoSchedule(versionId);
+  const runReasonId = useId();
   // Scheduled: 開始排課 no longer resumes this record.
   const isScheduled = autoSchedule.result !== null;
   useEffect(() => {
@@ -59,6 +62,12 @@ export default function RunStep({
   const lessonCount = requirements.data.reduce((sum, item) => sum + item.weekly_periods, 0);
   const classCount = new Set(requirements.data.map((item) => item.class_id)).size;
   const isDone = autoSchedule.result !== null;
+  const runDisabledReason = autoScheduleDisabledReason({
+    isRunning: autoSchedule.isRunning,
+    isDone,
+    teacherCount: teachers.data.length,
+    requirementCount: requirements.data.length,
+  });
 
   return (
     <div className={CARD}>
@@ -82,14 +91,15 @@ export default function RunStep({
         <button
           type="button"
           onClick={() => void autoSchedule.run()}
-          disabled={
-            autoSchedule.isRunning || isDone || requirements.data.length === 0 || teachers.data.length === 0
-          }
+          disabled={autoSchedule.isRunning || runDisabledReason !== null}
+          title={runDisabledReason ?? undefined}
+          aria-describedby={runDisabledReason !== null ? runReasonId : undefined}
           className={BUTTON_PRIMARY}
         >
           {autoSchedule.isRunning ? "排課中…" : "自動排課"}
         </button>
       </div>
+      {!isDone && <DisabledReason id={runReasonId} reason={runDisabledReason} />}
       <AutoScheduleOutcome versionId={versionId} state={autoSchedule} />
     </div>
   );

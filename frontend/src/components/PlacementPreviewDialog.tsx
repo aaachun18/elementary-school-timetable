@@ -55,7 +55,7 @@ export default function PlacementPreviewDialog({
       title="預覽放入"
       confirmLabel={addsProblems ? "仍要放入" : "確認放入"}
       cancelLabel="返回"
-      danger={addsProblems}
+      tone={addsProblems ? "danger" : "primary"}
       busy={isSaving}
       busyLabel="儲存中…"
       onConfirm={onConfirm}

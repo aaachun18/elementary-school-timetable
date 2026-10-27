@@ -21,6 +21,7 @@ import ConflictChecklist from "../components/ConflictChecklist";
 import PlacementPreviewDialog from "../components/PlacementPreviewDialog";
 import RoomChangeControls from "../components/RoomChangeControls";
 import RoomChangePreviewDialog from "../components/RoomChangePreviewDialog";
+import StatusBadge, { RecordStatusBadge } from "../components/StatusBadge";
 import TeacherReassignPanel from "../components/TeacherReassignPanel";
 import TimetableGrid from "../components/TimetableGrid";
 import UnscheduledLessonsPanel from "../components/UnscheduledLessonsPanel";
@@ -59,11 +60,9 @@ import {
   type PlacementCard,
 } from "../utils/placement";
 import {
-  formatRecordStatus,
   formatSemesterLabel,
   formatVersionLabel,
   hasTimetable,
-  recordStatusBadgeClass,
   semesterLabelOf,
 } from "../utils/scheduleVersionFormat";
 import { mergeViolationsBySentence, splitBySeverity, violationIdentityKey } from "../utils/violationMerge";
@@ -71,10 +70,11 @@ import { resolveLocateTarget, type TimetableViewMode } from "../utils/violationL
 import type { ConstraintViolationDetail, RoomChangeScope } from "../types/scheduler";
 import type { TimeSlot } from "../types/timeSlot";
 import {
+  BUTTON_GHOST,
   BUTTON_PRIMARY,
-  BUTTON_PUBLISH,
   BUTTON_SECONDARY,
   BUTTON_SECONDARY_SM,
+  BUTTON_SUCCESS,
   CANDIDATE_LEGEND,
   CANDIDATE_LEGEND_BLOCKED_SWATCH,
   CANDIDATE_LEGEND_CONFLICT_SWATCH,
@@ -85,6 +85,7 @@ import {
   FIELD_PAGE,
   HOMEROOM_TAG,
   LABEL,
+  LINK_TEXT,
   LOADING_TEXT,
   MUTED_TEXT,
   NOTICE,
@@ -387,7 +388,7 @@ export default function TimetableView(): ReactElement {
       message: "確定要取消編輯嗎？這次手動編輯的變更都不會儲存。",
       confirmLabel: "取消編輯",
       cancelLabel: "繼續編輯",
-      danger: true,
+      tone: "danger",
     });
     if (!confirmed) {
       return;
@@ -957,7 +958,7 @@ export default function TimetableView(): ReactElement {
       {confirmDialog}
       {isAdmin && !isEditing && (
         <p className="mb-3">
-          <Link to="/records" className={BUTTON_SECONDARY}>
+          <Link to="/records" className={BUTTON_GHOST}>
             ← 返回排課紀錄
           </Link>
         </p>
@@ -970,7 +971,7 @@ export default function TimetableView(): ReactElement {
           {isAdmin && selectedVersion !== undefined && (
             <p className="flex flex-wrap items-center gap-2 text-sm text-gray-700">
               {semesterLabelOf(selectedVersion, semesterById, academicYearById)}
-              <span className={recordStatusBadgeClass(selectedVersion)}>{formatRecordStatus(selectedVersion)}</span>
+              <RecordStatusBadge record={selectedVersion} />
               {isEditing && <span className={`${NOTICE} py-0.5`}>手動編輯中（尚未儲存）</span>}
             </p>
           )}
@@ -1038,7 +1039,7 @@ export default function TimetableView(): ReactElement {
       {isAdmin && selectedVersionId === null && !isRequestedVersionMissing && (
         <p className={MUTED_TEXT}>
           請從
-          <Link to="/records" className="font-medium text-blue-600 hover:underline">
+          <Link to="/records" className={LINK_TEXT}>
             排課紀錄
           </Link>
           選擇要檢視的課表。
@@ -1054,7 +1055,7 @@ export default function TimetableView(): ReactElement {
               type="button"
               onClick={() => void handleStartEditing()}
               disabled={isRecordBusy || !hasTimetable(selectedVersion.status)}
-              className={BUTTON_PRIMARY}
+              className={BUTTON_SECONDARY}
             >
               {isRecordBusy ? "處理中…" : "手動編輯課表"}
             </button>
@@ -1067,13 +1068,15 @@ export default function TimetableView(): ReactElement {
               複製此課表
             </button>
             {selectedVersion.is_published ? (
-              <span className="inline-flex items-center text-sm font-medium text-green-700">✓ 已發布</span>
+              <StatusBadge tone="success" className="self-center">
+                ✓ 已發布
+              </StatusBadge>
             ) : (
               <button
                 type="button"
                 onClick={() => openRecordAction("publish")}
                 disabled={isRecordBusy}
-                className={BUTTON_PUBLISH}
+                className={BUTTON_SUCCESS}
               >
                 發布此課表
               </button>
@@ -1150,7 +1153,7 @@ export default function TimetableView(): ReactElement {
                     type="button"
                     onClick={() => setIsReassignPanelOpen((previous) => !previous)}
                     aria-expanded={isReassignPanelOpen}
-                    className={isReassignPanelOpen ? BUTTON_PRIMARY : BUTTON_SECONDARY}
+                    className={BUTTON_SECONDARY}
                   >
                     {isReassignPanelOpen ? "收合換教師" : "換教師"}
                   </button>

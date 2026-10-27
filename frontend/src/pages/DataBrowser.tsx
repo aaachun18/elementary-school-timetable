@@ -34,10 +34,10 @@ import type { School, SchoolCreate, SchoolUpdate } from "../types/school";
 import type { Subject, SubjectCreate, SubjectUpdate } from "../types/subject";
 import { ROOM_MAX_CLASSES_OPTIONS, type Room, type RoomCreate, type RoomUpdate } from "../types/room";
 import {
-  BUTTON_DANGER_SM,
   BUTTON_PRIMARY,
   BUTTON_PRIMARY_SM,
   BUTTON_SECONDARY_SM,
+  CHECKBOX,
   ERROR_TEXT,
   HELP_TEXT,
   INPUT,
@@ -188,7 +188,7 @@ function SchoolRow({
             <button type="button" onClick={onStartEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
               編輯
             </button>
-            <button type="button" onClick={onDelete} disabled={isPending} className={BUTTON_DANGER_SM}>
+            <button type="button" onClick={onDelete} disabled={isPending} className={BUTTON_SECONDARY_SM}>
               刪除
             </button>
           </div>
@@ -327,7 +327,7 @@ function SubjectRow({
               checked={draftIsActive}
               onChange={(event) => setDraftIsActive(event.target.checked)}
               disabled={isPending}
-            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            className={CHECKBOX}
             />
             啟用中
           </label>
@@ -364,7 +364,7 @@ function SubjectRow({
             <button type="button" onClick={onStartEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
               編輯
             </button>
-            <button type="button" onClick={onDelete} disabled={isPending} className={BUTTON_DANGER_SM}>
+            <button type="button" onClick={onDelete} disabled={isPending} className={BUTTON_SECONDARY_SM}>
               刪除
             </button>
           </div>
@@ -521,7 +521,7 @@ function RoomRow({
               checked={draftIsActive}
               onChange={(event) => setDraftIsActive(event.target.checked)}
               disabled={isPending}
-            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            className={CHECKBOX}
             />
             啟用中
           </label>
@@ -565,7 +565,7 @@ function RoomRow({
             <button type="button" onClick={onStartEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
               編輯
             </button>
-            <button type="button" onClick={onDelete} disabled={isPending} className={BUTTON_DANGER_SM}>
+            <button type="button" onClick={onDelete} disabled={isPending} className={BUTTON_SECONDARY_SM}>
               刪除
             </button>
           </div>

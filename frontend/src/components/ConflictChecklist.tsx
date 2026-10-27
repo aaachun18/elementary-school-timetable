@@ -12,9 +12,8 @@ import {
   type MergedViolation,
 } from "../utils/violationMerge";
 import type { ConstraintViolationDetail } from "../types/scheduler";
+import StatusBadge from "./StatusBadge";
 import {
-  BADGE_NEUTRAL,
-  BADGE_WARNING,
   BUTTON_SECONDARY_SM,
   MUTED_TEXT,
   SUBSECTION_TITLE,
@@ -67,15 +66,20 @@ function ConflictItem({
       }
     >
       <p className={isWarning ? "text-sm text-gray-600" : "text-sm text-gray-800"}>
-        {isWarning && <span className={`${BADGE_WARNING} mr-2`}>警告</span>}
+        {isWarning && (
+          <StatusBadge tone="warning" className="mr-2">
+            警告
+          </StatusBadge>
+        )}
         {item.sentence}
         {item.count > 1 && (
-          <span
-            className={`${BADGE_NEUTRAL} ml-2`}
+          <StatusBadge
+            tone="neutral"
+            className="ml-2"
             title={`同一個問題被回報了 ${item.count} 次（例如衝堂的兩堂課各回報一次）`}
           >
             ×{item.count}
-          </span>
+          </StatusBadge>
         )}
       </p>
       {suggestion !== undefined && <p className={`${MUTED_TEXT} mt-1`}>建議：{suggestion}</p>}

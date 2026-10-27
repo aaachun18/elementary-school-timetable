@@ -58,7 +58,7 @@ export default function RoomChangePreviewDialog({
       title="預覽更改教室"
       confirmLabel={addsProblems ? "仍要更改" : "確認更改"}
       cancelLabel={hasChanges ? "返回" : "關閉"}
-      danger={addsProblems}
+      tone={addsProblems ? "danger" : "primary"}
       busy={isSaving}
       busyLabel="儲存中…"
       showConfirm={hasChanges}
