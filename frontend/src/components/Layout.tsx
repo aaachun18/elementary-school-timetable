@@ -25,12 +25,14 @@ export default function Layout(): ReactElement {
   const canManageAccounts = isCurrentUserManager();
   const { confirm, dialog: confirmDialog } = useConfirm();
 
-  // Asked first in the middle of the screen: 確定登出 or 取消.
+  // Asked first in the middle of the screen: 登出 or 留在系統.
   async function handleLogout(): Promise<void> {
     const confirmed = await confirm({
-      title: "登出",
-      message: "確定要登出嗎？",
-      confirmLabel: "確定登出",
+      title: "要登出嗎？",
+      message: "登出後要重新輸入帳號密碼才能使用。",
+      confirmLabel: "登出",
+      cancelLabel: "留在系統",
+      tone: "primary",
     });
     if (!confirmed) {
       return;

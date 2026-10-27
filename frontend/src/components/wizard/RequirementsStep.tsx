@@ -31,7 +31,7 @@ import FixedSlotsDialog from "./FixedSlotsDialog";
 import {
   BUTTON_PRIMARY,
   BUTTON_SECONDARY,
-  BUTTON_SECONDARY_SM,
+  BUTTON_GHOST_SM,
   CARD,
   ERROR_TEXT,
   FIELD_PAGE,
@@ -434,7 +434,7 @@ function RequirementRow({
         )}
       </td>
       <td className={TD}>
-        <button type="button" onClick={onOpenFixed} disabled={disabled} className={BUTTON_SECONDARY_SM}>
+        <button type="button" onClick={onOpenFixed} disabled={disabled} className={BUTTON_GHOST_SM}>
           {fixedCount === 0 ? "設定" : `已固定 ${fixedCount} 堂`}
         </button>
       </td>

@@ -4,7 +4,9 @@ import { list as listGrades } from "../../api/grades";
 import { extractApiErrorMessage, extractDeleteSteps } from "../../constants/errorMessages";
 import { RowErrorText } from "../DeleteStepsHint";
 import ClassBatchCreateDialog from "./ClassBatchCreateDialog";
-import { deleteConfirmOptions, useConfirm } from "../../hooks/useConfirm";
+import { useConfirm } from "../../hooks/useConfirm";
+import { deleteButtonLabel, deleteConfirmText } from "../../utils/confirmText";
+import DeleteIconButton from "../DeleteIconButton";
 import { useResource } from "../../hooks/useResource";
 import type { Class } from "../../types/class";
 import type { Grade } from "../../types/grade";
@@ -25,12 +27,16 @@ import {
   LABEL,
   LOADING_TEXT,
   ROW_ACTIONS,
+  ROW_ACTIONS_END,
+  ROW_ERROR_TEXT,
   SELECT,
   TABLE,
   TABLE_HEAD_ROW,
   TABLE_WRAPPER,
   TD,
+  TD_ACTIONS,
   TH,
+  TH_ACTIONS,
   TR_HOVER,
 } from "../../styles/ui";
 
@@ -92,7 +98,7 @@ function ClassesTable({
     .sort((a, b) => levelOf(a) - levelOf(b) || a.id - b.id);
 
   async function handleDelete(classItem: Class): Promise<void> {
-    if (!(await confirm(deleteConfirmOptions(classItem.name)))) {
+    if (!(await confirm(deleteConfirmText("class", classItem.name)))) {
       return;
     }
     setPendingId(classItem.id);
@@ -150,7 +156,7 @@ function ClassesTable({
               <th className={TH}>年級</th>
               <th className={TH}>名稱類型</th>
               <th className={TH}>班級名稱</th>
-              {isAdmin && <th className={TH}>操作</th>}
+              {isAdmin && <th className={TH_ACTIONS}>操作</th>}
             </tr>
           </thead>
           <tbody>
@@ -172,15 +178,14 @@ function ClassesTable({
                 <td className={TD}>{CLASS_NAME_STYLE_LABELS[classItem.name_style]}</td>
                 <td className={TD}>{classItem.name}</td>
                 {isAdmin && (
-                  <td className={TD}>
-                    <button
-                      type="button"
-                      onClick={() => void handleDelete(classItem)}
-                      disabled={pendingId !== null}
-                      className={BUTTON_SECONDARY_SM}
-                    >
-                      {pendingId === classItem.id ? "刪除中…" : "刪除"}
-                    </button>
+                  <td className={TD_ACTIONS}>
+                    <div className={ROW_ACTIONS_END}>
+                      <DeleteIconButton
+                        label={deleteButtonLabel("class", classItem.name)}
+                        onClick={() => void handleDelete(classItem)}
+                        disabled={pendingId !== null}
+                      />
+                    </div>
                     {rowError?.id === classItem.id && (
                       <RowErrorText message={rowError.message} deleteSteps={rowError.steps} />
                     )}
@@ -311,8 +316,8 @@ function ClassNewRow({
           ))}
         </select>
       </td>
-      <td className={TD}>
-        <div className={ROW_ACTIONS}>
+      <td className={TD_ACTIONS}>
+        <div className={ROW_ACTIONS_END}>
           <button
             type="button"
             onClick={() => void handleConfirm()}
@@ -326,7 +331,7 @@ function ClassNewRow({
           </button>
         </div>
         {error !== null && (
-          <p role="alert" className={ERROR_TEXT}>
+          <p role="alert" className={ROW_ERROR_TEXT}>
             {error}
           </p>
         )}

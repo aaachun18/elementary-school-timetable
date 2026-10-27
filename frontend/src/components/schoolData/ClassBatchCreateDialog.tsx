@@ -60,8 +60,8 @@ export default function ClassBatchCreateDialog({
     <ConfirmDialog
       open
       title="批次新增班級"
-      confirmLabel="確認新增"
-      cancelLabel="取消"
+      confirmLabel="新增班級"
+      cancelLabel="不新增"
       busy={isSaving}
       busyLabel="新增中…"
       confirmDisabled={count === null}

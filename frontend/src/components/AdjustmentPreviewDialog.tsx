@@ -111,7 +111,7 @@ export default function AdjustmentPreviewDialog({
     <ConfirmDialog
       open={preview !== null}
       title={`預覽${verb}`}
-      confirmLabel={addsProblems ? `仍要${verb}` : `確認${verb}`}
+      confirmLabel={addsProblems ? `仍要${verb}` : verb}
       cancelLabel={hasChanges ? "返回" : "關閉"}
       tone={addsProblems ? "danger" : "primary"}
       busy={isSaving}

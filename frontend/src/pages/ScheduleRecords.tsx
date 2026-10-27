@@ -8,6 +8,7 @@ import {
 } from "../api/scheduleVersions";
 import { list as listSemesters } from "../api/semesters";
 import ConfirmDialog from "../components/ConfirmDialog";
+import DeleteIconButton from "../components/DeleteIconButton";
 import { RecordStatusBadge } from "../components/StatusBadge";
 import { extractApiErrorMessage } from "../constants/errorMessages";
 import { useFlashMessage } from "../hooks/useFlashMessage";
@@ -19,11 +20,11 @@ import {
   hasTimetable,
   semesterLabelOf,
 } from "../utils/scheduleVersionFormat";
-import { DELETE_WARNING, PUBLISHED_DELETE_HINT, canDeleteRecord } from "../utils/versionDelete";
+import { PUBLISHED_DELETE_HINT, canDeleteRecord } from "../utils/versionDelete";
+import { deleteRecordConfirmText } from "../utils/confirmText";
 import type { ScheduleVersion } from "../types/scheduleVersion";
 import {
   BUTTON_GHOST_SM,
-  BUTTON_SECONDARY_SM,
   CARD,
   ERROR_TEXT,
   HELP_TEXT,
@@ -33,12 +34,15 @@ import {
   MUTED_TEXT,
   PAGE,
   PAGE_TITLE,
+  ROW_ACTIONS_END,
   SUCCESS_TEXT,
   TABLE,
   TABLE_HEAD_ROW,
   TABLE_WRAPPER,
   TD,
+  TD_ACTIONS,
   TH,
+  TH_ACTIONS,
   TR_HOVER,
 } from "../styles/ui";
 
@@ -82,6 +86,10 @@ export default function ScheduleRecords(): ReactElement {
   const [versions, semesters, academicYears] = data.data;
   const semesterById = new Map(semesters.map((item) => [item.id, item]));
   const academicYearById = new Map(academicYears.map((item) => [item.id, item.year]));
+  const deleteText =
+    deleting === null
+      ? null
+      : deleteRecordConfirmText(deleting.display_number, formatVersionLabel(deleting, semesterById, academicYearById));
 
   async function handleConfirmDelete(): Promise<void> {
     if (deleting === null) {
@@ -128,7 +136,7 @@ export default function ScheduleRecords(): ReactElement {
                 <th className={TH}>學期</th>
                 <th className={TH}>狀態</th>
                 <th className={TH}>建立時間</th>
-                <th className={TH}>操作</th>
+                <th className={TH_ACTIONS}>操作</th>
                 <th className={TH}>備註</th>
               </tr>
             </thead>
@@ -141,8 +149,8 @@ export default function ScheduleRecords(): ReactElement {
                     <RecordStatusBadge record={version} />
                   </td>
                   <td className={`${TD} whitespace-nowrap`}>{formatDateTime(version.created_at)}</td>
-                  <td className={TD}>
-                    <div className="flex flex-col items-start gap-1">
+                  <td className={TD_ACTIONS}>
+                    <div className={ROW_ACTIONS_END}>
                       {hasTimetable(version.status) && (
                         <Link to={`/timetable?scheduleVersionId=${version.id}`} className={BUTTON_GHOST_SM}>
                           檢視課表
@@ -151,22 +159,14 @@ export default function ScheduleRecords(): ReactElement {
                       <Link to={`/records/${version.id}/settings`} className={BUTTON_GHOST_SM}>
                         檢視排課設定
                       </Link>
-                      {canDeleteRecord(version) ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setDeleteError(null);
-                            setDeleting(version);
-                          }}
-                          className={BUTTON_SECONDARY_SM}
-                        >
-                          刪除
-                        </button>
-                      ) : (
-                        <span className={MUTED_TEXT} title={PUBLISHED_DELETE_HINT}>
-                          不可刪除
-                        </span>
-                      )}
+                      <DeleteIconButton
+                        label={`刪除排課紀錄編號 ${version.display_number}`}
+                        disabledReason={canDeleteRecord(version) ? null : PUBLISHED_DELETE_HINT}
+                        onClick={() => {
+                          setDeleteError(null);
+                          setDeleting(version);
+                        }}
+                      />
                     </div>
                   </td>
                   <td className={TD}>
@@ -181,19 +181,16 @@ export default function ScheduleRecords(): ReactElement {
 
       <ConfirmDialog
         open={deleting !== null}
-        title="刪除這筆排課紀錄？"
-        confirmLabel="刪除"
+        title={deleteText?.title ?? ""}
+        confirmLabel={deleteText?.confirmLabel ?? ""}
+        cancelLabel={deleteText?.cancelLabel ?? ""}
         tone="danger"
         busy={isDeleting}
         busyLabel="刪除中…"
         onConfirm={() => void handleConfirmDelete()}
         onCancel={() => setDeleting(null)}
       >
-        {deleting !== null && (
-          <p>
-            將刪除「{formatVersionLabel(deleting, semesterById, academicYearById)}」。{DELETE_WARNING}
-          </p>
-        )}
+        {deleteText !== null && <p>{deleteText.message}</p>}
         {deleteError !== null && (
           <p role="alert" className={ERROR_TEXT}>
             {deleteError}

@@ -397,7 +397,8 @@ function CombineDialog({
       open
       wide
       title={`合併「${requirementLabel(host, lookups)}」`}
-      confirmLabel="確定合併"
+      confirmLabel="儲存合併"
+      cancelLabel="不儲存"
       busy={isSaving}
       busyLabel="儲存中…"
       confirmDisabled={!canSave}

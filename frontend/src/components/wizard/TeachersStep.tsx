@@ -14,12 +14,11 @@ import type { TimeSlot } from "../../types/timeSlot";
 import { classesWithoutHomeroom, missingHomeroomMessage, sortClassesByGrade } from "../../utils/homeroom";
 import { saveTeachersDisabledReason } from "../../utils/disabledReason";
 import { DEFAULT_MAX_WEEKLY_PERIODS, periodsRangeError } from "../../utils/wizard";
-import ConfirmDialog from "../ConfirmDialog";
 import DisabledReason from "../DisabledReason";
 import TimeSlotPickerDialog from "./TimeSlotPickerDialog";
 import {
   BUTTON_PRIMARY,
-  BUTTON_SECONDARY_SM,
+  BUTTON_GHOST_SM,
   CARD,
   CHECKBOX,
   ERROR_TEXT,
@@ -133,7 +132,6 @@ function TeachersForm({
 }): ReactElement {
   const [drafts, setDrafts] = useState(() => initialDrafts(teachers, current));
   const [pickerTeacher, setPickerTeacher] = useState<Teacher | null>(null);
-  const [removingHomeroomOf, setRemovingHomeroomOf] = useState<Teacher | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const saveReasonId = useId();
@@ -285,12 +283,20 @@ function TeachersForm({
                         ))}
                       </select>
                     ) : (
+                      // Task 98 Phase B: only takes this teacher off the
+                      // class as 導師 in this form (nothing is saved until
+                      // 「儲存並下一步」, and the class is back in the
+                      // dropdown at once) -- so no confirmation.
                       <button
                         type="button"
-                        onClick={() => setRemovingHomeroomOf(teacher)}
-                        className={BUTTON_SECONDARY_SM}
+                        onClick={() => {
+                          update(teacher.id, { homeroomClassId: null });
+                          setError(null);
+                        }}
+                        aria-label={`取消${teacher.name}的導師班級`}
+                        className={BUTTON_GHOST_SM}
                       >
-                        刪除班級
+                        取消導師班級
                       </button>
                     )}
                   </div>
@@ -322,7 +328,7 @@ function TeachersForm({
                       <button
                         type="button"
                         onClick={() => setPickerTeacher(teacher)}
-                        className={BUTTON_SECONDARY_SM}
+                        className={BUTTON_GHOST_SM}
                       >
                         不可排時段（{draft.unavailable.length}）
                       </button>
@@ -356,25 +362,6 @@ function TeachersForm({
         </button>
       </div>
       <DisabledReason id={saveReasonId} reason={saveDisabledReason} />
-      {removingHomeroomOf !== null && (
-        <ConfirmDialog
-          open
-          title="刪除導師班級"
-          confirmLabel="刪除"
-          tone="danger"
-          onConfirm={() => {
-            update(removingHomeroomOf.id, { homeroomClassId: null });
-            setRemovingHomeroomOf(null);
-          }}
-          onCancel={() => setRemovingHomeroomOf(null)}
-        >
-          <p>
-            確定要取消{removingHomeroomOf.name}擔任
-            {classById.get(drafts.get(removingHomeroomOf.id)?.homeroomClassId ?? -1)?.name ?? "這個班級"}
-            的導師嗎？這個班級會回到導師選單中。
-          </p>
-        </ConfirmDialog>
-      )}
       {pickerTeacher !== null && (
         <TimeSlotPickerDialog
           key={pickerTeacher.id}

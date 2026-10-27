@@ -9,7 +9,8 @@ import {
 import { list as listSchools } from "../api/schools";
 import { useResource } from "../hooks/useResource";
 import { useCrudList } from "../hooks/useCrudList";
-import { deleteConfirmOptions, useConfirm } from "../hooks/useConfirm";
+import { useConfirm } from "../hooks/useConfirm";
+import { deleteConfirmText } from "../utils/confirmText";
 import type { School } from "../types/school";
 import type { PasswordReset, SameNameTeacher, User, UserCreate, UserUpdate } from "../types/user";
 import { getCurrentUserRole, getCurrentUsername, ROLE_LABELS } from "../utils/auth";
@@ -326,10 +327,10 @@ export default function UserManagement(): ReactElement {
 
   async function handleStartResetPassword(user: User): Promise<void> {
     const confirmed = await confirm({
-      title: "重設密碼",
-      message: `確定要重設帳號「${user.username}」的密碼嗎？`,
-      confirmLabel: "確定重設",
-      cancelLabel: "取消",
+      title: `重設「${user.username}」的密碼？`,
+      message: "接著會請你輸入新密碼；儲存後，這個帳號要用新密碼登入。",
+      confirmLabel: "重設密碼",
+      cancelLabel: "先不重設",
       tone: "danger",
     });
     if (confirmed) {
@@ -341,10 +342,10 @@ export default function UserManagement(): ReactElement {
   async function handleToggleActive(user: User): Promise<void> {
     if (user.is_active) {
       const confirmed = await confirm({
-        title: "停用帳號",
-        message: `確定要停用帳號「${user.username}」嗎？停用後該帳號無法登入，教師也不會出現在新的排課名單中。`,
-        confirmLabel: "確定停用",
-        cancelLabel: "取消",
+        title: `停用「${user.username}」？`,
+        message: "停用後這個帳號無法登入，教師也不會出現在新的排課名單中。之後可以再按「啟用」恢復。",
+        confirmLabel: "停用帳號",
+        cancelLabel: "保留啟用",
         tone: "danger",
       });
       if (!confirmed) {
@@ -355,8 +356,7 @@ export default function UserManagement(): ReactElement {
   }
 
   async function handleDelete(user: User): Promise<void> {
-    const options = { ...deleteConfirmOptions(`帳號 ${user.username}`), confirmLabel: "確定刪除", cancelLabel: "取消" };
-    if (await confirm(options)) {
+    if (await confirm(deleteConfirmText("account", user.username))) {
       void crud.submitDelete(user.id);
     }
   }

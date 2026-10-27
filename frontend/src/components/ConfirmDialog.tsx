@@ -22,17 +22,16 @@ const CONFIRM_BUTTON_CLASSES: Record<ConfirmTone, string> = {
   primary: BUTTON_PRIMARY,
 };
 
-interface ConfirmDialogProps {
+interface ConfirmDialogBaseProps {
   open: boolean;
   title: string;
   // The explanation, and any extra inputs (e.g. the copy dialog's target
   // semester choice) or an error message -- the dialog itself stays generic.
   children: ReactNode;
-  // Task 98: say the action (「刪除班級」「發布課表」), never a generic
-  // 「確定」 / 「取消」 -- the defaults only remain until every call site
-  // passes its own (Task 98 Phase B).
-  confirmLabel?: string;
-  cancelLabel?: string;
+  // Task 98: both buttons say the action (「刪除班級」 / 「保留不刪除」,
+  // 「發布課表」 / 「先不發布」), never a generic 「確定」 / 「取消」 -- so there
+  // are no defaults; every call site names its own.
+  cancelLabel: string;
   tone?: ConfirmTone;
   // An action is in flight: both buttons are disabled and Esc does nothing,
   // so the same request can't be sent twice or abandoned half way.
@@ -40,9 +39,6 @@ interface ConfirmDialogProps {
   busyLabel?: string;
   // e.g. a required choice inside `children` hasn't been made yet.
   confirmDisabled?: boolean;
-  // false = an information-only dialog: just the cancel button (label it
-  // e.g. 「關閉」), nothing to confirm.
-  showConfirm?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
   // Task 85: where focus goes after closing when the element focused before
@@ -53,6 +49,14 @@ interface ConfirmDialogProps {
   // Task 92A: the preview dialogs use a slightly wider dialog.
   wide?: boolean;
 }
+
+type ConfirmDialogProps = ConfirmDialogBaseProps &
+  (
+    | { showConfirm?: boolean; confirmLabel: string }
+    // An information-only dialog: just the cancel button (label it e.g.
+    // 「完成」), nothing to confirm.
+    | { showConfirm: false; confirmLabel?: undefined }
+  );
 
 // Task 85: everything inside the dialog that Tab can reach, in order.
 const FOCUSABLE_SELECTOR = [
@@ -87,8 +91,8 @@ export default function ConfirmDialog({
   open,
   title,
   children,
-  confirmLabel = "確定",
-  cancelLabel = "取消",
+  confirmLabel,
+  cancelLabel,
   tone = "primary",
   busy = false,
   busyLabel = "處理中…",

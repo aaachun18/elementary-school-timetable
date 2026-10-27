@@ -30,6 +30,7 @@ export default function NameCreateDialog({
       open
       title={title}
       confirmLabel="儲存"
+      cancelLabel="不儲存"
       busy={busy}
       busyLabel="儲存中…"
       confirmDisabled={name.trim() === ""}

@@ -15,22 +15,26 @@ import type { GradeSubjectRequirement } from "../../types/gradeSubjectRequiremen
 import type { Subject } from "../../types/subject";
 import { findSubjectByName, normalizeSubjectName } from "../../utils/subjectName";
 import { WEEKLY_PERIOD_OPTIONS } from "../../utils/wizard";
+import { deleteButtonLabel, deleteConfirmText } from "../../utils/confirmText";
 import ConfirmDialog from "../ConfirmDialog";
+import DeleteIconButton from "../DeleteIconButton";
 import SuggestionInput from "../SuggestionInput";
 import {
   BUTTON_PRIMARY,
-  BUTTON_SECONDARY_SM,
   ERROR_TEXT,
   FIELD_PAGE,
   HELP_TEXT,
   LABEL,
   LOADING_TEXT,
+  ROW_ACTIONS_END,
   SELECT,
   TABLE,
   TABLE_HEAD_ROW,
   TABLE_WRAPPER,
   TD,
+  TD_ACTIONS,
   TH,
+  TH_ACTIONS,
   TR_HOVER,
 } from "../../styles/ui";
 
@@ -98,6 +102,9 @@ function GradeRequirementsEditor({
   const gradeRequirements = requirements.filter((requirement) => requirement.grade_id === gradeId);
   const usedSubjectIds = new Set(gradeRequirements.map((requirement) => requirement.subject_id));
   const gradeName = grades.find((grade) => grade.id === gradeId)?.name ?? "";
+  // 「一年級的國語」: the requirement's name in its trash button and dialog.
+  const requirementName = (requirement: GradeSubjectRequirement): string =>
+    `${gradeName}的${subjectName.get(requirement.subject_id) ?? "這個科目"}`;
 
   async function run(action: () => Promise<unknown>): Promise<boolean> {
     setIsPending(true);
@@ -115,13 +122,7 @@ function GradeRequirementsEditor({
   }
 
   async function handleDelete(requirement: GradeSubjectRequirement): Promise<void> {
-    const name = subjectName.get(requirement.subject_id) ?? "這個科目";
-    const confirmed = await confirm({
-      title: "確認刪除",
-      message: `確定要刪除「${name}」的科目需求嗎？`,
-      confirmLabel: "刪除",
-      tone: "danger",
-    });
+    const confirmed = await confirm(deleteConfirmText("gradeRequirement", requirementName(requirement)));
     if (confirmed) {
       void run(() => removeRequirement(requirement.id));
     }
@@ -159,7 +160,7 @@ function GradeRequirementsEditor({
             <tr className={TABLE_HEAD_ROW}>
               <th className={TH}>科目</th>
               <th className={TH}>每週節數</th>
-              {isAdmin && <th className={TH}>操作</th>}
+              {isAdmin && <th className={TH_ACTIONS}>操作</th>}
             </tr>
           </thead>
           <tbody>
@@ -190,15 +191,14 @@ function GradeRequirementsEditor({
                   )}
                 </td>
                 {isAdmin && (
-                  <td className={TD}>
-                    <button
-                      type="button"
-                      onClick={() => void handleDelete(requirement)}
-                      disabled={isPending}
-                      className={BUTTON_SECONDARY_SM}
-                    >
-                      刪除
-                    </button>
+                  <td className={TD_ACTIONS}>
+                    <div className={ROW_ACTIONS_END}>
+                      <DeleteIconButton
+                        label={deleteButtonLabel("gradeRequirement", requirementName(requirement))}
+                        onClick={() => void handleDelete(requirement)}
+                        disabled={isPending}
+                      />
+                    </div>
                   </td>
                 )}
               </tr>
@@ -290,6 +290,7 @@ function RequirementCreateDialog({
       open
       title={`新增${gradeName}的科目需求`}
       confirmLabel="儲存"
+      cancelLabel="不儲存"
       busy={isSaving}
       busyLabel="儲存中…"
       confirmDisabled={normalizeSubjectName(name) === ""}

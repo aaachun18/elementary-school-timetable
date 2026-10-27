@@ -384,9 +384,9 @@ export default function TimetableView(): ReactElement {
       return;
     }
     const confirmed = await confirm({
-      title: "取消編輯",
-      message: "確定要取消編輯嗎？這次手動編輯的變更都不會儲存。",
-      confirmLabel: "取消編輯",
+      title: "放棄這次的修改？",
+      message: "這次手動編輯的變更都不會儲存，課表會維持編輯前的樣子。",
+      confirmLabel: "放棄修改",
       cancelLabel: "繼續編輯",
       tone: "danger",
     });
@@ -1473,7 +1473,9 @@ export default function TimetableView(): ReactElement {
         <ConfirmDialog
           open={recordAction === "publish"}
           title="發布這份課表？"
-          confirmLabel="發布"
+          confirmLabel="發布課表"
+          cancelLabel="先不發布"
+          tone="success"
           busy={isRecordBusy}
           busyLabel="發布中…"
           onConfirm={() => void handleConfirmPublish()}
@@ -1498,7 +1500,8 @@ export default function TimetableView(): ReactElement {
         <ConfirmDialog
           open={recordAction === "copy"}
           title="複製這份課表？"
-          confirmLabel="複製"
+          confirmLabel="複製課表"
+          cancelLabel="先不複製"
           busy={isRecordBusy}
           busyLabel="複製中…"
           confirmDisabled={copyTargetSemesterId === null}

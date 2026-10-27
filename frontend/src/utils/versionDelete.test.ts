@@ -7,8 +7,8 @@ describe("canDeleteRecord", () => {
     expect(canDeleteRecord({ is_published: true })).toBe(false);
   });
 
-  it("uses the backend's wording for the published hint", () => {
-    expect(PUBLISHED_DELETE_HINT).toBe("已發布的排課紀錄無法刪除");
+  it("says why the published record's trash button is disabled", () => {
+    expect(PUBLISHED_DELETE_HINT).toBe("已發布的紀錄不可刪除");
   });
 
   it("warns that the settings go too", () => {

@@ -64,6 +64,7 @@ export default function NationalIdEditDialog({
       open
       title="編輯身分證字號"
       confirmLabel="儲存"
+      cancelLabel="不儲存"
       busy={isSaving}
       busyLabel="儲存中…"
       confirmDisabled={getNationalIdError(nationalId) !== null}

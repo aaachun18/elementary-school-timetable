@@ -31,6 +31,8 @@ const TEXT_PAIRS: ReadonlyArray<readonly [string, string]> = [
   ["icon", "page"],
   ["icon-hover", "surface"],
   ["icon-hover", "secondary"],
+  // A trash IconButton under the pointer (Phase B).
+  ["danger-hover", "danger-soft"],
   ["text-muted", "surface"],
   ["text-muted", "page"],
   // Status badges.

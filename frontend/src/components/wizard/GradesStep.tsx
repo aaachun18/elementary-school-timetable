@@ -16,7 +16,7 @@ import TimeSlotPickerDialog from "./TimeSlotPickerDialog";
 import {
   BUTTON_PRIMARY,
   BUTTON_SECONDARY,
-  BUTTON_SECONDARY_SM,
+  BUTTON_GHOST_SM,
   CARD,
   ERROR_TEXT,
   HELP_TEXT,
@@ -188,7 +188,7 @@ function GradesForm({
                   {slotIds === undefined ? "尚未設定（下一步時套用預設）" : `已開放 ${slotIds.length} 個節次`}
                 </span>
                 <span className={MUTED_TEXT}>預設：{defaultOpenPeriodsText(grade.level)}</span>
-                <button type="button" onClick={() => void openPicker(grade)} className={BUTTON_SECONDARY_SM}>
+                <button type="button" onClick={() => void openPicker(grade)} className={BUTTON_GHOST_SM}>
                   設定可排節次
                 </button>
               </li>

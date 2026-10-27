@@ -1,29 +1,17 @@
 import { useCallback, useRef, useState, type ReactElement } from "react";
-import ConfirmDialog, { type ConfirmTone } from "../components/ConfirmDialog";
+import ConfirmDialog from "../components/ConfirmDialog";
+import type { ConfirmText } from "../utils/confirmText";
 
-export interface ConfirmOptions {
-  title?: string;
-  message: string;
-  confirmLabel?: string;
-  cancelLabel?: string;
-  tone?: ConfirmTone;
-}
+// Task 98 Phase B: every confirmation names its title and both buttons
+// (utils/confirmText.ts has the 「刪除…」 ones).
+export type ConfirmOptions = ConfirmText;
 
 export interface ConfirmApi {
-  // Opens the dialog; resolves true on 確定, false on 取消 / Esc.
+  // Opens the dialog; resolves true on the confirm button, false on the
+  // cancel button / Esc.
   confirm: (options: ConfirmOptions) => Promise<boolean>;
   // Render this once in the page / component that calls confirm().
   dialog: ReactElement;
-}
-
-// The usual 「刪除」 question.
-export function deleteConfirmOptions(name: string): ConfirmOptions {
-  return {
-    title: "確認刪除",
-    message: `確定要刪除「${name}」嗎？此操作無法復原。`,
-    confirmLabel: "刪除",
-    tone: "danger",
-  };
 }
 
 // A drop-in for window.confirm(): the system's own centered ConfirmDialog
@@ -54,9 +42,9 @@ export function useConfirm(): ConfirmApi {
   const dialog = (
     <ConfirmDialog
       open={options !== null}
-      title={options?.title ?? "請確認"}
-      confirmLabel={options?.confirmLabel}
-      cancelLabel={options?.cancelLabel}
+      title={options?.title ?? ""}
+      confirmLabel={options?.confirmLabel ?? ""}
+      cancelLabel={options?.cancelLabel ?? ""}
       tone={options?.tone ?? "primary"}
       onConfirm={handleConfirm}
       onCancel={handleCancel}

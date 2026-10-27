@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import InfoPopover from "./InfoPopover";
-import { ERROR_TEXT } from "../styles/ui";
+import { ROW_ERROR_TEXT } from "../styles/ui";
 
 // 「此資料仍被其他資料參照，無法刪除」: an (i) button right of the message
 // (Task 98: InfoPopover, was a hover-only ? circle); it shows what to
@@ -31,7 +31,7 @@ export function RowErrorText({
   deleteSteps?: readonly string[];
 }): ReactElement {
   return (
-    <div role="alert" className={`${ERROR_TEXT} flex items-center gap-1`}>
+    <div role="alert" className={`${ROW_ERROR_TEXT} flex items-center gap-1`}>
       <span>{message}</span>
       <DeleteStepsHint steps={deleteSteps} />
     </div>

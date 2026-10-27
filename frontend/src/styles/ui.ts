@@ -65,8 +65,13 @@ export const BUTTON_SECONDARY_SM = `${BUTTON_BASE} ${BUTTON_SIZE_SM} ${SECONDARY
 export const BUTTON_GHOST_SM = `${BUTTON_BASE} px-2 py-1 text-xs ${GHOST_COLORS}`;
 
 // Neutral gray icon, darker with a light gray square on hover.
-export const ICON_BUTTON =
-  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-icon hover:bg-secondary hover:text-icon-hover disabled:cursor-not-allowed disabled:opacity-50";
+const ICON_BUTTON_BASE =
+  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-icon disabled:cursor-not-allowed disabled:opacity-50";
+export const ICON_BUTTON = `${ICON_BUTTON_BASE} hover:bg-secondary hover:text-icon-hover`;
+// Task 98 Phase B: a row's trash button -- always shown, neutral gray, red
+// only under the pointer (a list never shows a red button at rest). A
+// disabled one stays gray.
+export const ICON_BUTTON_DELETE = `${ICON_BUTTON_BASE} hover:bg-danger-soft hover:text-danger-hover disabled:hover:bg-transparent disabled:hover:text-icon`;
 
 // InfoPopover's panel (components/InfoPopover.tsx); its position, width
 // (at most 360px) and max height are set inline from the (i) button.
@@ -79,6 +84,13 @@ export const DISABLED_REASON = "text-xs text-text-muted";
 // A row of buttons (e.g. 編輯 / 刪除 in a table cell): never touching each
 // other -- every group of buttons sits in this or another gap-* container.
 export const ROW_ACTIONS = "flex flex-wrap items-center gap-2";
+// Task 98 Phase B: a table's 操作 column -- as narrow as its buttons, at the
+// right edge; the buttons stay on one line.
+export const TH_ACTIONS = "border-b border-gray-200 px-3 py-2 text-right font-semibold text-gray-700 whitespace-nowrap w-px";
+export const TD_ACTIONS = "border-b border-gray-100 px-3 py-2 text-gray-700 w-px";
+export const ROW_ACTIONS_END = "flex items-center justify-end gap-1 whitespace-nowrap";
+// A row's error line inside that narrow column: wide enough to read.
+export const ROW_ERROR_TEXT = "mt-1 min-w-56 text-left text-sm text-red-600";
 
 // --- Form controls ---
 // The focus ring comes from index.css (2px primary); the border turns

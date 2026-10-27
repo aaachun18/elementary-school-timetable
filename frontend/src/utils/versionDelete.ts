@@ -5,8 +5,8 @@
 
 import type { ScheduleVersion } from "../types/scheduleVersion";
 
-// Same wording as the backend's 409, shown instead of the button.
-export const PUBLISHED_DELETE_HINT = "已發布的排課紀錄無法刪除";
+// Why the published record's trash button is disabled (Task 98 Phase B).
+export const PUBLISHED_DELETE_HINT = "已發布的紀錄不可刪除";
 
 export function canDeleteRecord(record: Pick<ScheduleVersion, "is_published">): boolean {
   return !record.is_published;

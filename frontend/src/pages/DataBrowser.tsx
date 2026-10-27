@@ -21,7 +21,9 @@ import {
 import { RowErrorText } from "../components/DeleteStepsHint";
 import { useResource } from "../hooks/useResource";
 import { useCrudList } from "../hooks/useCrudList";
-import { deleteConfirmOptions, useConfirm } from "../hooks/useConfirm";
+import { useConfirm } from "../hooks/useConfirm";
+import DeleteIconButton from "../components/DeleteIconButton";
+import { deleteButtonLabel, deleteConfirmText } from "../utils/confirmText";
 import { isCurrentUserCoordinator } from "../utils/auth";
 import { SCHOOL_TYPE_LABELS } from "../utils/schoolStructure";
 import ClassesTab from "../components/schoolData/ClassesTab";
@@ -44,7 +46,8 @@ import {
   LOADING_TEXT,
   PAGE,
   PAGE_TITLE,
-  ROW_ACTIONS,
+  ROW_ACTIONS_END,
+  ROW_ERROR_TEXT,
   SELECT,
   TAB_BUTTON,
   TAB_BUTTON_ACTIVE,
@@ -52,7 +55,9 @@ import {
   TABLE_HEAD_ROW,
   TABLE_WRAPPER,
   TD,
+  TD_ACTIONS,
   TH,
+  TH_ACTIONS,
   TR_HOVER,
 } from "../styles/ui";
 
@@ -102,7 +107,7 @@ function LoadingOrError({
 // <tr> and an inline-edit <tr> depending on whether it's the one being
 // edited), not just the useCrudList() mechanics underneath it.
 //
-// row error display: a plain <p className={ERROR_TEXT}> inside the row's
+// row error display: a plain <p className={ROW_ERROR_TEXT}> inside the row's
 // own action <td className={TD}> -- deliberately NOT a toast/banner, since the point is
 // that this one row's failure is scoped to this one row, with every other
 // row (and the rest of the page) staying exactly as it was.
@@ -156,8 +161,8 @@ function SchoolRow({
           />
         </td>
         <td className={`${TD} text-gray-500`}>{SCHOOL_TYPE_LABELS[school.school_type]}</td>
-        <td className={TD}>
-          <div className={ROW_ACTIONS}>
+        <td className={TD_ACTIONS}>
+          <div className={ROW_ACTIONS_END}>
           <button
             type="button"
             onClick={() => onConfirmEdit({ name: draftName })}
@@ -171,7 +176,7 @@ function SchoolRow({
           </button>
           </div>
           {errorMessage !== undefined && (
-            <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
+            <p role="alert" className={ROW_ERROR_TEXT}>{errorMessage}</p>
           )}
         </td>
       </tr>
@@ -182,15 +187,13 @@ function SchoolRow({
     <tr className={TR_HOVER}>
       <td className={TD}>{school.name}</td>
       <td className={TD}>{SCHOOL_TYPE_LABELS[school.school_type]}</td>
-      <td className={TD}>
+      <td className={TD_ACTIONS}>
         {isAdmin && (
-          <div className={ROW_ACTIONS}>
+          <div className={ROW_ACTIONS_END}>
             <button type="button" onClick={onStartEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
               編輯
             </button>
-            <button type="button" onClick={onDelete} disabled={isPending} className={BUTTON_SECONDARY_SM}>
-              刪除
-            </button>
+            <DeleteIconButton label={deleteButtonLabel("school", school.name)} onClick={onDelete} disabled={isPending} />
           </div>
         )}
         {errorMessage !== undefined && <RowErrorText message={errorMessage} deleteSteps={deleteSteps} />}
@@ -210,7 +213,7 @@ export function SchoolsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
   const { confirm, dialog: confirmDialog } = useConfirm();
 
   async function handleDelete(id: number, name: string): Promise<void> {
-    if (await confirm(deleteConfirmOptions(name))) {
+    if (await confirm(deleteConfirmText("school", name))) {
       void crud.submitDelete(id);
     }
   }
@@ -238,7 +241,7 @@ export function SchoolsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
               <tr className={TABLE_HEAD_ROW}>
                 <th className={TH}>名稱</th>
                 <th className={TH}>類型</th>
-                {isAdmin && <th className={TH}>操作</th>}
+                {isAdmin && <th className={TH_ACTIONS}>操作</th>}
               </tr>
             </thead>
             <tbody onChange={crud.handleRowChange}>
@@ -332,8 +335,8 @@ function SubjectRow({
             啟用中
           </label>
         </td>
-        <td className={TD}>
-          <div className={ROW_ACTIONS}>
+        <td className={TD_ACTIONS}>
+          <div className={ROW_ACTIONS_END}>
           <button
             type="button"
             onClick={() => onConfirmEdit({ name: draftName, is_active: draftIsActive })}
@@ -347,7 +350,7 @@ function SubjectRow({
           </button>
           </div>
           {errorMessage !== undefined && (
-            <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
+            <p role="alert" className={ROW_ERROR_TEXT}>{errorMessage}</p>
           )}
         </td>
       </tr>
@@ -358,15 +361,13 @@ function SubjectRow({
     <tr className={TR_HOVER}>
       <td className={TD}>{subject.name}</td>
       <td className={TD}>{subject.is_active ? "是" : "否"}</td>
-      <td className={TD}>
+      <td className={TD_ACTIONS}>
         {isAdmin && (
-          <div className={ROW_ACTIONS}>
+          <div className={ROW_ACTIONS_END}>
             <button type="button" onClick={onStartEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
               編輯
             </button>
-            <button type="button" onClick={onDelete} disabled={isPending} className={BUTTON_SECONDARY_SM}>
-              刪除
-            </button>
+            <DeleteIconButton label={deleteButtonLabel("subject", subject.name)} onClick={onDelete} disabled={isPending} />
           </div>
         )}
         {errorMessage !== undefined && <RowErrorText message={errorMessage} deleteSteps={deleteSteps} />}
@@ -385,7 +386,7 @@ function SubjectsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
   const { confirm, dialog: confirmDialog } = useConfirm();
 
   async function handleDelete(id: number, name: string): Promise<void> {
-    if (await confirm(deleteConfirmOptions(name))) {
+    if (await confirm(deleteConfirmText("subject", name))) {
       void crud.submitDelete(id);
     }
   }
@@ -413,7 +414,7 @@ function SubjectsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
               <tr className={TABLE_HEAD_ROW}>
                 <th className={TH}>名稱</th>
                 <th className={TH}>啟用中</th>
-                {isAdmin && <th className={TH}>操作</th>}
+                {isAdmin && <th className={TH_ACTIONS}>操作</th>}
               </tr>
             </thead>
             <tbody onChange={crud.handleRowChange}>
@@ -526,8 +527,8 @@ function RoomRow({
             啟用中
           </label>
         </td>
-        <td className={TD}>
-          <div className={ROW_ACTIONS}>
+        <td className={TD_ACTIONS}>
+          <div className={ROW_ACTIONS_END}>
           <button
             type="button"
             onClick={() =>
@@ -547,7 +548,7 @@ function RoomRow({
           </button>
           </div>
           {errorMessage !== undefined && (
-            <p role="alert" className={ERROR_TEXT}>{errorMessage}</p>
+            <p role="alert" className={ROW_ERROR_TEXT}>{errorMessage}</p>
           )}
         </td>
       </tr>
@@ -559,15 +560,13 @@ function RoomRow({
       <td className={TD}>{room.name}</td>
       <td className={TD}>{room.max_classes} 班</td>
       <td className={TD}>{room.is_active ? "是" : "否"}</td>
-      <td className={TD}>
+      <td className={TD_ACTIONS}>
         {isAdmin && (
-          <div className={ROW_ACTIONS}>
+          <div className={ROW_ACTIONS_END}>
             <button type="button" onClick={onStartEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
               編輯
             </button>
-            <button type="button" onClick={onDelete} disabled={isPending} className={BUTTON_SECONDARY_SM}>
-              刪除
-            </button>
+            <DeleteIconButton label={deleteButtonLabel("room", room.name)} onClick={onDelete} disabled={isPending} />
           </div>
         )}
         {errorMessage !== undefined && <RowErrorText message={errorMessage} deleteSteps={deleteSteps} />}
@@ -589,7 +588,7 @@ function RoomsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
   const { confirm, dialog: confirmDialog } = useConfirm();
 
   async function handleDelete(id: number, name: string): Promise<void> {
-    if (await confirm(deleteConfirmOptions(name))) {
+    if (await confirm(deleteConfirmText("room", name))) {
       void crud.submitDelete(id);
     }
   }
@@ -618,7 +617,7 @@ function RoomsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
                 <th className={TH}>名稱</th>
                 <th className={TH}>一次最多幾班同時使用</th>
                 <th className={TH}>啟用中</th>
-                {isAdmin && <th className={TH}>操作</th>}
+                {isAdmin && <th className={TH_ACTIONS}>操作</th>}
               </tr>
             </thead>
             <tbody onChange={crud.handleRowChange}>
