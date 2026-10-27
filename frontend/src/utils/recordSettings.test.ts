@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildPeriodDisplay } from "./periodDisplay";
-import { paginate, summarizeSlots } from "./recordSettings";
+import { paginate, slotCellsByWeekday, summarizeSlots } from "./recordSettings";
 import type { TimeSlot } from "../types/timeSlot";
 
 function slot(id: number, weekday: number, period: number, teaching = true): TimeSlot {
@@ -31,6 +31,16 @@ describe("summarizeSlots", () => {
   it("skips unknown and non-teaching slots, and says 無 for nothing", () => {
     expect(summarizeSlots([999, 10, 15], BY_ID, DISPLAY)).toBe("無");
     expect(summarizeSlots([], BY_ID, DISPLAY)).toBe("無");
+  });
+});
+
+describe("slotCellsByWeekday", () => {
+  it("gives each weekday its open periods, runs joined", () => {
+    expect(slotCellsByWeekday([11, 12, 13, 14, 21, 22, 24], BY_ID, DISPLAY, [1, 2])).toEqual(["1–4", "1–2、4"]);
+  });
+
+  it("shows 「—」 for a weekday with nothing open (or only non-teaching slots)", () => {
+    expect(slotCellsByWeekday([10, 15, 21], BY_ID, DISPLAY, [1, 2, 3])).toEqual(["—", "1", "—"]);
   });
 });
 

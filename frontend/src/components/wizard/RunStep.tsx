@@ -1,19 +1,24 @@
 import { useEffect, useId, type ReactElement } from "react";
+import { Link } from "react-router-dom";
 import { list as listRequirements } from "../../api/classSubjectRequirements";
 import { listGradeTimeSlots, listTeachers as listSemesterTeachers } from "../../api/semesterSettings";
 import AutoScheduleOutcome from "../AutoScheduleOutcome";
+import ActionBar from "../ActionBar";
+import CardHeader from "../CardHeader";
 import DisabledReason from "../DisabledReason";
 import { useAutoSchedule } from "../../hooks/useAutoSchedule";
 import { useResource } from "../../hooks/useResource";
 import { autoScheduleDisabledReason } from "../../utils/disabledReason";
+import { wizardStepLabel } from "../../utils/wizard";
 import { forgetWizardRecord } from "../../utils/wizardRecord";
 import {
   BUTTON_PRIMARY,
   BUTTON_SECONDARY,
   CARD,
   ERROR_TEXT,
-  HELP_TEXT,
+  LINK_TEXT,
   LOADING_TEXT,
+  RULE_NOTE,
 } from "../../styles/ui";
 
 // Task 98 / v3, the wizard's last step: a summary of the 排課紀錄's settings,
@@ -70,37 +75,62 @@ export default function RunStep({
   });
 
   return (
-    <div className={CARD}>
-      <p className={HELP_TEXT}>
-        確認以下設定後按「自動排課」。成功的話，這筆排課紀錄會變成「自動排課」，之後可以在排課紀錄檢視課表、手動編輯與發布；沒有成功則維持「尚未排課」，可以修正設定後再試。
-      </p>
-      <ul className="mb-3 list-disc pl-6 text-sm text-gray-800">
-        <li>排課紀錄編號 {versionNumber ?? "—"}</li>
-        <li>{semesterLabel ?? "已選擇的學期"}</li>
-        <li>參與排課的老師：{teachers.data.length} 位</li>
-        <li>已設定可排節次的年級：{gradeSlots.data.length} 個</li>
-        <li>
-          科目需求：{classCount} 個班級、{requirements.data.length} 個科目，共 {lessonCount} 堂課
-        </li>
-      </ul>
-      {teachers.data.length === 0 && <p className="text-sm text-amber-800">還沒有納入任何老師，請回到教師設定。</p>}
-      <div className="flex gap-2">
-        <button type="button" onClick={onBack} disabled={autoSchedule.isRunning || isDone} className={BUTTON_SECONDARY}>
-          上一步
-        </button>
-        <button
-          type="button"
-          onClick={() => void autoSchedule.run()}
-          disabled={autoSchedule.isRunning || runDisabledReason !== null}
-          title={runDisabledReason ?? undefined}
-          aria-describedby={runDisabledReason !== null ? runReasonId : undefined}
-          className={BUTTON_PRIMARY}
-        >
-          {autoSchedule.isRunning ? "排課中…" : "自動排課"}
-        </button>
+    <>
+      <div className={CARD}>
+        <CardHeader
+          title={wizardStepLabel("run")}
+          info={
+            <p>
+              確認以下設定後按「自動排課」。成功的話，這筆排課紀錄會變成「自動排課」，之後可以在排課紀錄檢視課表、手動編輯與發布；沒有成功則維持「尚未排課」，可以修正設定後再試。
+            </p>
+          }
+        />
+        <p className={RULE_NOTE}>成功後會變成「自動排課」；失敗則維持「尚未排課」，可修正後再試</p>
+        <ul className="mb-3 list-disc pl-6 text-sm text-gray-800">
+          <li>排課紀錄編號 {versionNumber ?? "—"}</li>
+          <li>{semesterLabel ?? "已選擇的學期"}</li>
+          <li>參與排課的老師：{teachers.data.length} 位</li>
+          <li>已設定可排節次的年級：{gradeSlots.data.length} 個</li>
+          <li>
+            {classCount} 個班級 · {requirements.data.length} 項科目需求 · 共 {lessonCount} 堂課
+          </li>
+        </ul>
+        {teachers.data.length === 0 && (
+          <p className="text-sm text-amber-800">
+            還沒有納入任何老師，沒有老師就不能自動排課。
+            <Link to={`/wizard?record=${versionId}&step=teachers`} className={LINK_TEXT}>
+              回到教師設定
+            </Link>
+          </p>
+        )}
+        <AutoScheduleOutcome versionId={versionId} state={autoSchedule} />
       </div>
-      {!isDone && <DisabledReason id={runReasonId} reason={runDisabledReason} />}
-      <AutoScheduleOutcome versionId={versionId} state={autoSchedule} />
-    </div>
+      {/* Task 98 Phase E: once scheduled, the outcome's own 檢視課表 /
+          回到排課紀錄 are the way on -- 上一步 and the finished 自動排課 go. */}
+      {!isDone && (
+        <ActionBar
+          start={
+            <button type="button" onClick={onBack} disabled={autoSchedule.isRunning} className={BUTTON_SECONDARY}>
+              上一步
+            </button>
+          }
+          end={
+            <>
+              <DisabledReason id={runReasonId} reason={runDisabledReason} />
+              <button
+                type="button"
+                onClick={() => void autoSchedule.run()}
+                disabled={autoSchedule.isRunning || runDisabledReason !== null}
+                title={runDisabledReason ?? undefined}
+                aria-describedby={runDisabledReason !== null ? runReasonId : undefined}
+                className={BUTTON_PRIMARY}
+              >
+                {autoSchedule.isRunning ? "排課中…" : "自動排課"}
+              </button>
+            </>
+          }
+        />
+      )}
+    </>
   );
 }

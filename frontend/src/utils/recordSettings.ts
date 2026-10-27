@@ -5,14 +5,13 @@ import type { PeriodDisplayMap } from "./periodDisplay";
 import { formatWeekday } from "./timeSlotFormat";
 import type { TimeSlot } from "../types/timeSlot";
 
-// 「星期一 第 1–4 節；星期二 第 1、3 節」: per weekday (Monday first), the
-// periods by their teaching number, consecutive runs joined with 「–」.
-// Ids of unknown slots are skipped; nothing at all -> 「無」.
-export function summarizeSlots(
+// Each weekday's teaching numbers among `timeSlotIds`. Ids of unknown
+// slots and non-teaching slots are skipped.
+function teachingNumbersByWeekday(
   timeSlotIds: readonly number[],
   timeSlotById: ReadonlyMap<number, TimeSlot>,
   periodDisplay: PeriodDisplayMap,
-): string {
+): Map<number, number[]> {
   const numbersByWeekday = new Map<number, number[]>();
   for (const id of timeSlotIds) {
     const slot = timeSlotById.get(id);
@@ -24,6 +23,18 @@ export function summarizeSlots(
     numbers.push(display.number);
     numbersByWeekday.set(slot.weekday, numbers);
   }
+  return numbersByWeekday;
+}
+
+// 「星期一 第 1–4 節；星期二 第 1、3 節」: per weekday (Monday first), the
+// periods by their teaching number, consecutive runs joined with 「–」.
+// Ids of unknown slots are skipped; nothing at all -> 「無」.
+export function summarizeSlots(
+  timeSlotIds: readonly number[],
+  timeSlotById: ReadonlyMap<number, TimeSlot>,
+  periodDisplay: PeriodDisplayMap,
+): string {
+  const numbersByWeekday = teachingNumbersByWeekday(timeSlotIds, timeSlotById, periodDisplay);
   if (numbersByWeekday.size === 0) {
     return "無";
   }
@@ -31,6 +42,21 @@ export function summarizeSlots(
     .sort(([a], [b]) => a - b)
     .map(([weekday, numbers]) => `${formatWeekday(weekday)} 第 ${joinRuns(numbers)} 節`)
     .join("；");
+}
+
+// Task 98 Phase D: one row of the compact 年級可排節次 table -- for each of
+// `weekdays`, its open teaching periods (「1–4」, 「1–2、4」), or 「—」.
+export function slotCellsByWeekday(
+  timeSlotIds: readonly number[],
+  timeSlotById: ReadonlyMap<number, TimeSlot>,
+  periodDisplay: PeriodDisplayMap,
+  weekdays: readonly number[],
+): string[] {
+  const numbersByWeekday = teachingNumbersByWeekday(timeSlotIds, timeSlotById, periodDisplay);
+  return weekdays.map((weekday) => {
+    const numbers = numbersByWeekday.get(weekday);
+    return numbers === undefined ? "—" : joinRuns(numbers);
+  });
 }
 
 // [1, 2, 3, 4, 6] -> 「1–4、6」.

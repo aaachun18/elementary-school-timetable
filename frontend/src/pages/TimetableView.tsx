@@ -17,6 +17,8 @@ import { list as listCombinedLessons } from "../api/combinedLessons";
 import { listTeachers as listRecordTeachers } from "../api/semesterSettings";
 import AdjustmentPreviewDialog from "../components/AdjustmentPreviewDialog";
 import ConfirmDialog from "../components/ConfirmDialog";
+import InfoPopover from "../components/InfoPopover";
+import PageHeader from "../components/PageHeader";
 import ConflictChecklist from "../components/ConflictChecklist";
 import PlacementPreviewDialog from "../components/PlacementPreviewDialog";
 import RoomChangeControls from "../components/RoomChangeControls";
@@ -90,7 +92,8 @@ import {
   MUTED_TEXT,
   NOTICE,
   PAGE,
-  PAGE_TITLE,
+  META_TAG,
+  RULE_NOTE,
   SECTION,
   SELECT,
   SELECTION_BAR,
@@ -963,41 +966,85 @@ export default function TimetableView(): ReactElement {
           </Link>
         </p>
       )}
-      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className={PAGE_TITLE}>
-            {isAdmin && selectedVersion !== undefined ? `課表・編號 ${selectedVersion.display_number}` : "課表"}
-          </h1>
-          {isAdmin && selectedVersion !== undefined && (
-            <p className="flex flex-wrap items-center gap-2 text-sm text-gray-700">
-              {semesterLabelOf(selectedVersion, semesterById, academicYearById)}
+      <PageHeader
+        title={isAdmin && selectedVersion !== undefined ? `課表・編號 ${selectedVersion.display_number}` : "課表"}
+        info={
+          isAdmin && selectedVersion !== undefined && !isEditing ? (
+            <p>
+              {selectedVersion.status === "MANUAL" && !selectedVersion.is_published
+                ? "手動編輯後按「儲存課表」會直接更新這筆手動排課紀錄。"
+                : "手動編輯後按「儲存課表」會另存成一筆新的「手動排課」紀錄，這份課表不會改變。"}
+              {selectedVersion.status === "COPIED" && "複製的課表在手動編輯時可以換教師。"}
+            </p>
+          ) : undefined
+        }
+        meta={
+          isAdmin &&
+          selectedVersion !== undefined && (
+            <>
+              <span className={META_TAG}>{semesterLabelOf(selectedVersion, semesterById, academicYearById)}</span>
               <RecordStatusBadge record={selectedVersion} />
               {isEditing && <span className={`${NOTICE} py-0.5`}>手動編輯中（尚未儲存）</span>}
-            </p>
-          )}
-        </div>
-        {/* 儲存課表 sits top right while editing. */}
-        {isEditing && (
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => void handleCancelEditing()}
-              disabled={isRecordBusy || isBusy}
-              className={BUTTON_SECONDARY}
-            >
-              取消編輯
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleSaveEditing()}
-              disabled={isRecordBusy || isBusy}
-              className={BUTTON_PRIMARY}
-            >
-              {isRecordBusy ? "儲存中…" : "儲存課表"}
-            </button>
-          </div>
-        )}
-      </div>
+            </>
+          )
+        }
+        actions={
+          !isAdmin || selectedVersion === undefined ? undefined : isEditing ? (
+            // 儲存課表 sits top right while editing.
+            <>
+              <button
+                type="button"
+                onClick={() => void handleCancelEditing()}
+                disabled={isRecordBusy || isBusy}
+                className={BUTTON_SECONDARY}
+              >
+                取消編輯
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSaveEditing()}
+                disabled={isRecordBusy || isBusy}
+                className={BUTTON_PRIMARY}
+              >
+                {isRecordBusy ? "儲存中…" : "儲存課表"}
+              </button>
+            </>
+          ) : (
+            // v3: the record's actions -- secondary ones first, 發布 (the
+            // last step) on the right; a published one shows its badge.
+            <>
+              <button
+                type="button"
+                onClick={() => void handleStartEditing()}
+                disabled={isRecordBusy || !hasTimetable(selectedVersion.status)}
+                className={BUTTON_SECONDARY}
+              >
+                {isRecordBusy ? "處理中…" : "手動編輯課表"}
+              </button>
+              <button
+                type="button"
+                onClick={() => openRecordAction("copy")}
+                disabled={isRecordBusy}
+                className={BUTTON_SECONDARY}
+              >
+                複製此課表
+              </button>
+              {selectedVersion.is_published ? (
+                <StatusBadge tone="success">✓ 已發布</StatusBadge>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => openRecordAction("publish")}
+                  disabled={isRecordBusy}
+                  className={BUTTON_SUCCESS}
+                >
+                  發布此課表
+                </button>
+              )}
+            </>
+          )
+        }
+      />
       {recordFlash.message !== null && <p className={`${SUCCESS_TEXT} mb-3`}>✓ {recordFlash.message}</p>}
       {recordError !== null && recordAction === null && (
         <p role="alert" className={`${ERROR_TEXT} mb-3`}>
@@ -1016,7 +1063,7 @@ export default function TimetableView(): ReactElement {
             選擇學期的課表
           </label>
           {versions.length === 0 ? (
-            <p className={MUTED_TEXT}>目前沒有已發布的課表。</p>
+            <p className={MUTED_TEXT}>目前沒有已發布的課表，教學組長發布課表後就會出現在這裡。</p>
           ) : (
             <select
               id="timetable-version-select"
@@ -1044,51 +1091,6 @@ export default function TimetableView(): ReactElement {
           </Link>
           選擇要檢視的課表。
         </p>
-      )}
-
-      {/* v3: the record's actions -- not while editing (then only 儲存課表 /
-          取消編輯 apply). */}
-      {isAdmin && selectedVersion !== undefined && !isEditing && (
-        <section className={SECTION} aria-label="課表操作">
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => void handleStartEditing()}
-              disabled={isRecordBusy || !hasTimetable(selectedVersion.status)}
-              className={BUTTON_SECONDARY}
-            >
-              {isRecordBusy ? "處理中…" : "手動編輯課表"}
-            </button>
-            <button
-              type="button"
-              onClick={() => openRecordAction("copy")}
-              disabled={isRecordBusy}
-              className={BUTTON_SECONDARY}
-            >
-              複製此課表
-            </button>
-            {selectedVersion.is_published ? (
-              <StatusBadge tone="success" className="self-center">
-                ✓ 已發布
-              </StatusBadge>
-            ) : (
-              <button
-                type="button"
-                onClick={() => openRecordAction("publish")}
-                disabled={isRecordBusy}
-                className={BUTTON_SUCCESS}
-              >
-                發布此課表
-              </button>
-            )}
-          </div>
-          <p className={`${MUTED_TEXT} mt-2`}>
-            {selectedVersion.status === "MANUAL" && !selectedVersion.is_published
-              ? "手動編輯後按「儲存課表」會直接更新這筆手動排課紀錄。"
-              : "手動編輯後按「儲存課表」會另存成一筆新的「手動排課」紀錄，這份課表不會改變。"}
-            {selectedVersion.status === "COPIED" && "複製的課表在手動編輯時可以換教師。"}
-          </p>
-        </section>
       )}
 
       {/* Task 68: 檢查衝突 -- v3: while editing only (the view itself stays
@@ -1158,8 +1160,13 @@ export default function TimetableView(): ReactElement {
                     {isReassignPanelOpen ? "收合換教師" : "換教師"}
                   </button>
                 )}
-                <span className={MUTED_TEXT}>
-                  點一堂課選取它，再點「移到這裡」移動，或點另一堂課與它對調；也可以直接把課拖到空格（移動）或另一堂課上（對調）。每次異動都會先預覽。改完按右上角「儲存課表」。
+                <span className={`${RULE_NOTE} mb-0 inline-flex items-center gap-1`}>
+                  點選課程後可移動或對調，也可直接拖曳；改完按「儲存課表」
+                  <InfoPopover label="關於手動編輯">
+                    <p>
+                      點一堂課選取它，再點「移到這裡」移動，或點另一堂課與它對調；也可以直接把課拖到空格（移動）或另一堂課上（對調）。每次異動都會先預覽。改完按右上角「儲存課表」。
+                    </p>
+                  </InfoPopover>
                 </span>
               </div>
               {adjustmentFlash.message !== null && (

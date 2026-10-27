@@ -13,7 +13,9 @@ import type { Teacher } from "../../types/teacher";
 import type { TimeSlot } from "../../types/timeSlot";
 import { classesWithoutHomeroom, missingHomeroomMessage, sortClassesByGrade } from "../../utils/homeroom";
 import { saveTeachersDisabledReason } from "../../utils/disabledReason";
-import { DEFAULT_MAX_WEEKLY_PERIODS, periodsRangeError } from "../../utils/wizard";
+import { DEFAULT_MAX_WEEKLY_PERIODS, periodsRangeError, wizardStepLabel } from "../../utils/wizard";
+import ActionBar from "../ActionBar";
+import CardHeader from "../CardHeader";
 import DisabledReason from "../DisabledReason";
 import TimeSlotPickerDialog from "./TimeSlotPickerDialog";
 import {
@@ -22,13 +24,16 @@ import {
   CARD,
   CHECKBOX,
   ERROR_TEXT,
-  HELP_TEXT,
   HOMEROOM_TAG,
   INPUT,
   LINK_TEXT,
   LOADING_TEXT,
   MUTED_TEXT,
   SELECT,
+  TEACHER_CARD,
+  TEACHER_CARD_CHECKED,
+  TEACHER_GRID,
+  TOOLBAR,
 } from "../../styles/ui";
 
 interface Draft {
@@ -211,175 +216,194 @@ function TeachersForm({
   }
 
   return (
-    <div className={CARD}>
-      <p className={HELP_TEXT}>
-        勾選要納入這次排課的老師，設定每週最低與最高節數，並標出沒辦法排課的時間。沒有指定老師的課程，會分給還沒超過上限的老師。
-        名單是所有啟用中的一般老師帳號，要新增老師請到
-        <Link to="/users" className={LINK_TEXT}>
-          帳號管理
-        </Link>
-        。
-      </p>
-      {teachers.length === 0 ? (
-        <p className={MUTED_TEXT}>目前沒有啟用中的老師帳號。</p>
-      ) : (
-        <>
-          <label className="mb-3 inline-flex cursor-pointer items-center gap-2 rounded border border-gray-300 bg-gray-50 px-3 py-2 font-medium text-gray-900">
-            <input
-              type="checkbox"
-              checked={allChecked}
-              ref={(element) => {
-                if (element !== null) {
-                  element.indeterminate = someChecked;
-                }
-              }}
-              onChange={(event) => setAllChecked(event.target.checked)}
-              className={CHECKBOX}
-            />
-            全選
-          </label>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            {teachers.map((teacher) => {
-              const draft = drafts.get(teacher.id) as Draft;
-              const rangeError = rangeErrors.get(teacher.id) ?? null;
-              return (
-                <div key={teacher.id} className="rounded border border-gray-200 p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <label className="flex items-center gap-2 font-medium text-gray-900">
-                      <input
-                        type="checkbox"
-                        checked={draft.checked}
-                        onChange={(event) =>
-                          update(teacher.id, {
-                            checked: event.target.checked,
-                            homeroomClassId: event.target.checked ? draft.homeroomClassId : null,
-                          })
-                        }
-                        className={CHECKBOX}
-                      />
-                      {teacher.name}
-                      {draft.homeroomClassId !== null && (
-                        <span className={HOMEROOM_TAG}>{classById.get(draft.homeroomClassId)?.name ?? "—"}</span>
-                      )}
-                    </label>
-                    {draft.homeroomClassId === null ? (
-                      <select
-                        value=""
-                        onChange={(event) => {
-                          if (event.target.value !== "") {
-                            update(teacher.id, { checked: true, homeroomClassId: Number(event.target.value) });
-                            setError(null);
+    <>
+      <div className={CARD}>
+        <CardHeader
+          title={wizardStepLabel("teachers")}
+          info={
+            <p>
+              勾選要納入這次排課的老師，設定每週最低與最高節數，並標出沒辦法排課的時間。沒有指定老師的課程，會分給還沒超過上限的老師。
+              名單是所有啟用中的一般老師帳號，要新增老師請到
+              <Link to="/users" className={LINK_TEXT}>
+                帳號管理
+              </Link>
+              。
+            </p>
+          }
+        />
+        {teachers.length === 0 ? (
+          <p className={MUTED_TEXT}>
+            目前沒有啟用中的一般老師帳號，請先到
+            <Link to="/users" className={LINK_TEXT}>
+              帳號管理
+            </Link>
+            建立老師帳號，再回來勾選。
+          </p>
+        ) : (
+          <>
+            <div className={TOOLBAR}>
+              <label className="inline-flex min-h-8 cursor-pointer items-center gap-2 text-sm font-medium text-gray-900">
+                <input
+                  type="checkbox"
+                  checked={allChecked}
+                  ref={(element) => {
+                    if (element !== null) {
+                      element.indeterminate = someChecked;
+                    }
+                  }}
+                  onChange={(event) => setAllChecked(event.target.checked)}
+                  className={CHECKBOX}
+                />
+                全選
+              </label>
+              <span className="text-sm text-gray-700" aria-live="polite">
+                已納入 {checkedTeachers.length} 位老師 · {assignedClassIds.size}/{classes.length} 個班級已指派導師
+              </span>
+            </div>
+            <div className={TEACHER_GRID}>
+              {teachers.map((teacher) => {
+                const draft = drafts.get(teacher.id) as Draft;
+                const rangeError = rangeErrors.get(teacher.id) ?? null;
+                return (
+                  <div key={teacher.id} className={draft.checked ? TEACHER_CARD_CHECKED : TEACHER_CARD}>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label className="flex min-h-8 cursor-pointer items-center gap-2 text-sm font-medium">
+                        <input
+                          type="checkbox"
+                          checked={draft.checked}
+                          onChange={(event) =>
+                            update(teacher.id, {
+                              checked: event.target.checked,
+                              homeroomClassId: event.target.checked ? draft.homeroomClassId : null,
+                            })
                           }
-                        }}
-                        disabled={freeClasses.length === 0}
-                        aria-label={`${teacher.name}擔任導師的班級`}
-                        className={`${SELECT} w-36 text-sm`}
-                      >
-                        <option value="">設定導師班級</option>
-                        {freeClasses.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.name}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      // Task 98 Phase B: only takes this teacher off the
-                      // class as 導師 in this form (nothing is saved until
-                      // 「儲存並下一步」, and the class is back in the
-                      // dropdown at once) -- so no confirmation.
-                      <button
-                        type="button"
-                        onClick={() => {
-                          update(teacher.id, { homeroomClassId: null });
-                          setError(null);
-                        }}
-                        aria-label={`取消${teacher.name}的導師班級`}
-                        className={BUTTON_GHOST_SM}
-                      >
-                        取消導師班級
-                      </button>
+                          className={CHECKBOX}
+                        />
+                        {teacher.name}
+                        {draft.homeroomClassId !== null && (
+                          <span className={HOMEROOM_TAG}>{classById.get(draft.homeroomClassId)?.name ?? "—"}</span>
+                        )}
+                      </label>
+                      {draft.homeroomClassId === null ? (
+                        <select
+                          value=""
+                          onChange={(event) => {
+                            if (event.target.value !== "") {
+                              update(teacher.id, { checked: true, homeroomClassId: Number(event.target.value) });
+                              setError(null);
+                            }
+                          }}
+                          disabled={freeClasses.length === 0}
+                          aria-label={`${teacher.name}擔任導師的班級`}
+                          className={`${SELECT} w-32 text-xs`}
+                        >
+                          <option value="">設定導師班級</option>
+                          {freeClasses.map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.name}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        // Task 98 Phase B: only takes this teacher off the
+                        // class as 導師 in this form (nothing is saved until
+                        // 「儲存並下一步」, and the class is back in the
+                        // dropdown at once) -- so no confirmation.
+                        <button
+                          type="button"
+                          onClick={() => {
+                            update(teacher.id, { homeroomClassId: null });
+                            setError(null);
+                          }}
+                          aria-label={`取消${teacher.name}的導師班級`}
+                          className={BUTTON_GHOST_SM}
+                        >
+                          取消導師班級
+                        </button>
+                      )}
+                    </div>
+                    {draft.checked && (
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                        <label className="inline-flex items-center gap-1">
+                          每週最低
+                          <input
+                            type="number"
+                            min={0}
+                            value={draft.minText}
+                            onChange={(event) => update(teacher.id, { minText: event.target.value })}
+                            aria-label={`${teacher.name}每週最低節數`}
+                            className={`${INPUT} w-16`}
+                          />
+                        </label>
+                        <label className="inline-flex items-center gap-1">
+                          最高
+                          <input
+                            type="number"
+                            min={0}
+                            value={draft.maxText}
+                            onChange={(event) => update(teacher.id, { maxText: event.target.value })}
+                            aria-label={`${teacher.name}每週最高節數`}
+                            className={`${INPUT} w-16`}
+                          />
+                          節
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setPickerTeacher(teacher)}
+                          className={BUTTON_GHOST_SM}
+                        >
+                          不可排時段（{draft.unavailable.length}）
+                        </button>
+                        {rangeError !== null && <p className={`${ERROR_TEXT} w-full`}>{rangeError}</p>}
+                      </div>
                     )}
                   </div>
-                  {draft.checked && (
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
-                      <label className="inline-flex items-center gap-1">
-                        每週最低
-                        <input
-                          type="number"
-                          min={0}
-                          value={draft.minText}
-                          onChange={(event) => update(teacher.id, { minText: event.target.value })}
-                          aria-label={`${teacher.name}每週最低節數`}
-                          className={`${INPUT} w-16`}
-                        />
-                      </label>
-                      <label className="inline-flex items-center gap-1">
-                        最高
-                        <input
-                          type="number"
-                          min={0}
-                          value={draft.maxText}
-                          onChange={(event) => update(teacher.id, { maxText: event.target.value })}
-                          aria-label={`${teacher.name}每週最高節數`}
-                          className={`${INPUT} w-16`}
-                        />
-                        節
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => setPickerTeacher(teacher)}
-                        className={BUTTON_GHOST_SM}
-                      >
-                        不可排時段（{draft.unavailable.length}）
-                      </button>
-                      {rangeError !== null && <p className={`${ERROR_TEXT} w-full`}>{rangeError}</p>}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}
-      <p className="mt-3 text-sm text-gray-700">
-        已納入 {checkedTeachers.length} 位老師；{classes.length} 個班級中 {assignedClassIds.size} 個已指派導師。
-      </p>
-      {error !== null && (
-        <p role="alert" className={ERROR_TEXT}>
-          {error}
-        </p>
-      )}
-      <div className="mt-4 flex gap-2">
-        <button
-          type="button"
-          onClick={() => void handleSave()}
-          disabled={isSaving || saveDisabledReason !== null}
-          title={saveDisabledReason ?? undefined}
-          aria-describedby={saveDisabledReason !== null ? saveReasonId : undefined}
-          className={BUTTON_PRIMARY}
-        >
-          {isSaving ? "儲存中…" : "儲存並下一步"}
-        </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+        {error !== null && (
+          <p role="alert" className={ERROR_TEXT}>
+            {error}
+          </p>
+        )}
+        {pickerTeacher !== null && (
+          <TimeSlotPickerDialog
+            key={pickerTeacher.id}
+            title={`${pickerTeacher.name}的不可排課時段`}
+            description="勾選這學期沒辦法排課的節次，排課時會避開。"
+            checkedLabel="不可排課"
+            timeSlots={timeSlots}
+            initialSelected={drafts.get(pickerTeacher.id)?.unavailable ?? []}
+            busy={false}
+            errorMessage={null}
+            requireOne={false}
+            onSave={(ids) => {
+              update(pickerTeacher.id, { unavailable: ids });
+              setPickerTeacher(null);
+            }}
+            onCancel={() => setPickerTeacher(null)}
+          />
+        )}
       </div>
-      <DisabledReason id={saveReasonId} reason={saveDisabledReason} />
-      {pickerTeacher !== null && (
-        <TimeSlotPickerDialog
-          key={pickerTeacher.id}
-          title={`${pickerTeacher.name}的不可排課時段`}
-          description="勾選這學期沒辦法排課的節次，排課時會避開。"
-          checkedLabel="不可排課"
-          timeSlots={timeSlots}
-          initialSelected={drafts.get(pickerTeacher.id)?.unavailable ?? []}
-          busy={false}
-          errorMessage={null}
-          requireOne={false}
-          onSave={(ids) => {
-            update(pickerTeacher.id, { unavailable: ids });
-            setPickerTeacher(null);
-          }}
-          onCancel={() => setPickerTeacher(null)}
-        />
-      )}
-    </div>
+      <ActionBar
+        end={
+          <>
+            <DisabledReason id={saveReasonId} reason={saveDisabledReason} />
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={isSaving || saveDisabledReason !== null}
+              title={saveDisabledReason ?? undefined}
+              aria-describedby={saveDisabledReason !== null ? saveReasonId : undefined}
+              className={BUTTON_PRIMARY}
+            >
+              {isSaving ? "儲存中…" : "儲存並下一步"}
+            </button>
+          </>
+        }
+      />
+    </>
   );
 }

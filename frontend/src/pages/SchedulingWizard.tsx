@@ -20,20 +20,20 @@ import {
   rememberWizardStep,
 } from "../utils/wizardRecord";
 import type { ScheduleVersion } from "../types/scheduleVersion";
+import PageHeader from "../components/PageHeader";
+import StatusBadge from "../components/StatusBadge";
+import Stepper from "../components/Stepper";
 import {
   BUTTON_PRIMARY,
   BUTTON_SECONDARY_SM,
+  CARD,
   ERROR_TEXT,
-  HELP_TEXT,
   LINK_TEXT,
   LOADING_TEXT,
+  META_TAG,
   NOTICE,
   PAGE,
-  PAGE_TITLE,
-  SECTION_TITLE,
-  STEP_PILL_CURRENT,
-  STEP_PILL_DONE,
-  STEP_PILL_TODO,
+  RULE_NOTE,
 } from "../styles/ui";
 
 interface WizardRecord {
@@ -67,6 +67,10 @@ async function loadRecord(recordId: number): Promise<{ record: WizardRecord; isE
     isEditable: version.status === "NOT_SCHEDULED",
   };
 }
+
+// The whole flow, in the header's (i).
+const WIZARD_HELP =
+  "依序設定學年度與學期、參與的老師、年級可排節次與科目需求，最後由系統自動排課。每次開始排課都會新增一筆「尚未排課」的排課紀錄，每一步都會先存進這筆紀錄，可以隨時離開，回到「開始排課」會自動接續上次的步驟（也可以從排課紀錄的「檢視排課設定」繼續）。班級與各年級的科目節數請先在「學校資料」維護。";
 
 // Task 98 / v3: 開始排課 -- 學年度與學期 (creates a 尚未排課 排課紀錄) ->
 // 教師設定 -> 年級與可排節次 -> 科目需求 -> 共同排課 -> 確認並自動排課. Every step saves
@@ -165,15 +169,37 @@ export default function SchedulingWizard(): ReactElement {
   if (isLoading) {
     return (
       <div className={PAGE}>
-        <h1 className={PAGE_TITLE}>開始排課</h1>
+        <PageHeader title="開始排課" />
         <p className={LOADING_TEXT}>載入中…</p>
       </div>
     );
   }
 
+  const hasRecordHeader = record !== null && step !== null && step !== "semester";
+
   return (
     <div className={PAGE}>
-      <h1 className={PAGE_TITLE}>開始排課</h1>
+      <PageHeader
+        title="開始排課"
+        info={<p>{WIZARD_HELP}</p>}
+        meta={
+          hasRecordHeader && (
+            <>
+              <span className={META_TAG}>
+                {record.semesterLabel} · 紀錄 #{record.versionNumber}
+              </span>
+              <StatusBadge tone="warning">尚未排課</StatusBadge>
+            </>
+          )
+        }
+        actions={
+          hasRecordHeader ? (
+            <button type="button" onClick={startNew} className={BUTTON_SECONDARY_SM}>
+              另開新的排課
+            </button>
+          ) : undefined
+        }
+      />
       {loadError !== null && (
         <p role="alert" className={ERROR_TEXT}>
           無法開啟這筆排課紀錄：{loadError}
@@ -189,49 +215,22 @@ export default function SchedulingWizard(): ReactElement {
         </p>
       )}
       {step === null ? (
-        <div>
-          <p className={HELP_TEXT}>
-            依序設定學年度與學期、參與的老師、年級可排節次與科目需求，最後由系統自動排課。每次開始排課都會新增一筆「尚未排課」的排課紀錄，每一步都會先存進這筆紀錄，可以隨時離開，回到「開始排課」會自動接續上次的步驟（也可以從排課紀錄的「檢視排課設定」繼續）。班級與各年級的科目節數請先在「學校資料」維護。
-          </p>
+        <div className={CARD}>
+          <p className={RULE_NOTE}>每次開始排課都會新增一筆「尚未排課」的排課紀錄，可以隨時離開，之後會自動接續。</p>
           <button type="button" onClick={startNew} className={BUTTON_PRIMARY}>
             開始排課 →
           </button>
         </div>
       ) : (
         <>
-          <ol className="mb-4 flex flex-wrap gap-2 text-sm" aria-label="排課步驟">
-            {WIZARD_STEPS.map((item, index) => {
-              const isCurrent = item.key === step;
-              // A record's semester is fixed once it exists.
-              const canJump = record !== null && !isCurrent && item.key !== "semester";
-              return (
-                <li key={item.key}>
-                  <button
-                    type="button"
-                    onClick={() => go(item.key)}
-                    disabled={!canJump}
-                    aria-current={isCurrent ? "step" : undefined}
-                    className={
-                      isCurrent ? STEP_PILL_CURRENT : index < stepIndex ? STEP_PILL_DONE : STEP_PILL_TODO
-                    }
-                  >
-                    {index + 1}. {item.label}
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
-          {record !== null && step !== "semester" && (
-            <div className="mb-2 flex flex-wrap items-center gap-3 text-sm text-gray-700">
-              <span>
-                排課紀錄編號 {record.versionNumber}・{record.semesterLabel}（尚未排課）
-              </span>
-              <button type="button" onClick={startNew} className={BUTTON_SECONDARY_SM}>
-                另開新的排課
-              </button>
-            </div>
-          )}
-          <h2 className={SECTION_TITLE}>{WIZARD_STEPS[stepIndex]?.label}</h2>
+          <Stepper
+            steps={WIZARD_STEPS}
+            currentIndex={stepIndex}
+            ariaLabel="排課步驟"
+            // A record's semester is fixed once it exists.
+            canJump={(index) => record !== null && index !== stepIndex && WIZARD_STEPS[index].key !== "semester"}
+            onJump={(index) => go(WIZARD_STEPS[index].key)}
+          />
           {step === "semester" && (
             <SemesterStep initialYear={null} initialNumber={null} onChosen={chooseRecord} />
           )}

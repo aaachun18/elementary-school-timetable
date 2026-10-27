@@ -19,6 +19,7 @@ import {
   remove as removeRoom,
 } from "../api/rooms";
 import { RowErrorText } from "../components/DeleteStepsHint";
+import PageHeader from "../components/PageHeader";
 import { useResource } from "../hooks/useResource";
 import { useCrudList } from "../hooks/useCrudList";
 import { useConfirm } from "../hooks/useConfirm";
@@ -41,11 +42,9 @@ import {
   BUTTON_SECONDARY_SM,
   CHECKBOX,
   ERROR_TEXT,
-  HELP_TEXT,
   INPUT,
   LOADING_TEXT,
   PAGE,
-  PAGE_TITLE,
   ROW_ACTIONS_END,
   ROW_ERROR_TEXT,
   SELECT,
@@ -678,10 +677,14 @@ export default function DataBrowser(): ReactElement {
 
   return (
     <div className={PAGE}>
-      <h1 className={PAGE_TITLE}>學校資料</h1>
-      <p className={HELP_TEXT}>
-        維護學校的班級、科目、各年級科目需求、教室與時段；教師請到「帳號管理」建立一般老師帳號，每學期的教師設定、年級可排節次、連堂與指定老師／教室在「開始排課」設定。
-      </p>
+      <PageHeader
+        title="學校資料"
+        info={
+          <p>
+            維護學校的班級、科目、各年級科目需求、教室與時段；教師請到「帳號管理」建立一般老師帳號，每學期的教師設定、年級可排節次、連堂與指定老師／教室在「開始排課」設定。
+          </p>
+        }
+      />
       <nav className="mb-4 flex flex-wrap gap-1">
         {TABS.map((tab) => (
           <button

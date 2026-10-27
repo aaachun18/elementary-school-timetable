@@ -2,7 +2,7 @@ import type { ReactElement } from "react";
 import { Link } from "react-router-dom";
 import FailureDiagnostics from "./FailureDiagnostics";
 import type { AutoScheduleState } from "../hooks/useAutoSchedule";
-import { BUTTON_PRIMARY, BUTTON_SECONDARY, ERROR_TEXT, MUTED_TEXT, SUCCESS_TEXT } from "../styles/ui";
+import { BUTTON_PRIMARY, BUTTON_SECONDARY, ERROR_TEXT, MUTED_TEXT, SUCCESS_PANEL } from "../styles/ui";
 
 // v3: what 自動排課 (hooks/useAutoSchedule.ts) came back with -- the
 // timetable's link on success, the reasons on failure (the record stays
@@ -13,9 +13,13 @@ const NEWEST_DISPLAY_NUMBER = 1;
 export default function AutoScheduleOutcome({
   versionId,
   state,
+  showLinks = true,
 }: {
   versionId: number;
   state: AutoScheduleState;
+  // false where the page itself already offers 檢視課表 (排課設定's header),
+  // so a screen never has two Primary buttons.
+  showLinks?: boolean;
 }): ReactElement | null {
   if (state.isRunning) {
     return <p className={`${MUTED_TEXT} mt-2`}>排課可能需要一點時間，請耐心等候。</p>;
@@ -29,24 +33,26 @@ export default function AutoScheduleOutcome({
   }
   if (state.result !== null) {
     return (
-      <div className="mt-3">
-        <p className={SUCCESS_TEXT}>
+      <div className={SUCCESS_PANEL} role="status">
+        <p className="text-sm font-semibold">
           ✓ 排課完成：排定 {state.result.scheduled_count} 堂課（已移到最新，排課紀錄編號 {NEWEST_DISPLAY_NUMBER}，自動排課）
         </p>
         {state.result.preferred_period_lesson_count > 0 && (
-          <p className={`${MUTED_TEXT} mt-1`}>
+          <p className="mt-1 text-sm">
             國語文、數學排在第 1–2 節：{state.result.preferred_period_score} /{" "}
             {state.result.preferred_period_lesson_count} 堂（在符合所有排課規則下盡量排在早上）
           </p>
         )}
-        <div className="mt-2 flex flex-wrap gap-2">
-          <Link to={`/timetable?scheduleVersionId=${versionId}`} className={BUTTON_PRIMARY}>
-            檢視課表
-          </Link>
-          <Link to="/records" className={BUTTON_SECONDARY}>
-            回到排課紀錄
-          </Link>
-        </div>
+        {showLinks && (
+          <div className="mt-3 flex flex-wrap justify-end gap-2">
+            <Link to="/records" className={BUTTON_SECONDARY}>
+              回到排課紀錄
+            </Link>
+            <Link to={`/timetable?scheduleVersionId=${versionId}`} className={BUTTON_PRIMARY}>
+              檢視課表
+            </Link>
+          </div>
+        )}
       </div>
     );
   }

@@ -24,6 +24,11 @@ export const WIZARD_STEPS: readonly { key: WizardStepKey; label: string }[] = [
   { key: "run", label: "確認並排課" },
 ];
 
+// A step's name, for its card title.
+export function wizardStepLabel(key: WizardStepKey): string {
+  return WIZARD_STEPS.find((step) => step.key === key)?.label ?? "";
+}
+
 export function isWizardStep(value: string | null): value is WizardStepKey {
   return value !== null && WIZARD_STEPS.some((step) => step.key === value);
 }

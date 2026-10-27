@@ -1,4 +1,5 @@
 import { useState, type ReactElement } from "react";
+import { Link } from "react-router-dom";
 import {
   create as createCombined,
   list as listCombined,
@@ -18,26 +19,33 @@ import type { CombinedLesson, CombinedLessonFields } from "../../types/combinedL
 import type { Grade } from "../../types/grade";
 import type { Room } from "../../types/room";
 import { blockChoiceLabel, blockChoices, canMergeWith } from "../../utils/combinedLessons";
+import ActionBar from "../ActionBar";
+import CardHeader from "../CardHeader";
 import ConfirmDialog from "../ConfirmDialog";
+import { wizardStepLabel } from "../../utils/wizard";
+import { CheckIcon } from "../icons";
 import {
+  BUTTON_GHOST_SM,
   BUTTON_PRIMARY,
   BUTTON_SECONDARY,
   BUTTON_SECONDARY_SM,
   CARD,
   CHECKBOX,
   ERROR_TEXT,
-  HELP_TEXT,
   LABEL,
+  LINK_TEXT,
   LOADING_TEXT,
   MUTED_TEXT,
+  PICK_BUTTON,
+  PICK_BUTTON_SELECTED,
+  PICK_STEP_LABEL,
+  RULE_NOTE,
   SELECT,
   SUBSECTION_TITLE,
   TAB_BUTTON,
   TAB_BUTTON_ACTIVE,
 } from "../../styles/ui";
 
-const NAV_BUTTON = `${TAB_BUTTON} text-left`;
-const NAV_BUTTON_ACTIVE = `${TAB_BUTTON_ACTIVE} text-left`;
 // A label and its field on one line, every field of the dialog as wide as
 // the others.
 const DIALOG_FIELD_ROW = "grid grid-cols-[7rem_1fr] items-center gap-2";
@@ -153,6 +161,22 @@ function CombinedEditor({
     null,
   );
 
+  const [removingId, setRemovingId] = useState<number | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+
+  async function handleRemove(combinedId: number): Promise<void> {
+    setRemovingId(combinedId);
+    setRemoveError(null);
+    try {
+      await removeCombined(combinedId);
+      onChanged();
+    } catch (caught) {
+      setRemoveError(extractApiErrorMessage(caught));
+    } finally {
+      setRemovingId(null);
+    }
+  }
+
   const combinedOf = new Map<number, CombinedLesson>();
   for (const item of combined) {
     for (const requirementId of item.requirement_ids) {
@@ -172,118 +196,164 @@ function CombinedEditor({
   }
 
   return (
-    <div className={CARD}>
-      <p className={HELP_TEXT}>
-        併班上課的課（例如一年甲班和二年甲班的本土語文）在這裡合併：合併後視為同一節課，各班同一時間、在同一間教室上課，由各班科目需求指定的老師一起授課（都沒指定時由系統安排一位）。只有每週節數與連堂相同的課能合併；手動調整課表時，合併的課會一起移動。不需要合併可以直接按下一步。
-      </p>
-      <div className="flex flex-col gap-3 md:flex-row md:items-start">
-        <nav aria-label="年級" className="flex shrink-0 flex-row flex-wrap gap-1 md:w-28 md:flex-col">
-          {gradesWithClasses.map((grade) => (
-            <button
-              key={grade.id}
-              type="button"
-              onClick={() => {
-                setGradeId(grade.id);
-                setClassId(null);
-              }}
-              aria-current={grade.id === gradeId ? "true" : undefined}
-              className={grade.id === gradeId ? NAV_BUTTON_ACTIVE : NAV_BUTTON}
-            >
-              {grade.name}
-            </button>
-          ))}
-        </nav>
-        <nav aria-label="班級" className="flex shrink-0 flex-row flex-wrap gap-1 md:w-32 md:flex-col">
-          {gradeClasses.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => setClassId(item.id)}
-              aria-current={item.id === classId ? "true" : undefined}
-              className={item.id === classId ? NAV_BUTTON_ACTIVE : NAV_BUTTON}
-            >
-              {item.name}
-            </button>
-          ))}
-        </nav>
-        <div className="min-w-0 flex-1">
-          {classId === null ? (
-            <p className={MUTED_TEXT}>請選擇班級。</p>
-          ) : classRequirements.length === 0 ? (
-            <p className={MUTED_TEXT}>這個班級沒有科目需求。</p>
-          ) : (
-            <ul aria-label="科目" className="flex flex-wrap gap-2">
-              {classRequirements.map((requirement) => (
-                <li key={requirement.id}>
-                  <button type="button" onClick={() => openFor(requirement)} className={NAV_BUTTON}>
-                    {lookups.subjectName.get(requirement.subject_id) ?? "—"}
-                    <span className="ml-1 text-xs text-gray-500">（{requirement.weekly_periods} 節）</span>
-                    {combinedOf.has(requirement.id) && <span className={COMBINED_TAG}>已合併</span>}
-                  </button>
-                </li>
+    <>
+      <div className={CARD}>
+        <CardHeader
+          title={wizardStepLabel("combined")}
+          info={
+            <p>
+              併班上課的課（例如一年甲班和二年甲班的本土語文）在這裡合併：合併後視為同一節課，各班同一時間、在同一間教室上課，由各班科目需求指定的老師一起授課（都沒指定時由系統安排一位）。只有每週節數與連堂相同的課能合併；手動調整課表時，合併的課會一起移動。不需要合併可以直接按下一步。
+            </p>
+          }
+        />
+        <p className={RULE_NOTE}>只有每週節數與連堂相同的課能合併</p>
+        {gradesWithClasses.length === 0 && (
+          <p className={MUTED_TEXT}>
+            還沒有班級，沒有可以合併的課。請先到
+            <Link to="/data?tab=classes" className={LINK_TEXT}>
+              學校資料
+            </Link>
+            建立班級，或直接按「下一步」。
+          </p>
+        )}
+        <div className="flex flex-col gap-4">
+          <div>
+            <p className={PICK_STEP_LABEL}>1 選年級</p>
+            <nav aria-label="年級" className="flex flex-wrap gap-1 border-b border-gray-200 pb-2">
+              {gradesWithClasses.map((grade) => (
+                <button
+                  key={grade.id}
+                  type="button"
+                  onClick={() => {
+                    setGradeId(grade.id);
+                    setClassId(null);
+                  }}
+                  aria-current={grade.id === gradeId ? "true" : undefined}
+                  className={grade.id === gradeId ? TAB_BUTTON_ACTIVE : TAB_BUTTON}
+                >
+                  {grade.name}
+                </button>
               ))}
-            </ul>
+            </nav>
+          </div>
+          <div>
+            <p className={PICK_STEP_LABEL}>2 選班級</p>
+            <nav aria-label="班級" className="flex flex-wrap gap-2">
+              {gradeClasses.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setClassId(item.id)}
+                  aria-pressed={item.id === classId}
+                  className={item.id === classId ? PICK_BUTTON_SELECTED : PICK_BUTTON}
+                >
+                  {item.id === classId && <CheckIcon size={16} />}
+                  {item.name}
+                </button>
+              ))}
+            </nav>
+            {classId === null && <p className={`${MUTED_TEXT} mt-2`}>請選擇班級。</p>}
+          </div>
+          {classId !== null && (
+            <div>
+              <p className={PICK_STEP_LABEL}>3 選科目</p>
+              {classRequirements.length === 0 ? (
+                <p className={MUTED_TEXT}>這個班級沒有科目需求。</p>
+              ) : (
+                <ul aria-label="科目" className="m-0 flex list-none flex-wrap gap-2 p-0">
+                  {classRequirements.map((requirement) => (
+                    <li key={requirement.id}>
+                      <button type="button" onClick={() => openFor(requirement)} className={PICK_BUTTON}>
+                        {lookups.subjectName.get(requirement.subject_id) ?? "—"}
+                        <span className="text-xs text-gray-500">（{requirement.weekly_periods} 節）</span>
+                        {combinedOf.has(requirement.id) && <span className={COMBINED_TAG}>已合併</span>}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
         </div>
-      </div>
 
-      <h3 className={`${SUBSECTION_TITLE} mt-4`}>已設定的共同排課（{combined.length}）</h3>
-      {combined.length === 0 ? (
-        <p className={MUTED_TEXT}>還沒有合併任何課。</p>
-      ) : (
-        <ul className="flex flex-col gap-1 text-sm text-gray-800">
-          {combined.map((item) => {
-            const members = item.requirement_ids
-              .map((id) => requirementById.get(id))
-              .filter((value): value is ClassSubjectRequirement => value !== undefined);
-            return (
-              <li key={item.id} className="flex flex-wrap items-center gap-2">
-                <span>
-                  {members.map((member) => requirementLabel(member, lookups)).join(" ＋ ")}（合併 {item.merged_count} 節）
-                </span>
-                {members[0] !== undefined && (
+        <h3 className={`${SUBSECTION_TITLE} mt-4`}>已設定的共同排課（{combined.length}）</h3>
+        {combined.length === 0 ? (
+          <p className={MUTED_TEXT}>還沒有合併任何課。</p>
+        ) : (
+          <ul className="flex flex-col gap-1 text-sm text-gray-800">
+            {combined.map((item) => {
+              const members = item.requirement_ids
+                .map((id) => requirementById.get(id))
+                .filter((value): value is ClassSubjectRequirement => value !== undefined);
+              return (
+                <li key={item.id} className="flex flex-wrap items-center gap-2">
+                  <span>
+                    {members.map((member) => requirementLabel(member, lookups)).join(" ＋ ")}（合併 {item.merged_count} 節）
+                  </span>
+                  {members[0] !== undefined && (
+                    <button
+                      type="button"
+                      onClick={() => setEditing({ host: members[0], existing: item })}
+                      disabled={removingId !== null}
+                      className={BUTTON_SECONDARY_SM}
+                    >
+                      編輯
+                    </button>
+                  )}
+                  {/* Task 98 Phase E: undone at once by merging again, so no
+                      confirmation (decision 34's risk grading). */}
                   <button
                     type="button"
-                    onClick={() => setEditing({ host: members[0], existing: item })}
-                    className={BUTTON_SECONDARY_SM}
+                    onClick={() => void handleRemove(item.id)}
+                    disabled={removingId !== null}
+                    aria-label={`取消合併${members.map((member) => requirementLabel(member, lookups)).join("、")}`}
+                    className={BUTTON_GHOST_SM}
                   >
-                    編輯
+                    {removingId === item.id ? "取消中…" : "取消合併"}
                   </button>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-
-      <div className="mt-4 flex gap-2">
-        <button type="button" onClick={onBack} className={BUTTON_SECONDARY}>
-          上一步
-        </button>
-        <button type="button" onClick={onNext} className={BUTTON_PRIMARY}>
-          下一步
-        </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {editing !== null && (
+          <CombineDialog
+            key={`${editing.host.id}-${editing.existing?.id ?? "new"}`}
+            versionId={versionId}
+            host={editing.host}
+            existing={editing.existing}
+            lookups={lookups}
+            combinedRequirementIds={
+              new Set(
+                [...combinedOf.keys()].filter((id) => editing.existing === null || !editing.existing.requirement_ids.includes(id)),
+              )
+            }
+            onSaved={() => {
+              setEditing(null);
+              onChanged();
+            }}
+            onCancel={() => setEditing(null)}
+          />
+        )}
+        {removeError !== null && (
+          <p role="alert" className={ERROR_TEXT}>
+            {removeError}
+          </p>
+        )}
       </div>
-      {editing !== null && (
-        <CombineDialog
-          key={`${editing.host.id}-${editing.existing?.id ?? "new"}`}
-          versionId={versionId}
-          host={editing.host}
-          existing={editing.existing}
-          lookups={lookups}
-          combinedRequirementIds={
-            new Set(
-              [...combinedOf.keys()].filter((id) => editing.existing === null || !editing.existing.requirement_ids.includes(id)),
-            )
-          }
-          onSaved={() => {
-            setEditing(null);
-            onChanged();
-          }}
-          onCancel={() => setEditing(null)}
-        />
-      )}
-    </div>
+      <ActionBar
+        start={
+          <button type="button" onClick={onBack} className={BUTTON_SECONDARY}>
+            上一步
+          </button>
+        }
+        end={
+          <button type="button" onClick={onNext} className={BUTTON_PRIMARY}>
+            下一步
+          </button>
+        }
+      />
+    </>
   );
 }
 

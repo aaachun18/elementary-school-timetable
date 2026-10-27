@@ -3,6 +3,7 @@ import { list as listTimeSlots, updateMany as updateTimeSlots } from "../../api/
 import { extractApiErrorMessage } from "../../constants/errorMessages";
 import { useResource } from "../../hooks/useResource";
 import type { TimeSlot, TimeSlotBulkUpdateItem } from "../../types/timeSlot";
+import InfoPopover from "../InfoPopover";
 import { buildPeriodDisplay, formatPeriodHeader } from "../../utils/periodDisplay";
 import { formatWeekday } from "../../utils/timeSlotFormat";
 import { buildTimeSlotGrid, slotKey } from "../../utils/wizard";
@@ -11,7 +12,6 @@ import {
   BUTTON_SECONDARY,
   CHECKBOX,
   ERROR_TEXT,
-  HELP_TEXT,
   INPUT,
   LOADING_TEXT,
   TABLE,
@@ -126,12 +126,9 @@ function TimeSlotGridEditor({
 
   return (
     <div>
-      <p className={HELP_TEXT}>
-        每天的節次由本校的學校類型決定，不能新增或刪除；可以修改每一節的標籤與是否可排課。早自習、午休、放學預設不可排課。不可排課的時段不會被排入課程，也不能設為年級的可排節次。
-      </p>
-      {isAdmin && (
-        <div className="mb-3 flex gap-2">
-          {isEditing ? (
+      <div className="mb-3 flex items-center gap-2">
+        {isAdmin &&
+          (isEditing ? (
             <>
               <button type="button" onClick={() => void handleSave()} disabled={isSaving} className={BUTTON_PRIMARY}>
                 {isSaving ? "儲存中…" : "儲存"}
@@ -144,9 +141,13 @@ function TimeSlotGridEditor({
             <button type="button" onClick={startEditing} className={BUTTON_PRIMARY}>
               編輯
             </button>
-          )}
-        </div>
-      )}
+          ))}
+        <InfoPopover label="關於時段">
+          <p>
+            每天的節次由本校的學校類型決定，不能新增或刪除；可以修改每一節的標籤與是否可排課。早自習、午休、放學預設不可排課。不可排課的時段不會被排入課程，也不能設為年級的可排節次。
+          </p>
+        </InfoPopover>
+      </div>
       {error !== null && (
         <p role="alert" className={ERROR_TEXT}>
           {error}

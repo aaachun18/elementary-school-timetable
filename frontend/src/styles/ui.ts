@@ -21,10 +21,34 @@ export const MUTED_TEXT = "text-sm text-gray-500";
 export const HELP_TEXT = "text-sm text-gray-500 mb-3";
 export const ERROR_TEXT = "text-sm text-red-600 mt-1";
 export const SUCCESS_TEXT = "text-sm font-medium text-green-600";
+// Task 98 Phase E: a finished flow's message (排課完成) -- the success
+// badge colors on a framed panel.
+export const SUCCESS_PANEL = "mt-3 rounded-md border border-green-200 bg-badge-success-bg px-4 py-3 text-badge-success-fg";
 export const LOADING_TEXT = "text-sm text-gray-500";
 
 // --- Layout ---
 export const PAGE = "p-6 max-w-6xl mx-auto";
+// Task 98 Phase C: a page's header (components/PageHeader.tsx) -- the
+// title with its small tags (學期 · 紀錄 #N, a status badge) and (i) on the
+// left, the page's actions on the right; one row, wrapping when narrow.
+export const PAGE_HEADER = "mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2";
+export const PAGE_HEADER_MAIN = "flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1";
+export const PAGE_HEADER_TITLE = "text-2xl font-semibold text-gray-900";
+export const PAGE_HEADER_ACTIONS = "flex flex-wrap items-center gap-2";
+// A small tag next to a title (「115 學年度第 1 學期 · 紀錄 #1」).
+export const META_TAG = "text-sm text-text-muted";
+// A card's one title row (components/CardHeader.tsx): the title and its (i).
+export const CARD_HEADER = "mb-3 flex flex-wrap items-center gap-2";
+export const CARD_TITLE = "text-base font-semibold text-gray-900";
+// The one line of a rule that changes the result or avoids a mistake,
+// kept visible when the rest of the explanation moved into an (i).
+export const RULE_NOTE = "mb-3 text-xs text-text-muted";
+// The wizard's bottom bar (components/ActionBar.tsx): sticks to the bottom
+// of the window, as wide as the content; secondary actions left, the
+// primary one right.
+export const ACTION_BAR =
+  "sticky bottom-0 z-20 mt-4 flex flex-wrap items-center justify-between gap-2 rounded-b-lg border-t border-gray-200 bg-surface px-4 py-3 shadow-[0_-4px_8px_-6px_rgb(0_0_0/0.15)]";
+export const ACTION_BAR_GROUP = "flex flex-wrap items-center gap-2";
 export const SECTION = "mb-6";
 export const CARD = "rounded-lg border border-gray-200 bg-white p-4 shadow-sm";
 
@@ -98,12 +122,45 @@ export const ROW_ERROR_TEXT = "mt-1 min-w-56 text-left text-sm text-red-600";
 export const INPUT =
   "rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-900 focus:border-primary disabled:bg-gray-100 disabled:text-gray-500";
 export const SELECT = INPUT;
+// Task 98 Phase D: a field typed right in a table row (排課紀錄's 備註):
+// no frame at rest, the frame shows on hover and focus.
+export const INPUT_INLINE =
+  "rounded-md border border-transparent bg-transparent px-2 py-1 text-sm text-gray-900 placeholder:text-gray-400 hover:border-gray-300 focus:border-primary focus:bg-surface disabled:text-gray-500";
 // Fields stacked in one column are equally wide: in a table cell or a
 // dialog's form a field fills its column (`w-full`); the pickers a page
 // stacks above its content (年級, 版本, 班級 / 教師 / 教室 ...) share this width.
 export const FIELD_PAGE = "w-64 max-w-full";
 export const CHECKBOX = "h-4 w-4 rounded border-gray-300 accent-primary";
 export const LABEL = "text-sm font-medium text-gray-700";
+
+// --- Task 98 Phase E: 教師設定 ---
+// The top toolbar (全選 + how many are in) and one card per teacher: an
+// unchecked teacher is quieter (gray, no inputs), a checked one framed.
+export const TOOLBAR = "mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md bg-page px-3 py-2";
+export const TEACHER_GRID = "grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3";
+export const TEACHER_CARD = "rounded-md border border-gray-200 bg-page px-3 py-2 text-gray-500";
+export const TEACHER_CARD_CHECKED = "rounded-md border border-gray-300 bg-surface px-3 py-2 text-gray-900 shadow-sm";
+
+// --- Task 98 Phase E: 年級與可排節次 ---
+// One row per grade, the columns lined up: 年級 | badge | 預設 (muted) | the
+// Ghost 「設定可排節次」 at the right.
+export const GRADE_ROW =
+  "grid grid-cols-[5rem_minmax(9rem,auto)_1fr_auto] items-center gap-3 border-b border-gray-100 py-2 text-sm last:border-b-0";
+
+// --- Task 98 Phase E: 科目需求 column widths ---
+// 連堂 160-180px, 指定老師 at least 120px, 特殊教室 at least 140px, 固定時段
+// as narrow as its button -- so no dropdown's text is cut off.
+export const REQ_COL_PATTERN = "w-44 min-w-40";
+export const REQ_COL_TEACHER = "min-w-32";
+export const REQ_COL_ROOM = "min-w-36";
+export const REQ_COL_FIXED = "w-px";
+
+// --- Task 98 Phase E: 共同排課's pickers (1 選年級 → 2 選班級 → 3 選科目) ---
+export const PICK_STEP_LABEL = "mb-1 text-xs font-semibold text-gray-600";
+const PICK_BUTTON_BASE = "inline-flex min-h-8 items-center gap-1 rounded-md px-3 py-1.5 text-sm font-medium";
+export const PICK_BUTTON = `${PICK_BUTTON_BASE} border border-gray-200 bg-surface text-gray-700 hover:bg-secondary`;
+// Selected: tinted background, primary frame and a check mark.
+export const PICK_BUTTON_SELECTED = `${PICK_BUTTON_BASE} border border-primary bg-primary-soft text-primary`;
 
 // --- Tables ---
 export const TABLE_WRAPPER = "overflow-x-auto rounded-lg border border-gray-200";
@@ -134,11 +191,21 @@ export const TAB_BUTTON =
 export const TAB_BUTTON_ACTIVE =
   "inline-flex min-h-8 items-center rounded-md bg-primary-soft px-3 py-1.5 text-sm font-medium text-primary";
 
-// --- Wizard step pills (Task 98 Phase C replaces them with a Stepper) ---
-const STEP_PILL_BASE = "inline-flex min-h-8 items-center rounded-full px-3 py-1 disabled:cursor-default";
-export const STEP_PILL_CURRENT = `${STEP_PILL_BASE} bg-primary text-on-accent`;
-export const STEP_PILL_DONE = `${STEP_PILL_BASE} bg-primary-soft text-primary`;
-export const STEP_PILL_TODO = `${STEP_PILL_BASE} bg-gray-100 text-gray-600`;
+// --- Stepper (components/Stepper.tsx, Task 98 Phase C) ---
+// One row at most 48px high: a 24px numbered circle + the label, joined by
+// lines. Done = check mark, current = solid primary, not yet = gray. Below
+// 900px only the current step keeps its label.
+export const STEPPER = "mb-4 flex min-h-12 items-center gap-2 overflow-hidden";
+export const STEPPER_ITEM = "flex min-w-0 flex-1 items-center gap-2 last:flex-none";
+export const STEPPER_BUTTON =
+  "inline-flex min-h-8 shrink-0 items-center gap-2 rounded-md px-1 text-sm disabled:cursor-default enabled:hover:bg-secondary";
+const STEP_CIRCLE_BASE = "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold";
+export const STEP_CIRCLE_DONE = `${STEP_CIRCLE_BASE} bg-primary-soft text-primary`;
+export const STEP_CIRCLE_CURRENT = `${STEP_CIRCLE_BASE} bg-primary text-on-accent`;
+export const STEP_CIRCLE_TODO = `${STEP_CIRCLE_BASE} bg-gray-200 text-gray-600`;
+export const STEP_LABEL_CURRENT = "font-semibold text-gray-900";
+export const STEP_LABEL_OTHER = "hidden text-gray-600 min-[900px]:inline";
+export const STEP_LINE = "h-px min-w-3 flex-1 bg-gray-300";
 
 // --- Badges / status pills ---
 // Task 73: marks a row that can't be edited or deleted (shown with an
@@ -340,6 +407,15 @@ export const FIELD_HELP = "mt-1 max-w-56 whitespace-normal text-xs text-gray-500
 export const FIELD_HINT_WARNING = "mt-1 max-w-56 whitespace-normal text-xs text-amber-700";
 // The small ⚠ next to a table value that has such a problem.
 export const INLINE_WARNING_ICON = "ml-1 cursor-help text-amber-600";
+
+// --- Task 98 Phase D: the home page's Action Cards ---
+// Three equally wide cards, each one whole link: icon, title, one line.
+export const ACTION_CARD_GRID = "mb-4 grid grid-cols-1 gap-4 sm:grid-cols-3";
+export const ACTION_CARD =
+  "flex h-full items-start gap-3 rounded-lg border border-gray-200 bg-surface p-4 shadow-sm transition-colors hover:border-primary hover:bg-primary-soft";
+export const ACTION_CARD_ICON = "flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary-soft text-primary";
+export const ACTION_CARD_TITLE = "text-base font-semibold text-gray-900";
+export const ACTION_CARD_TEXT = "mt-0.5 text-sm text-text-muted";
 
 // --- Task 97: home page dashboard ---
 export const DASHBOARD_GRID = "grid grid-cols-1 gap-4 md:grid-cols-2";

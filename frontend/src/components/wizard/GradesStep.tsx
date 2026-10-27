@@ -12,17 +12,20 @@ import type { Grade } from "../../types/grade";
 import type { GradeTimeSlots } from "../../types/semesterSettings";
 import type { TimeSlot } from "../../types/timeSlot";
 import { defaultOpenPeriodsText } from "../../utils/schoolStructure";
+import ActionBar from "../ActionBar";
+import StatusBadge from "../StatusBadge";
+import CardHeader from "../CardHeader";
 import TimeSlotPickerDialog from "./TimeSlotPickerDialog";
+import { wizardStepLabel } from "../../utils/wizard";
 import {
   BUTTON_PRIMARY,
   BUTTON_SECONDARY,
   BUTTON_GHOST_SM,
   CARD,
   ERROR_TEXT,
-  HELP_TEXT,
   LOADING_TEXT,
+  GRADE_ROW,
   MUTED_TEXT,
-  SUBSECTION_TITLE,
 } from "../../styles/ui";
 
 const HELP =
@@ -172,63 +175,82 @@ function GradesForm({
   }
 
   return (
-    <div className={CARD}>
-      <h3 className={SUBSECTION_TITLE}>每個年級每週可以排課的節次</h3>
-      <p className={HELP_TEXT}>{HELP}</p>
-      {grades.length === 0 ? (
-        <p className={MUTED_TEXT}>學校還沒有年級。</p>
-      ) : (
-        <ul className="flex flex-col gap-2">
-          {grades.map((grade) => {
-            const slotIds = savedSlots.get(grade.id);
-            return (
-              <li key={grade.id} className="flex flex-wrap items-center gap-3 text-sm">
-                <span className="w-20 font-medium text-gray-900">{grade.name}</span>
-                <span className="text-gray-700">
-                  {slotIds === undefined ? "尚未設定（下一步時套用預設）" : `已開放 ${slotIds.length} 個節次`}
-                </span>
-                <span className={MUTED_TEXT}>預設：{defaultOpenPeriodsText(grade.level)}</span>
-                <button type="button" onClick={() => void openPicker(grade)} className={BUTTON_GHOST_SM}>
-                  設定可排節次
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      {error !== null && (
-        <p role="alert" className={ERROR_TEXT}>
-          {error}
+    <>
+      <div className={CARD}>
+        <CardHeader title={wizardStepLabel("grades")} info={<p>{HELP}</p>} />
+        {grades.length === 0 ? (
+          <p className={MUTED_TEXT}>
+          學校還沒有年級。年級由學校類型決定，請聯絡系統管理員到「學校管理」確認學校設定。
         </p>
-      )}
-      <div className="mt-4 flex gap-2">
-        <button type="button" onClick={onBack} className={BUTTON_SECONDARY}>
-          上一步
-        </button>
-        <button
-          type="button"
-          onClick={() => void handleNext()}
-          disabled={isFinishing || grades.length === 0}
-          className={BUTTON_PRIMARY}
-        >
-          {isFinishing ? "儲存中…" : "下一步"}
-        </button>
+        ) : (
+          <ul className="m-0 flex list-none flex-col p-0">
+            {grades.map((grade) => {
+              const slotIds = savedSlots.get(grade.id);
+              return (
+                <li key={grade.id} className={GRADE_ROW}>
+                  <span className="font-medium text-gray-900">{grade.name}</span>
+                  <span>
+                    {slotIds === undefined ? (
+                      <StatusBadge tone="neutral">尚未設定</StatusBadge>
+                    ) : (
+                      <StatusBadge tone="info">已開放 {slotIds.length} 個節次</StatusBadge>
+                    )}
+                  </span>
+                  <span className={MUTED_TEXT}>
+                    {slotIds === undefined ? "下一步時套用預設：" : "預設："}
+                    {defaultOpenPeriodsText(grade.level)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void openPicker(grade)}
+                    aria-label={`設定${grade.name}的可排節次`}
+                    className={`${BUTTON_GHOST_SM} justify-self-end`}
+                  >
+                    設定可排節次
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {error !== null && (
+          <p role="alert" className={ERROR_TEXT}>
+            {error}
+          </p>
+        )}
+        {picker !== null && (
+          <TimeSlotPickerDialog
+            key={picker.grade.id}
+            title={`${picker.grade.name}的可排節次`}
+            description="勾選這學期這個年級可以排課的節次；沒勾的節次不會排課。"
+            checkedLabel="可排課"
+            timeSlots={timeSlots}
+            initialSelected={picker.initial}
+            busy={isPickerSaving}
+            errorMessage={pickerError}
+            requireOne
+            onSave={(ids) => void handlePickerSave(ids)}
+            onCancel={() => setPicker(null)}
+          />
+        )}
       </div>
-      {picker !== null && (
-        <TimeSlotPickerDialog
-          key={picker.grade.id}
-          title={`${picker.grade.name}的可排節次`}
-          description="勾選這學期這個年級可以排課的節次；沒勾的節次不會排課。"
-          checkedLabel="可排課"
-          timeSlots={timeSlots}
-          initialSelected={picker.initial}
-          busy={isPickerSaving}
-          errorMessage={pickerError}
-          requireOne
-          onSave={(ids) => void handlePickerSave(ids)}
-          onCancel={() => setPicker(null)}
-        />
-      )}
-    </div>
+      <ActionBar
+        start={
+          <button type="button" onClick={onBack} className={BUTTON_SECONDARY}>
+            上一步
+          </button>
+        }
+        end={
+          <button
+            type="button"
+            onClick={() => void handleNext()}
+            disabled={isFinishing || grades.length === 0}
+            className={BUTTON_PRIMARY}
+          >
+            {isFinishing ? "儲存中…" : "下一步"}
+          </button>
+        }
+      />
+    </>
   );
 }

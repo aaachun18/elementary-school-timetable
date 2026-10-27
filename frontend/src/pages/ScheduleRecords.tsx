@@ -9,6 +9,7 @@ import {
 import { list as listSemesters } from "../api/semesters";
 import ConfirmDialog from "../components/ConfirmDialog";
 import DeleteIconButton from "../components/DeleteIconButton";
+import PageHeader from "../components/PageHeader";
 import { RecordStatusBadge } from "../components/StatusBadge";
 import { extractApiErrorMessage } from "../constants/errorMessages";
 import { useFlashMessage } from "../hooks/useFlashMessage";
@@ -27,13 +28,11 @@ import {
   BUTTON_GHOST_SM,
   CARD,
   ERROR_TEXT,
-  HELP_TEXT,
-  INPUT,
+  INPUT_INLINE,
   LINK_TEXT,
   LOADING_TEXT,
   MUTED_TEXT,
   PAGE,
-  PAGE_TITLE,
   ROW_ACTIONS_END,
   SUCCESS_TEXT,
   TABLE,
@@ -47,6 +46,8 @@ import {
 } from "../styles/ui";
 
 const ALL = 1000;
+const RECORDS_HELP =
+  "每次「開始排課」或複製都會留下一筆排課紀錄，依編號由新到舊排列。「檢視課表」可以手動編輯、複製與發布課表；「檢視排課設定」可以查看這次排課用的設定，或複製設定重新排課。備註直接在欄位裡輸入，離開欄位就會儲存。";
 const NOTE_MAX_LENGTH = 200;
 
 // v3 (items 9, 11, 15): 排課紀錄 -- every record of the school, newest 編號
@@ -68,7 +69,7 @@ export default function ScheduleRecords(): ReactElement {
   if (data.errorMessage !== null) {
     return (
       <div className={PAGE}>
-        <h1 className={PAGE_TITLE}>排課紀錄</h1>
+        <PageHeader title="排課紀錄" />
         <p role="alert" className={ERROR_TEXT}>
           {data.errorMessage}
         </p>
@@ -78,7 +79,7 @@ export default function ScheduleRecords(): ReactElement {
   if (data.data === null) {
     return (
       <div className={PAGE}>
-        <h1 className={PAGE_TITLE}>排課紀錄</h1>
+        <PageHeader title="排課紀錄" />
         <p className={LOADING_TEXT}>載入中…</p>
       </div>
     );
@@ -111,10 +112,7 @@ export default function ScheduleRecords(): ReactElement {
 
   return (
     <div className={PAGE}>
-      <h1 className={PAGE_TITLE}>排課紀錄</h1>
-      <p className={HELP_TEXT}>
-        每次「開始排課」或複製都會留下一筆排課紀錄，依編號由新到舊排列。「檢視課表」可以手動編輯、複製與發布課表；「檢視排課設定」可以查看這次排課用的設定，或複製設定重新排課。備註直接在欄位裡輸入，離開欄位就會儲存。
-      </p>
+      <PageHeader title="排課紀錄" info={<p>{RECORDS_HELP}</p>} />
       {flash.message !== null && <p className={`${SUCCESS_TEXT} mb-2`}>✓ {flash.message}</p>}
 
       {versions.length === 0 ? (
@@ -246,9 +244,9 @@ function NoteCell({ record }: { record: ScheduleVersion }): ReactElement {
         onBlur={() => void save()}
         maxLength={NOTE_MAX_LENGTH}
         disabled={isSaving}
-        placeholder="例如：王老師上三年級自然課版"
+        placeholder="新增備註"
         aria-label={`編號 ${record.display_number} 的備註`}
-        className={`${INPUT} w-full`}
+        className={`${INPUT_INLINE} w-full`}
       />
       {isSaving && <span className={MUTED_TEXT}>儲存中…</span>}
       {justSaved && !isSaving && <span className="text-xs text-green-600">已儲存</span>}

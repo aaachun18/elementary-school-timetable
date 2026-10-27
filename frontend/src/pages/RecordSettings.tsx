@@ -13,6 +13,7 @@ import { list as listTeachers } from "../api/teachers";
 import { list as listTimeSlots } from "../api/timeSlots";
 import AutoScheduleOutcome from "../components/AutoScheduleOutcome";
 import DisabledReason from "../components/DisabledReason";
+import PageHeader from "../components/PageHeader";
 import { RecordStatusBadge } from "../components/StatusBadge";
 import { extractApiErrorMessage } from "../constants/errorMessages";
 import { useAutoSchedule } from "../hooks/useAutoSchedule";
@@ -20,7 +21,8 @@ import { useResource } from "../hooks/useResource";
 import { autoScheduleDisabledReason } from "../utils/disabledReason";
 import { rememberWizardRecord } from "../utils/wizardRecord";
 import { buildPeriodDisplay } from "../utils/periodDisplay";
-import { summarizeSlots } from "../utils/recordSettings";
+import { slotCellsByWeekday, summarizeSlots } from "../utils/recordSettings";
+import { formatWeekday } from "../utils/timeSlotFormat";
 import {
   hasTimetable,
   semesterLabelOf,
@@ -37,12 +39,12 @@ import {
   CARD,
   ERROR_TEXT,
   FIELD_PAGE,
-  HELP_TEXT,
   LABEL,
+  LINK_TEXT,
   LOADING_TEXT,
+  META_TAG,
   MUTED_TEXT,
   PAGE,
-  PAGE_TITLE,
   SECTION,
   SECTION_TITLE,
   SELECT,
@@ -53,6 +55,7 @@ import {
   TAB_BUTTON,
   TAB_BUTTON_ACTIVE,
   TD,
+  TD_NOWRAP,
   TH,
 } from "../styles/ui";
 
@@ -181,6 +184,7 @@ function SettingsView({ record, onChanged }: { record: ScheduleVersion; onChange
   const semesterById = new Map(semesters.map((item) => [item.id, item]));
   const timeSlotById = new Map(timeSlots.map((item) => [item.id, item]));
   const periodDisplay = buildPeriodDisplay(timeSlots);
+  const weekdays = [...new Set(timeSlots.map((item) => item.weekday))].sort((a, b) => a - b);
   const gradeById = new Map(grades.map((item) => [item.id, item]));
   const classById = new Map(classes.map((item) => [item.id, item]));
   const subjectNameById = new Map(subjects.map((item) => [item.id, item.name]));
@@ -208,61 +212,85 @@ function SettingsView({ record, onChanged }: { record: ScheduleVersion; onChange
   return (
     <div className={PAGE}>
       <BackLink />
-      <h1 className={PAGE_TITLE}>排課設定・編號 {record.display_number}</h1>
-      <p className="mb-3 flex flex-wrap items-center gap-2 text-sm text-gray-700">
-        {semesterLabelOf(record, semesterById, academicYearById)}
-        <RecordStatusBadge record={record} />
-        {record.note !== null && <span className={MUTED_TEXT}>備註：{record.note}</span>}
-      </p>
+      <PageHeader
+        title={`排課設定・編號 ${record.display_number}`}
+        info={
+          <p>
+            {isNotScheduled
+              ? "這筆紀錄還沒排課，可以「修改排課設定」，確定後按「自動排課」。"
+              : "這筆紀錄已經排過課，設定不能再修改；要用不同設定重新排課，請「複製此次排課設定」，在新的紀錄修改後自動排課。"}
+          </p>
+        }
+        meta={
+          <>
+            <span className={META_TAG}>{semesterLabelOf(record, semesterById, academicYearById)}</span>
+            <RecordStatusBadge record={record} />
+            {record.note !== null && <span className={META_TAG}>備註：{record.note}</span>}
+          </>
+        }
+        actions={
+          <>
+            <button type="button" onClick={() => void handleCopy()} disabled={isCopying} className={BUTTON_SECONDARY}>
+              {isCopying ? "複製中…" : "複製此次排課設定"}
+            </button>
+            {isNotScheduled && (
+              <>
+                <Link to={`/wizard?record=${record.id}`} className={BUTTON_SECONDARY}>
+                  修改排課設定
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => void handleRun()}
+                  disabled={autoSchedule.isRunning || runDisabledReason !== null}
+                  title={runDisabledReason ?? undefined}
+                  aria-describedby={runDisabledReason !== null ? runReasonId : undefined}
+                  className={BUTTON_PRIMARY}
+                >
+                  {autoSchedule.isRunning ? "排課中…" : "自動排課"}
+                </button>
+              </>
+            )}
+            {hasTimetable(record.status) && (
+              <Link to={`/timetable?scheduleVersionId=${record.id}`} className={BUTTON_PRIMARY}>
+                檢視課表
+              </Link>
+            )}
+          </>
+        }
+      />
       <FlashFromNavigation />
 
-      <section className={SECTION} aria-label="操作">
-        <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => void handleCopy()} disabled={isCopying} className={BUTTON_SECONDARY}>
-            {isCopying ? "複製中…" : "複製此次排課設定"}
-          </button>
-          {isNotScheduled && (
-            <>
-              <Link to={`/wizard?record=${record.id}`} className={BUTTON_SECONDARY}>
-                修改排課設定
-              </Link>
-              <button
-                type="button"
-                onClick={() => void handleRun()}
-                disabled={autoSchedule.isRunning || runDisabledReason !== null}
-                title={runDisabledReason ?? undefined}
-                aria-describedby={runDisabledReason !== null ? runReasonId : undefined}
-                className={BUTTON_PRIMARY}
-              >
-                {autoSchedule.isRunning ? "排課中…" : "自動排課"}
-              </button>
-            </>
-          )}
-          {hasTimetable(record.status) && (
-            <Link to={`/timetable?scheduleVersionId=${record.id}`} className={BUTTON_PRIMARY}>
-              檢視課表
-            </Link>
-          )}
-        </div>
-        {isNotScheduled && <DisabledReason id={runReasonId} reason={runDisabledReason} />}
-        <p className={`${HELP_TEXT} mt-2`}>
-          {isNotScheduled
-            ? "這筆紀錄還沒排課，可以「修改排課設定」，確定後按「自動排課」。"
-            : "這筆紀錄已經排過課，設定不能再修改；要用不同設定重新排課，請「複製此次排課設定」，在新的紀錄修改後自動排課。"}
-        </p>
+      <section className={SECTION} aria-label="操作結果">
+        {isNotScheduled && (
+          <div className="flex justify-end">
+            <DisabledReason id={runReasonId} reason={runDisabledReason} />
+          </div>
+        )}
         {copyError !== null && (
           <p role="alert" className={ERROR_TEXT}>
             {copyError}
           </p>
         )}
-        <AutoScheduleOutcome versionId={record.id} state={autoSchedule} />
+        <AutoScheduleOutcome versionId={record.id} state={autoSchedule} showLinks={false} />
       </section>
 
 
       <section className={SECTION}>
         <h2 className={SECTION_TITLE}>參與教師（{teachers.length} 位）</h2>
         {teachers.length === 0 ? (
-          <p className={MUTED_TEXT}>還沒有設定參與排課的老師。</p>
+          <div className={CARD}>
+            <p className={MUTED_TEXT}>
+              還沒有設定參與排課的老師，沒有老師就不能自動排課。
+              {isNotScheduled && (
+                <>
+                  {" "}
+                  <Link to={`/wizard?record=${record.id}&step=teachers`} className={LINK_TEXT}>
+                    前往教師設定
+                  </Link>
+                </>
+              )}
+            </p>
+          </div>
         ) : (
           <div className={TABLE_WRAPPER}>
             <table className={TABLE}>
@@ -302,15 +330,33 @@ function SettingsView({ record, onChanged }: { record: ScheduleVersion; onChange
         {sortedGradeSlots.length === 0 ? (
           <p className={MUTED_TEXT}>還沒有設定年級可排節次（未設定的年級不受限制）。</p>
         ) : (
-          <div className={CARD}>
-            <ul className="m-0 flex list-none flex-col gap-2 p-0 text-sm">
-              {sortedGradeSlots.map((item) => (
-                <li key={item.grade_id}>
-                  <span className="font-medium text-gray-900">{gradeById.get(item.grade_id)?.name ?? `年級 ${item.grade_id}`}</span>
-                  ：{summarizeSlots(item.time_slot_ids, timeSlotById, periodDisplay)}
-                </li>
-              ))}
-            </ul>
+          <div className={TABLE_WRAPPER}>
+            <table className={TABLE}>
+              <thead>
+                <tr className={TABLE_HEAD_ROW}>
+                  <th className={TH}>年級</th>
+                  {weekdays.map((weekday) => (
+                    <th key={weekday} className={TH}>
+                      {formatWeekday(weekday)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sortedGradeSlots.map((item) => (
+                  <tr key={item.grade_id}>
+                    <th scope="row" className={`${TD_NOWRAP} text-left font-medium text-gray-900`}>
+                      {gradeById.get(item.grade_id)?.name ?? `年級 ${item.grade_id}`}
+                    </th>
+                    {slotCellsByWeekday(item.time_slot_ids, timeSlotById, periodDisplay, weekdays).map((cell, index) => (
+                      <td key={weekdays[index]} className={TD_NOWRAP}>
+                        {cell}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </section>

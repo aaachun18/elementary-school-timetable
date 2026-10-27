@@ -18,6 +18,7 @@ import { WEEKLY_PERIOD_OPTIONS } from "../../utils/wizard";
 import { deleteButtonLabel, deleteConfirmText } from "../../utils/confirmText";
 import ConfirmDialog from "../ConfirmDialog";
 import DeleteIconButton from "../DeleteIconButton";
+import InfoPopover from "../InfoPopover";
 import SuggestionInput from "../SuggestionInput";
 import {
   BUTTON_PRIMARY,
@@ -131,11 +132,13 @@ function GradeRequirementsEditor({
   return (
     <div>
       {confirmDialog}
-      <p className={HELP_TEXT}>
-        設定每個年級各科目每週需要的節數，同年級的每個班級都適用。開始排課的「科目需求」步驟會自動帶入這裡的設定。
-      </p>
       <label className="mb-3 flex flex-col gap-1">
-        <span className={LABEL}>年級</span>
+        <span className={`${LABEL} flex items-center gap-1`}>
+          年級
+          <InfoPopover label="關於科目需求">
+            <p>設定每個年級各科目每週需要的節數，同年級的每個班級都適用。開始排課的「科目需求」步驟會自動帶入這裡的設定。</p>
+          </InfoPopover>
+        </span>
         <select
           value={gradeId}
           onChange={(event) => setGradeId(Number(event.target.value))}
@@ -206,7 +209,9 @@ function GradeRequirementsEditor({
             {gradeRequirements.length === 0 && (
               <tr>
                 <td className={TD} colSpan={isAdmin ? 3 : 2}>
-                  <span className={HELP_TEXT}>這個年級還沒有科目需求。</span>
+                  <span className={HELP_TEXT}>
+                    這個年級還沒有科目需求。{isAdmin && "按下方「新增科目需求」加入科目與每週節數，開始排課時會自動帶入。"}
+                  </span>
                 </td>
               </tr>
             )}

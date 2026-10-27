@@ -27,7 +27,10 @@ import type { Subject } from "../../types/subject";
 import type { TimeSlot } from "../../types/timeSlot";
 import { NO_PATTERN, lessonPatternOptions } from "../../utils/lessonPattern";
 import { buildPeriodDisplay } from "../../utils/periodDisplay";
+import ActionBar from "../ActionBar";
+import CardHeader from "../CardHeader";
 import FixedSlotsDialog from "./FixedSlotsDialog";
+import { wizardStepLabel } from "../../utils/wizard";
 import {
   BUTTON_PRIMARY,
   BUTTON_SECONDARY,
@@ -35,13 +38,17 @@ import {
   CARD,
   ERROR_TEXT,
   FIELD_PAGE,
-  HELP_TEXT,
   LABEL,
   LINK_TEXT,
   LOADING_TEXT,
   LOCK_BADGE,
   MUTED_TEXT,
   NOTICE,
+  REQ_COL_FIXED,
+  REQ_COL_PATTERN,
+  REQ_COL_ROOM,
+  REQ_COL_TEACHER,
+  RULE_NOTE,
   SELECT,
   TABLE,
   TABLE_HEAD_ROW,
@@ -49,6 +56,7 @@ import {
   TAB_BUTTON,
   TAB_BUTTON_ACTIVE,
   TD,
+  TD_NOWRAP,
   TH,
 } from "../../styles/ui";
 
@@ -238,125 +246,137 @@ function RequirementsForm({
   }
 
   return (
-    <div className={CARD}>
-      <p className={HELP_TEXT}>
-        每個班級的科目與每週節數會自動帶入
-        <Link to="/data?tab=gradeRequirements" className={LINK_TEXT}>
-          學校資料的科目需求
-        </Link>
-        ，要調整請到那裡修改。這裡只需要視情況指定連堂、老師與特殊教室，修改後會立即儲存；不指定特殊教室就在原班教室上課（課表上不顯示），指定了會在課表上註記。
-      </p>
-      {summary !== null && <p className={`${NOTICE} mb-3`}>{summary}</p>}
-      {classes.length === 0 ? (
-        <p className={MUTED_TEXT}>
-          還沒有班級，請先到
-          <Link to="/data?tab=classes" className={LINK_TEXT}>
-            學校資料
-          </Link>
-          建立。
-        </p>
-      ) : (
-        <>
-          <label className="mb-3 flex items-center gap-2">
-            <span className={LABEL}>年級</span>
-            <select
-              value={gradeId ?? ""}
-              onChange={(event) => selectGrade(Number(event.target.value))}
-              className={`${SELECT} ${FIELD_PAGE}`}
-            >
-              {gradesWithClasses.map((grade) => (
-                <option key={grade.id} value={grade.id}>
-                  {grade.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="flex flex-col gap-3 md:flex-row md:items-start">
-            <nav aria-label="班級" className="flex shrink-0 flex-row flex-wrap gap-1 md:w-40 md:flex-col">
-              {gradeClasses.map((item) => {
-                const count = requirements.filter((requirement) => requirement.class_id === item.id).length;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setClassId(item.id)}
-                    aria-current={item.id === classId ? "true" : undefined}
-                    className={item.id === classId ? CLASS_BUTTON_ACTIVE : CLASS_BUTTON}
-                  >
-                    {item.name}
-                    <span className="ml-1 text-xs text-gray-500">（{count} 科）</span>
-                  </button>
-                );
-              })}
-            </nav>
-            <div className="min-w-0 flex-1">
-              <div className={TABLE_WRAPPER}>
-                <table className={TABLE}>
-                  <thead>
-                    <tr className={TABLE_HEAD_ROW}>
-                      <th className={TH}>科目</th>
-                      <th className={TH}>每週節數</th>
-                      <th className={TH}>連堂</th>
-                      <th className={TH}>固定時段</th>
-                      <th className={TH}>指定老師</th>
-                      <th className={TH}>特殊教室</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {classRequirements.map((requirement) => (
-                      <RequirementRow
-                        key={requirement.id}
-                        requirement={requirement}
-                        subjectName={subjectName.get(requirement.subject_id) ?? "—"}
-                        rooms={rooms}
-                        teachers={teachers}
-                        fixedCount={fixedCountOf.get(requirement.id) ?? 0}
-                        onOpenFixed={() => setFixing(requirement)}
-                        onSaved={replaceRequirement}
-                      />
-                    ))}
-                    {classRequirements.length === 0 && (
-                      <tr>
-                        <td className={TD} colSpan={6}>
-                          <span className={MUTED_TEXT}>這個班級的年級還沒有科目需求。</span>
-                        </td>
+    <>
+      <div className={CARD}>
+        <CardHeader
+          title={wizardStepLabel("requirements")}
+          info={
+            <p>
+              每個班級的科目與每週節數會自動帶入
+              <Link to="/data?tab=gradeRequirements" className={LINK_TEXT}>
+                學校資料的科目需求
+              </Link>
+              ，要調整請到那裡修改。這裡只需要視情況指定連堂、老師與特殊教室，修改後會立即儲存；不指定特殊教室就在原班教室上課（課表上不顯示），指定了會在課表上註記。
+            </p>
+          }
+        />
+        <p className={RULE_NOTE}>修改後會立即儲存</p>
+        {summary !== null && <p className={`${NOTICE} mb-3`}>{summary}</p>}
+        {classes.length === 0 ? (
+          <p className={MUTED_TEXT}>
+            還沒有班級，請先到
+            <Link to="/data?tab=classes" className={LINK_TEXT}>
+              學校資料
+            </Link>
+            建立。
+          </p>
+        ) : (
+          <>
+            <label className="mb-3 flex items-center gap-2">
+              <span className={LABEL}>年級</span>
+              <select
+                value={gradeId ?? ""}
+                onChange={(event) => selectGrade(Number(event.target.value))}
+                className={`${SELECT} ${FIELD_PAGE}`}
+              >
+                {gradesWithClasses.map((grade) => (
+                  <option key={grade.id} value={grade.id}>
+                    {grade.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="flex flex-col gap-3 md:flex-row md:items-start">
+              <nav aria-label="班級" className="flex shrink-0 flex-row flex-wrap gap-1 md:w-40 md:flex-col">
+                {gradeClasses.map((item) => {
+                  const count = requirements.filter((requirement) => requirement.class_id === item.id).length;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setClassId(item.id)}
+                      aria-current={item.id === classId ? "true" : undefined}
+                      className={item.id === classId ? CLASS_BUTTON_ACTIVE : CLASS_BUTTON}
+                    >
+                      {item.name}
+                      <span className="ml-1 text-xs text-gray-500">（{count} 科）</span>
+                    </button>
+                  );
+                })}
+              </nav>
+              <div className="min-w-0 flex-1">
+                <div className={TABLE_WRAPPER}>
+                  <table className={TABLE}>
+                    <thead>
+                      <tr className={TABLE_HEAD_ROW}>
+                        <th className={TH}>科目</th>
+                        <th className={TH}>每週節數</th>
+                        <th className={`${TH} ${REQ_COL_PATTERN}`}>連堂</th>
+                        <th className={`${TH} ${REQ_COL_FIXED}`}>固定時段</th>
+                        <th className={`${TH} ${REQ_COL_TEACHER}`}>指定老師</th>
+                        <th className={`${TH} ${REQ_COL_ROOM}`}>特殊教室</th>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {classRequirements.map((requirement) => (
+                        <RequirementRow
+                          key={requirement.id}
+                          requirement={requirement}
+                          subjectName={subjectName.get(requirement.subject_id) ?? "—"}
+                          rooms={rooms}
+                          teachers={teachers}
+                          fixedCount={fixedCountOf.get(requirement.id) ?? 0}
+                          onOpenFixed={() => setFixing(requirement)}
+                          onSaved={replaceRequirement}
+                        />
+                      ))}
+                      {classRequirements.length === 0 && (
+                        <tr>
+                          <td className={TD} colSpan={6}>
+                            <span className={MUTED_TEXT}>這個班級的年級還沒有科目需求。</span>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
-          </div>
-          {classesWithout.length > 0 && (
-            <p className="mt-3 text-sm text-amber-800">
-              還沒有科目需求的班級：{classesWithout.map((item) => item.name).join("、")}（請到學校資料的科目需求設定該年級）
-            </p>
-          )}
-        </>
-      )}
-      {fixing !== null && (
-        <FixedSlotsDialog
-          versionId={versionId}
-          requirementId={fixing.id}
-          lessonPattern={fixing.lesson_pattern ?? null}
-          title={`${classes.find((item) => item.id === fixing.class_id)?.name ?? ""}${subjectName.get(fixing.subject_id) ?? ""}的固定時段`}
-          teachingTimeSlots={teachingTimeSlots}
-          periodDisplay={periodDisplay}
-          onClose={() => {
-            setFixing(null);
-            lessons.reload();
-          }}
-        />
-      )}
-      <div className="mt-4 flex gap-2">
-        <button type="button" onClick={onBack} className={BUTTON_SECONDARY}>
-          上一步
-        </button>
-        <button type="button" onClick={onNext} disabled={requirements.length === 0} className={BUTTON_PRIMARY}>
-          下一步
-        </button>
+            {classesWithout.length > 0 && (
+              <p className="mt-3 text-sm text-amber-800">
+                還沒有科目需求的班級：{classesWithout.map((item) => item.name).join("、")}（請到學校資料的科目需求設定該年級）
+              </p>
+            )}
+          </>
+        )}
+        {fixing !== null && (
+          <FixedSlotsDialog
+            versionId={versionId}
+            requirementId={fixing.id}
+            lessonPattern={fixing.lesson_pattern ?? null}
+            title={`${classes.find((item) => item.id === fixing.class_id)?.name ?? ""}${subjectName.get(fixing.subject_id) ?? ""}的固定時段`}
+            teachingTimeSlots={teachingTimeSlots}
+            periodDisplay={periodDisplay}
+            onClose={() => {
+              setFixing(null);
+              lessons.reload();
+            }}
+          />
+        )}
       </div>
-    </div>
+      <ActionBar
+        start={
+          <button type="button" onClick={onBack} className={BUTTON_SECONDARY}>
+            上一步
+          </button>
+        }
+        end={
+          <button type="button" onClick={onNext} disabled={requirements.length === 0} className={BUTTON_PRIMARY}>
+            下一步
+          </button>
+        }
+      />
+    </>
   );
 }
 
@@ -433,7 +453,7 @@ function RequirementRow({
           </select>
         )}
       </td>
-      <td className={TD}>
+      <td className={TD_NOWRAP}>
         <button type="button" onClick={onOpenFixed} disabled={disabled} className={BUTTON_GHOST_SM}>
           {fixedCount === 0 ? "設定" : `已固定 ${fixedCount} 堂`}
         </button>

@@ -10,7 +10,7 @@ import { list as listSchools } from "../api/schools";
 import { useResource } from "../hooks/useResource";
 import { useCrudList } from "../hooks/useCrudList";
 import { useConfirm } from "../hooks/useConfirm";
-import { deleteConfirmText } from "../utils/confirmText";
+import { deleteButtonLabel, deleteConfirmText } from "../utils/confirmText";
 import type { School } from "../types/school";
 import type { PasswordReset, SameNameTeacher, User, UserCreate, UserUpdate } from "../types/user";
 import { getCurrentUserRole, getCurrentUsername, ROLE_LABELS } from "../utils/auth";
@@ -20,18 +20,18 @@ import NationalIdEditDialog from "../components/accounts/NationalIdEditDialog";
 import NationalIdFollowUpDialog from "../components/accounts/NationalIdFollowUpDialog";
 import { RowErrorText } from "../components/DeleteStepsHint";
 import StatusBadge from "../components/StatusBadge";
+import PageHeader from "../components/PageHeader";
+import DeleteIconButton from "../components/DeleteIconButton";
 import {
   BUTTON_PRIMARY,
   BUTTON_PRIMARY_SM,
   BUTTON_SECONDARY_SM,
   ERROR_TEXT,
   ROW_ACTIONS,
-  HELP_TEXT,
   INPUT,
   LOADING_TEXT,
   MUTED_TEXT,
   PAGE,
-  PAGE_TITLE,
   SELECT,
   TABLE,
   TABLE_HEAD_ROW,
@@ -204,15 +204,12 @@ function UserRow({
               {user.is_active ? "停用" : "啟用"}
             </button>
             {isAdminActor && (
-              <button
-                type="button"
+              <DeleteIconButton
+                label={deleteButtonLabel("account", user.username)}
                 onClick={onDelete}
-                disabled={isPending || isSelf}
-                title={isSelf ? "不能刪除目前登入中的帳號" : undefined}
-                className={BUTTON_SECONDARY_SM}
-              >
-                刪除
-              </button>
+                disabled={isPending}
+                disabledReason={isSelf ? "不能刪除目前登入中的帳號" : null}
+              />
             )}
           </div>
         )}
@@ -364,23 +361,27 @@ export default function UserManagement(): ReactElement {
   return (
     <div className={PAGE}>
       {confirmDialog}
-      <h1 className={PAGE_TITLE}>帳號管理</h1>
-      <p className={HELP_TEXT}>
-        {isAdminActor
-          ? "系統管理員可以建立教學組長與一般老師帳號，並指定所屬學校。"
-          : "教學組長可以建立與停用自己學校的一般老師帳號。"}
-        建立一般老師帳號時會一併建立教師資料；停用帳號後，該帳號無法登入，教師也不會出現在新的排課名單中。重設密碼後，該帳號原本已登入的連線在登入效期到期前仍然有效。
-      </p>
-      <p className="mb-3">
-        <button
-          type="button"
-          onClick={crud.startAdding}
-          disabled={crud.isAdding || crud.pendingKey !== null}
-          className={BUTTON_PRIMARY}
-        >
-          新增
-        </button>
-      </p>
+      <PageHeader
+        title="帳號管理"
+        info={
+          <p>
+            {isAdminActor
+              ? "系統管理員可以建立教學組長與一般老師帳號，並指定所屬學校。"
+              : "教學組長可以建立與停用自己學校的一般老師帳號。"}
+            建立一般老師帳號時會一併建立教師資料；停用帳號後，該帳號無法登入，教師也不會出現在新的排課名單中。重設密碼後，該帳號原本已登入的連線在登入效期到期前仍然有效。
+          </p>
+        }
+        actions={
+          <button
+            type="button"
+            onClick={crud.startAdding}
+            disabled={crud.isAdding || crud.pendingKey !== null}
+            className={BUTTON_PRIMARY}
+          >
+            新增帳號
+          </button>
+        }
+      />
       <div className={TABLE_WRAPPER}>
         <table className={TABLE}>
           <thead>

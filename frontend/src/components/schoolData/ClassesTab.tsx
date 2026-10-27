@@ -196,7 +196,10 @@ function ClassesTable({
             {shown.length === 0 && !isAdding && (
               <tr>
                 <td className={TD} colSpan={isAdmin ? 4 : 3}>
-                  <span className={HELP_TEXT}>目前沒有班級。</span>
+                  <span className={HELP_TEXT}>
+                    {gradeFilter === ALL_GRADES ? "目前沒有班級。" : "這個年級還沒有班級。"}
+                    {isAdmin && "按上方「新增」或「批次新增」建立班級，之後排課才會用到。"}
+                  </span>
                 </td>
               </tr>
             )}

@@ -6,8 +6,10 @@ import {
 import { create as createRecord } from "../../api/scheduleVersions";
 import { create as createSemester, list as listSemesters } from "../../api/semesters";
 import { extractApiErrorMessage } from "../../constants/errorMessages";
-import { BUTTON_PRIMARY, CARD, ERROR_TEXT, HELP_TEXT, INPUT, LABEL, SELECT } from "../../styles/ui";
-import { currentAcademicYear, currentSemesterNumber } from "../../utils/wizard";
+import { BUTTON_PRIMARY, CARD, ERROR_TEXT, INPUT, LABEL, SELECT } from "../../styles/ui";
+import ActionBar from "../ActionBar";
+import CardHeader from "../CardHeader";
+import { currentAcademicYear, currentSemesterNumber, wizardStepLabel } from "../../utils/wizard";
 import type { ScheduleVersion } from "../../types/scheduleVersion";
 
 const SEMESTER_OPTIONS = [1, 2];
@@ -59,46 +61,57 @@ export default function SemesterStep({
   }
 
   return (
-    <form onSubmit={(event) => void handleSubmit(event)} className={CARD}>
-      <p className={HELP_TEXT}>
-        選擇要排課的學年度與學期（預設為今天所在的學年度與學期，可以用上下鍵調整）；還沒有的學年度與學期會自動建立。按「下一步」會新增一筆「尚未排課」的排課紀錄，接下來的設定都存在這筆紀錄裡。
-      </p>
-      <div className="flex flex-wrap items-end gap-4">
-        <label className="flex flex-col gap-1">
-          <span className={LABEL}>學年度</span>
-          <input
-            type="number"
-            min={1}
-            value={yearText}
-            onChange={(event) => setYearText(event.target.value)}
-            placeholder="例如：115"
-            className={`${INPUT} w-32`}
-            required
-          />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className={LABEL}>學期</span>
-          <select
-            value={number}
-            onChange={(event) => setNumber(Number(event.target.value))}
-            className={`${SELECT} w-32`}
-          >
-            {SEMESTER_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                第 {option} 學期
-              </option>
-            ))}
-          </select>
-        </label>
-        <button type="submit" disabled={!isYearValid || isSaving} className={BUTTON_PRIMARY}>
-          {isSaving ? "處理中…" : "下一步"}
-        </button>
+    <form onSubmit={(event) => void handleSubmit(event)}>
+      <div className={CARD}>
+        <CardHeader
+          title={wizardStepLabel("semester")}
+          info={
+            <p>
+              選擇要排課的學年度與學期（預設為今天所在的學年度與學期，可以用上下鍵調整）；還沒有的學年度與學期會自動建立。按「下一步」會新增一筆「尚未排課」的排課紀錄，接下來的設定都存在這筆紀錄裡。
+            </p>
+          }
+        />
+        <div className="flex flex-wrap items-end gap-4">
+          <label className="flex flex-col gap-1">
+            <span className={LABEL}>學年度</span>
+            <input
+              type="number"
+              min={1}
+              value={yearText}
+              onChange={(event) => setYearText(event.target.value)}
+              placeholder="例如：115"
+              className={`${INPUT} w-32`}
+              required
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className={LABEL}>學期</span>
+            <select
+              value={number}
+              onChange={(event) => setNumber(Number(event.target.value))}
+              className={`${SELECT} w-32`}
+            >
+              {SEMESTER_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  第 {option} 學期
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {error !== null && (
+          <p role="alert" className={ERROR_TEXT}>
+            {error}
+          </p>
+        )}
       </div>
-      {error !== null && (
-        <p role="alert" className={ERROR_TEXT}>
-          {error}
-        </p>
-      )}
+      <ActionBar
+        end={
+          <button type="submit" disabled={!isYearValid || isSaving} className={BUTTON_PRIMARY}>
+            {isSaving ? "處理中…" : "下一步"}
+          </button>
+        }
+      />
     </form>
   );
 }
