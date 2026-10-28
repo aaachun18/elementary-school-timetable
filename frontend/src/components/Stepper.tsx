@@ -22,8 +22,8 @@ const CIRCLE_CLASSES = {
 // Task 98 Phase C: the wizard's steps in one row -- numbered circles
 // joined by lines (done = check mark, current = solid primary, not yet =
 // gray). Which steps can be clicked is the caller's (canJump): the wizard
-// keeps its old rule (any step but the current one and 學年度與學期, once
-// the record exists).
+// allows any step but the current one once the record exists
+// (utils/wizard.ts canJumpToStep()).
 export default function Stepper({
   steps,
   currentIndex,

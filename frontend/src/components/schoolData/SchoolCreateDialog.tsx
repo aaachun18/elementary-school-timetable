@@ -26,7 +26,6 @@ export default function SchoolCreateDialog({
       open
       title="新增學校"
       confirmLabel="儲存"
-      cancelLabel="不儲存"
       busy={busy}
       busyLabel="儲存中…"
       confirmDisabled={name.trim() === ""}

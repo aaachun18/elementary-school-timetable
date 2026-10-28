@@ -18,6 +18,7 @@ import { RecordStatusBadge } from "../components/StatusBadge";
 import { extractApiErrorMessage } from "../constants/errorMessages";
 import { useAutoSchedule } from "../hooks/useAutoSchedule";
 import { useResource } from "../hooks/useResource";
+import { useTeacherNames } from "../hooks/useTeacherAccounts";
 import { autoScheduleDisabledReason } from "../utils/disabledReason";
 import { rememberWizardRecord } from "../utils/wizardRecord";
 import { buildPeriodDisplay } from "../utils/periodDisplay";
@@ -121,6 +122,7 @@ function SettingsView({ record, onChanged }: { record: ScheduleVersion; onChange
     [record.id],
   );
   const autoSchedule = useAutoSchedule(record.id);
+  const teacherNames = useTeacherNames();
   const runReasonId = useId();
   const [isCopying, setIsCopying] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
@@ -189,7 +191,8 @@ function SettingsView({ record, onChanged }: { record: ScheduleVersion; onChange
   const classById = new Map(classes.map((item) => [item.id, item]));
   const subjectNameById = new Map(subjects.map((item) => [item.id, item.name]));
   const roomNameById = new Map(rooms.map((item) => [item.id, item.name]));
-  const teacherNameById = new Map(allTeachers.map((item) => [item.id, item.name]));
+  // Task 99: 「王老師(teacher11)」 when two teachers share a name.
+  const teacherNameById = new Map(allTeachers.map((item) => [item.id, teacherNames.label(item.id, item.name)]));
   const levelOfClass = (classId: number): number => gradeById.get(classById.get(classId)?.grade_id ?? -1)?.level ?? 0;
   const sortedRequirements = [...requirements].sort(
     (a, b) =>
@@ -306,7 +309,7 @@ function SettingsView({ record, onChanged }: { record: ScheduleVersion; onChange
               <tbody>
                 {teachers.map((teacher) => (
                   <tr key={teacher.teacher_id}>
-                    <td className={TD}>{teacher.teacher_name}</td>
+                    <td className={TD}>{teacherNames.label(teacher.teacher_id, teacher.teacher_name)}</td>
                     <td className={TD}>{teacher.min_weekly_periods}</td>
                     <td className={TD}>{teacher.max_weekly_periods}</td>
                     <td className={TD}>

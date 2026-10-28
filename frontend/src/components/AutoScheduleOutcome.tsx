@@ -35,18 +35,12 @@ export default function AutoScheduleOutcome({
     return (
       <div className={SUCCESS_PANEL} role="status">
         <p className="text-sm font-semibold">
-          ✓ 排課完成：排定 {state.result.scheduled_count} 堂課（已移到最新，排課紀錄編號 {NEWEST_DISPLAY_NUMBER}，自動排課）
+          排課完成：排定 {state.result.scheduled_count} 堂課（排課紀錄編號 {NEWEST_DISPLAY_NUMBER}）
         </p>
-        {state.result.preferred_period_lesson_count > 0 && (
-          <p className="mt-1 text-sm">
-            國語文、數學排在第 1–2 節：{state.result.preferred_period_score} /{" "}
-            {state.result.preferred_period_lesson_count} 堂（在符合所有排課規則下盡量排在早上）
-          </p>
-        )}
         {showLinks && (
           <div className="mt-3 flex flex-wrap justify-end gap-2">
             <Link to="/records" className={BUTTON_SECONDARY}>
-              回到排課紀錄
+              排課紀錄
             </Link>
             <Link to={`/timetable?scheduleVersionId=${versionId}`} className={BUTTON_PRIMARY}>
               檢視課表

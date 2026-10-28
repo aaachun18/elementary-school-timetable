@@ -106,7 +106,7 @@ export default function RunStep({
         <AutoScheduleOutcome versionId={versionId} state={autoSchedule} />
       </div>
       {/* Task 98 Phase E: once scheduled, the outcome's own 檢視課表 /
-          回到排課紀錄 are the way on -- 上一步 and the finished 自動排課 go. */}
+          排課紀錄 are the way on -- 上一步 and the finished 自動排課 go. */}
       {!isDone && (
         <ActionBar
           start={

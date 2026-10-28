@@ -7,6 +7,7 @@ import {
   remove as removeRecord,
   saveEditing,
   startEditing,
+  unscheduledLessons as listUnscheduledLessons,
 } from "../api/scheduleVersions";
 import { list as listSemesters } from "../api/semesters";
 import { list as listAcademicYears } from "../api/academicYears";
@@ -19,6 +20,7 @@ import AdjustmentPreviewDialog from "../components/AdjustmentPreviewDialog";
 import ConfirmDialog from "../components/ConfirmDialog";
 import InfoPopover from "../components/InfoPopover";
 import PageHeader from "../components/PageHeader";
+import CheckStatusTag from "../components/CheckStatusTag";
 import ConflictChecklist from "../components/ConflictChecklist";
 import PlacementPreviewDialog from "../components/PlacementPreviewDialog";
 import RoomChangeControls from "../components/RoomChangeControls";
@@ -28,6 +30,10 @@ import TeacherReassignPanel from "../components/TeacherReassignPanel";
 import TimetableGrid from "../components/TimetableGrid";
 import UnscheduledLessonsPanel from "../components/UnscheduledLessonsPanel";
 import { useConfirm } from "../hooks/useConfirm";
+import { CANCEL_LABEL } from "../utils/confirmText";
+import { canSeeCheckTags, checkTags, isCheckListOpen } from "../utils/checkTag";
+import { formatTeacherName } from "../utils/teacherName";
+import type { ScheduleCheckResult } from "../types/scheduler";
 import { useFlashMessage } from "../hooks/useFlashMessage";
 import { useLessonAdjustment, type SavedAdjustment } from "../hooks/useLessonAdjustment";
 import { useMoveCandidates } from "../hooks/useMoveCandidates";
@@ -47,7 +53,8 @@ import { homeroomTargetId, lessonTargetId } from "../utils/lessonDrop";
 import { buildCandidateMarks, swapMarkKey, type CandidateMark } from "../utils/moveCandidates";
 import type { PeriodDisplayMap } from "../utils/periodDisplay";
 import { canChangeRoom } from "../utils/roomChange";
-import { isLocatedProblemGone, planAdjustmentRefresh } from "../utils/adjustmentRefresh";
+import { planAdjustmentRefresh } from "../utils/adjustmentRefresh";
+import { visibleLocateSlot, type LocateMark } from "../utils/locateMark";
 import {
   PLACE_REFUSAL_MESSAGES,
   buildPlaceCandidateMarks,
@@ -65,6 +72,8 @@ import {
   formatSemesterLabel,
   formatVersionLabel,
   hasTimetable,
+  PUBLISH_BLOCKED_TITLE,
+  publishBlockedMessage,
   semesterLabelOf,
 } from "../utils/scheduleVersionFormat";
 import { mergeViolationsBySentence, splitBySeverity, violationIdentityKey } from "../utils/violationMerge";
@@ -93,7 +102,6 @@ import {
   NOTICE,
   PAGE,
   META_TAG,
-  RULE_NOTE,
   SECTION,
   SELECT,
   SELECTION_BAR,
@@ -167,6 +175,9 @@ export default function TimetableView(): ReactElement {
     [selectedVersionId],
   );
   const [recordAction, setRecordAction] = useState<"publish" | "copy" | null>(null);
+  // Task 99: 發布此課表 found lessons not yet in the timetable -- the
+  // warning's line, or null.
+  const [publishBlocked, setPublishBlocked] = useState<string | null>(null);
   const [isRecordBusy, setIsRecordBusy] = useState(false);
   const [recordError, setRecordError] = useState<string | null>(null);
   const [copyTargetSemesterId, setCopyTargetSemesterId] = useState<number | null>(null);
@@ -174,19 +185,19 @@ export default function TimetableView(): ReactElement {
 
   const timetable = useTimetableData(activeVersionId);
 
-  // --- Task 68: 檢查衝突 (ADMIN only; the backend would also let a TEACHER
-  // check a PUBLISHED version, this is a UI scoping choice). ---
+  // --- Task 68: 檢查衝突. Task 100: GET /check is 教學組長 only (a
+  // TEACHER gets 403 for every record), so a teacher never calls it. ---
   // Task 98: "isAdmin" here means whoever may edit scheduling data -- a
   // 教學組長 (backend require_coordinator).
   const isAdmin = isCurrentUserCoordinator();
+  const canCheck = canSeeCheckTags(isAdmin);
   const scheduleCheck = useScheduleCheck(activeVersionId);
-  // The TimeSlot whose cell 「在課表中查看」 (or, Task 69, a saved move/swap)
-  // marked. Cleared by any other change of what the grid shows (view,
-  // target, version) and by re-checking.
-  const [highlightedTimeSlotId, setHighlightedTimeSlotId] = useState<number | null>(null);
-  // Task 96: the problem behind that mark (violationIdentityKey); once a
-  // newer check no longer has it, the cell isn't marked any more.
-  const [locatedProblemKey, setLocatedProblemKey] = useState<string | null>(null);
+  // The cell 「在課表中查看」 marked (amber), with where it was made. Task
+  // 100: shown only while that record / mode / grid is still the one on
+  // screen and the problem is not known to be gone (utils/locateMark.ts);
+  // also cleared outright on saving, switching record or view, and
+  // leaving edit mode.
+  const [locateMark, setLocateMark] = useState<LocateMark | null>(null);
   // Bumped on every locate so the grid scrolls into view even when the
   // same line is located twice in a row.
   const [locateRequestCount, setLocateRequestCount] = useState(0);
@@ -200,14 +211,16 @@ export default function TimetableView(): ReactElement {
   // --- Task 69: 編輯 (v3: in the working copy) -- click a lesson, then
   // click 「移到這裡」 or another lesson; every change is previewed first. ---
   const isEditModeOn = isAdmin && editingId !== null;
-  // 檢查衝突 runs by itself as soon as a working copy is open; every saved
-  // change re-runs it (refreshAfterAdjustment).
+  // 檢查衝突 runs by itself whenever the record on screen changes -- Task
+  // 100: in the view mode too (a published, archived or any other record),
+  // and as soon as a working copy is open; every saved change re-runs it
+  // (refreshAfterAdjustment).
   const runScheduleCheck = scheduleCheck.run;
   useEffect(() => {
-    if (isEditModeOn) {
+    if (canCheck && activeVersionId !== null) {
       runScheduleCheck();
     }
-  }, [isEditModeOn, runScheduleCheck]);
+  }, [canCheck, activeVersionId, runScheduleCheck]);
   const adjustment = useLessonAdjustment(activeVersionId);
   const adjustmentFlash = useFlashMessage(4000);
   // Task 90: why a lesson block can't go where it was dropped -- shown
@@ -215,7 +228,7 @@ export default function TimetableView(): ReactElement {
   const blockedFlash = useFlashMessage(5000);
 
   // Task 71 fix: the cell a just-saved move/swap landed in. Separate from
-  // highlightedTimeSlotId (「在課表中查看」), and only shown in edit mode;
+  // locateMark (「在課表中查看」), and only shown in edit mode;
   // cleared on leaving edit mode, switching version or view type, and when
   // the next adjustment starts.
   const [adjustedTimeSlotId, setAdjustedTimeSlotId] = useState<number | null>(null);
@@ -260,6 +273,12 @@ export default function TimetableView(): ReactElement {
 
   // --- Task 70: 換教師 panel -- v3: only while editing a copied timetable.
   const [isReassignPanelOpen, setIsReassignPanelOpen] = useState(false);
+  // Task 99: a click on the check tag opens / closes the list -- for that
+  // result only; the next result opens it again by itself if needed.
+  const [checkListToggle, setCheckListToggle] = useState<{
+    result: ScheduleCheckResult | null;
+    open: boolean;
+  } | null>(null);
 
   // --- Task 93: 「未排入課程」 -- lessons of the record with no row in its
   // timetable, placed by dragging a card onto a cell or clicking it and
@@ -314,6 +333,7 @@ export default function TimetableView(): ReactElement {
   // everything tied to what was on screen starts over.
   function resetEditingState(): void {
     setEditingId(null);
+    setLocateMark(null);
     adjustment.reset();
     setAdjustedTimeSlotId(null);
     setIsReassignPanelOpen(false);
@@ -326,7 +346,6 @@ export default function TimetableView(): ReactElement {
   function handleSelectVersion(versionId: number | null): void {
     setRequestedVersionId(versionId);
     setSelectedTargetId(null);
-    setHighlightedTimeSlotId(null);
     resetEditingState();
   }
 
@@ -335,7 +354,7 @@ export default function TimetableView(): ReactElement {
     // A classId is meaningless as a teacherId/roomId and vice versa --
     // switching axis always starts the target selection over.
     setSelectedTargetId(null);
-    setHighlightedTimeSlotId(null);
+    setLocateMark(null);
     setAdjustedTimeSlotId(null);
   }
 
@@ -351,7 +370,6 @@ export default function TimetableView(): ReactElement {
       const workingCopy = await startEditing(selectedVersionId);
       resetEditingState();
       setEditingId(workingCopy.id);
-      setHighlightedTimeSlotId(null);
     } catch (caught) {
       setRecordError(extractApiErrorMessage(caught));
     } finally {
@@ -390,7 +408,7 @@ export default function TimetableView(): ReactElement {
       title: "放棄這次的修改？",
       message: "這次手動編輯的變更都不會儲存，課表會維持編輯前的樣子。",
       confirmLabel: "放棄修改",
-      cancelLabel: "繼續編輯",
+      cancelLabel: CANCEL_LABEL,
       tone: "danger",
     });
     if (!confirmed) {
@@ -414,6 +432,29 @@ export default function TimetableView(): ReactElement {
     setRecordError(null);
     setCopyTargetSemesterId(selectedVersion?.semester_id ?? null);
     setRecordAction(action);
+  }
+
+  // Task 99: before the publish confirmation, the record's unscheduled
+  // lessons are read; while there are any, only a warning opens.
+  async function handleStartPublish(): Promise<void> {
+    if (selectedVersionId === null) {
+      return;
+    }
+    setIsRecordBusy(true);
+    setRecordError(null);
+    try {
+      const result = await listUnscheduledLessons(selectedVersionId);
+      const blocked = publishBlockedMessage(result.lessons.length);
+      if (blocked === null) {
+        openRecordAction("publish");
+      } else {
+        setPublishBlocked(blocked);
+      }
+    } catch (caught) {
+      setRecordError(extractApiErrorMessage(caught));
+    } finally {
+      setIsRecordBusy(false);
+    }
   }
 
   async function handleConfirmPublish(): Promise<void> {
@@ -469,8 +510,18 @@ export default function TimetableView(): ReactElement {
     }
     setViewMode(target.viewMode);
     setSelectedTargetId(target.targetId);
-    setHighlightedTimeSlotId(violation.time_slot_id);
-    setLocatedProblemKey(violationIdentityKey(violation));
+    setLocateMark(
+      violation.time_slot_id === null || activeVersionId === null
+        ? null
+        : {
+            timeSlotId: violation.time_slot_id,
+            problemKey: violationIdentityKey(violation),
+            versionId: activeVersionId,
+            isEditing: isEditModeOn,
+            viewMode: target.viewMode,
+            targetId: target.targetId,
+          },
+    );
     setLocateRequestCount((previous) => previous + 1);
   }
 
@@ -910,11 +961,17 @@ export default function TimetableView(): ReactElement {
             version.id !== selectedVersion.id,
         );
 
+  // Task 99: 「王老師(teacher11)」 when two teachers share a name.
+  const teacherAccountById = timetable.data?.lookups.teacherAccountById ?? new Map<number, string>();
+  const teacherLabelOf = (teacherId: number, name: string): string =>
+    formatTeacherName(name, teacherAccountById.get(teacherId));
+  const teacherAccounts = new Set(teacherAccountById.values());
+
   const targetOptions =
     viewMode === "class"
       ? (classesResource.data ?? []).map((item) => ({ id: item.id, label: item.name }))
       : viewMode === "teacher"
-        ? (teachersResource.data ?? []).map((item) => ({ id: item.id, label: item.name }))
+        ? (teachersResource.data ?? []).map((item) => ({ id: item.id, label: teacherLabelOf(item.id, item.name) }))
         : [
             // Every class's own classroom first (原班上課, no Room record;
             // shown by the class's name alone), then the school's rooms.
@@ -950,6 +1007,18 @@ export default function TimetableView(): ReactElement {
         );
   const checkProblemCount = checkCounts.errors.length;
   const checkWarningCount = checkCounts.warnings.length;
+  const checkTagInput = {
+    isChecking: scheduleCheck.isChecking,
+    hasFailed: scheduleCheck.errorMessage !== null,
+    hasResult: scheduleCheck.result !== null && checkLookups !== null,
+    errorCount: checkProblemCount,
+    warningCount: checkWarningCount,
+  };
+  const checkTagState = checkTags(checkTagInput);
+  const isCheckOpen = isCheckListOpen(
+    checkTagInput,
+    checkListToggle !== null && checkListToggle.result === scheduleCheck.result ? checkListToggle.open : null,
+  );
 
   const selectedLessonSlotLabel =
     selectedLesson === null || checkLookups === null
@@ -984,7 +1053,7 @@ export default function TimetableView(): ReactElement {
             <>
               <span className={META_TAG}>{semesterLabelOf(selectedVersion, semesterById, academicYearById)}</span>
               <RecordStatusBadge record={selectedVersion} />
-              {isEditing && <span className={`${NOTICE} py-0.5`}>手動編輯中（尚未儲存）</span>}
+              {isEditing && <StatusBadge tone="warning">編輯中・未儲存</StatusBadge>}
             </>
           )
         }
@@ -992,6 +1061,16 @@ export default function TimetableView(): ReactElement {
           !isAdmin || selectedVersion === undefined ? undefined : isEditing ? (
             // 儲存課表 sits top right while editing.
             <>
+              {canReassign && (
+                <button
+                  type="button"
+                  onClick={() => setIsReassignPanelOpen((previous) => !previous)}
+                  aria-expanded={isReassignPanelOpen}
+                  className={BUTTON_SECONDARY}
+                >
+                  {isReassignPanelOpen ? "收合換教師" : "換教師"}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => void handleCancelEditing()}
@@ -1034,7 +1113,7 @@ export default function TimetableView(): ReactElement {
               ) : (
                 <button
                   type="button"
-                  onClick={() => openRecordAction("publish")}
+                  onClick={() => void handleStartPublish()}
                   disabled={isRecordBusy}
                   className={BUTTON_SUCCESS}
                 >
@@ -1045,6 +1124,44 @@ export default function TimetableView(): ReactElement {
           )
         }
       />
+      {/* Task 100: the check result, right under the title row -- the same
+          tags in the view and the edit mode (教學組長 only). */}
+      {canCheck && selectedVersion !== undefined && (
+        <>
+          <CheckStatusTag
+            state={checkTagState}
+            isOpen={isCheckOpen}
+            onToggle={() => setCheckListToggle({ result: scheduleCheck.result, open: !isCheckOpen })}
+            errorMessage={scheduleCheck.errorMessage}
+            onRetry={scheduleCheck.run}
+            listId="timetable-check-list"
+          />
+          {isCheckOpen && scheduleCheck.result !== null && checkLookups !== null && (
+            <div id="timetable-check-list" className={`${CARD} mb-4`}>
+              {checkProblemCount > 0 && (
+                <p className="mb-2 text-sm font-semibold text-red-600">
+                  共 {checkProblemCount} 項問題
+                  {checkWarningCount > 0 && (
+                    <span className="ml-2 font-normal text-amber-800">另有 {checkWarningCount} 項警告</span>
+                  )}
+                </p>
+              )}
+              {scheduleCheck.result.is_valid && checkWarningCount > 0 && (
+                <p className={`${SUCCESS_TEXT} mb-2`}>
+                  ✓ 沒有違反排課規則的問題，另有 {checkWarningCount} 項警告（不影響課表是否合法）
+                </p>
+              )}
+              <ConflictChecklist
+                violations={scheduleCheck.result.violations}
+                lookups={checkLookups}
+                emptyText="沒有發現衝突，這份課表符合所有檢查規則"
+                onLocate={handleLocate}
+                canLocate={canLocate}
+              />
+            </div>
+          )}
+        </>
+      )}
       {recordFlash.message !== null && <p className={`${SUCCESS_TEXT} mb-3`}>✓ {recordFlash.message}</p>}
       {recordError !== null && recordAction === null && (
         <p role="alert" className={`${ERROR_TEXT} mb-3`}>
@@ -1093,50 +1210,6 @@ export default function TimetableView(): ReactElement {
         </p>
       )}
 
-      {/* Task 68: 檢查衝突 -- v3: while editing only (the view itself stays
-          clean). Runs by itself when the working copy opens and after every
-          saved change; the result belongs to the working copy
-          (useScheduleCheck drops it when that changes). Waits for the
-          timetable data, whose lookups turn the violations into names. */}
-      {isEditing && (
-        <section className={SECTION} aria-label="檢查衝突">
-          <p className={MUTED_TEXT} aria-live="polite">
-            {scheduleCheck.isChecking
-              ? "正在自動檢查衝突…"
-              : "每次調整後都會自動依目前的課表檢查所有排課規則，有衝突會立刻列在這裡。"}
-          </p>
-          {scheduleCheck.errorMessage !== null && (
-            <p role="alert" className={ERROR_TEXT}>
-              檢查失敗：{scheduleCheck.errorMessage}
-            </p>
-          )}
-          {scheduleCheck.result !== null && checkLookups !== null && (
-            <div className={`${CARD} mt-3`} aria-live="polite">
-              {checkProblemCount > 0 && (
-                <p className="mb-2 text-sm font-semibold text-red-600">
-                  共 {checkProblemCount} 項問題
-                  {checkWarningCount > 0 && (
-                    <span className="ml-2 font-normal text-amber-800">另有 {checkWarningCount} 項警告</span>
-                  )}
-                </p>
-              )}
-              {scheduleCheck.result.is_valid && checkWarningCount > 0 && (
-                <p className={`${SUCCESS_TEXT} mb-2`}>
-                  ✓ 沒有違反排課規則的問題，另有 {checkWarningCount} 項警告（不影響課表是否合法）
-                </p>
-              )}
-              <ConflictChecklist
-                violations={scheduleCheck.result.violations}
-                lookups={checkLookups}
-                emptyText="沒有發現衝突，這份課表符合所有檢查規則"
-                onLocate={handleLocate}
-                canLocate={canLocate}
-              />
-            </div>
-          )}
-        </section>
-      )}
-
       {selectedVersionId !== null && (
         <section
           ref={timetableSectionRef}
@@ -1146,29 +1219,70 @@ export default function TimetableView(): ReactElement {
           aria-label="課表"
           className={`${SECTION} scroll-mt-4 focus:outline-none`}
         >
+          {/* Task 99: one control row -- the view tabs, the class / teacher /
+              room picker (and the class's 導師), then at the right the (i)
+              and, while editing, the conflict check's tag. */}
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <nav className="flex gap-2" aria-label="檢視方式">
+                {VIEW_MODES.map((mode) => (
+                  <button
+                    key={mode.key}
+                    type="button"
+                    onClick={() => handleSelectViewMode(mode.key)}
+                    aria-pressed={viewMode === mode.key}
+                    className={viewMode === mode.key ? TAB_BUTTON_ACTIVE : TAB_BUTTON}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </nav>
+              <select
+                id="timetable-target-select"
+                aria-label={viewMode === "class" ? "選擇班級" : viewMode === "teacher" ? "選擇教師" : "選擇教室"}
+                value={selectedTargetId ?? ""}
+                onChange={(event) => {
+                  setSelectedTargetId(
+                    event.target.value === "" ? null : Number(event.target.value),
+                  );
+                  setLocateMark(null);
+                }}
+                className={`${SELECT} ${FIELD_PAGE}`}
+              >
+                <option value="">
+                  {viewMode === "class" ? "選擇班級…" : viewMode === "teacher" ? "選擇教師…" : "選擇教室…"}
+                </option>
+                {targetOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              {homeroomOfSelectedClass !== undefined && (
+                <span className={HOMEROOM_TAG}>
+                  導師：{teacherLabelOf(homeroomOfSelectedClass.teacher_id, homeroomOfSelectedClass.teacher_name)}
+                </span>
+              )}
+            </div>
+            {isEditing && (
+              <div className="flex items-center gap-2">
+                <InfoPopover label="關於手動編輯">
+                  <p>
+                    點選課程後可移動或對調，也可直接拖曳；改完按「儲存課表」。點一堂課選取它，再點「移到這裡」移動，或點另一堂課與它對調；也可以直接把課拖到空格（移動）或另一堂課上（對調）。每次異動都會先預覽。改完按右上角「儲存課表」。
+                  </p>
+                  <p className="mt-2">每次調整後都會自動依目前的課表檢查所有排課規則；標題下方的標籤是檢查結果，有錯誤或警告時清單會自動展開，點標籤可以展開或收起。</p>
+                </InfoPopover>
+              </div>
+            )}
+          </div>
+          {showsCombinedTeacherNote && (
+            <p className="mb-4 text-sm text-gray-600">
+              課表中多位老師共同上課時，名稱註記*者，為該節課本班授課老師。
+            </p>
+          )}
           {/* Task 69: editing (v3: in the working copy). */}
           {isEditing && (
-            <div className="mb-4 flex flex-col gap-2">
-              <div className="flex flex-wrap items-center gap-3">
-                {canReassign && (
-                  <button
-                    type="button"
-                    onClick={() => setIsReassignPanelOpen((previous) => !previous)}
-                    aria-expanded={isReassignPanelOpen}
-                    className={BUTTON_SECONDARY}
-                  >
-                    {isReassignPanelOpen ? "收合換教師" : "換教師"}
-                  </button>
-                )}
-                <span className={`${RULE_NOTE} mb-0 inline-flex items-center gap-1`}>
-                  點選課程後可移動或對調，也可直接拖曳；改完按「儲存課表」
-                  <InfoPopover label="關於手動編輯">
-                    <p>
-                      點一堂課選取它，再點「移到這裡」移動，或點另一堂課與它對調；也可以直接把課拖到空格（移動）或另一堂課上（對調）。每次異動都會先預覽。改完按右上角「儲存課表」。
-                    </p>
-                  </InfoPopover>
-                </span>
-              </div>
+            <div className="mb-4 flex flex-col gap-2 empty:hidden">
               {adjustmentFlash.message !== null && (
                 <p className={SUCCESS_TEXT}>✓ {adjustmentFlash.message}</p>
               )}
@@ -1300,54 +1414,6 @@ export default function TimetableView(): ReactElement {
             />
           )}
 
-          <nav className="mb-4 flex gap-2">
-            {VIEW_MODES.map((mode) => (
-              <button
-                key={mode.key}
-                type="button"
-                onClick={() => handleSelectViewMode(mode.key)}
-                aria-pressed={viewMode === mode.key}
-                className={viewMode === mode.key ? TAB_BUTTON_ACTIVE : TAB_BUTTON}
-              >
-                {mode.label}
-              </button>
-            ))}
-          </nav>
-
-          <label htmlFor="timetable-target-select" className={`${LABEL} mb-1 block`}>
-            {viewMode === "class" ? "選擇班級" : viewMode === "teacher" ? "選擇教師" : "選擇教室"}
-          </label>
-          <select
-            id="timetable-target-select"
-            value={selectedTargetId ?? ""}
-            onChange={(event) => {
-              setSelectedTargetId(
-                event.target.value === "" ? null : Number(event.target.value),
-              );
-              setHighlightedTimeSlotId(null);
-            }}
-            className={`${SELECT} ${FIELD_PAGE} mb-4`}
-          >
-            <option value="">請選擇…</option>
-            {targetOptions.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          {(homeroomOfSelectedClass !== undefined || showsCombinedTeacherNote) && (
-            <p className="-mt-2 mb-4 flex flex-wrap items-center gap-x-3 gap-y-1">
-              {homeroomOfSelectedClass !== undefined && (
-                <span className={HOMEROOM_TAG}>導師：{homeroomOfSelectedClass.teacher_name}</span>
-              )}
-              {showsCombinedTeacherNote && (
-                <span className="text-sm text-gray-600">
-                  課表中多位老師共同上課時，名稱註記*者，為該節課本班授課老師。
-                </span>
-              )}
-            </p>
-          )}
-
           {isEditing && lessonCount(placementCards) > 0 && (
             <UnscheduledLessonsPanel
               cards={cardsForView(placementCards, viewMode, selectedTargetId, showAllClasses)}
@@ -1358,6 +1424,7 @@ export default function TimetableView(): ReactElement {
                   : null
               }
               chosenTeacherByCard={chosenTeacherByCard}
+              teacherLabel={teacherLabelOf}
               onChooseTeacher={handleChooseTeacher}
               selectedCardKey={selectedCardKey}
               draggingCardKey={draggingCardKey}
@@ -1410,17 +1477,18 @@ export default function TimetableView(): ReactElement {
           {timetable.data !== null && selectedTargetId !== null && (
             <TimetableGrid
               homeroomTeacherByClass={homeroomTeacherByClass}
+              teacherAccounts={teacherAccounts}
               periods={periods}
               periodDisplay={periodDisplay}
               schedules={displaySchedules}
               viewMode={viewMode}
               targetId={selectedTargetId}
               timeSlotByWeekdayAndPeriod={timeSlotByWeekdayAndPeriod}
-              highlightedTimeSlotId={
-                isLocatedProblemGone(locatedProblemKey, scheduleCheck.result?.violations ?? null)
-                  ? null
-                  : highlightedTimeSlotId
-              }
+              highlightedTimeSlotId={visibleLocateSlot(
+                locateMark,
+                { versionId: activeVersionId, isEditing, viewMode, targetId: selectedTargetId },
+                scheduleCheck.result?.violations ?? null,
+              )}
               adjustedTimeSlotId={isEditing ? adjustedTimeSlotId : null}
               edit={
                 isEditing
@@ -1475,13 +1543,24 @@ export default function TimetableView(): ReactElement {
           restoreFocusFallback={restoreFocusAfterPreview}
         />
       )}
+      {/* Task 99: lessons still missing -- a warning instead of the
+          publish confirmation. */}
+      <ConfirmDialog
+        open={publishBlocked !== null}
+        title={PUBLISH_BLOCKED_TITLE}
+        cancelLabel="關閉"
+        showConfirm={false}
+        onConfirm={() => setPublishBlocked(null)}
+        onCancel={() => setPublishBlocked(null)}
+      >
+        <p>{publishBlocked}</p>
+      </ConfirmDialog>
       {/* v3: 發布此課表 */}
       {selectedVersion !== undefined && (
         <ConfirmDialog
           open={recordAction === "publish"}
           title="發布這份課表？"
           confirmLabel="發布課表"
-          cancelLabel="先不發布"
           tone="success"
           busy={isRecordBusy}
           busyLabel="發布中…"
@@ -1508,7 +1587,6 @@ export default function TimetableView(): ReactElement {
           open={recordAction === "copy"}
           title="複製這份課表？"
           confirmLabel="複製課表"
-          cancelLabel="先不複製"
           busy={isRecordBusy}
           busyLabel="複製中…"
           confirmDisabled={copyTargetSemesterId === null}

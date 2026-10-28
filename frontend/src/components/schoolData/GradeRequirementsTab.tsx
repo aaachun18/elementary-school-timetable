@@ -29,13 +29,15 @@ import {
   LOADING_TEXT,
   ROW_ACTIONS_END,
   SELECT,
-  TABLE,
+  DATA_TABLE,
+  DATA_TABLE_WRAPPER,
+  GRADE_REQUIREMENT_COLS,
+  TH_DATA,
+  WEEKLY_PERIODS_SELECT_WIDTH,
   TABLE_HEAD_ROW,
-  TABLE_WRAPPER,
   TD,
-  TD_ACTIONS,
-  TH,
-  TH_ACTIONS,
+  TD_DATA_ACTIONS,
+  TH_DATA_ACTIONS,
   TR_HOVER,
 } from "../../styles/ui";
 
@@ -157,13 +159,18 @@ function GradeRequirementsEditor({
           {error}
         </p>
       )}
-      <div className={TABLE_WRAPPER}>
-        <table className={TABLE}>
+      <div className={DATA_TABLE_WRAPPER}>
+        <table className={DATA_TABLE}>
+          <colgroup>
+            {GRADE_REQUIREMENT_COLS.slice(0, isAdmin ? 3 : 2).map((width) => (
+              <col key={width} className={width} />
+            ))}
+          </colgroup>
           <thead>
             <tr className={TABLE_HEAD_ROW}>
-              <th className={TH}>科目</th>
-              <th className={TH}>每週節數</th>
-              {isAdmin && <th className={TH_ACTIONS}>操作</th>}
+              <th className={TH_DATA}>科目</th>
+              <th className={TH_DATA}>每週節數</th>
+              {isAdmin && <th className={TH_DATA_ACTIONS}>操作</th>}
             </tr>
           </thead>
           <tbody>
@@ -181,7 +188,7 @@ function GradeRequirementsEditor({
                       }
                       disabled={isPending}
                       aria-label={`${subjectName.get(requirement.subject_id) ?? ""}每週節數`}
-                      className={`${SELECT} w-full`}
+                      className={`${SELECT} ${WEEKLY_PERIODS_SELECT_WIDTH}`}
                     >
                       {WEEKLY_PERIOD_OPTIONS.map((option) => (
                         <option key={option} value={option}>
@@ -194,7 +201,7 @@ function GradeRequirementsEditor({
                   )}
                 </td>
                 {isAdmin && (
-                  <td className={TD_ACTIONS}>
+                  <td className={TD_DATA_ACTIONS}>
                     <div className={ROW_ACTIONS_END}>
                       <DeleteIconButton
                         label={deleteButtonLabel("gradeRequirement", requirementName(requirement))}
@@ -295,7 +302,6 @@ function RequirementCreateDialog({
       open
       title={`新增${gradeName}的科目需求`}
       confirmLabel="儲存"
-      cancelLabel="不儲存"
       busy={isSaving}
       busyLabel="儲存中…"
       confirmDisabled={normalizeSubjectName(name) === ""}

@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, type ReactElement, type ReactNode, type SyntheticEvent } from "react";
+import { CANCEL_LABEL } from "../utils/confirmText";
 import { dialogKeyAction, enterKeyUpShouldActivate, isEnterKey } from "../utils/dialogKeyboard";
 import {
   BUTTON_DANGER,
@@ -28,10 +29,11 @@ interface ConfirmDialogBaseProps {
   // The explanation, and any extra inputs (e.g. the copy dialog's target
   // semester choice) or an error message -- the dialog itself stays generic.
   children: ReactNode;
-  // Task 98: both buttons say the action (「刪除班級」 / 「保留不刪除」,
-  // 「發布課表」 / 「先不發布」), never a generic 「確定」 / 「取消」 -- so there
-  // are no defaults; every call site names its own.
-  cancelLabel: string;
+  // Task 99: the negative option is always 「取消」 (the default); only the
+  // confirm button names the action (「刪除班級」, 「發布課表」). An
+  // information-only dialog (showConfirm false) names its one button
+  // (「關閉」, 「完成」), since it cancels nothing.
+  cancelLabel?: string;
   tone?: ConfirmTone;
   // An action is in flight: both buttons are disabled and Esc does nothing,
   // so the same request can't be sent twice or abandoned half way.
@@ -92,7 +94,7 @@ export default function ConfirmDialog({
   title,
   children,
   confirmLabel,
-  cancelLabel,
+  cancelLabel = CANCEL_LABEL,
   tone = "primary",
   busy = false,
   busyLabel = "處理中…",
@@ -115,7 +117,7 @@ export default function ConfirmDialog({
   // Several dialogs can be mounted on one page at once.
   const titleId = useId();
 
-  // Task 70 fix: focus always starts on the safe 取消/返回 button, set
+  // Task 70 fix: focus always starts on the safe 取消 button, set
   // explicitly rather than left to showModal()'s "first focusable element"
   // (which is a radio button in the copy dialog, and would be any button a
   // dialog's content happens to contain). Enter then only ever activates
@@ -123,7 +125,7 @@ export default function ConfirmDialog({
   //
   // Task 85: the element focused before opening is remembered and focused
   // again on close (or the caller's fallback). One tick after opening,
-  // focus is checked again and pulled back to 取消/返回 if anything moved it
+  // focus is checked again and pulled back to 取消 if anything moved it
   // out of the dialog meanwhile (e.g. a browser settling focus after a drag
   // and drop) -- the dialog never opens with focus outside it.
   useEffect(() => {
@@ -166,7 +168,7 @@ export default function ConfirmDialog({
   }, []);
 
   // Task 85: every key while open is decided by dialogKeyAction(), whatever
-  // has focus -- Esc is 取消/返回 (and never reaches the page's own Esc
+  // has focus -- Esc is 取消 (and never reaches the page's own Esc
   // handling, e.g. the timetable's "deselect"), Enter only ever activates
   // the focused button (a held, auto-repeating Enter is ignored), and Tab /
   // Shift+Tab cycle inside the dialog instead of leaving it. Listening on
@@ -272,7 +274,7 @@ export default function ConfirmDialog({
 
   // (Task 70 fix, now part of dialogKeyAction(): an Enter held down from the
   // button that OPENED this dialog keeps auto-repeating, and the first
-  // repeat would hit the freshly focused 取消/返回 -- so a repeated Enter is
+  // repeat would hit the freshly focused 取消 -- so a repeated Enter is
   // ignored; a fresh Enter press works as usual.)
 
   // Esc normally never gets here any more (the keydown handler above takes

@@ -5,6 +5,7 @@ import {
   formatStatusOnly,
   formatVersionLabel,
   hasTimetable,
+  publishBlockedMessage,
   recordStatusTone,
 } from "./scheduleVersionFormat";
 import type { ScheduleVersion } from "../types/scheduleVersion";
@@ -113,5 +114,16 @@ describe("formatVersionLabel", () => {
       "編號 2・學期 ID 3（尚未排課）",
     );
     expect(formatSemesterLabel(semester, new Map())).toBe("學期 ID 3");
+  });
+});
+
+describe("publishBlockedMessage", () => {
+  it("blocks publishing while lessons are not yet in the timetable", () => {
+    expect(publishBlockedMessage(3)).toContain("還有 3 堂課尚未排入課表");
+    expect(publishBlockedMessage(1)).toContain("手動編輯課表");
+  });
+
+  it("lets a complete timetable go on to the publish confirmation", () => {
+    expect(publishBlockedMessage(0)).toBeNull();
   });
 });

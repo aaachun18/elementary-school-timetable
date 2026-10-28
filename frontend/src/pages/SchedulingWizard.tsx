@@ -11,7 +11,7 @@ import SemesterStep from "../components/wizard/SemesterStep";
 import TeachersStep from "../components/wizard/TeachersStep";
 import { extractApiErrorMessage } from "../constants/errorMessages";
 import { formatSemesterLabel } from "../utils/scheduleVersionFormat";
-import { WIZARD_STEPS, isWizardStep, type WizardStepKey } from "../utils/wizard";
+import { WIZARD_STEPS, canJumpToStep, isSemesterStepLocked, isWizardStep, type WizardStepKey } from "../utils/wizard";
 import {
   forgetWizardRecord,
   readRememberedWizardRecord,
@@ -40,6 +40,9 @@ interface WizardRecord {
   id: number;
   versionNumber: number | null;
   semesterLabel: string;
+  // The semester's 學年度 and number, shown read-only on a locked step 1.
+  academicYear: number | null;
+  semesterNumber: number | null;
 }
 
 function parseId(raw: string | null): number | null {
@@ -63,6 +66,8 @@ async function loadRecord(recordId: number): Promise<{ record: WizardRecord; isE
       id: version.id,
       versionNumber: version.display_number,
       semesterLabel: semester === undefined ? "" : formatSemesterLabel(semester, academicYearById),
+      academicYear: semester === undefined ? null : (academicYearById.get(semester.academic_year_id) ?? null),
+      semesterNumber: semester?.number ?? null,
     },
     isEditable: version.status === "NOT_SCHEDULED",
   };
@@ -158,9 +163,18 @@ export default function SchedulingWizard(): ReactElement {
     go("semester");
   }
 
-  function chooseRecord(created: ScheduleVersion, semesterLabel: string): void {
+  function chooseRecord(
+    created: ScheduleVersion,
+    semester: { label: string; year: number; number: number },
+  ): void {
     rememberWizardRecord(created.id);
-    setRecord({ id: created.id, versionNumber: created.display_number, semesterLabel });
+    setRecord({
+      id: created.id,
+      versionNumber: created.display_number,
+      semesterLabel: semester.label,
+      academicYear: semester.year,
+      semesterNumber: semester.number,
+    });
     go("teachers");
   }
 
@@ -175,7 +189,7 @@ export default function SchedulingWizard(): ReactElement {
     );
   }
 
-  const hasRecordHeader = record !== null && step !== null && step !== "semester";
+  const hasRecordHeader = record !== null && step !== null;
 
   return (
     <div className={PAGE}>
@@ -227,15 +241,30 @@ export default function SchedulingWizard(): ReactElement {
             steps={WIZARD_STEPS}
             currentIndex={stepIndex}
             ariaLabel="排課步驟"
-            // A record's semester is fixed once it exists.
-            canJump={(index) => record !== null && index !== stepIndex && WIZARD_STEPS[index].key !== "semester"}
+            // Task 100: step 1 too -- it opens read-only once the record exists.
+            canJump={(index) => canJumpToStep(index, stepIndex, record !== null)}
             onJump={(index) => go(WIZARD_STEPS[index].key)}
           />
           {step === "semester" && (
-            <SemesterStep initialYear={null} initialNumber={null} onChosen={chooseRecord} />
+            <SemesterStep
+              // A fresh form once a record exists (its semester, read-only).
+              key={record?.id ?? "new"}
+              initialYear={null}
+              initialNumber={null}
+              onChosen={chooseRecord}
+              locked={
+                record !== null && isSemesterStepLocked(record.id)
+                  ? {
+                      year: record.academicYear,
+                      number: record.semesterNumber,
+                      onStartNew: startNew,
+                      onNext: () => go("teachers"),
+                    }
+                  : null
+              }
+            />
           )}
           {record !== null && step === "teachers" && (
-            // No 上一步: the record's semester can't change any more.
             <TeachersStep versionId={record.id} onNext={() => go("grades")} />
           )}
           {record !== null && step === "grades" && (

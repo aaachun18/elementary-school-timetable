@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  canJumpToStep,
+  isSemesterStepLocked,
   WIZARD_STEPS,
   buildTimeSlotGrid,
   currentAcademicYear,
@@ -72,5 +74,31 @@ describe("currentAcademicYear / currentSemesterNumber", () => {
     expect(currentSemesterNumber(new Date(2027, 0, 31))).toBe(1);
     expect(currentSemesterNumber(new Date(2027, 1, 1))).toBe(2);
     expect(currentSemesterNumber(new Date(2027, 6, 31))).toBe(2);
+  });
+});
+
+describe("isSemesterStepLocked", () => {
+  it("is open when starting afresh (no record yet)", () => {
+    expect(isSemesterStepLocked(null)).toBe(false);
+  });
+
+  it("is locked once the record exists", () => {
+    expect(isSemesterStepLocked(12)).toBe(true);
+  });
+});
+
+describe("canJumpToStep", () => {
+  it("allows no step before the record exists", () => {
+    expect(canJumpToStep(0, 1, false)).toBe(false);
+    expect(canJumpToStep(2, 1, false)).toBe(false);
+  });
+
+  it("allows every other step once it exists, step 1 included", () => {
+    expect(canJumpToStep(0, 1, true)).toBe(true);
+    expect(canJumpToStep(3, 1, true)).toBe(true);
+  });
+
+  it("never the current step", () => {
+    expect(canJumpToStep(1, 1, true)).toBe(false);
   });
 });

@@ -76,6 +76,21 @@ export function currentSemesterNumber(today: Date): number {
   return month >= SECOND_SEMESTER_START_MONTH && month < ACADEMIC_YEAR_START_MONTH ? 2 : 1;
 }
 
+// Task 100 (item 8): step 1 is locked once the wizard has a 排課紀錄 --
+// the record is a snapshot of one semester's settings, so its semester
+// never changes (another semester = 另開新的排課). Unlocked only when
+// starting afresh (no record yet).
+export function isSemesterStepLocked(recordId: number | null): boolean {
+  return recordId !== null;
+}
+
+// The Stepper's clickable steps: once the record exists, every step but
+// the current one -- Task 100: 學年度與學期 too (it opens read-only, see
+// isSemesterStepLocked()). Before that, none.
+export function canJumpToStep(index: number, currentIndex: number, hasRecord: boolean): boolean {
+  return hasRecord && index !== currentIndex;
+}
+
 // --- Weekly periods ---
 
 export const WEEKLY_PERIOD_OPTIONS = [1, 2, 3, 4, 5, 6] as const;

@@ -28,6 +28,8 @@ interface UnscheduledLessonsPanelProps {
   // 「顯示全部班級」 -- only offered in the class view with a class chosen.
   showAllToggle: { showAll: boolean; onToggle: () => void } | null;
   chosenTeacherByCard: ReadonlyMap<string, number>;
+  // Task 99: 「王老師(teacher11)」 when two teachers share a name.
+  teacherLabel: (teacherId: number, name: string) => string;
   onChooseTeacher: (card: PlacementCard, teacherId: number | null) => void;
   selectedCardKey: string | null;
   draggingCardKey: string | null;
@@ -56,6 +58,7 @@ export default function UnscheduledLessonsPanel({
   totalLessonCount,
   showAllToggle,
   chosenTeacherByCard,
+  teacherLabel,
   onChooseTeacher,
   selectedCardKey,
   draggingCardKey,
@@ -137,7 +140,7 @@ export default function UnscheduledLessonsPanel({
                         <option value="">選教師…</option>
                         {card.eligibleTeachers.map((teacher) => (
                           <option key={teacher.teacher_id} value={teacher.teacher_id}>
-                            {teacher.name}
+                            {teacherLabel(teacher.teacher_id, teacher.name)}
                           </option>
                         ))}
                       </select>

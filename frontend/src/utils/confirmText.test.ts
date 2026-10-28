@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  KEEP_LABEL,
+  CANCEL_LABEL,
   deleteButtonLabel,
   deleteConfirmText,
   deleteRecordConfirmText,
@@ -10,23 +10,27 @@ import {
 const KINDS: DeletableKind[] = ["class", "subject", "room", "gradeRequirement", "school", "account"];
 const GENERIC_LABELS = ["確定", "取消", "確認"];
 
+// Task 99: the negative option is always 「取消」; only the confirm button
+// names the action.
+
 describe("deleteConfirmText", () => {
   it("names the row in the title and the kind on the confirm button", () => {
     const text = deleteConfirmText("class", "一年甲班");
     expect(text.title).toBe("刪除「一年甲班」？");
     expect(text.confirmLabel).toBe("刪除班級");
-    expect(text.cancelLabel).toBe(KEEP_LABEL);
+    expect(text.cancelLabel).toBe(CANCEL_LABEL);
+    expect(CANCEL_LABEL).toBe("取消");
     expect(text.tone).toBe("danger");
   });
 
-  it.each(KINDS)("%s: says it can't be undone and never uses a generic button label", (kind) => {
+  it.each(KINDS)("%s: says it can't be undone; confirm names the action, cancel is 取消", (kind) => {
     const text = deleteConfirmText(kind, "x");
     expect(text.message).toContain("刪除後無法復原");
     expect(text.tone).toBe("danger");
     for (const generic of GENERIC_LABELS) {
       expect(text.confirmLabel).not.toBe(generic);
-      expect(text.cancelLabel).not.toBe(generic);
     }
+    expect(text.cancelLabel).toBe(CANCEL_LABEL);
   });
 
   it("tells what the backend refuses or removes along with it", () => {
@@ -38,8 +42,8 @@ describe("deleteConfirmText", () => {
     expect(deleteConfirmText("account", "x").message).toContain("停用");
   });
 
-  it("keeps an account with its own cancel label", () => {
-    expect(deleteConfirmText("account", "teacher01").cancelLabel).toBe("保留帳號");
+  it("an account too: 取消 / 刪除帳號", () => {
+    expect(deleteConfirmText("account", "teacher01").cancelLabel).toBe(CANCEL_LABEL);
     expect(deleteConfirmText("account", "teacher01").confirmLabel).toBe("刪除帳號");
   });
 });
@@ -58,7 +62,7 @@ describe("deleteRecordConfirmText", () => {
     expect(text.message).toContain("編號 3・115 學年度第 1 學期（自動排課）");
     expect(text.message).toContain("刪除後無法復原");
     expect(text.confirmLabel).toBe("刪除紀錄");
-    expect(text.cancelLabel).toBe("保留紀錄");
+    expect(text.cancelLabel).toBe(CANCEL_LABEL);
     expect(text.tone).toBe("danger");
   });
 

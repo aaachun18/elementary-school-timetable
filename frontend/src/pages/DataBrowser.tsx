@@ -24,7 +24,8 @@ import { useResource } from "../hooks/useResource";
 import { useCrudList } from "../hooks/useCrudList";
 import { useConfirm } from "../hooks/useConfirm";
 import DeleteIconButton from "../components/DeleteIconButton";
-import { deleteButtonLabel, deleteConfirmText } from "../utils/confirmText";
+import EditIconButton from "../components/EditIconButton";
+import { deleteButtonLabel, deleteConfirmText, editButtonLabel } from "../utils/confirmText";
 import { isCurrentUserCoordinator } from "../utils/auth";
 import { SCHOOL_TYPE_LABELS } from "../utils/schoolStructure";
 import ClassesTab from "../components/schoolData/ClassesTab";
@@ -38,25 +39,33 @@ import type { Subject, SubjectCreate, SubjectUpdate } from "../types/subject";
 import { ROOM_MAX_CLASSES_OPTIONS, type Room, type RoomCreate, type RoomUpdate } from "../types/room";
 import {
   BUTTON_PRIMARY,
-  BUTTON_PRIMARY_SM,
-  BUTTON_SECONDARY_SM,
+  BUTTON_PRIMARY_ROW,
+  BUTTON_SECONDARY_ROW,
   CHECKBOX,
   ERROR_TEXT,
   INPUT,
   LOADING_TEXT,
-  PAGE,
+  PAGE_DATA,
   ROW_ACTIONS_END,
   ROW_ERROR_TEXT,
+  ROW_ERROR_TEXT_FIXED,
+  ROOM_COLS,
   SELECT,
+  SUBJECT_COLS,
   TAB_BUTTON,
   TAB_BUTTON_ACTIVE,
+  DATA_TABLE,
+  DATA_TABLE_WRAPPER,
+  TH_DATA,
   TABLE,
   TABLE_HEAD_ROW,
   TABLE_WRAPPER,
   TD,
   TD_ACTIONS,
+  TD_DATA_ACTIONS,
   TH,
   TH_ACTIONS,
+  TH_DATA_ACTIONS,
   TR_HOVER,
 } from "../styles/ui";
 
@@ -166,11 +175,11 @@ function SchoolRow({
             type="button"
             onClick={() => onConfirmEdit({ name: draftName })}
             disabled={isPending || draftName.trim() === ""}
-            className={BUTTON_PRIMARY_SM}
+            className={BUTTON_PRIMARY_ROW}
           >
             {isPending ? "送出中…" : "確認"}
           </button>
-          <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
+          <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_ROW}>
             取消
           </button>
           </div>
@@ -189,9 +198,7 @@ function SchoolRow({
       <td className={TD_ACTIONS}>
         {isAdmin && (
           <div className={ROW_ACTIONS_END}>
-            <button type="button" onClick={onStartEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
-              編輯
-            </button>
+            <EditIconButton label={editButtonLabel(school.name)} onClick={onStartEdit} disabled={isPending} />
             <DeleteIconButton label={deleteButtonLabel("school", school.name)} onClick={onDelete} disabled={isPending} />
           </div>
         )}
@@ -334,22 +341,22 @@ function SubjectRow({
             啟用中
           </label>
         </td>
-        <td className={TD_ACTIONS}>
+        <td className={TD_DATA_ACTIONS}>
           <div className={ROW_ACTIONS_END}>
           <button
             type="button"
             onClick={() => onConfirmEdit({ name: draftName, is_active: draftIsActive })}
             disabled={isPending || draftName.trim() === ""}
-            className={BUTTON_PRIMARY_SM}
+            className={BUTTON_PRIMARY_ROW}
           >
             {isPending ? "送出中…" : "確認"}
           </button>
-          <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
+          <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_ROW}>
             取消
           </button>
           </div>
           {errorMessage !== undefined && (
-            <p role="alert" className={ROW_ERROR_TEXT}>{errorMessage}</p>
+            <p role="alert" className={ROW_ERROR_TEXT_FIXED}>{errorMessage}</p>
           )}
         </td>
       </tr>
@@ -360,16 +367,14 @@ function SubjectRow({
     <tr className={TR_HOVER}>
       <td className={TD}>{subject.name}</td>
       <td className={TD}>{subject.is_active ? "是" : "否"}</td>
-      <td className={TD_ACTIONS}>
+      <td className={TD_DATA_ACTIONS}>
         {isAdmin && (
           <div className={ROW_ACTIONS_END}>
-            <button type="button" onClick={onStartEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
-              編輯
-            </button>
+            <EditIconButton label={editButtonLabel(subject.name)} onClick={onStartEdit} disabled={isPending} />
             <DeleteIconButton label={deleteButtonLabel("subject", subject.name)} onClick={onDelete} disabled={isPending} />
           </div>
         )}
-        {errorMessage !== undefined && <RowErrorText message={errorMessage} deleteSteps={deleteSteps} />}
+        {errorMessage !== undefined && <RowErrorText message={errorMessage} deleteSteps={deleteSteps} inFixedColumn />}
       </td>
     </tr>
   );
@@ -407,13 +412,18 @@ function SubjectsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
               </button>
             </p>
           )}
-          <div className={TABLE_WRAPPER}>
-          <table className={TABLE}>
+          <div className={DATA_TABLE_WRAPPER}>
+          <table className={DATA_TABLE}>
+            <colgroup>
+              {SUBJECT_COLS.slice(0, isAdmin ? 3 : 2).map((width) => (
+                <col key={width} className={width} />
+              ))}
+            </colgroup>
             <thead>
               <tr className={TABLE_HEAD_ROW}>
-                <th className={TH}>名稱</th>
-                <th className={TH}>啟用中</th>
-                {isAdmin && <th className={TH_ACTIONS}>操作</th>}
+                <th className={TH_DATA}>名稱</th>
+                <th className={TH_DATA}>啟用中</th>
+                {isAdmin && <th className={TH_DATA_ACTIONS}>操作</th>}
               </tr>
             </thead>
             <tbody onChange={crud.handleRowChange}>
@@ -526,7 +536,7 @@ function RoomRow({
             啟用中
           </label>
         </td>
-        <td className={TD_ACTIONS}>
+        <td className={TD_DATA_ACTIONS}>
           <div className={ROW_ACTIONS_END}>
           <button
             type="button"
@@ -538,16 +548,16 @@ function RoomRow({
               })
             }
             disabled={isPending || draftName.trim() === ""}
-            className={BUTTON_PRIMARY_SM}
+            className={BUTTON_PRIMARY_ROW}
           >
             {isPending ? "送出中…" : "確認"}
           </button>
-          <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
+          <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_ROW}>
             取消
           </button>
           </div>
           {errorMessage !== undefined && (
-            <p role="alert" className={ROW_ERROR_TEXT}>{errorMessage}</p>
+            <p role="alert" className={ROW_ERROR_TEXT_FIXED}>{errorMessage}</p>
           )}
         </td>
       </tr>
@@ -559,16 +569,14 @@ function RoomRow({
       <td className={TD}>{room.name}</td>
       <td className={TD}>{room.max_classes} 班</td>
       <td className={TD}>{room.is_active ? "是" : "否"}</td>
-      <td className={TD_ACTIONS}>
+      <td className={TD_DATA_ACTIONS}>
         {isAdmin && (
           <div className={ROW_ACTIONS_END}>
-            <button type="button" onClick={onStartEdit} disabled={isPending} className={BUTTON_SECONDARY_SM}>
-              編輯
-            </button>
+            <EditIconButton label={editButtonLabel(room.name)} onClick={onStartEdit} disabled={isPending} />
             <DeleteIconButton label={deleteButtonLabel("room", room.name)} onClick={onDelete} disabled={isPending} />
           </div>
         )}
-        {errorMessage !== undefined && <RowErrorText message={errorMessage} deleteSteps={deleteSteps} />}
+        {errorMessage !== undefined && <RowErrorText message={errorMessage} deleteSteps={deleteSteps} inFixedColumn />}
       </td>
     </tr>
   );
@@ -609,14 +617,19 @@ function RoomsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
               </button>
             </p>
           )}
-          <div className={TABLE_WRAPPER}>
-          <table className={TABLE}>
+          <div className={DATA_TABLE_WRAPPER}>
+          <table className={DATA_TABLE}>
+            <colgroup>
+              {ROOM_COLS.slice(0, isAdmin ? 4 : 3).map((width) => (
+                <col key={width} className={width} />
+              ))}
+            </colgroup>
             <thead>
               <tr className={TABLE_HEAD_ROW}>
-                <th className={TH}>名稱</th>
-                <th className={TH}>一次最多幾班同時使用</th>
-                <th className={TH}>啟用中</th>
-                {isAdmin && <th className={TH_ACTIONS}>操作</th>}
+                <th className={TH_DATA}>名稱</th>
+                <th className={TH_DATA}>一次最多幾班同時使用</th>
+                <th className={TH_DATA}>啟用中</th>
+                {isAdmin && <th className={TH_DATA_ACTIONS}>操作</th>}
               </tr>
             </thead>
             <tbody onChange={crud.handleRowChange}>
@@ -676,7 +689,7 @@ export default function DataBrowser(): ReactElement {
   const isAdmin = isCurrentUserCoordinator();
 
   return (
-    <div className={PAGE}>
+    <div className={PAGE_DATA}>
       <PageHeader
         title="學校資料"
         info={

@@ -7,6 +7,7 @@ import { list as listRooms } from "../api/rooms";
 import { list as listTimeSlots } from "../api/timeSlots";
 import { list as listRequirements } from "../api/classSubjectRequirements";
 import { useResource } from "../hooks/useResource";
+import { useTeacherNames } from "../hooks/useTeacherAccounts";
 import { translateFailureType } from "../constants/errorMessages";
 import { resolveViolationPageTarget } from "../constants/violationPageMapping";
 import {
@@ -139,6 +140,7 @@ export default function FailureDiagnostics({
   versionId,
 }: FailureDiagnosticsProps): ReactElement {
   const teachers = useResource(() => listTeachers(), []);
+  const teacherNames = useTeacherNames();
   const classes = useResource(() => listClasses(), []);
   const subjects = useResource(() => listSubjects(), []);
   const rooms = useResource(() => listRooms(), []);
@@ -183,6 +185,7 @@ export default function FailureDiagnostics({
     requirementById: new Map(
       (requirements.data ?? []).map((requirement) => [requirement.id, requirement]),
     ),
+    teacherAccountById: teacherNames.accounts,
   };
 
   return (

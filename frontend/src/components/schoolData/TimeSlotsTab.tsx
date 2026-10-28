@@ -4,6 +4,7 @@ import { extractApiErrorMessage } from "../../constants/errorMessages";
 import { useResource } from "../../hooks/useResource";
 import type { TimeSlot, TimeSlotBulkUpdateItem } from "../../types/timeSlot";
 import InfoPopover from "../InfoPopover";
+import { PencilIcon } from "../icons";
 import { buildPeriodDisplay, formatPeriodHeader } from "../../utils/periodDisplay";
 import { formatWeekday } from "../../utils/timeSlotFormat";
 import { buildTimeSlotGrid, slotKey } from "../../utils/wizard";
@@ -14,12 +15,12 @@ import {
   ERROR_TEXT,
   INPUT,
   LOADING_TEXT,
-  TABLE,
   TABLE_HEAD_ROW,
   TABLE_WRAPPER,
-  TD,
+  TD_CENTER,
   TD_NON_TEACHING,
-  TH,
+  TH_CENTER,
+  TIME_SLOT_TABLE,
 } from "../../styles/ui";
 
 interface Draft {
@@ -138,7 +139,10 @@ function TimeSlotGridEditor({
               </button>
             </>
           ) : (
-            <button type="button" onClick={startEditing} className={BUTTON_PRIMARY}>
+            // Task 100: a mode switch, not a row's edit -- Secondary with
+            // the pencil AND its text (an icon alone would not say much).
+            <button type="button" onClick={startEditing} className={BUTTON_SECONDARY}>
+              <PencilIcon size={16} />
               編輯
             </button>
           ))}
@@ -154,12 +158,12 @@ function TimeSlotGridEditor({
         </p>
       )}
       <div className={TABLE_WRAPPER}>
-        <table className={TABLE}>
+        <table className={TIME_SLOT_TABLE}>
           <thead>
             <tr className={TABLE_HEAD_ROW}>
-              <th className={TH}>節次</th>
+              <th className={TH_CENTER}>節次</th>
               {grid.weekdays.map((weekday) => (
-                <th key={weekday} className={TH}>
+                <th key={weekday} className={TH_CENTER}>
                   {formatWeekday(weekday)}
                 </th>
               ))}
@@ -168,19 +172,19 @@ function TimeSlotGridEditor({
           <tbody>
             {grid.periods.map((period) => (
               <tr key={period}>
-                <th scope="row" className={`${TH} whitespace-nowrap`}>
+                <th scope="row" className={TH_CENTER}>
                   {formatPeriodHeader(period, periodDisplay)}
                 </th>
                 {grid.weekdays.map((weekday) => {
                   const slot = grid.slotAt.get(slotKey(weekday, period));
                   if (slot === undefined) {
-                    return <td key={weekday} className={TD} />;
+                    return <td key={weekday} className={TD_CENTER} />;
                   }
                   const draft = drafts?.get(slot.id) ?? draftOf(slot);
                   const where = `${formatWeekday(weekday)}${formatPeriodHeader(period, periodDisplay)}`;
                   if (isEditing) {
                     return (
-                      <td key={weekday} className={TD}>
+                      <td key={weekday} className={TD_CENTER}>
                         <div className="flex flex-col gap-1">
                           <input
                             value={draft.label}
@@ -190,7 +194,7 @@ function TimeSlotGridEditor({
                             aria-label={`${where}標籤`}
                             className={`${INPUT} w-full`}
                           />
-                          <label className="flex items-center gap-1 text-xs text-gray-600">
+                          <label className="flex items-center justify-center gap-1 text-xs text-gray-600">
                             <input
                               type="checkbox"
                               checked={draft.isTeachingPeriod}
@@ -206,7 +210,7 @@ function TimeSlotGridEditor({
                     );
                   }
                   return (
-                    <td key={weekday} className={slot.is_teaching_period ? TD : TD_NON_TEACHING}>
+                    <td key={weekday} className={slot.is_teaching_period ? TD_CENTER : TD_NON_TEACHING}>
                       <div>{slot.label ?? ""}</div>
                       <div className="text-xs text-gray-500">{slot.is_teaching_period ? "可排課" : "不可排課"}</div>
                     </td>

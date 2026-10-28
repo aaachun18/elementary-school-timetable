@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 import ConfirmDialog from "./ConfirmDialog";
+import { CANCEL_LABEL } from "../utils/confirmText";
 import PreviewChangeList from "./PreviewChangeList";
 import ViolationDiffSummary from "./ViolationDiffSummary";
 import type { AdjustmentPreview, LessonAdjustment } from "../hooks/useLessonAdjustment";
@@ -112,7 +113,7 @@ export default function AdjustmentPreviewDialog({
       open={preview !== null}
       title={`預覽${verb}`}
       confirmLabel={addsProblems ? `仍要${verb}` : verb}
-      cancelLabel={hasChanges ? "返回" : "關閉"}
+      cancelLabel={hasChanges ? CANCEL_LABEL : "關閉"}
       tone={addsProblems ? "danger" : "primary"}
       busy={isSaving}
       busyLabel="儲存中…"

@@ -65,6 +65,27 @@ export function CheckIcon(props: IconProps): ReactElement {
   );
 }
 
+// Task 100: a row's 「編輯」 (EditIconButton) and 時段's 編輯 mode button.
+export function PencilIcon(props: IconProps): ReactElement {
+  return (
+    <SvgIcon {...props}>
+      <path d="M4 20l1-4.5L15.5 5a2.1 2.1 0 013 3L8 18.5z" />
+      <path d="M13.5 7l3 3" />
+    </SvgIcon>
+  );
+}
+
+// Task 100: CheckStatusTag's 「N 個錯誤」 / 「N 個警告」 (a triangle with !).
+export function AlertIcon(props: IconProps): ReactElement {
+  return (
+    <SvgIcon {...props}>
+      <path d="M12 4l9 16H3z" />
+      <path d="M12 10v4.5" />
+      <path d="M12 17.5h.01" />
+    </SvgIcon>
+  );
+}
+
 // Home page cards: 開始排課 (a calendar with a plus).
 export function CalendarPlusIcon(props: IconProps): ReactElement {
   return (

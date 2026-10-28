@@ -6,7 +6,7 @@ import {
 import { create as createRecord } from "../../api/scheduleVersions";
 import { create as createSemester, list as listSemesters } from "../../api/semesters";
 import { extractApiErrorMessage } from "../../constants/errorMessages";
-import { BUTTON_PRIMARY, CARD, ERROR_TEXT, INPUT, LABEL, SELECT } from "../../styles/ui";
+import { BUTTON_PRIMARY, BUTTON_SECONDARY_SM, CARD, ERROR_TEXT, INPUT, LABEL, SELECT } from "../../styles/ui";
 import ActionBar from "../ActionBar";
 import CardHeader from "../CardHeader";
 import { currentAcademicYear, currentSemesterNumber, wizardStepLabel } from "../../utils/wizard";
@@ -18,18 +18,34 @@ const SEMESTER_OPTIONS = [1, 2];
 // today's by default) and the semester (1 / 2). Both are found or, if new,
 // created -- then (v3) a new 尚未排課 排課紀錄 of that semester, whose
 // settings the rest of the wizard fills.
+// Task 100 (item 8): once that record exists (`locked`, see
+// isSemesterStepLocked()), the fields show its semester read-only, with
+// why and a 「另開新的排課」 (the header's own handler); 下一步 then only
+// moves on, it never creates another record.
+export interface LockedSemester {
+  year: number | null;
+  number: number | null;
+  onStartNew: () => void;
+  onNext: () => void;
+}
+
 export default function SemesterStep({
   initialYear,
   initialNumber,
   onChosen,
+  locked = null,
 }: {
   initialYear: number | null;
   initialNumber: number | null;
-  onChosen: (record: ScheduleVersion, semesterLabel: string) => void;
+  onChosen: (record: ScheduleVersion, semester: { label: string; year: number; number: number }) => void;
+  locked?: LockedSemester | null;
 }): ReactElement {
   // Starts on today's 學年度 / 學期 (the arrows still move the year).
-  const [yearText, setYearText] = useState(() => String(initialYear ?? currentAcademicYear(new Date())));
-  const [number, setNumber] = useState(() => initialNumber ?? currentSemesterNumber(new Date()));
+  const [yearText, setYearText] = useState(() =>
+    String(locked?.year ?? initialYear ?? currentAcademicYear(new Date())),
+  );
+  const [number, setNumber] = useState(() => locked?.number ?? initialNumber ?? currentSemesterNumber(new Date()));
+  const isLocked = locked !== null;
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,6 +54,10 @@ export default function SemesterStep({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
+    if (locked !== null) {
+      locked.onNext();
+      return;
+    }
     if (!isYearValid) {
       return;
     }
@@ -52,7 +72,7 @@ export default function SemesterStep({
           (item) => item.academic_year_id === academicYear.id && item.number === number,
         ) ?? (await createSemester({ academic_year_id: academicYear.id, number }));
       const record = await createRecord({ semester_id: semester.id });
-      onChosen(record, `${year} 學年度第 ${number} 學期`);
+      onChosen(record, { label: `${year} 學年度第 ${number} 學期`, year, number });
     } catch (caught) {
       setError(extractApiErrorMessage(caught));
     } finally {
@@ -67,7 +87,9 @@ export default function SemesterStep({
           title={wizardStepLabel("semester")}
           info={
             <p>
-              選擇要排課的學年度與學期（預設為今天所在的學年度與學期，可以用上下鍵調整）；還沒有的學年度與學期會自動建立。按「下一步」會新增一筆「尚未排課」的排課紀錄，接下來的設定都存在這筆紀錄裡。
+              {isLocked
+                ? "排課紀錄是某個學期設定的快照，建立後學期就固定了；按「下一步」回到教師設定，不會新增紀錄。"
+                : "選擇要排課的學年度與學期（預設為今天所在的學年度與學期，可以用上下鍵調整）；還沒有的學年度與學期會自動建立。按「下一步」會新增一筆「尚未排課」的排課紀錄，接下來的設定都存在這筆紀錄裡。"}
             </p>
           }
         />
@@ -80,6 +102,7 @@ export default function SemesterStep({
               value={yearText}
               onChange={(event) => setYearText(event.target.value)}
               placeholder="例如：115"
+              disabled={isLocked}
               className={`${INPUT} w-32`}
               required
             />
@@ -89,6 +112,7 @@ export default function SemesterStep({
             <select
               value={number}
               onChange={(event) => setNumber(Number(event.target.value))}
+              disabled={isLocked}
               className={`${SELECT} w-32`}
             >
               {SEMESTER_OPTIONS.map((option) => (
@@ -99,6 +123,14 @@ export default function SemesterStep({
             </select>
           </label>
         </div>
+        {locked !== null && (
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+            <p className="text-sm text-text-muted">這筆紀錄的學期已確定，無法修改。要排其他學期，請另開新的排課。</p>
+            <button type="button" onClick={locked.onStartNew} className={BUTTON_SECONDARY_SM}>
+              另開新的排課
+            </button>
+          </div>
+        )}
         {error !== null && (
           <p role="alert" className={ERROR_TEXT}>
             {error}
@@ -107,7 +139,7 @@ export default function SemesterStep({
       </div>
       <ActionBar
         end={
-          <button type="submit" disabled={!isYearValid || isSaving} className={BUTTON_PRIMARY}>
+          <button type="submit" disabled={(!isLocked && !isYearValid) || isSaving} className={BUTTON_PRIMARY}>
             {isSaving ? "處理中…" : "下一步"}
           </button>
         }

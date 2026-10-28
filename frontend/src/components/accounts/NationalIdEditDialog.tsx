@@ -62,9 +62,8 @@ export default function NationalIdEditDialog({
   return (
     <ConfirmDialog
       open
-      title="編輯身分證字號"
+      title="編輯教師資料"
       confirmLabel="儲存"
-      cancelLabel="不儲存"
       busy={isSaving}
       busyLabel="儲存中…"
       confirmDisabled={getNationalIdError(nationalId) !== null}
@@ -76,7 +75,7 @@ export default function NationalIdEditDialog({
         <dd>{user.teacher_name}</dd>
         <dt className={LABEL}>帳號名稱</dt>
         <dd>{user.username}</dd>
-        <dt className={LABEL}>目前</dt>
+        <dt className={LABEL}>身分證字號</dt>
         <dd>{user.national_id_masked ?? "尚未填寫"}</dd>
       </dl>
       {hasSameName === true ? (

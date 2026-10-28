@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { TOKEN_KEY } from "../api/client";
 import { useConfirm } from "../hooks/useConfirm";
+import { CANCEL_LABEL } from "../utils/confirmText";
 import { getCurrentUserRole, isCurrentUserManager } from "../utils/auth";
 import { BUTTON_SECONDARY_SM, NAV_BAR, NAV_LINK, NAV_LINK_ACTIVE } from "../styles/ui";
 
@@ -25,13 +26,13 @@ export default function Layout(): ReactElement {
   const canManageAccounts = isCurrentUserManager();
   const { confirm, dialog: confirmDialog } = useConfirm();
 
-  // Asked first in the middle of the screen: 登出 or 留在系統.
+  // Asked first in the middle of the screen: 登出 or 取消.
   async function handleLogout(): Promise<void> {
     const confirmed = await confirm({
       title: "要登出嗎？",
       message: "登出後要重新輸入帳號密碼才能使用。",
       confirmLabel: "登出",
-      cancelLabel: "留在系統",
+      cancelLabel: CANCEL_LABEL,
       tone: "primary",
     });
     if (!confirmed) {

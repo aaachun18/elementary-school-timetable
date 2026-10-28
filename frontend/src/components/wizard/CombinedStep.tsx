@@ -22,6 +22,7 @@ import { blockChoiceLabel, blockChoices, canMergeWith } from "../../utils/combin
 import ActionBar from "../ActionBar";
 import CardHeader from "../CardHeader";
 import ConfirmDialog from "../ConfirmDialog";
+import EditIconButton from "../EditIconButton";
 import { wizardStepLabel } from "../../utils/wizard";
 import { CheckIcon } from "../icons";
 import {
@@ -291,14 +292,11 @@ function CombinedEditor({
                     {members.map((member) => requirementLabel(member, lookups)).join(" ＋ ")}（合併 {item.merged_count} 節）
                   </span>
                   {members[0] !== undefined && (
-                    <button
-                      type="button"
+                    <EditIconButton
+                      label={`編輯合併${members.map((member) => requirementLabel(member, lookups)).join("、")}`}
                       onClick={() => setEditing({ host: members[0], existing: item })}
                       disabled={removingId !== null}
-                      className={BUTTON_SECONDARY_SM}
-                    >
-                      編輯
-                    </button>
+                    />
                   )}
                   {/* Task 98 Phase E: undone at once by merging again, so no
                       confirmation (decision 34's risk grading). */}
@@ -468,7 +466,6 @@ function CombineDialog({
       wide
       title={`合併「${requirementLabel(host, lookups)}」`}
       confirmLabel="儲存合併"
-      cancelLabel="不儲存"
       busy={isSaving}
       busyLabel="儲存中…"
       confirmDisabled={!canSave}

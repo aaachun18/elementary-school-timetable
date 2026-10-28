@@ -7,6 +7,8 @@ import { list as listClasses } from "../api/classes";
 import { list as listSubjects } from "../api/subjects";
 import { list as listRooms } from "../api/rooms";
 import { useResource } from "./useResource";
+import { loadSameNameAccounts } from "./useTeacherAccounts";
+import { formatTeacherName } from "../utils/teacherName";
 import type { TimeSlot } from "../types/timeSlot";
 import type { NameLookups } from "../utils/failureDiagnostics";
 import { buildPeriodDisplay, type PeriodDisplayMap } from "../utils/periodDisplay";
@@ -135,6 +137,8 @@ async function buildTimetableData(scheduleVersionId: number): Promise<TimetableD
   );
   const timeSlotById = new Map(timeSlots.map((timeSlot) => [timeSlot.id, timeSlot]));
   const teacherById = new Map(teachers.map((teacher) => [teacher.id, teacher]));
+  // Task 99: 「王老師(teacher11)」 when two teachers share a name.
+  const teacherAccountById = await loadSameNameAccounts(teachers);
   const classById = new Map(classes.map((classItem) => [classItem.id, classItem]));
   const subjectById = new Map(subjects.map((subject) => [subject.id, subject]));
   const roomById = new Map(rooms.map((room) => [room.id, room]));
@@ -146,6 +150,7 @@ async function buildTimetableData(scheduleVersionId: number): Promise<TimetableD
     timeSlotById,
     requirementById,
     lessonById,
+    teacherAccountById,
   };
 
   const teacherIdsByRequirementId = new Map<number, number[]>();
@@ -219,7 +224,9 @@ async function buildTimetableData(scheduleVersionId: number): Promise<TimetableD
       teacherName:
         schedule.teacher_id === null
           ? null
-          : (teacher?.name ?? `教師 ID ${schedule.teacher_id}`),
+          : teacher === undefined
+            ? `教師 ID ${schedule.teacher_id}`
+            : formatTeacherName(teacher.name, teacherAccountById.get(schedule.teacher_id)),
       roomId: schedule.room_id,
       roomName:
         schedule.room_id === null ? null : (room?.name ?? `教室 ID ${schedule.room_id}`),

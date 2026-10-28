@@ -90,7 +90,6 @@ export default function TeacherReassignPreviewDialog({
       open={preview !== null}
       title="預覽換教師"
       confirmLabel={addsProblems ? "仍要換教師" : "換教師"}
-      cancelLabel="返回"
       tone={addsProblems ? "danger" : "primary"}
       busy={isSaving}
       busyLabel="儲存中…"

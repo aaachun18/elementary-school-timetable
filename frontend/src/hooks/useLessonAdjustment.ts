@@ -27,7 +27,7 @@ export interface AdjustmentPreview {
 
 // idle: nothing in flight (a lesson may be selected).
 // loadingPreview: the two preview requests are in flight.
-// previewing: the preview dialog is open, waiting for 確認 / 返回.
+// previewing: the preview dialog is open, waiting for 確認 / 取消.
 // saving: the real (dry_run=false) request is in flight.
 export type AdjustmentPhase = "idle" | "loadingPreview" | "previewing" | "saving";
 
@@ -160,7 +160,7 @@ export function useLessonAdjustment(scheduleVersionId: number | null): UseLesson
       });
   };
 
-  // 返回: back to idle with the lesson still selected, so another target
+  // 取消: back to idle with the lesson still selected, so another target
   // can be picked straight away.
   const closePreview = (): void => {
     if (phase !== "previewing") {

@@ -12,6 +12,7 @@ import type { Semester } from "../types/semester";
 import type { Subject } from "../types/subject";
 import type { Teacher } from "../types/teacher";
 import { hasTimetable } from "./scheduleVersionFormat";
+import type { BadgeTone } from "./badgeTone";
 
 // --- The current semester and its 排課紀錄 ---
 
@@ -113,6 +114,35 @@ export function summarizeDraftHealth(
     unscheduledCount,
     isHealthy: errorCount === 0 && warningCount === 0 && unscheduledCount === 0,
   };
+}
+
+// Task 99: the badge right of the card's title -- errors first, then
+// warnings, else 可發布.
+export interface HealthBadge {
+  tone: BadgeTone;
+  label: string;
+}
+
+export function draftHealthBadge(health: Pick<DraftHealth, "errorCount" | "warningCount">): HealthBadge {
+  if (health.errorCount > 0) {
+    return { tone: "danger", label: `${health.errorCount} 個錯誤` };
+  }
+  if (health.warningCount > 0) {
+    return { tone: "warning", label: `${health.warningCount} 個警告` };
+  }
+  return { tone: "success", label: "可發布" };
+}
+
+// The card's one button: fix the errors first, else go and publish.
+export function draftHealthAction(health: Pick<DraftHealth, "errorCount">): string {
+  return health.errorCount > 0 ? "前往修正" : "檢視並發布";
+}
+
+// A count's color: gray when 0, its own color only when there is something.
+export type StatTone = "zero" | "problem" | "warning";
+
+export function statTone(count: number, nonZeroTone: Exclude<StatTone, "zero">): StatTone {
+  return count === 0 ? "zero" : nonZeroTone;
 }
 
 // --- Data health ---

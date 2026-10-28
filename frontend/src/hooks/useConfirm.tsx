@@ -44,7 +44,7 @@ export function useConfirm(): ConfirmApi {
       open={options !== null}
       title={options?.title ?? ""}
       confirmLabel={options?.confirmLabel ?? ""}
-      cancelLabel={options?.cancelLabel ?? ""}
+      cancelLabel={options?.cancelLabel}
       tone={options?.tone ?? "primary"}
       onConfirm={handleConfirm}
       onCancel={handleCancel}

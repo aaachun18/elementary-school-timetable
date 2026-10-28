@@ -17,7 +17,7 @@ import {
 } from "../utils/teacherReassignment";
 import type { TeacherReassignmentResult } from "../types/scheduler";
 import {
-  BUTTON_SECONDARY_SM,
+  BUTTON_SECONDARY_ROW,
   CARD,
   ERROR_TEXT,
   FIELD_PAGE,
@@ -275,7 +275,7 @@ export default function TeacherReassignPanel({
                           onClick={() => handlePreview(requirement.id)}
                           disabled={isBusy || selectedNewTeacher === undefined}
                           aria-label={`預覽把 ${courseName} 換給新教師`}
-                          className={BUTTON_SECONDARY_SM}
+                          className={BUTTON_SECONDARY_ROW}
                         >
                           預覽
                         </button>

@@ -93,3 +93,15 @@ export function formatVersionLabel(
   const number = version.display_number === null ? "編輯中" : `編號 ${version.display_number}`;
   return `${number}・${semesterLabelOf(version, semesterById, academicYearById)}（${formatRecordStatus(version)}）`;
 }
+
+// Task 99: 發布此課表 is refused while lessons of the semester are still
+// not in the timetable -- the warning's title and its one line, or null
+// when the record may go on to the publish confirmation.
+export const PUBLISH_BLOCKED_TITLE = "此課表尚需調整後才能發布";
+
+export function publishBlockedMessage(unscheduledCount: number): string | null {
+  if (unscheduledCount <= 0) {
+    return null;
+  }
+  return `還有 ${unscheduledCount} 堂課尚未排入課表。請按「手動編輯課表」把它們放入課表並儲存後，再發布。`;
+}

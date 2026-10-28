@@ -18,9 +18,9 @@ import {
 } from "../../utils/schoolStructure";
 import {
   BUTTON_PRIMARY,
-  BUTTON_PRIMARY_SM,
+  BUTTON_PRIMARY_ROW,
   BUTTON_SECONDARY,
-  BUTTON_SECONDARY_SM,
+  BUTTON_SECONDARY_ROW,
   ERROR_TEXT,
   FIELD_PAGE,
   HELP_TEXT,
@@ -28,15 +28,16 @@ import {
   LOADING_TEXT,
   ROW_ACTIONS,
   ROW_ACTIONS_END,
-  ROW_ERROR_TEXT,
+  ROW_ERROR_TEXT_FIXED,
   SELECT,
-  TABLE,
+  CLASS_COLS,
+  DATA_TABLE,
+  DATA_TABLE_WRAPPER,
+  TH_DATA,
   TABLE_HEAD_ROW,
-  TABLE_WRAPPER,
   TD,
-  TD_ACTIONS,
-  TH,
-  TH_ACTIONS,
+  TD_DATA_ACTIONS,
+  TH_DATA_ACTIONS,
   TR_HOVER,
 } from "../../styles/ui";
 
@@ -149,14 +150,19 @@ function ClassesTable({
           </div>
         )}
       </div>
-      <div className={TABLE_WRAPPER}>
-        <table className={TABLE}>
+      <div className={DATA_TABLE_WRAPPER}>
+        <table className={DATA_TABLE}>
+          <colgroup>
+            {CLASS_COLS.slice(0, isAdmin ? 4 : 3).map((width) => (
+              <col key={width} className={width} />
+            ))}
+          </colgroup>
           <thead>
             <tr className={TABLE_HEAD_ROW}>
-              <th className={TH}>年級</th>
-              <th className={TH}>名稱類型</th>
-              <th className={TH}>班級名稱</th>
-              {isAdmin && <th className={TH_ACTIONS}>操作</th>}
+              <th className={TH_DATA}>年級</th>
+              <th className={TH_DATA}>名稱類型</th>
+              <th className={TH_DATA}>班級名稱</th>
+              {isAdmin && <th className={TH_DATA_ACTIONS}>操作</th>}
             </tr>
           </thead>
           <tbody>
@@ -178,7 +184,7 @@ function ClassesTable({
                 <td className={TD}>{CLASS_NAME_STYLE_LABELS[classItem.name_style]}</td>
                 <td className={TD}>{classItem.name}</td>
                 {isAdmin && (
-                  <td className={TD_ACTIONS}>
+                  <td className={TD_DATA_ACTIONS}>
                     <div className={ROW_ACTIONS_END}>
                       <DeleteIconButton
                         label={deleteButtonLabel("class", classItem.name)}
@@ -187,7 +193,7 @@ function ClassesTable({
                       />
                     </div>
                     {rowError?.id === classItem.id && (
-                      <RowErrorText message={rowError.message} deleteSteps={rowError.steps} />
+                      <RowErrorText message={rowError.message} deleteSteps={rowError.steps} inFixedColumn />
                     )}
                   </td>
                 )}
@@ -319,22 +325,22 @@ function ClassNewRow({
           ))}
         </select>
       </td>
-      <td className={TD_ACTIONS}>
+      <td className={TD_DATA_ACTIONS}>
         <div className={ROW_ACTIONS_END}>
           <button
             type="button"
             onClick={() => void handleConfirm()}
             disabled={isPending || name === ""}
-            className={BUTTON_PRIMARY_SM}
+            className={BUTTON_PRIMARY_ROW}
           >
             {isPending ? "送出中…" : "確認"}
           </button>
-          <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
+          <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_ROW}>
             取消
           </button>
         </div>
         {error !== null && (
-          <p role="alert" className={ROW_ERROR_TEXT}>
+          <p role="alert" className={ROW_ERROR_TEXT_FIXED}>
             {error}
           </p>
         )}

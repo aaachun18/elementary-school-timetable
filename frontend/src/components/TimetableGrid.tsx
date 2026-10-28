@@ -2,6 +2,7 @@ import { useMemo, useState, type DragEvent, type ReactElement } from "react";
 import { timeSlotKey, type EnrichedSchedule } from "../hooks/useTimetableData";
 import { canMoveLessonTo, canSwapLessons, lessonTargetId } from "../utils/lessonDrop";
 import { nameLines } from "../utils/combinedLessons";
+import { splitTeacherLabel } from "../utils/teacherName";
 import {
   blockGroupKey,
   blockGroupMemberIds,
@@ -55,7 +56,7 @@ import {
   TD_HIGHLIGHT,
   TD_NON_TEACHING,
   TD_NON_TEACHING_BASE,
-  TH,
+  TH_CENTER,
   TIMETABLE_PERIOD_COLUMN,
   TIMETABLE_ROW_HEADER,
   TIMETABLE_ROW_HEADER_NON_TEACHING,
@@ -117,6 +118,9 @@ interface TimetableGridProps {
   // class_id -> its 導師's teacher_id in this record. In class view a lesson
   // the 導師 teaches shows the teacher's name as a colored tag.
   homeroomTeacherByClass: ReadonlyMap<number, number>;
+  // Task 99: the shared-name teachers' accounts (lookups.teacherAccountById),
+  // shown on a second line under the name.
+  teacherAccounts: ReadonlySet<string>;
 }
 
 // What is under the pointer during a drag: a cell or one lesson button.
@@ -190,23 +194,42 @@ function cellDetailOf(row: EnrichedSchedule, viewMode: TimetableViewMode): strin
 }
 
 // cellDetailOf() on screen: in class view, the class's 導師 is a tag.
+// Task 99: in class view a shared-name teacher's account goes on a second,
+// smaller line under the name, so the column never widens.
+function detailLines(text: string | null, viewMode: TimetableViewMode, teacherAccounts: ReadonlySet<string>): ReactElement[] {
+  const names = text === null || text === "" ? [] : text.split("、");
+  const split = viewMode === "class" ? names.map((name) => splitTeacherLabel(name, teacherAccounts)) : [];
+  if (!split.some((part) => part.account !== null)) {
+    // Several names (a 合併節's teachers or classes): three to a line.
+    return nameLines(text).map((line) => (
+      <span key={line} className="block">
+        {line}
+      </span>
+    ));
+  }
+  return split.map((part) => (
+    <span key={`${part.name}${part.account ?? ""}`} className="block">
+      {part.name}
+      {part.mark}
+      {part.account !== null && <span className="block text-xs">{part.account}</span>}
+    </span>
+  ));
+}
+
 function CellDetail({
   row,
   viewMode,
   homeroomTeacherByClass,
+  teacherAccounts,
 }: {
   row: EnrichedSchedule;
   viewMode: TimetableViewMode;
   homeroomTeacherByClass: ReadonlyMap<number, number>;
+  teacherAccounts: ReadonlySet<string>;
 }): ReactElement {
   const isHomeroomTeacher =
     viewMode === "class" && row.teacherId !== null && homeroomTeacherByClass.get(row.classId) === row.teacherId;
-  // Several names (a 合併節's teachers or classes): three to a line.
-  const lines = nameLines(cellDetailOf(row, viewMode)).map((line) => (
-    <span key={line} className="block">
-      {line}
-    </span>
-  ));
+  const lines = detailLines(cellDetailOf(row, viewMode), viewMode, teacherAccounts);
   if (isHomeroomTeacher) {
     return (
       <span className={`${HOMEROOM_TAG} w-fit flex-col`} title="導師">
@@ -257,6 +280,7 @@ function LessonButton({
   lesson,
   viewMode,
   homeroomTeacherByClass,
+  teacherAccounts,
   edit,
   dragState,
   isInSelectedGroup,
@@ -269,6 +293,7 @@ function LessonButton({
   lesson: EnrichedSchedule;
   viewMode: TimetableViewMode;
   homeroomTeacherByClass: ReadonlyMap<number, number>;
+  teacherAccounts: ReadonlySet<string>;
   edit: TimetableGridEditProps;
   dragState: LessonDragState;
   // Task 90: another lesson of the selected lesson's block -- shown
@@ -318,7 +343,12 @@ function LessonButton({
           </span>
         )}
       </span>
-      <CellDetail row={lesson} viewMode={viewMode} homeroomTeacherByClass={homeroomTeacherByClass} />
+      <CellDetail
+        row={lesson}
+        viewMode={viewMode}
+        homeroomTeacherByClass={homeroomTeacherByClass}
+        teacherAccounts={teacherAccounts}
+      />
       <SpecialRoomNote lesson={lesson} viewMode={viewMode} />
       {isSelected && <span className="text-xs font-semibold text-blue-700">✓ 已選取</span>}
     </button>
@@ -338,6 +368,7 @@ export default function TimetableGrid({
   adjustedTimeSlotId,
   edit,
   homeroomTeacherByClass,
+  teacherAccounts,
 }: TimetableGridProps): ReactElement {
   // --- Task 71: drag & drop (edit mode only). Native HTML5 events; the
   // drag only carries the scheduleId. Which drop targets are allowed is
@@ -595,9 +626,9 @@ export default function TimetableGrid({
         </colgroup>
         <thead>
           <tr className={TABLE_HEAD_ROW}>
-            <th className={TH}>節次</th>
+            <th className={TH_CENTER}>節次</th>
             {WEEKDAYS.map((weekday) => (
-              <th key={weekday} className={TH}>
+              <th key={weekday} className={TH_CENTER}>
                 {formatWeekday(weekday)}
               </th>
             ))}
@@ -700,18 +731,19 @@ export default function TimetableGrid({
                     <td
                       key={weekday}
                       {...dropHandlers}
-                      className={`${cellClass}${candidateCellClass} relative align-top`}
+                      className={`${cellClass}${candidateCellClass} relative align-top text-center`}
                     >
                       {blockLink !== null && <BlockBar link={blockLink} />}
                       <div className="flex min-h-12 flex-col gap-1">
                         {isAdjusted && (
-                          <span className="text-xs font-semibold text-sky-700">剛調整</span>
+                          <span className="text-center text-xs font-semibold text-sky-700">剛調整</span>
                         )}
                         {matches.map((lesson) => (
                           <LessonButton
                             key={lesson.scheduleId}
                             lesson={lesson}
                             viewMode={viewMode}
+                            teacherAccounts={teacherAccounts}
                             homeroomTeacherByClass={homeroomTeacherByClass}
                             edit={edit}
                             dragState={lessonDragState(lesson)}
@@ -804,6 +836,7 @@ export default function TimetableGrid({
                           row={schedule}
                           viewMode={viewMode}
                           homeroomTeacherByClass={homeroomTeacherByClass}
+                          teacherAccounts={teacherAccounts}
                         />
                         <SpecialRoomNote lesson={schedule} viewMode={viewMode} />
                       </div>

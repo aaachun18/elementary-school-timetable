@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  draftHealthAction,
+  draftHealthBadge,
   formatDateTime,
   pickCurrentSemester,
   pickLatestUnpublished,
   summarizeDataHealth,
   summarizeDraftHealth,
   summarizeVersions,
+  statTone,
 } from "./dashboard";
 import type { Class } from "../types/class";
 import type { Room } from "../types/room";
@@ -183,5 +186,36 @@ describe("summarizeDataHealth", () => {
     expect(
       summarizeDataHealth({ teachers: [teacher(1)], classes: [klass(1)], subjects: [subject(1)], rooms: [room(10)] }).issues,
     ).toEqual([]);
+  });
+});
+
+describe("draftHealthBadge", () => {
+  it("is green 可發布 with no error and no warning", () => {
+    expect(draftHealthBadge({ errorCount: 0, warningCount: 0 })).toEqual({ tone: "success", label: "可發布" });
+  });
+
+  it("is amber with warnings only", () => {
+    expect(draftHealthBadge({ errorCount: 0, warningCount: 3 })).toEqual({ tone: "warning", label: "3 個警告" });
+  });
+
+  it("is red as soon as there is an error, warnings or not", () => {
+    expect(draftHealthBadge({ errorCount: 2, warningCount: 0 })).toEqual({ tone: "danger", label: "2 個錯誤" });
+    expect(draftHealthBadge({ errorCount: 1, warningCount: 4 })).toEqual({ tone: "danger", label: "1 個錯誤" });
+  });
+});
+
+describe("draftHealthAction", () => {
+  it("says 前往修正 with errors, else 檢視並發布", () => {
+    expect(draftHealthAction({ errorCount: 1 })).toBe("前往修正");
+    expect(draftHealthAction({ errorCount: 0 })).toBe("檢視並發布");
+  });
+});
+
+describe("statTone", () => {
+  it("is gray for 0 and the given color otherwise", () => {
+    expect(statTone(0, "problem")).toBe("zero");
+    expect(statTone(0, "warning")).toBe("zero");
+    expect(statTone(2, "problem")).toBe("problem");
+    expect(statTone(1, "warning")).toBe("warning");
   });
 });

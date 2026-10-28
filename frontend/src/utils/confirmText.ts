@@ -1,6 +1,7 @@
 // Task 98 Phase B: the wording of every 「刪除…」 confirmation (decision 34's
-// risk grading: deleting data always asks first). The buttons say the
-// action (「刪除班級」 / 「保留不刪除」), never a bare 「確定」 / 「取消」, and the
+// risk grading: deleting data always asks first). The confirm button says
+// the action (「刪除班級」), never a bare 「確定」; the negative option is
+// always 「取消」 (Task 99). The
 // message says what the backend will actually do -- what goes with it, and
 // that it refuses while other records still use it (the row then shows the
 // steps to take first, DeleteStepsHint).
@@ -18,7 +19,8 @@ export interface ConfirmText {
 
 export type DeletableKind = "class" | "subject" | "room" | "gradeRequirement" | "school" | "account";
 
-export const KEEP_LABEL = "保留不刪除";
+// Task 99: every dialog's negative option (ConfirmDialog's default).
+export const CANCEL_LABEL = "取消";
 
 const NOT_UNDOABLE = "刪除後無法復原。";
 
@@ -66,7 +68,7 @@ export function deleteConfirmText(kind: DeletableKind, name: string): ConfirmTex
     title: `刪除「${name}」？`,
     message: `${NOT_UNDOABLE}${consequence}`,
     confirmLabel: `刪除${noun}`,
-    cancelLabel: kind === "account" ? "保留帳號" : KEEP_LABEL,
+    cancelLabel: CANCEL_LABEL,
     tone: "danger",
   };
 }
@@ -76,13 +78,20 @@ export function deleteButtonLabel(kind: DeletableKind, name: string): string {
   return `刪除${KIND_TEXT[kind].noun}「${name}」`;
 }
 
+// Task 100: the pencil button's accessible name and tooltip: says which
+// row it edits (「編輯國語文」); a name in Latin letters or digits gets a
+// space (「編輯 teacher01」).
+export function editButtonLabel(name: string): string {
+  return /^[!-~]/.test(name) ? `編輯 ${name}` : `編輯${name}`;
+}
+
 // 排課紀錄: the label (formatVersionLabel) already carries 編號 and status.
 export function deleteRecordConfirmText(displayNumber: number | null, recordLabel: string): ConfirmText {
   return {
     title: displayNumber === null ? "刪除這筆排課紀錄？" : `刪除排課紀錄編號 ${displayNumber}？`,
     message: `將刪除「${recordLabel}」。${DELETE_WARNING}`,
     confirmLabel: "刪除紀錄",
-    cancelLabel: "保留紀錄",
+    cancelLabel: CANCEL_LABEL,
     tone: "danger",
   };
 }

@@ -14,6 +14,7 @@ import { listTeachers as listSemesterTeachers } from "../../api/semesterSettings
 import { list as listSubjects } from "../../api/subjects";
 import { extractApiErrorMessage } from "../../constants/errorMessages";
 import { useResource } from "../../hooks/useResource";
+import { useTeacherNames } from "../../hooks/useTeacherAccounts";
 import type { Class } from "../../types/class";
 import type {
   ClassSubjectRequirement,
@@ -91,6 +92,7 @@ export default function RequirementsStep({
   const rooms = useResource(() => listRooms(0, 1000), []);
   const teachers = useResource(() => listSemesterTeachers(versionId), [versionId]);
   const timeSlots = useResource(() => listTimeSlots(0, 1000), []);
+  const teacherNames = useTeacherNames();
 
   const errorMessage =
     synced.errorMessage ??
@@ -130,7 +132,11 @@ export default function RequirementsStep({
       )}
       subjects={subjects.data}
       rooms={rooms.data.filter((room) => room.is_active)}
-      teachers={teachers.data}
+      // Task 99: the dropdown's names, 「王老師(teacher11)」 when shared.
+      teachers={teachers.data.map((teacher) => ({
+        ...teacher,
+        teacher_name: teacherNames.label(teacher.teacher_id, teacher.teacher_name),
+      }))}
       timeSlots={timeSlots.data}
       onBack={onBack}
       onNext={onNext}

@@ -50,7 +50,6 @@ export default function NationalIdFollowUpDialog({
       open
       title="補填同名同姓教師的身分證字號"
       confirmLabel={remainingCount > 0 ? "儲存並繼續" : "儲存"}
-      cancelLabel="稍後再填"
       busy={isSaving}
       busyLabel="儲存中…"
       confirmDisabled={getNationalIdError(nationalId) !== null}

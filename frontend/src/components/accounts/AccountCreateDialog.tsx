@@ -109,7 +109,6 @@ export default function AccountCreateDialog({
       open
       title="新增帳號"
       confirmLabel="儲存"
-      cancelLabel="不儲存"
       busy={busy || isChecking}
       busyLabel={isChecking ? "檢查中…" : "儲存中…"}
       confirmDisabled={missingFieldMessage !== null || passwordRuleError !== null || isUsernameTaken}

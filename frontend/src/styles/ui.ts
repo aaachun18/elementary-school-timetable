@@ -28,6 +28,10 @@ export const LOADING_TEXT = "text-sm text-gray-500";
 
 // --- Layout ---
 export const PAGE = "p-6 max-w-6xl mx-auto";
+// Task 100: 學校資料 -- title, tabs, toolbar and table in one centered
+// column of at most 880px (+ the page padding), the same for all five tabs,
+// so switching tabs never moves the title or the tab row.
+export const PAGE_DATA = "p-6 max-w-[58rem] mx-auto";
 // Task 98 Phase C: a page's header (components/PageHeader.tsx) -- the
 // title with its small tags (學期 · 紀錄 #N, a status badge) and (i) on the
 // left, the page's actions on the right; one row, wrapping when narrow.
@@ -43,11 +47,10 @@ export const CARD_TITLE = "text-base font-semibold text-gray-900";
 // The one line of a rule that changes the result or avoids a mistake,
 // kept visible when the rest of the explanation moved into an (i).
 export const RULE_NOTE = "mb-3 text-xs text-text-muted";
-// The wizard's bottom bar (components/ActionBar.tsx): sticks to the bottom
-// of the window, as wide as the content; secondary actions left, the
-// primary one right.
-export const ACTION_BAR =
-  "sticky bottom-0 z-20 mt-4 flex flex-wrap items-center justify-between gap-2 rounded-b-lg border-t border-gray-200 bg-surface px-4 py-3 shadow-[0_-4px_8px_-6px_rgb(0_0_0/0.15)]";
+// The wizard's step buttons (components/ActionBar.tsx): one row under the
+// card, just the buttons (Task 99: no bar, no line, no shadow, not sticky);
+// secondary actions left, the primary one right.
+export const ACTION_BAR = "mt-4 flex flex-wrap items-center justify-between gap-2";
 export const ACTION_BAR_GROUP = "flex flex-wrap items-center gap-2";
 export const SECTION = "mb-6";
 export const CARD = "rounded-lg border border-gray-200 bg-white p-4 shadow-sm";
@@ -63,14 +66,20 @@ export const CARD = "rounded-lg border border-gray-200 bg-white p-4 shadow-sm";
 //   Ghost     -- no frame, primary text: a setting entry that carries its
 //                own content (「設定可排節次」), back links, show-more toggles.
 //   Icon      -- 32×32 with a 20px icon; always aria-label + title.
-// Every button is at least 32px tall (min-h-8) and gets the global
-// focus-visible ring (index.css). Disabled is never just faded: the
-// reason sits next to it (DisabledReason) or in its title.
+// Every button is at least 32px tall (min-h-8) -- a table row's (ROW)
+// 28px -- and gets the global focus-visible ring (index.css). Disabled is
+// never just faded: the reason sits next to it (DisabledReason) or in its
+// title.
 const BUTTON_BASE =
-  "inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md font-medium disabled:cursor-not-allowed disabled:opacity-50";
-const BUTTON_SIZE = "px-3 py-1.5 text-sm";
-// Small size (in-row actions inside a table row or a card).
-const BUTTON_SIZE_SM = "px-2.5 py-1 text-xs";
+  "inline-flex items-center justify-center gap-1.5 rounded-md font-medium disabled:cursor-not-allowed disabled:opacity-50";
+const BUTTON_SIZE = "min-h-8 px-3 py-1.5 text-sm";
+// Small size (in-row actions inside a card, 登出, 重試...).
+const BUTTON_SIZE_SM = "min-h-8 px-2.5 py-1 text-xs";
+// Task 99: the table-row size -- only a table row's actions (帳號管理's
+// 重設密碼 / 編輯 / 停用, 學校資料's 編輯 / 確認 / 取消, 換教師's 預覽): 28px
+// tall (still the whole click area), 10px side padding, 13px text, 6px
+// corners (rounded-md); ROW_ACTIONS / ROW_ACTIONS_END keep 8px between.
+const BUTTON_SIZE_ROW = "min-h-7 px-2.5 py-0.5 text-[13px] leading-5";
 
 const PRIMARY_COLORS = "bg-primary text-on-accent shadow-sm hover:bg-primary-hover";
 const SECONDARY_COLORS = "bg-secondary text-on-secondary hover:bg-secondary-hover";
@@ -82,11 +91,13 @@ export const BUTTON_PRIMARY = `${BUTTON_BASE} ${BUTTON_SIZE} ${PRIMARY_COLORS}`;
 export const BUTTON_SECONDARY = `${BUTTON_BASE} ${BUTTON_SIZE} ${SECONDARY_COLORS}`;
 export const BUTTON_SUCCESS = `${BUTTON_BASE} ${BUTTON_SIZE} ${SUCCESS_COLORS}`;
 export const BUTTON_DANGER = `${BUTTON_BASE} ${BUTTON_SIZE} ${DANGER_COLORS}`;
-export const BUTTON_GHOST = `${BUTTON_BASE} px-2 py-1.5 text-sm ${GHOST_COLORS}`;
+export const BUTTON_GHOST = `${BUTTON_BASE} min-h-8 px-2 py-1.5 text-sm ${GHOST_COLORS}`;
 
 export const BUTTON_PRIMARY_SM = `${BUTTON_BASE} ${BUTTON_SIZE_SM} ${PRIMARY_COLORS}`;
 export const BUTTON_SECONDARY_SM = `${BUTTON_BASE} ${BUTTON_SIZE_SM} ${SECONDARY_COLORS}`;
-export const BUTTON_GHOST_SM = `${BUTTON_BASE} px-2 py-1 text-xs ${GHOST_COLORS}`;
+export const BUTTON_PRIMARY_ROW = `${BUTTON_BASE} ${BUTTON_SIZE_ROW} ${PRIMARY_COLORS}`;
+export const BUTTON_SECONDARY_ROW = `${BUTTON_BASE} ${BUTTON_SIZE_ROW} ${SECONDARY_COLORS}`;
+export const BUTTON_GHOST_SM = `${BUTTON_BASE} min-h-8 px-2 py-1 text-xs ${GHOST_COLORS}`;
 
 // Neutral gray icon, darker with a light gray square on hover.
 const ICON_BUTTON_BASE =
@@ -112,9 +123,42 @@ export const ROW_ACTIONS = "flex flex-wrap items-center gap-2";
 // right edge; the buttons stay on one line.
 export const TH_ACTIONS = "border-b border-gray-200 px-3 py-2 text-right font-semibold text-gray-700 whitespace-nowrap w-px";
 export const TD_ACTIONS = "border-b border-gray-100 px-3 py-2 text-gray-700 w-px";
-export const ROW_ACTIONS_END = "flex items-center justify-end gap-1 whitespace-nowrap";
+export const ROW_ACTIONS_END = "flex items-center justify-end gap-2 whitespace-nowrap";
+// Task 99 / Task 100: 排課紀錄's 操作 -- the last column, as narrow as its
+// buttons. Three fixed slots [檢視課表 72px][檢視排課設定 96px][trash 32px],
+// so a row without a timetable keeps an empty first slot instead of
+// shifting the others: every link (and the trash at the right edge) has the
+// same x on every row. The header's 「操作」 starts where the first link's
+// text does (12px cell padding + the Ghost link's 8px).
+export const TH_ACTIONS_START = "border-b border-gray-200 py-2 pl-5 pr-3 text-left font-semibold text-gray-700 whitespace-nowrap";
+export const RECORD_ACTIONS = "grid grid-cols-[4.5rem_6rem_2rem] items-center gap-2 whitespace-nowrap";
+// A slot's link sits at the slot's left edge.
+export const RECORD_ACTION_SLOT = "justify-self-start";
+// Task 101: 排課紀錄 is a fixed-layout table with set shares (RECORD_COLS):
+// 編號 6% | 學期 19% | 狀態 13% | 建立時間 16% | 備註 the rest | 操作 240px (the
+// three slots + gaps + padding). At least 960px wide: in a narrower window
+// the wrapper (TABLE_WRAPPER) scrolls sideways instead of wrapping cells;
+// 學期 / 狀態 / 建立時間 never wrap (TD_NOWRAP), and 備註 keeps >= ~190px.
+export const RECORD_TABLE = "w-full min-w-[60rem] table-fixed border-collapse text-sm";
+export const RECORD_COLS = {
+  number: "w-[6%]",
+  semester: "w-[19%]",
+  status: "w-[13%]",
+  createdAt: "w-[16%]",
+  note: "",
+  // 216px of slots + the cell's 24px padding: the trash ends at the
+  // cell's right padding on every row.
+  actions: "w-60",
+} as const;
+export const TH_NOTE = "border-b border-gray-200 px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap";
+// Task 99: 排課紀錄's 備註 cell -- the inline field's text (px-2 + its 1px
+// border) starts where the header's text does (px-3).
+export const TD_NOTE = "border-b border-gray-100 py-2 pl-[3px] pr-3 text-gray-700";
 // A row's error line inside that narrow column: wide enough to read.
 export const ROW_ERROR_TEXT = "mt-1 min-w-56 text-left text-sm text-red-600";
+// Task 101: the same line in a fixed-layout table's 操作 column (DATA_TABLE),
+// whose width is set: it wraps inside the column, aligned with the buttons.
+export const ROW_ERROR_TEXT_FIXED = "mt-1 text-right text-sm text-red-600";
 
 // --- Form controls ---
 // The focus ring comes from index.css (2px primary); the border turns
@@ -164,11 +208,37 @@ export const PICK_BUTTON_SELECTED = `${PICK_BUTTON_BASE} border border-primary b
 
 // --- Tables ---
 export const TABLE_WRAPPER = "overflow-x-auto rounded-lg border border-gray-200";
+// Task 101 (replaces Task 99's as-wide-as-content tables): 學校資料's lists
+// (班級 / 科目 / 科目需求 / 教室) fill the page's centered 880px column
+// (PAGE_DATA) with a fixed layout: every column gets a set share through a
+// <col> (the *_COLS below), so the columns read evenly instead of bunching
+// up at the left. Header and cells align alike; 操作 is at the right.
+export const DATA_TABLE_WRAPPER = "w-full overflow-x-auto rounded-lg border border-gray-200";
+export const DATA_TABLE = "w-full table-fixed border-collapse text-sm";
+export const TH_DATA = "border-b border-gray-200 px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap";
+// 操作's header in such a table: right-aligned, its width from the <col>.
+export const TH_DATA_ACTIONS = "border-b border-gray-200 px-3 py-2 text-right font-semibold text-gray-700 whitespace-nowrap";
+export const TD_DATA_ACTIONS = "border-b border-gray-100 px-3 py-2 text-gray-700";
+// Column shares, in column order (the last one is 操作, only for whoever
+// may edit; without it the browser scales the others up).
+export const CLASS_COLS = ["w-[22%]", "w-[24%]", "w-[36%]", "w-[18%]"] as const;
+export const SUBJECT_COLS = ["w-[55%]", "w-[25%]", "w-[20%]"] as const;
+export const GRADE_REQUIREMENT_COLS = ["w-[45%]", "w-[40%]", "w-[15%]"] as const;
+export const ROOM_COLS = ["w-[28%]", "w-[34%]", "w-[20%]", "w-[18%]"] as const;
+// 科目需求's 每週節數 dropdown (~140px).
+export const WEEKLY_PERIODS_SELECT_WIDTH = "w-35";
+// Task 101: 學校資料's 時段 -- the same full width, the five days equally
+// wide (fixed layout), every cell centered (TH_CENTER / TD_CENTER).
+export const TIME_SLOT_TABLE = "w-full table-fixed border-collapse text-sm";
 export const TABLE = "w-full border-collapse text-sm";
 export const TABLE_HEAD_ROW = "bg-gray-50";
 export const TH = "border-b border-gray-200 px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap";
 export const TD = "border-b border-gray-100 px-3 py-2 text-gray-700";
 export const TR_HOVER = "hover:bg-gray-50";
+// Task 99: a timetable-shaped table (學校資料's 時段): every header and
+// cell centered. Full constants, so text-left / text-center never compete.
+export const TH_CENTER = "border-b border-gray-200 px-3 py-2 text-center font-semibold text-gray-700 whitespace-nowrap";
+export const TD_CENTER = "border-b border-gray-100 px-3 py-2 text-center text-gray-700";
 // Task 73: a cell of a locked (read-only) row -- TD with lighter text. A
 // separate constant, not TD + "text-gray-400", so the two text colors never
 // compete.
@@ -228,6 +298,24 @@ export const BADGE_MANUAL = `${BADGE_BASE} bg-badge-manual-bg text-badge-manual-
 export const BADGE_WARNING = `${BADGE_BASE} bg-badge-warning-bg text-badge-warning-fg`;
 export const BADGE_SUCCESS = `${BADGE_BASE} bg-badge-success-bg text-badge-success-fg`;
 export const BADGE_NEUTRAL = `${BADGE_BASE} bg-badge-neutral-bg text-badge-neutral-fg`;
+// Task 99: 「N 個錯誤」 on the home page -- the existing danger tokens (light
+// red background, dark red text; the pair the trash button's hover uses).
+export const BADGE_DANGER = `${BADGE_BASE} bg-danger-soft text-danger-hover`;
+
+// Task 100: the timetable's check result (components/CheckStatusTag.tsx),
+// right under the title row in the view and the edit mode alike: 32px
+// pills, 14px bold text with an icon, the badge tokens (all >= 4.5:1,
+// tokens.test.ts). The tags sit in one button that opens / closes the list.
+export const CHECK_TAG_ROW = "mb-3 flex flex-wrap items-center gap-2";
+export const CHECK_TAG_BUTTON = "inline-flex flex-wrap items-center gap-2 rounded-full";
+const CHECK_TAG_BASE = "inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm font-semibold";
+export const CHECK_TAG_SUCCESS = `${CHECK_TAG_BASE} bg-badge-success-bg text-badge-success-fg`;
+export const CHECK_TAG_DANGER = `${CHECK_TAG_BASE} bg-danger-soft text-danger-hover`;
+export const CHECK_TAG_WARNING = `${CHECK_TAG_BASE} bg-badge-warning-bg text-badge-warning-fg`;
+export const CHECK_TAG_NEUTRAL = `${CHECK_TAG_BASE} bg-badge-neutral-bg text-badge-neutral-fg`;
+export const CHECK_TAG_CHEVRON = "text-sm text-text-muted";
+// The check request failed: the message, next to a 重試 button.
+export const CHECK_FAILED_TEXT = "text-sm text-red-600";
 
 // --- Notices ---
 // Task 67: a short, non-error heads-up shown above content (e.g. "this is
@@ -304,13 +392,14 @@ export const DROP_ZONE_BLOCKED =
 // a lesson button -- after a 5rem 節次 column.
 export const TIMETABLE_TABLE = "w-full min-w-[60rem] table-fixed border-collapse text-sm";
 export const TIMETABLE_PERIOD_COLUMN = "w-20";
+// Task 99: every header and cell of the timetable is centered.
 export const TIMETABLE_ROW_HEADER =
-  "border-b border-gray-200 bg-white px-3 py-2 text-left font-medium text-gray-600 whitespace-nowrap";
+  "border-b border-gray-200 bg-white px-3 py-2 text-center font-medium text-gray-600 whitespace-nowrap";
 // Non-teaching rows (早自習/午休/放學): a clearly darker gray than the
 // row hover (gray-50) and the table head (gray-50), so they read as "not a
 // lesson slot" at a glance. The cell's own background covers the row hover.
 export const TIMETABLE_ROW_HEADER_NON_TEACHING =
-  "border-b border-gray-300 bg-gray-200 px-3 py-2 text-left font-medium text-gray-600 whitespace-nowrap";
+  "border-b border-gray-300 bg-gray-200 px-3 py-2 text-center font-medium text-gray-600 whitespace-nowrap";
 // A non-teaching cell without background, for combining with one marker
 // (TD_HIGHLIGHT / TD_ADJUSTED / DROP_TARGET_BLOCKED), which brings its own.
 export const TD_NON_TEACHING_BASE = "border-b border-gray-300 px-3 py-2 text-center text-gray-600";
@@ -421,9 +510,16 @@ export const ACTION_CARD_TEXT = "mt-0.5 text-sm text-text-muted";
 export const DASHBOARD_GRID = "grid grid-cols-1 gap-4 md:grid-cols-2";
 export const DASHBOARD_CARD_TITLE = "mb-3 text-base font-semibold text-gray-900";
 export const STAT_ROW = "flex flex-wrap gap-6";
-export const STAT_VALUE = "text-2xl font-semibold text-gray-900";
 export const STAT_VALUE_PROBLEM = "text-2xl font-semibold text-red-600";
 export const STAT_VALUE_WARNING = "text-2xl font-semibold text-amber-700";
+// Task 99: a count that is 0 -- gray; only a non-zero count is colored.
+export const STAT_VALUE_ZERO = "text-2xl font-semibold text-text-muted";
+// Task 99: the card's title row with its badge at the right.
+export const DASHBOARD_CARD_HEADER = "mb-3 flex flex-wrap items-center justify-between gap-2";
+// Task 99: 資料健康度 is shown only when something is missing -- an amber
+// reminder card.
+export const DASHBOARD_REMINDER_CARD = "rounded-lg border border-amber-200 bg-amber-50 p-4 shadow-sm";
+export const DASHBOARD_REMINDER_TITLE = "mb-2 text-base font-semibold text-amber-800";
 export const STAT_LABEL = "text-xs text-gray-500";
 // A text link inside a sentence (「請到學校資料新增」): the inline form of
 // Ghost. A link that stands on its own uses a BUTTON_* class instead.

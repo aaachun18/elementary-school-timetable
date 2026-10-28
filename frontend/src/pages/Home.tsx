@@ -13,18 +13,22 @@ import { list as listSubjects } from "../api/subjects";
 import { list as listTeachers } from "../api/teachers";
 import { CalendarPlusIcon, ClipboardListIcon, SchoolIcon } from "../components/icons";
 import PageHeader from "../components/PageHeader";
-import { RecordStatusBadge } from "../components/StatusBadge";
+import StatusBadge, { RecordStatusBadge } from "../components/StatusBadge";
 import { recordsCardText, schoolDataCardText, wizardCardText } from "../utils/homeCards";
 import { useResource } from "../hooks/useResource";
 import { getCurrentUserRole, getCurrentUsername, isCurrentUserCoordinator, ROLE_LABELS } from "../utils/auth";
 import {
+  draftHealthAction,
+  draftHealthBadge,
   formatDateTime,
   pickCurrentSemester,
   pickLatestUnpublished,
   summarizeDataHealth,
   summarizeDraftHealth,
   summarizeVersions,
+  statTone,
   type SemesterVersions,
+  type StatTone,
 } from "../utils/dashboard";
 import { formatSemesterLabel } from "../utils/scheduleVersionFormat";
 import type { ScheduleVersion } from "../types/scheduleVersion";
@@ -38,8 +42,11 @@ import {
   BUTTON_PRIMARY,
   BUTTON_SECONDARY_SM,
   CARD,
+  DASHBOARD_CARD_HEADER,
   DASHBOARD_CARD_TITLE,
   DASHBOARD_GRID,
+  DASHBOARD_REMINDER_CARD,
+  DASHBOARD_REMINDER_TITLE,
   ERROR_TEXT,
   LINK_TEXT,
   LOADING_TEXT,
@@ -49,10 +56,9 @@ import {
   PAGE,
   STAT_LABEL,
   STAT_ROW,
-  STAT_VALUE,
   STAT_VALUE_PROBLEM,
   STAT_VALUE_WARNING,
-  SUCCESS_TEXT,
+  STAT_VALUE_ZERO,
 } from "../styles/ui";
 
 // Every list the dashboard reads is small (one school); fetched whole.
@@ -62,12 +68,15 @@ const ALL = 1000;
 // content. A card that fails never takes the rest of the page with it.
 function DashboardCard({
   title,
+  badge,
   isLoading,
   errorMessage,
   onRetry,
   children,
 }: {
   title: string;
+  // Task 99: a StatusBadge right of the title (健康度).
+  badge?: ReactNode;
   isLoading: boolean;
   errorMessage: string | null;
   onRetry: () => void;
@@ -75,7 +84,10 @@ function DashboardCard({
 }): ReactElement {
   return (
     <section className={CARD} aria-label={title}>
-      <h2 className={DASHBOARD_CARD_TITLE}>{title}</h2>
+      <div className={DASHBOARD_CARD_HEADER}>
+        <h2 className={DASHBOARD_CARD_TITLE}>{title}</h2>
+        {badge}
+      </div>
       {errorMessage !== null ? (
         <div className="flex flex-wrap items-center gap-2">
           <p role="alert" className={ERROR_TEXT}>
@@ -94,8 +106,14 @@ function DashboardCard({
   );
 }
 
-function Stat({ value, label, tone = "normal" }: { value: number; label: string; tone?: "normal" | "problem" | "warning" }): ReactElement {
-  const valueClass = tone === "problem" ? STAT_VALUE_PROBLEM : tone === "warning" ? STAT_VALUE_WARNING : STAT_VALUE;
+const STAT_VALUE_CLASSES: Record<StatTone, string> = {
+  zero: STAT_VALUE_ZERO,
+  problem: STAT_VALUE_PROBLEM,
+  warning: STAT_VALUE_WARNING,
+};
+
+function Stat({ value, label, tone }: { value: number; label: string; tone: StatTone }): ReactElement {
+  const valueClass = STAT_VALUE_CLASSES[tone];
   return (
     <div>
       <p className={valueClass}>{value}</p>
@@ -198,9 +216,11 @@ function DraftHealthCard({ data }: { data: ReturnType<typeof useSemesterData> })
   const timetablePath = draftId === null ? "/timetable" : `/timetable?scheduleVersionId=${draftId}`;
   const summary =
     health.data === null ? null : summarizeDraftHealth(health.data[0].violations, health.data[1].lessons.length);
+  const badge = draft === null || summary === null ? null : draftHealthBadge(summary);
   return (
     <DashboardCard
       title="最新未發布課表健康度"
+      badge={badge !== null && <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>}
       isLoading={data.isLoading || (draftId !== null && health.isLoading && health.data === null)}
       errorMessage={data.errorMessage ?? health.errorMessage}
       onRetry={data.errorMessage !== null ? data.reload : health.reload}
@@ -221,27 +241,18 @@ function DraftHealthCard({ data }: { data: ReturnType<typeof useSemesterData> })
             <RecordStatusBadge record={draft} />
           </p>
           <div className={STAT_ROW}>
-            <Stat value={summary.errorCount} label="錯誤" tone={summary.errorCount > 0 ? "problem" : "normal"} />
-            <Stat value={summary.warningCount} label="警告" tone={summary.warningCount > 0 ? "warning" : "normal"} />
-            <Stat value={summary.unscheduledCount} label="未排入課程" tone={summary.unscheduledCount > 0 ? "warning" : "normal"} />
+            <Stat value={summary.errorCount} label="錯誤" tone={statTone(summary.errorCount, "problem")} />
+            <Stat value={summary.warningCount} label="警告" tone={statTone(summary.warningCount, "warning")} />
+            <Stat value={summary.unscheduledCount} label="未排入課程" tone={statTone(summary.unscheduledCount, "warning")} />
           </div>
-          {summary.isHealthy ? (
-            <div className="flex flex-wrap items-center gap-3">
-              <p className={SUCCESS_TEXT}>✓ 沒有問題，可以發布</p>
-              <Link to={timetablePath} className={BUTTON_PRIMARY}>
-                檢視並發布
-              </Link>
-            </div>
-          ) : (
-            <div className="flex flex-wrap items-center gap-3">
-              <Link to={timetablePath} className={BUTTON_PRIMARY}>
-                前往修正
-              </Link>
-              <Link to="/records" className={LINK_TEXT}>
-                到排課紀錄
-              </Link>
-            </div>
-          )}
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <Link to="/records" className={LINK_TEXT}>
+              到排課紀錄
+            </Link>
+            <Link to={timetablePath} className={BUTTON_PRIMARY}>
+              {draftHealthAction(summary)}
+            </Link>
+          </div>
         </div>
       )}
     </DashboardCard>
@@ -256,44 +267,45 @@ function useSchoolData() {
   );
 }
 
-function DataHealthCard({ data }: { data: ReturnType<typeof useSchoolData> }): ReactElement {
-  const summary =
-    data.data === null
-      ? null
-      : summarizeDataHealth({ teachers: data.data[0], classes: data.data[1], subjects: data.data[2], rooms: data.data[3] });
+// Task 99: shown only when something is missing (the counts are already
+// on the 學校資料 card) -- an amber reminder listing what, each with a
+// link to where it is added. Nothing at all while loading or when the
+// data is complete; a failed load still says so (with 重試).
+function DataHealthCard({ data }: { data: ReturnType<typeof useSchoolData> }): ReactElement | null {
+  if (data.errorMessage !== null) {
+    return (
+      <DashboardCard title="資料健康度" isLoading={false} errorMessage={data.errorMessage} onRetry={data.reload}>
+        {null}
+      </DashboardCard>
+    );
+  }
+  if (data.data === null) {
+    return null;
+  }
+  const summary = summarizeDataHealth({
+    teachers: data.data[0],
+    classes: data.data[1],
+    subjects: data.data[2],
+    rooms: data.data[3],
+  });
+  if (summary.issues.length === 0) {
+    return null;
+  }
   return (
-    <DashboardCard
-      title="資料健康度"
-      isLoading={data.isLoading && data.data === null}
-      errorMessage={data.errorMessage}
-      onRetry={data.reload}
-    >
-      {summary !== null && (
-        <div className="flex flex-col gap-3">
-          <div className={STAT_ROW}>
-            <Stat value={summary.teacherCount} label="老師" />
-            <Stat value={summary.classCount} label="班級" />
-            <Stat value={summary.subjectCount} label="科目" />
-            <Stat value={summary.roomCount} label="教室" />
-          </div>
-          {summary.issues.length === 0 ? (
-            <p className={SUCCESS_TEXT}>✓ 學校資料齊全</p>
-          ) : (
-            <ul className="m-0 flex list-none flex-col gap-1 p-0">
-              {summary.issues.map((issue) => (
-                <li key={issue.message} className="text-sm text-amber-800">
-                  {issue.message}（
-                  <Link to={issue.path} className={LINK_TEXT}>
-                    前往補齊
-                  </Link>
-                  ）
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-    </DashboardCard>
+    <section className={DASHBOARD_REMINDER_CARD} aria-label="學校資料尚未齊全">
+      <h2 className={DASHBOARD_REMINDER_TITLE}>學校資料尚未齊全</h2>
+      <ul className="m-0 flex list-none flex-col gap-1 p-0">
+        {summary.issues.map((issue) => (
+          <li key={issue.message} className="text-sm text-amber-800">
+            {issue.message}（
+            <Link to={issue.path} className={LINK_TEXT}>
+              前往補齊
+            </Link>
+            ）
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

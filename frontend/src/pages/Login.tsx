@@ -4,6 +4,7 @@ import { login } from "../api/auth";
 import { TOKEN_KEY } from "../api/client";
 import { extractApiErrorMessage } from "../constants/errorMessages";
 import { EyeIcon, EyeOffIcon } from "../components/icons";
+import { SYSTEM_NAME } from "../constants/systemName";
 import { BUTTON_PRIMARY, ERROR_TEXT, ICON_BUTTON, INPUT, LABEL } from "../styles/ui";
 
 export default function Login(): ReactElement {
@@ -57,9 +58,12 @@ export default function Login(): ReactElement {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
+    // Task 101: the system's name above the card, centered; the name and
+    // the card together sit centered, a little above the middle (pb-[10vh]).
+    <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 px-4 pb-[10vh]">
+      {/* Task 99: the system's name is the page title (the button says 登入). */}
+      <h1 className="mb-6 text-center text-3xl font-bold text-gray-900">{SYSTEM_NAME}</h1>
       <div className="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-8 shadow-sm">
-        <h1 className="mb-6 text-2xl font-semibold text-gray-900">登入</h1>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1">
             <label htmlFor="username" className={LABEL}>
@@ -73,14 +77,16 @@ export default function Login(): ReactElement {
               value={username}
               onChange={handleUsernameChange}
               required
-              className={`${INPUT} w-full`}
+              className={`${INPUT} min-h-9 w-full`}
             />
           </div>
           <div className="flex flex-col gap-1">
             <label htmlFor="password" className={LABEL}>
               密碼
             </label>
-            <div className="flex items-center gap-2">
+            {/* Task 99: the eye sits inside the field, at its right end, so
+                both fields are equally wide. */}
+            <div className="relative">
               <input
                 id="password"
                 name="password"
@@ -89,7 +95,7 @@ export default function Login(): ReactElement {
                 value={password}
                 onChange={handlePasswordChange}
                 required
-                className={`${INPUT} flex-1`}
+                className={`${INPUT} min-h-9 w-full pr-10`}
               />
               <button
                 type="button"
@@ -97,7 +103,7 @@ export default function Login(): ReactElement {
                 aria-label={isPasswordVisible ? "隱藏密碼" : "顯示密碼"}
                 aria-pressed={isPasswordVisible}
                 title={isPasswordVisible ? "隱藏密碼" : "顯示密碼"}
-                className={ICON_BUTTON}
+                className={`${ICON_BUTTON} absolute inset-y-0 right-0.5 my-auto`}
               >
                 {isPasswordVisible ? <EyeOffIcon /> : <EyeIcon />}
               </button>

@@ -33,15 +33,20 @@ import {
   LOADING_TEXT,
   MUTED_TEXT,
   PAGE,
-  ROW_ACTIONS_END,
+  RECORD_ACTION_SLOT,
+  RECORD_ACTIONS,
+  RECORD_COLS,
+  RECORD_TABLE,
   SUCCESS_TEXT,
-  TABLE,
   TABLE_HEAD_ROW,
   TABLE_WRAPPER,
   TD,
-  TD_ACTIONS,
+  TD_DATA_ACTIONS,
+  TD_NOWRAP,
   TH,
-  TH_ACTIONS,
+  TH_ACTIONS_START,
+  TH_NOTE,
+  TD_NOTE,
   TR_HOVER,
 } from "../styles/ui";
 
@@ -127,34 +132,53 @@ export default function ScheduleRecords(): ReactElement {
         </div>
       ) : (
         <div className={TABLE_WRAPPER}>
-          <table className={TABLE}>
+          <table className={RECORD_TABLE}>
+            <colgroup>
+              <col className={RECORD_COLS.number} />
+              <col className={RECORD_COLS.semester} />
+              <col className={RECORD_COLS.status} />
+              <col className={RECORD_COLS.createdAt} />
+              <col className={RECORD_COLS.note} />
+              <col className={RECORD_COLS.actions} />
+            </colgroup>
             <thead>
               <tr className={TABLE_HEAD_ROW}>
                 <th className={TH}>編號</th>
                 <th className={TH}>學期</th>
                 <th className={TH}>狀態</th>
                 <th className={TH}>建立時間</th>
-                <th className={TH_ACTIONS}>操作</th>
-                <th className={TH}>備註</th>
+                <th className={TH_NOTE}>備註</th>
+                <th className={TH_ACTIONS_START}>操作</th>
               </tr>
             </thead>
             <tbody>
               {sortRecords(versions).map((version) => (
                 <tr key={version.id} className={TR_HOVER}>
                   <td className={`${TD} font-medium`}>{version.display_number}</td>
-                  <td className={TD}>{semesterLabelOf(version, semesterById, academicYearById)}</td>
-                  <td className={TD}>
+                  {/* Task 101: 學期 / 狀態 / 建立時間 never wrap. */}
+                  <td className={TD_NOWRAP}>{semesterLabelOf(version, semesterById, academicYearById)}</td>
+                  <td className={TD_NOWRAP}>
                     <RecordStatusBadge record={version} />
                   </td>
-                  <td className={`${TD} whitespace-nowrap`}>{formatDateTime(version.created_at)}</td>
-                  <td className={TD_ACTIONS}>
-                    <div className={ROW_ACTIONS_END}>
-                      {hasTimetable(version.status) && (
-                        <Link to={`/timetable?scheduleVersionId=${version.id}`} className={BUTTON_GHOST_SM}>
+                  <td className={TD_NOWRAP}>{formatDateTime(version.created_at)}</td>
+                  <td className={TD_NOTE}>
+                    <NoteCell key={`${version.id}-${version.note ?? ""}`} record={version} />
+                  </td>
+                  <td className={TD_DATA_ACTIONS}>
+                    <div className={RECORD_ACTIONS}>
+                      {/* Task 100: the first slot stays (empty) without a
+                          timetable, so the other two never move. */}
+                      {hasTimetable(version.status) ? (
+                        <Link
+                          to={`/timetable?scheduleVersionId=${version.id}`}
+                          className={`${BUTTON_GHOST_SM} ${RECORD_ACTION_SLOT}`}
+                        >
                           檢視課表
                         </Link>
+                      ) : (
+                        <span aria-hidden="true" />
                       )}
-                      <Link to={`/records/${version.id}/settings`} className={BUTTON_GHOST_SM}>
+                      <Link to={`/records/${version.id}/settings`} className={`${BUTTON_GHOST_SM} ${RECORD_ACTION_SLOT}`}>
                         檢視排課設定
                       </Link>
                       <DeleteIconButton
@@ -167,9 +191,6 @@ export default function ScheduleRecords(): ReactElement {
                       />
                     </div>
                   </td>
-                  <td className={TD}>
-                    <NoteCell key={`${version.id}-${version.note ?? ""}`} record={version} />
-                  </td>
                 </tr>
               ))}
             </tbody>
@@ -181,7 +202,7 @@ export default function ScheduleRecords(): ReactElement {
         open={deleting !== null}
         title={deleteText?.title ?? ""}
         confirmLabel={deleteText?.confirmLabel ?? ""}
-        cancelLabel={deleteText?.cancelLabel ?? ""}
+        cancelLabel={deleteText?.cancelLabel}
         tone="danger"
         busy={isDeleting}
         busyLabel="刪除中…"
@@ -234,7 +255,7 @@ function NoteCell({ record }: { record: ScheduleVersion }): ReactElement {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex min-w-48 flex-col gap-1">
+    <form onSubmit={handleSubmit} className="flex min-w-0 flex-col gap-1">
       <input
         value={text}
         onChange={(event) => {

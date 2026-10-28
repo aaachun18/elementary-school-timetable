@@ -10,7 +10,7 @@ import { list as listSchools } from "../api/schools";
 import { useResource } from "../hooks/useResource";
 import { useCrudList } from "../hooks/useCrudList";
 import { useConfirm } from "../hooks/useConfirm";
-import { deleteButtonLabel, deleteConfirmText } from "../utils/confirmText";
+import { CANCEL_LABEL, deleteButtonLabel, deleteConfirmText, editButtonLabel } from "../utils/confirmText";
 import type { School } from "../types/school";
 import type { PasswordReset, SameNameTeacher, User, UserCreate, UserUpdate } from "../types/user";
 import { getCurrentUserRole, getCurrentUsername, ROLE_LABELS } from "../utils/auth";
@@ -22,10 +22,11 @@ import { RowErrorText } from "../components/DeleteStepsHint";
 import StatusBadge from "../components/StatusBadge";
 import PageHeader from "../components/PageHeader";
 import DeleteIconButton from "../components/DeleteIconButton";
+import EditIconButton from "../components/EditIconButton";
 import {
   BUTTON_PRIMARY,
-  BUTTON_PRIMARY_SM,
-  BUTTON_SECONDARY_SM,
+  BUTTON_PRIMARY_ROW,
+  BUTTON_SECONDARY_ROW,
   ERROR_TEXT,
   ROW_ACTIONS,
   INPUT,
@@ -37,6 +38,7 @@ import {
   TABLE_HEAD_ROW,
   TABLE_WRAPPER,
   TD,
+  TD_NOWRAP,
   TH,
   TR_HOVER,
 } from "../styles/ui";
@@ -81,11 +83,11 @@ function PasswordResetForm({
           type="button"
           onClick={() => onConfirm({ password: newPassword })}
           disabled={isPending || newPassword === "" || passwordRuleError !== null}
-          className={BUTTON_PRIMARY_SM}
+          className={BUTTON_PRIMARY_ROW}
         >
           確認
         </button>
-        <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_SM}>
+        <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_ROW}>
           取消
         </button>
       </div>
@@ -166,7 +168,7 @@ function UserRow({
           )}
         </td>
       )}
-      <td className={TD}>
+      <td className={TD_NOWRAP}>
         <StatusBadge tone={user.is_active ? "success" : "neutral"}>{user.is_active ? "啟用" : "停用"}</StatusBadge>
       </td>
       <td className={TD}>
@@ -182,14 +184,12 @@ function UserRow({
               type="button"
               onClick={onStartResetPassword}
               disabled={isPending}
-              className={BUTTON_SECONDARY_SM}
+              className={BUTTON_SECONDARY_ROW}
             >
               重設密碼
             </button>
             {onEditNationalId !== null && (
-              <button type="button" onClick={onEditNationalId} disabled={isPending} className={BUTTON_SECONDARY_SM}>
-                編輯
-              </button>
+              <EditIconButton label={editButtonLabel(user.username)} onClick={onEditNationalId} disabled={isPending} />
             )}
             {/* The backend refuses deactivating / deleting one's own
                 account regardless; these just don't offer a button that
@@ -199,7 +199,7 @@ function UserRow({
               onClick={onToggleActive}
               disabled={isPending || isSelf}
               title={isSelf ? "不能停用目前登入中的帳號" : undefined}
-              className={BUTTON_SECONDARY_SM}
+              className={BUTTON_SECONDARY_ROW}
             >
               {user.is_active ? "停用" : "啟用"}
             </button>
@@ -224,7 +224,7 @@ function UserRow({
 function NationalIdMissingWarning(): ReactElement {
   return (
     <span
-      title="有同名同姓的教師，請按「編輯」填寫身分證字號以供識別"
+      title="有同名同姓的教師，請按鉛筆圖示（編輯）填寫身分證字號以供識別"
       className="ml-2 inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 align-middle text-xs font-medium text-amber-800"
     >
       <svg aria-hidden="true" viewBox="0 0 20 20" className="h-3.5 w-3.5 fill-amber-500">
@@ -311,7 +311,7 @@ export default function UserManagement(): ReactElement {
     }
   }
 
-  // 儲存 and 稍後再填 both move on; the list then shows who still lacks one.
+  // 儲存 and 取消 both move on; the list then shows who still lacks one.
   function nextNationalId(): void {
     setNationalIdQueue((queue) => queue.slice(1));
     usersResource.reload();
@@ -327,7 +327,7 @@ export default function UserManagement(): ReactElement {
       title: `重設「${user.username}」的密碼？`,
       message: "接著會請你輸入新密碼；儲存後，這個帳號要用新密碼登入。",
       confirmLabel: "重設密碼",
-      cancelLabel: "先不重設",
+      cancelLabel: CANCEL_LABEL,
       tone: "danger",
     });
     if (confirmed) {
@@ -342,7 +342,7 @@ export default function UserManagement(): ReactElement {
         title: `停用「${user.username}」？`,
         message: "停用後這個帳號無法登入，教師也不會出現在新的排課名單中。之後可以再按「啟用」恢復。",
         confirmLabel: "停用帳號",
-        cancelLabel: "保留啟用",
+        cancelLabel: CANCEL_LABEL,
         tone: "danger",
       });
       if (!confirmed) {

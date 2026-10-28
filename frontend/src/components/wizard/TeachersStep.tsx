@@ -7,6 +7,7 @@ import { list as listTimeSlots } from "../../api/timeSlots";
 import { listTeachers as listSemesterTeachers, replaceTeachers } from "../../api/semesterSettings";
 import { extractApiErrorMessage } from "../../constants/errorMessages";
 import { useResource } from "../../hooks/useResource";
+import { useTeacherNames } from "../../hooks/useTeacherAccounts";
 import type { Class } from "../../types/class";
 import type { SemesterTeacher, SemesterTeacherEntry } from "../../types/semesterSettings";
 import type { Teacher } from "../../types/teacher";
@@ -45,7 +46,10 @@ interface Draft {
   homeroomClassId: number | null;
 }
 
-function initialDrafts(teachers: readonly Teacher[], current: readonly SemesterTeacher[]): Map<number, Draft> {
+function initialDrafts(
+  teachers: readonly Teacher[],
+  current: readonly SemesterTeacher[],
+): Map<number, Draft> {
   const byTeacher = new Map(current.map((item) => [item.teacher_id, item]));
   return new Map(
     teachers.map((teacher) => {
@@ -83,6 +87,7 @@ export default function TeachersStep({
   const timeSlots = useResource(() => listTimeSlots(0, 1000), []);
   const classes = useResource(() => listClasses(0, 1000), []);
   const grades = useResource(() => listGrades(0, 1000), []);
+  const teacherNames = useTeacherNames();
 
   const errorMessage =
     teachers.errorMessage ??
@@ -115,6 +120,7 @@ export default function TeachersStep({
       current={current.data}
       timeSlots={timeSlots.data}
       classes={sortClassesByGrade(classes.data, gradeLevelById)}
+      teacherLabel={(teacher) => teacherNames.label(teacher.id, teacher.name)}
       onNext={onNext}
     />
   );
@@ -126,6 +132,7 @@ function TeachersForm({
   current,
   timeSlots,
   classes,
+  teacherLabel,
   onNext,
 }: {
   versionId: number;
@@ -133,6 +140,8 @@ function TeachersForm({
   current: readonly SemesterTeacher[];
   timeSlots: readonly TimeSlot[];
   classes: readonly Class[];
+  // Task 99: 「王老師(teacher11)」 when two teachers share a name.
+  teacherLabel: (teacher: Teacher) => string;
   onNext: () => void;
 }): ReactElement {
   const [drafts, setDrafts] = useState(() => initialDrafts(teachers, current));
@@ -279,7 +288,7 @@ function TeachersForm({
                           }
                           className={CHECKBOX}
                         />
-                        {teacher.name}
+                        {teacherLabel(teacher)}
                         {draft.homeroomClassId !== null && (
                           <span className={HOMEROOM_TAG}>{classById.get(draft.homeroomClassId)?.name ?? "—"}</span>
                         )}
@@ -294,7 +303,7 @@ function TeachersForm({
                             }
                           }}
                           disabled={freeClasses.length === 0}
-                          aria-label={`${teacher.name}擔任導師的班級`}
+                          aria-label={`${teacherLabel(teacher)}擔任導師的班級`}
                           className={`${SELECT} w-32 text-xs`}
                         >
                           <option value="">設定導師班級</option>
@@ -315,7 +324,7 @@ function TeachersForm({
                             update(teacher.id, { homeroomClassId: null });
                             setError(null);
                           }}
-                          aria-label={`取消${teacher.name}的導師班級`}
+                          aria-label={`取消${teacherLabel(teacher)}的導師班級`}
                           className={BUTTON_GHOST_SM}
                         >
                           取消導師班級
@@ -331,7 +340,7 @@ function TeachersForm({
                             min={0}
                             value={draft.minText}
                             onChange={(event) => update(teacher.id, { minText: event.target.value })}
-                            aria-label={`${teacher.name}每週最低節數`}
+                            aria-label={`${teacherLabel(teacher)}每週最低節數`}
                             className={`${INPUT} w-16`}
                           />
                         </label>
@@ -342,7 +351,7 @@ function TeachersForm({
                             min={0}
                             value={draft.maxText}
                             onChange={(event) => update(teacher.id, { maxText: event.target.value })}
-                            aria-label={`${teacher.name}每週最高節數`}
+                            aria-label={`${teacherLabel(teacher)}每週最高節數`}
                             className={`${INPUT} w-16`}
                           />
                           節
@@ -371,7 +380,7 @@ function TeachersForm({
         {pickerTeacher !== null && (
           <TimeSlotPickerDialog
             key={pickerTeacher.id}
-            title={`${pickerTeacher.name}的不可排課時段`}
+            title={`${teacherLabel(pickerTeacher)}的不可排課時段`}
             description="勾選這學期沒辦法排課的節次，排課時會避開。"
             checkedLabel="不可排課"
             timeSlots={timeSlots}
@@ -387,6 +396,8 @@ function TeachersForm({
           />
         )}
       </div>
+      {/* Task 100: no 上一步 -- step 1's semester is fixed once the record
+          exists, so there is nothing to go back to. */}
       <ActionBar
         end={
           <>

@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import InfoPopover from "./InfoPopover";
-import { ROW_ERROR_TEXT } from "../styles/ui";
+import { ROW_ERROR_TEXT, ROW_ERROR_TEXT_FIXED } from "../styles/ui";
 
 // 「此資料仍被其他資料參照，無法刪除」: an (i) button right of the message
 // (Task 98: InfoPopover, was a hover-only ? circle); it shows what to
@@ -23,15 +23,26 @@ export function DeleteStepsHint({ steps }: { steps: readonly string[] }): ReactE
 
 // A row's error line: the message, plus the (i) hint when a refused delete
 // came with steps. A <div>, not a <p>: the hint's panel is a <div>.
+// `inFixedColumn` (Task 101): the row's 操作 column has a set width (a
+// fixed-layout DATA_TABLE) -- the line wraps inside it, at the right.
 export function RowErrorText({
   message,
   deleteSteps = [],
+  inFixedColumn = false,
 }: {
   message: string;
   deleteSteps?: readonly string[];
+  inFixedColumn?: boolean;
 }): ReactElement {
   return (
-    <div role="alert" className={`${ROW_ERROR_TEXT} flex items-center gap-1`}>
+    <div
+      role="alert"
+      className={
+        inFixedColumn
+          ? `${ROW_ERROR_TEXT_FIXED} flex items-center justify-end gap-1`
+          : `${ROW_ERROR_TEXT} flex items-center gap-1`
+      }
+    >
       <span>{message}</span>
       <DeleteStepsHint steps={deleteSteps} />
     </div>
