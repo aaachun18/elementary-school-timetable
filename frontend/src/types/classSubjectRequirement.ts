@@ -58,3 +58,10 @@ export interface RequirementSyncResult {
   // 停用 subjects whose 年級科目需求 were left out of the record.
   skipped_subjects: { id: number; name: string }[];
 }
+
+// Task 103: PATCH /class-subject-requirements/lesson-patterns -- one
+// requirement's new 連堂樣式 in a batch saved in one transaction.
+export interface LessonPatternItem {
+  id: number;
+  lesson_pattern: string | null;
+}

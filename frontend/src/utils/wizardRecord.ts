@@ -58,29 +58,3 @@ export function forgetWizardRecord(): void {
   write(REMEMBERED_RECORD_KEY, null);
   write(REMEMBERED_STEP_KEY, null);
 }
-
-// Task 102: the furthest step reached in a record, for this browser tab
-// (sessionStorage, keyed by the record): an edited URL or a refresh can't
-// open a step beyond it (utils/wizardNav.ts). Unreadable storage: null --
-// then only the step being opened counts as reached.
-function furthestKey(recordId: number): string {
-  return `wizard.furthest.${recordId}`;
-}
-
-export function readFurthestStepIndex(recordId: number): number | null {
-  try {
-    const raw = sessionStorage.getItem(furthestKey(recordId));
-    const parsed = raw === null ? NaN : Number(raw);
-    return Number.isInteger(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-export function rememberFurthestStepIndex(recordId: number, index: number): void {
-  try {
-    sessionStorage.setItem(furthestKey(recordId), String(index));
-  } catch {
-    // Only the step on screen counts as reached then.
-  }
-}

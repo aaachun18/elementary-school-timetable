@@ -403,8 +403,11 @@ export const BLOCK_BAR_BOTTOM_END = "bottom-1.5 rounded-b-full";
 // the one under the pointer): the same green as DROP_TARGET_OK, dashed.
 export const DROP_TARGET_RANGE = "bg-green-50 outline-2 -outline-offset-2 outline-dashed outline-green-500";
 // The cell under the pointer when the target is refused by the block rules.
+// Task 103: laid over the bottom of the cell (absolute; the cell is
+// relative) instead of taking room in it -- so showing it never makes the
+// row taller and moves what is under the pointer.
 export const DROP_ZONE_BLOCKED =
-  "pointer-events-none rounded-md border border-dashed border-gray-400 bg-white/80 px-2 py-1 text-center text-xs text-gray-600";
+  "pointer-events-none absolute inset-x-1 bottom-1 z-10 rounded-md border border-dashed border-gray-400 bg-white/90 px-2 py-1 text-center text-xs text-gray-600";
 
 // Task 78: the row header (節次) column. Full constants rather than TH plus
 // extra classes, so two background/text colors never compete.
@@ -452,11 +455,16 @@ export const DROP_TARGET_BLOCKED = "bg-red-50 outline-2 -outline-offset-2 outlin
 // pointer-events-none (so is DROP_STRIP): appearing under the pointer must
 // not change which element the drop lands on -- the cell itself handles it.
 export const DROP_ZONE =
-  "pointer-events-none rounded-md border border-dashed border-green-500 px-2 py-1 text-center text-xs text-green-700";
+  "pointer-events-none absolute inset-x-1 bottom-1 z-10 rounded-md border border-dashed border-green-500 bg-green-50/95 px-2 py-1 text-center text-xs text-green-700";
 // Task 85: in a cell that has lessons, the drop area under them is a thin
 // dashed strip while dragging; it expands to DROP_ZONE (with 「移到這裡」)
 // only while the drag is over that cell.
 export const DROP_STRIP = "pointer-events-none h-1.5 rounded-sm border border-dashed border-blue-300";
+// Task 103: the same room, empty, whenever no strip is shown -- every cell
+// with lessons keeps it in edit mode, so starting a drag (or selecting a
+// lesson, whose 「移到這裡」 strip takes the same room) never makes the rows
+// taller and moves the timetable under the pointer.
+export const DROP_STRIP_SPACE = "pointer-events-none h-1.5";
 // Task 85: the click flow's move target. In an EMPTY cell the whole cell
 // is one button (text only on hover / keyboard focus) ...
 export const CELL_MOVE_TARGET =
@@ -545,3 +553,15 @@ export const STAT_LABEL = "text-xs text-gray-500";
 // A text link inside a sentence (「請到學校資料新增」): the inline form of
 // Ghost. A link that stands on its own uses a BUTTON_* class instead.
 export const LINK_TEXT = "font-medium text-primary underline-offset-2 hover:text-primary-hover hover:underline";
+
+// --- Task 103: edit-mode notices (課表 手動編輯) ---
+// Short-lived notices (saved, 無法放在這裡, 正在預覽…) float at the bottom of
+// the window instead of sitting above the timetable: they show wherever
+// the page is scrolled, and appearing / disappearing never moves the
+// timetable under the pointer.
+export const TOAST_REGION =
+  "pointer-events-none fixed inset-x-0 bottom-6 z-40 flex flex-col items-center gap-2 px-4 empty:hidden";
+export const TOAST = "pointer-events-auto max-w-xl rounded-md border px-4 py-2 text-sm shadow-lg";
+export const TOAST_SUCCESS = `${TOAST} border-green-200 bg-green-50 text-green-800`;
+export const TOAST_NOTICE = `${TOAST} border-amber-200 bg-amber-50 text-amber-900`;
+export const TOAST_LOADING = `${TOAST} border-gray-200 bg-white text-gray-700`;

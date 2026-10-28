@@ -80,6 +80,10 @@ class ScheduleVersion(TimestampMixin, Base):
             "NOT is_published OR status IN ('AUTO', 'MANUAL', 'COPIED')",
             name="ck_schedule_versions_published_has_timetable",
         ),
+        CheckConstraint(
+            "wizard_furthest_step IS NULL OR wizard_furthest_step >= 0",
+            name="ck_schedule_versions_wizard_furthest_step_non_negative",
+        ),
         # 排課紀錄's 編號: one sequence per school, never reused.
         UniqueConstraint(
             "school_id", "version_number", name="uq_schedule_versions_school_number"
@@ -115,6 +119,11 @@ class ScheduleVersion(TimestampMixin, Base):
     )
     # 備註, e.g. 「王老師上三年級自然課版」.
     note: Mapped[str | None] = mapped_column(String(NOTE_MAX_LENGTH))
+    # Task 103: the furthest 開始排課 step reached (the step's index in the
+    # wizard, 0 = 選擇學期) -- every step up to it stays clickable in the
+    # step row. Only ever goes up (update_schedule_version). None: not
+    # recorded yet (records made before Task 103).
+    wizard_furthest_step: Mapped[int | None] = mapped_column()
 
     semester: Mapped["Semester"] = relationship()
 

@@ -193,12 +193,20 @@ def update_schedule_version(
     school_id: int,
 ) -> ScheduleVersion | None:
     """Only the 備註 changes -- on any record, published ones included: it
-    describes the record, it is not part of its timetable."""
+    describes the record, it is not part of its timetable. Task 103: and
+    the furthest 開始排課 step reached, which only ever goes up (a lower
+    value -- e.g. from a stale tab -- leaves it as it is)."""
     schedule_version = get_in_school(db, ScheduleVersion, schedule_version_id, school_id)
     if schedule_version is None:
         return None
     if "note" in version_data.model_fields_set:
         schedule_version.note = version_data.note
+    requested_step = version_data.wizard_furthest_step
+    if requested_step is not None:
+        current_step = schedule_version.wizard_furthest_step
+        schedule_version.wizard_furthest_step = (
+            requested_step if current_step is None else max(current_step, requested_step)
+        )
     try:
         db.commit()
     except IntegrityError as exc:

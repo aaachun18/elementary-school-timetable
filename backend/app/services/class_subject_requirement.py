@@ -20,6 +20,7 @@ from app.models.teacher import Teacher
 from app.schemas.class_subject_requirement import (
     ClassSubjectRequirementCreate,
     ClassSubjectRequirementUpdate,
+    LessonPatternItem,
     RequirementSyncResult,
     SkippedSubject,
 )
@@ -28,6 +29,7 @@ from app.services.exceptions import (
     CombinedLessonInUseError,
     DependentRecordsExistError,
     InvalidLessonPatternError,
+    SettingsLockedError,
     raise_for_integrity_error,
 )
 from app.services.homeroom import homeroom_subject_ids, homeroom_teachers
@@ -178,6 +180,63 @@ def update_class_subject_requirement(
 
 
 COMBINED_PATTERN_MESSAGE = "這個科目已設定共同排課，請先到「共同排課」取消合併再修改連堂"
+
+
+def _apply_lesson_pattern(
+    db: Session, requirement: ClassSubjectRequirement, pattern: str | None
+) -> None:
+    """One requirement's new 連堂樣式, checked like a single PATCH of it (the
+    record still 尚未排課, the blocks add up to its weekly_periods, not part
+    of a 共同排課) and staged -- the caller commits."""
+    _raise_if_locked(db, requirement.schedule_version_id)
+    try:
+        check_pattern_total(pattern, requirement.weekly_periods)
+    except ValueError as exc:
+        raise InvalidLessonPatternError(str(exc)) from exc
+    if pattern == requirement.lesson_pattern:
+        return
+    if combined_lesson_service.is_combined(db, requirement.id):
+        raise CombinedLessonInUseError(COMBINED_PATTERN_MESSAGE)
+    requirement.lesson_pattern = pattern
+    assign_block_fields(
+        list(
+            db.scalars(
+                select(Lesson).where(Lesson.class_subject_requirement_id == requirement.id)
+            ).all()
+        ),
+        pattern,
+    )
+
+
+def update_lesson_patterns(
+    db: Session, items: list[LessonPatternItem], *, school_id: int
+) -> list[ClassSubjectRequirement] | None:
+    """Task 103: 「複製此連堂設定至所有同年級班級」 -- several requirements'
+    連堂樣式 in ONE transaction: every one is checked (_apply_lesson_pattern)
+    and either all are saved or none. Which requirements to copy to (and
+    which to skip) is the wizard's choice (utils/lessonPatternCopy.ts); this
+    only refuses what a single PATCH would refuse. None -- nothing saved --
+    when one of them isn't the school's (the router's 404)."""
+    updated: list[ClassSubjectRequirement] = []
+    try:
+        for item in items:
+            requirement = get_in_school(db, ClassSubjectRequirement, item.id, school_id)
+            if requirement is None:
+                db.rollback()
+                return None
+            _apply_lesson_pattern(db, requirement, item.lesson_pattern)
+            updated.append(requirement)
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise_for_integrity_error(exc)
+    except (InvalidLessonPatternError, CombinedLessonInUseError, SettingsLockedError):
+        # Nothing of the batch stays staged.
+        db.rollback()
+        raise
+    for requirement in updated:
+        db.refresh(requirement)
+    return updated
 
 
 def _stage_delete_lessons(db: Session, lesson_ids: list[int]) -> None:

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { get as getRecord } from "../api/scheduleVersions";
+import { get as getRecord, update as updateRecord } from "../api/scheduleVersions";
 import { list as listAcademicYears } from "../api/academicYears";
 import { list as listSemesters } from "../api/semesters";
 import CombinedStep from "../components/wizard/CombinedStep";
@@ -12,15 +12,19 @@ import TeachersStep from "../components/wizard/TeachersStep";
 import { extractApiErrorMessage } from "../constants/errorMessages";
 import { formatSemesterLabel } from "../utils/scheduleVersionFormat";
 import { WIZARD_STEPS, isSemesterStepLocked, isWizardStep, type WizardStepKey } from "../utils/wizard";
-import { LEAVE_STEP_CONFIRM, allowedEntryIndex, furthestAfter, navItemState } from "../utils/wizardNav";
+import {
+  LEAVE_STEP_CONFIRM,
+  allowedEntryIndex,
+  furthestAfter,
+  isNewFurthest,
+  navItemState,
+} from "../utils/wizardNav";
 import { useConfirm } from "../hooks/useConfirm";
 import { CANCEL_LABEL } from "../utils/confirmText";
 import {
   forgetWizardRecord,
   readRememberedWizardRecord,
-  readFurthestStepIndex,
   readRememberedWizardStep,
-  rememberFurthestStepIndex,
   rememberWizardRecord,
   rememberWizardStep,
 } from "../utils/wizardRecord";
@@ -48,10 +52,24 @@ interface WizardRecord {
   // The semester's 學年度 and number, shown read-only on a locked step 1.
   academicYear: number | null;
   semesterNumber: number | null;
+  // Task 103: the furthest step the record has reached, as stored on it
+  // (null: not recorded yet).
+  furthestStep: number | null;
 }
 
 function stepIndexOf(key: WizardStepKey): number {
   return WIZARD_STEPS.findIndex((item) => item.key === key);
+}
+
+// Task 103: a step beyond the one stored is saved on the record, so the
+// step row keeps it clickable after a refresh. Best effort: if the save
+// fails the step row still works for this visit, and the next 下一步 tries
+// again -- the worst case is that a refresh opens fewer steps.
+function saveFurthestStep(recordId: number, stored: number | null, reached: number): void {
+  if (!isNewFurthest(stored, reached)) {
+    return;
+  }
+  updateRecord(recordId, { wizard_furthest_step: reached }).catch(() => undefined);
 }
 
 function parseId(raw: string | null): number | null {
@@ -77,6 +95,7 @@ async function loadRecord(recordId: number): Promise<{ record: WizardRecord; isE
       semesterLabel: semester === undefined ? "" : formatSemesterLabel(semester, academicYearById),
       academicYear: semester === undefined ? null : (academicYearById.get(semester.academic_year_id) ?? null),
       semesterNumber: semester?.number ?? null,
+      furthestStep: version.wizard_furthest_step ?? null,
     },
     isEditable: version.status === "NOT_SCHEDULED",
   };
@@ -104,10 +123,10 @@ export default function SchedulingWizard(): ReactElement {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [lockedRecord, setLockedRecord] = useState<WizardRecord | null>(null);
   const [step, setStep] = useState<WizardStepKey | null>(null);
-  // Task 102: the furthest step reached in this record (also kept in
-  // sessionStorage, so a refresh or an edited URL can't skip ahead), the
-  // 教師設定 form's unsaved changes, and whether 自動排課 has succeeded
-  // (then the step row is read only).
+  // Task 102: the furthest step reached in this record (Task 103: kept on
+  // the record itself, so a refresh keeps every reached step clickable and
+  // an edited URL can't skip ahead), the 教師設定 form's unsaved changes,
+  // and whether 自動排課 has succeeded (then the step row is read only).
   const [furthestIndex, setFurthestIndex] = useState<number | null>(null);
   const [hasUnsavedTeachers, setHasUnsavedTeachers] = useState(false);
   const [isScheduled, setIsScheduled] = useState(false);
@@ -135,11 +154,12 @@ export default function SchedulingWizard(): ReactElement {
                 : "teachers";
           // Never beyond the furthest step reached (an edited URL, the
           // browser's back / forward, a refresh): that step instead.
-          const reached = readFurthestStepIndex(loaded.id);
+          // A record without one yet starts from the step it opens.
+          const reached = loaded.furthestStep;
           const allowedIndex = allowedEntryIndex(stepIndexOf(nextStep), reached);
           const allowedStep = WIZARD_STEPS[allowedIndex].key;
           const furthest = furthestAfter(reached, allowedIndex);
-          rememberFurthestStepIndex(loaded.id, furthest);
+          saveFurthestStep(loaded.id, reached, furthest);
           setFurthestIndex(furthest);
           if (allowedStep !== "semester") {
             rememberWizardStep(allowedStep);
@@ -174,15 +194,21 @@ export default function SchedulingWizard(): ReactElement {
     };
   }, [requestedRecordId, requestedStep, isResuming]);
 
-  // `recordId`: the record the step belongs to (passed by chooseRecord(),
-  // whose record isn't in state yet).
-  function go(next: WizardStepKey, recordId: number | null = record?.id ?? null): void {
+  // `recordId` / `previousFurthest`: the record the step belongs to and its
+  // furthest step so far (passed by chooseRecord(), whose new record isn't
+  // in state yet). No step is checked again on the way -- step 6's
+  // 排課前檢查 guards 自動排課.
+  function go(
+    next: WizardStepKey,
+    recordId: number | null = record?.id ?? null,
+    previousFurthest: number | null = furthestIndex,
+  ): void {
     if (next !== "semester") {
       rememberWizardStep(next);
     }
     if (recordId !== null) {
-      const furthest = furthestAfter(furthestIndex, stepIndexOf(next));
-      rememberFurthestStepIndex(recordId, furthest);
+      const furthest = furthestAfter(previousFurthest, stepIndexOf(next));
+      saveFurthestStep(recordId, previousFurthest, furthest);
       setFurthestIndex(furthest);
     }
     setHasUnsavedTeachers(false);
@@ -190,8 +216,9 @@ export default function SchedulingWizard(): ReactElement {
     window.scrollTo({ top: 0 });
   }
 
-  // The step row only goes back; leaving 教師設定 with unsaved changes asks.
-  async function jumpBack(index: number): Promise<void> {
+  // Task 103: the step row opens any step reached before, later ones
+  // included; leaving 教師設定 with unsaved changes asks.
+  async function jumpTo(index: number): Promise<void> {
     if (step === "teachers" && hasUnsavedTeachers) {
       const confirmed = await confirm({ ...LEAVE_STEP_CONFIRM, cancelLabel: CANCEL_LABEL, tone: "danger" });
       if (!confirmed) {
@@ -223,9 +250,9 @@ export default function SchedulingWizard(): ReactElement {
       semesterLabel: semester.label,
       academicYear: semester.year,
       semesterNumber: semester.number,
+      furthestStep: created.wizard_furthest_step ?? null,
     });
-    setFurthestIndex(null);
-    go("teachers", created.id);
+    go("teachers", created.id, created.wizard_furthest_step ?? null);
   }
 
   const stepIndex = step === null ? -1 : stepIndexOf(step);
@@ -294,8 +321,8 @@ export default function SchedulingWizard(): ReactElement {
             ariaLabel="排課步驟"
             // Task 102: only back (step 1 too, read-only once the record
             // exists); nothing once scheduled.
-            itemState={(index) => navItemState(index, stepIndex, isScheduled)}
-            onJump={(index) => void jumpBack(index)}
+            itemState={(index) => navItemState(index, stepIndex, furthestIndex, isScheduled)}
+            onJump={(index) => void jumpTo(index)}
           />
           {step === "semester" && (
             <SemesterStep

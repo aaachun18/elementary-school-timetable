@@ -46,3 +46,27 @@ export function canMoveLessonTo(
 export function canSwapLessons(lesson: EnrichedSchedule, other: EnrichedSchedule): boolean {
   return other.scheduleId !== lesson.scheduleId && other.timeSlotId !== lesson.timeSlotId;
 }
+
+// Task 103 (bug fix): which lesson a drop is about. The grid remembers the
+// lesson it saw start the drag (`dragged`) -- the same one its drop hints
+// were drawn for -- and that wins; the drag's own data (dataTransfer
+// "text/plain", the scheduleId) is only a fallback. Reading only the drag
+// data failed in some browsers: the hint said 「移到這裡」 but the drop could
+// not tell which lesson it was, so nothing happened. A lesson no longer in
+// the timetable (it reloaded meanwhile) is no lesson.
+export function pickDraggedLesson<T extends { scheduleId: number }>(
+  dragged: T | null,
+  dragDataText: string,
+  schedules: readonly T[],
+): T | undefined {
+  if (dragged !== null) {
+    return schedules.find((schedule) => schedule.scheduleId === dragged.scheduleId);
+  }
+  if (dragDataText.trim() === "") {
+    return undefined;
+  }
+  const scheduleId = Number(dragDataText);
+  return Number.isInteger(scheduleId)
+    ? schedules.find((schedule) => schedule.scheduleId === scheduleId)
+    : undefined;
+}

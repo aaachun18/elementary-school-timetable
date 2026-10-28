@@ -5,7 +5,9 @@ import {
   list as listRequirements,
   syncWithSchool,
   update as updateRequirement,
+  updateLessonPatterns,
 } from "../../api/classSubjectRequirements";
+import { list as listCombinedLessons } from "../../api/combinedLessons";
 import { list as listGrades } from "../../api/grades";
 import { list as listLessons } from "../../api/lessons";
 import { list as listTimeSlots } from "../../api/timeSlots";
@@ -14,6 +16,7 @@ import { listTeachers as listSemesterTeachers } from "../../api/semesterSettings
 import { list as listSubjects } from "../../api/subjects";
 import { list as listTeachers } from "../../api/teachers";
 import { extractApiErrorMessage } from "../../constants/errorMessages";
+import { useConfirm } from "../../hooks/useConfirm";
 import { useResource } from "../../hooks/useResource";
 import { useTeacherNames } from "../../hooks/useTeacherAccounts";
 import type { Class } from "../../types/class";
@@ -33,6 +36,13 @@ import FixedSlotsDialog from "./FixedSlotsDialog";
 import ChoiceSelect from "../ChoiceSelect";
 import type { Choice } from "../../utils/choiceSelect";
 import { skippedSubjectsNote } from "../../utils/subjectDeactivation";
+import {
+  COPY_PATTERNS_CONFIRM,
+  COPY_PATTERNS_LABEL,
+  copyPatternsDisabledReason,
+  copyPatternsResultText,
+  planLessonPatternCopy,
+} from "../../utils/lessonPatternCopy";
 import { wizardStepLabel } from "../../utils/wizard";
 import {
   BUTTON_PRIMARY,
@@ -53,6 +63,7 @@ import {
   REQ_COL_TEACHER,
   RULE_NOTE,
   SELECT,
+  SUCCESS_TEXT,
   TABLE,
   TABLE_HEAD_ROW,
   TABLE_WRAPPER,
@@ -251,6 +262,14 @@ function RequirementsForm({
     setClassId(classes.find((item) => item.grade_id === nextGradeId)?.id ?? null);
   }
 
+  // Task 103: 「複製此連堂設定至所有同年級班級」 -- requirements in a 共同排課
+  // keep their pattern (utils/lessonPatternCopy.ts).
+  const combinedLessons = useResource(() => listCombinedLessons(versionId), [versionId]);
+  const { confirm, dialog: confirmDialog } = useConfirm();
+  const [isCopyingPatterns, setIsCopyingPatterns] = useState(false);
+  const [copyPatternsMessage, setCopyPatternsMessage] = useState<string | null>(null);
+  const [copyPatternsError, setCopyPatternsError] = useState<string | null>(null);
+
   const subjectName = new Map(subjects.map((subject) => [subject.id, subject.name]));
   const classRequirements = requirements
     .filter((requirement) => requirement.class_id === classId)
@@ -263,6 +282,42 @@ function RequirementsForm({
 
   function replaceRequirement(saved: ClassSubjectRequirement): void {
     setRequirements((previous) => previous.map((item) => (item.id === saved.id ? saved : item)));
+  }
+
+  const copyPatternsReason =
+    combinedLessons.data === null
+      ? "載入中…"
+      : copyPatternsDisabledReason(gradeClasses.length, classRequirements.length);
+
+  // Saved right away, like every other change here -- in one transaction;
+  // the other classes show the result as soon as they are picked.
+  async function handleCopyPatterns(): Promise<void> {
+    if (classId === null || combinedLessons.data === null) {
+      return;
+    }
+    setCopyPatternsMessage(null);
+    setCopyPatternsError(null);
+    if (!(await confirm(COPY_PATTERNS_CONFIRM))) {
+      return;
+    }
+    const plan = planLessonPatternCopy({
+      sourceClassId: classId,
+      gradeClassIds: gradeClasses.map((item) => item.id),
+      requirements,
+      combinedRequirementIds: new Set(combinedLessons.data.flatMap((item) => item.requirement_ids)),
+    });
+    if (plan.items.length > 0) {
+      setIsCopyingPatterns(true);
+      try {
+        (await updateLessonPatterns(plan.items)).forEach(replaceRequirement);
+      } catch (caught) {
+        setCopyPatternsError(extractApiErrorMessage(caught));
+        return;
+      } finally {
+        setIsCopyingPatterns(false);
+      }
+    }
+    setCopyPatternsMessage(copyPatternsResultText(plan.copiedClassIds.length, plan.skippedCount));
   }
 
   return (
@@ -293,20 +348,44 @@ function RequirementsForm({
           </p>
         ) : (
           <>
-            <label className="mb-3 flex items-center gap-2">
-              <span className={LABEL}>年級</span>
-              <select
-                value={gradeId ?? ""}
-                onChange={(event) => selectGrade(Number(event.target.value))}
-                className={`${SELECT} ${FIELD_PAGE}`}
+            <div className="mb-3 flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2">
+                <span className={LABEL}>年級</span>
+                <select
+                  value={gradeId ?? ""}
+                  onChange={(event) => {
+                    selectGrade(Number(event.target.value));
+                    setCopyPatternsMessage(null);
+                  }}
+                  className={`${SELECT} ${FIELD_PAGE}`}
+                >
+                  {gradesWithClasses.map((grade) => (
+                    <option key={grade.id} value={grade.id}>
+                      {grade.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={() => void handleCopyPatterns()}
+                disabled={copyPatternsReason !== null || isCopyingPatterns}
+                title={copyPatternsReason ?? undefined}
+                className={BUTTON_SECONDARY}
               >
-                {gradesWithClasses.map((grade) => (
-                  <option key={grade.id} value={grade.id}>
-                    {grade.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+                {isCopyingPatterns ? "複製中…" : COPY_PATTERNS_LABEL}
+              </button>
+            </div>
+            {copyPatternsMessage !== null && (
+              <p className={`${SUCCESS_TEXT} mb-3`} role="status">
+                ✓ {copyPatternsMessage}
+              </p>
+            )}
+            {copyPatternsError !== null && (
+              <p role="alert" className={`${ERROR_TEXT} mb-3`}>
+                {copyPatternsError}
+              </p>
+            )}
             <div className="flex flex-col gap-3 md:flex-row md:items-start">
               <nav aria-label="班級" className="flex shrink-0 flex-row flex-wrap gap-1 md:w-40 md:flex-col">
                 {gradeClasses.map((item) => {
@@ -370,6 +449,7 @@ function RequirementsForm({
             )}
           </>
         )}
+        {confirmDialog}
         {fixing !== null && (
           <FixedSlotsDialog
             versionId={versionId}

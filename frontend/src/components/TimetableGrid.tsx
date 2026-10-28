@@ -1,6 +1,6 @@
 import { useMemo, useState, type DragEvent, type ReactElement } from "react";
 import { timeSlotKey, type EnrichedSchedule } from "../hooks/useTimetableData";
-import { canMoveLessonTo, canSwapLessons, lessonTargetId } from "../utils/lessonDrop";
+import { canMoveLessonTo, canSwapLessons, lessonTargetId, pickDraggedLesson } from "../utils/lessonDrop";
 import { nameLines } from "../utils/combinedLessons";
 import { splitTeacherLabel } from "../utils/teacherName";
 import {
@@ -38,6 +38,7 @@ import {
   DROP_TARGET_OK,
   DROP_TARGET_RANGE,
   DROP_STRIP,
+  DROP_STRIP_SPACE,
   DROP_ZONE,
   DROP_ZONE_BLOCKED,
   HOMEROOM_TAG,
@@ -443,9 +444,11 @@ export default function TimetableGrid({
     setDragHover((previous) => (sameHover(previous, next) ? previous : next));
   }
 
+  // Task 103 (bug fix): the lesson the drop hints were drawn for
+  // (`dragging`) first, the drag data only as a fallback -- reading only
+  // the drag data left some browsers' drops with no lesson at all.
   function draggedLessonOf(event: DragEvent): EnrichedSchedule | undefined {
-    const scheduleId = Number(event.dataTransfer.getData(DRAG_DATA_TYPE));
-    return schedules.find((schedule) => schedule.scheduleId === scheduleId);
+    return pickDraggedLesson(dragging, event.dataTransfer.getData(DRAG_DATA_TYPE), schedules);
   }
 
   function handleLessonDragStart(lesson: EnrichedSchedule, event: DragEvent<HTMLButtonElement>): void {
@@ -480,20 +483,28 @@ export default function TimetableGrid({
     event.dataTransfer.dropEffect = "move";
   }
 
+  // Whether the drop can go ahead: not while the page is busy with the last
+  // change, and only for a lesson or card it knows.
+  function acceptDrop(hasDraggedItem: boolean): boolean {
+    return edit !== null && !edit.disabled && hasDraggedItem;
+  }
+
   function handleLessonDrop(target: EnrichedSchedule, event: DragEvent<HTMLButtonElement>): void {
     event.preventDefault();
     event.stopPropagation();
     const lesson = draggedLessonOf(event);
     const wasPlacing = isPlacingDrag;
     endDrag();
-    if (edit !== null && !edit.disabled && lesson !== undefined && canSwapLessons(lesson, target)) {
-      edit.onDropOnLesson(lesson, target);
-      return;
-    }
     // Task 93: a card dropped on a lesson goes into that lesson's cell
     // (always refused there -- the class has a lesson -- with the reason).
     const slot = target.timeSlotId === null ? undefined : timeSlotById.get(target.timeSlotId);
-    if (edit !== null && !edit.disabled && lesson === undefined && wasPlacing && slot !== undefined) {
+    const isPlacing = lesson === undefined && wasPlacing && slot !== undefined;
+    if (edit === null || !acceptDrop(lesson !== undefined || isPlacing)) {
+      return;
+    }
+    if (lesson !== undefined && canSwapLessons(lesson, target)) {
+      edit.onDropOnLesson(lesson, target);
+    } else if (isPlacing && slot !== undefined) {
       edit.onPlaceOnCell(slot);
     }
   }
@@ -518,11 +529,14 @@ export default function TimetableGrid({
   function handleCellDrop(timeSlot: TimeSlot | undefined, event: DragEvent<HTMLTableCellElement>): void {
     event.preventDefault();
     const lesson = draggedLessonOf(event);
-    const canPlace = lesson === undefined && canDropAt(timeSlot);
+    const canPlace = lesson === undefined && isPlacingDrag && canDropAt(timeSlot);
     endDrag();
-    if (edit !== null && !edit.disabled && lesson !== undefined && canMoveLessonTo(lesson, timeSlot)) {
+    if (edit === null || !acceptDrop(lesson !== undefined || canPlace)) {
+      return;
+    }
+    if (lesson !== undefined && canMoveLessonTo(lesson, timeSlot)) {
       edit.onDropOnCell(lesson, timeSlot);
-    } else if (edit !== null && !edit.disabled && canPlace && timeSlot !== undefined) {
+    } else if (canPlace && timeSlot !== undefined) {
       edit.onPlaceOnCell(timeSlot);
     }
   }
@@ -758,26 +772,33 @@ export default function TimetableGrid({
                         {/* Task 71 / Task 85: while dragging, the whole cell is
                             the move target (dropping on a lesson swaps
                             instead). Under a cell's lessons only a thin dashed
-                            strip marks the drop area; it expands to 「移到這裡」
-                            while the drag is over this cell, and an empty cell
-                            shows it only then. Mouse-only, so hidden from
-                            assistive tech (keyboard users have the click
-                            flow's buttons below). */}
+                            strip marks the drop area. Task 103: that strip's
+                            room is kept (empty) whenever no strip or click
+                            target uses it, so starting a drag never makes the
+                            rows taller and moves the timetable under the
+                            pointer. Mouse-only, so hidden from assistive tech
+                            (keyboard users have the click flow's buttons
+                            below). */}
+                        {matches.length > 0 && !canMoveHere(timeSlot) && !canPlaceHere(timeSlot) && (
+                          <div
+                            aria-hidden="true"
+                            data-drop-zone={canDropHere ? "" : undefined}
+                            className={canDropHere ? DROP_STRIP : DROP_STRIP_SPACE}
+                          />
+                        )}
+                        {/* While the drag is over this cell: 「移到這裡」 (or
+                            why not), laid over the cell's bottom -- Task 103:
+                            never taking room, so the row doesn't grow. */}
                         {canDropHere &&
-                          (isDragOverCell ? (
-                            cellMark.status === "blocked" ? (
-                              <div aria-hidden="true" data-drop-zone="" className={DROP_ZONE_BLOCKED}>
-                                {cellMark.reason}
-                              </div>
-                            ) : (
-                              <div aria-hidden="true" data-drop-zone="" className={DROP_ZONE}>
-                                {markAction === "place" ? "放到這裡" : "移到這裡"}
-                              </div>
-                            )
+                          isDragOverCell &&
+                          (cellMark.status === "blocked" ? (
+                            <div aria-hidden="true" data-drop-zone="" className={DROP_ZONE_BLOCKED}>
+                              {cellMark.reason}
+                            </div>
                           ) : (
-                            matches.length > 0 && (
-                              <div aria-hidden="true" data-drop-zone="" className={DROP_STRIP} />
-                            )
+                            <div aria-hidden="true" data-drop-zone="" className={DROP_ZONE}>
+                              {markAction === "place" ? "放到這裡" : "移到這裡"}
+                            </div>
                           ))}
                         {/* Task 85: the click flow's move target -- the whole
                             empty cell, or a thin strip under the lessons that

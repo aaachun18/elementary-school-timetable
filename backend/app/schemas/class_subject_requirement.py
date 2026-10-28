@@ -105,3 +105,20 @@ class RequirementSyncResult(BaseModel):
     # the record (the school's rule itself stays; 啟用 brings it back on the
     # next sync). Sorted by name.
     skipped_subjects: list[SkippedSubject] = []
+
+
+class LessonPatternItem(BaseModel):
+    """Task 103: one requirement's new 連堂樣式 in a batch."""
+
+    id: int
+    lesson_pattern: str | None = Field(default=None, description=LESSON_PATTERN_DESCRIPTION)
+
+    _normalize_pattern = field_validator("lesson_pattern")(_normalize)
+
+
+class LessonPatternBatch(BaseModel):
+    """PATCH /class-subject-requirements/lesson-patterns: 「複製此連堂設定至
+    所有同年級班級」 -- every item is checked like a single PATCH, and all of
+    them are saved in one transaction (or none)."""
+
+    items: list[LessonPatternItem] = Field(min_length=1)

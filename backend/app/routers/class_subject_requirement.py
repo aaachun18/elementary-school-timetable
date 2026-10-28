@@ -13,6 +13,7 @@ from app.schemas.class_subject_requirement import (
     ClassSubjectRequirementCreate,
     ClassSubjectRequirementRead,
     ClassSubjectRequirementUpdate,
+    LessonPatternBatch,
     RequirementSyncRequest,
     RequirementSyncResult,
 )
@@ -124,6 +125,27 @@ def get_class_subject_requirement(
             detail="ClassSubjectRequirement not found",
         )
     return _to_read_one(db, requirement)
+
+
+# Declared before PATCH /{requirement_id}, so "lesson-patterns" is never
+# read as an id.
+@router.patch("/lesson-patterns", response_model=list[ClassSubjectRequirementRead])
+def update_lesson_patterns(
+    data: LessonPatternBatch,
+    db: Session = Depends(get_db),
+    school_id: int = Depends(coordinator_school_id),
+) -> list[ClassSubjectRequirementRead]:
+    """Task 103: several requirements' 連堂樣式 at once, in one transaction
+    -- the wizard's 「複製此連堂設定至所有同年級班級」."""
+    requirements = requirement_service.update_lesson_patterns(
+        db, data.items, school_id=school_id
+    )
+    if requirements is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ClassSubjectRequirement not found",
+        )
+    return [_to_read_one(db, requirement) for requirement in requirements]
 
 
 @router.patch("/{requirement_id}", response_model=ClassSubjectRequirementRead)

@@ -27,6 +27,9 @@ export interface ScheduleVersion {
   editing_source_id: number | null;
   // 備註.
   note: string | null;
+  // Task 103: the furthest 開始排課 step reached (its index in WIZARD_STEPS);
+  // null before it was first recorded. Optional: an older response has none.
+  wizard_furthest_step?: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -36,9 +39,11 @@ export interface ScheduleVersionCreate {
   semester_id: number;
 }
 
-// PATCH changes only the 備註 (an empty one is cleared).
+// PATCH changes only the 備註 (an empty one is cleared) and, Task 103, the
+// furthest 開始排課 step reached (only ever goes up).
 export interface ScheduleVersionUpdate {
-  note: string | null;
+  note?: string | null;
+  wizard_furthest_step?: number;
 }
 
 // Body for POST /schedule-versions/{id}/copy (複製此課表): any semester of

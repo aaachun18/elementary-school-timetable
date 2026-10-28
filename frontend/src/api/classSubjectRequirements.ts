@@ -4,6 +4,7 @@ import type {
   ClassSubjectRequirementCreate,
   ClassSubjectRequirementListFilters,
   ClassSubjectRequirementUpdate,
+  LessonPatternItem,
   RequirementSyncResult,
 } from "../types/classSubjectRequirement";
 
@@ -63,6 +64,18 @@ export async function syncWithSchool(versionId: number): Promise<RequirementSync
   const response = await apiClient.post<RequirementSyncResult>(
     "/api/v1/class-subject-requirements/sync",
     { schedule_version_id: versionId },
+  );
+  return response.data;
+}
+
+// Task 103: 「複製此連堂設定至所有同年級班級」 -- several requirements' 連堂樣式
+// in one transaction (all saved, or none); returns the saved rows.
+export async function updateLessonPatterns(
+  items: readonly LessonPatternItem[],
+): Promise<ClassSubjectRequirement[]> {
+  const response = await apiClient.patch<ClassSubjectRequirement[]>(
+    "/api/v1/class-subject-requirements/lesson-patterns",
+    { items },
   );
   return response.data;
 }

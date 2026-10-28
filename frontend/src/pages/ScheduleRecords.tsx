@@ -10,9 +10,11 @@ import { list as listSemesters } from "../api/semesters";
 import ConfirmDialog from "../components/ConfirmDialog";
 import DeleteIconButton from "../components/DeleteIconButton";
 import PageHeader from "../components/PageHeader";
+import Pagination from "../components/Pagination";
 import { RecordStatusBadge } from "../components/StatusBadge";
 import { extractApiErrorMessage } from "../constants/errorMessages";
 import { useFlashMessage } from "../hooks/useFlashMessage";
+import { usePagination } from "../hooks/usePagination";
 import { useResource } from "../hooks/useResource";
 import { formatDateTime } from "../utils/dashboard";
 import { sortRecords } from "../utils/scheduleRecords";
@@ -70,6 +72,9 @@ export default function ScheduleRecords(): ReactElement {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const flash = useFlashMessage();
+  // Task 103: ten records to a page (newest first); a delete that empties
+  // the page shows the new last page.
+  const pagination = usePagination(data.data === null ? [] : sortRecords(data.data[0]));
 
   if (data.errorMessage !== null) {
     return (
@@ -152,7 +157,7 @@ export default function ScheduleRecords(): ReactElement {
               </tr>
             </thead>
             <tbody>
-              {sortRecords(versions).map((version) => (
+              {pagination.pageItems.map((version) => (
                 <tr key={version.id} className={TR_HOVER}>
                   <td className={`${TD} font-medium`}>{version.display_number}</td>
                   {/* Task 101: 學期 / 狀態 / 建立時間 never wrap. */}
@@ -197,6 +202,7 @@ export default function ScheduleRecords(): ReactElement {
           </table>
         </div>
       )}
+      <Pagination page={pagination.page} totalItems={pagination.totalItems} onPageChange={pagination.setPage} />
 
       <ConfirmDialog
         open={deleting !== null}

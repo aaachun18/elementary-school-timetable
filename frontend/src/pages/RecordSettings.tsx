@@ -14,9 +14,11 @@ import { list as listTimeSlots } from "../api/timeSlots";
 import AutoScheduleOutcome from "../components/AutoScheduleOutcome";
 import DisabledReason from "../components/DisabledReason";
 import PageHeader from "../components/PageHeader";
+import Pagination from "../components/Pagination";
 import { RecordStatusBadge } from "../components/StatusBadge";
 import { extractApiErrorMessage } from "../constants/errorMessages";
 import { useAutoSchedule } from "../hooks/useAutoSchedule";
+import { usePagination } from "../hooks/usePagination";
 import { useResource } from "../hooks/useResource";
 import { useTeacherNames } from "../hooks/useTeacherAccounts";
 import { autoScheduleDisabledReason } from "../utils/disabledReason";
@@ -127,6 +129,8 @@ function SettingsView({ record, onChanged }: { record: ScheduleVersion; onChange
   const [isCopying, setIsCopying] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
   const isNotScheduled = record.status === "NOT_SCHEDULED";
+  // Task 103: 參與教師, ten to a page.
+  const teacherPage = usePagination(data.data === null ? [] : data.data[0]);
 
   async function handleCopy(): Promise<void> {
     setIsCopying(true);
@@ -307,7 +311,7 @@ function SettingsView({ record, onChanged }: { record: ScheduleVersion; onChange
                 </tr>
               </thead>
               <tbody>
-                {teachers.map((teacher) => (
+                {teacherPage.pageItems.map((teacher) => (
                   <tr key={teacher.teacher_id}>
                     <td className={TD}>{teacherNames.label(teacher.teacher_id, teacher.teacher_name)}</td>
                     <td className={TD}>{teacher.min_weekly_periods}</td>
@@ -326,6 +330,7 @@ function SettingsView({ record, onChanged }: { record: ScheduleVersion; onChange
             </table>
           </div>
         )}
+        <Pagination page={teacherPage.page} totalItems={teacherPage.totalItems} onPageChange={teacherPage.setPage} />
       </section>
 
       <section className={SECTION}>

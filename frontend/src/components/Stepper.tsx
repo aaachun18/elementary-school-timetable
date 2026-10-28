@@ -25,9 +25,10 @@ const CIRCLE_CLASSES = {
 // Task 98 Phase C: the wizard's steps in one row -- numbered circles
 // joined by lines (done = check mark, current = solid primary, not yet =
 // gray). Task 102: which ones respond is the caller's (itemState,
-// utils/wizardNav.ts): only "back" steps are buttons; the current, a
-// locked (later) and a read-only step are plain, unfocusable items -- a
-// locked one says why on hover.
+// utils/wizardNav.ts): only "reachable" steps (Task 103: every step reached
+// before, later ones included) are buttons; the current, a locked (never
+// reached) and a read-only step are plain, unfocusable items -- a locked
+// one says why on hover.
 export default function Stepper({
   steps,
   currentIndex,
@@ -57,7 +58,7 @@ export default function Stepper({
         );
         return (
           <li key={step.key} className={STEPPER_ITEM}>
-            {navState === "back" ? (
+            {navState === "reachable" ? (
               <button
                 type="button"
                 onClick={() => onJump(index)}

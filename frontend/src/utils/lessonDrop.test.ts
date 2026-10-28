@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { canMoveLessonTo, canSwapLessons, homeroomTargetId, lessonTargetId } from "./lessonDrop";
+import {
+  canMoveLessonTo,
+  canSwapLessons,
+  homeroomTargetId,
+  lessonTargetId,
+  pickDraggedLesson,
+} from "./lessonDrop";
 import type { EnrichedSchedule } from "../hooks/useTimetableData";
 import type { TimeSlot } from "../types/timeSlot";
 
@@ -85,5 +91,28 @@ describe("lessonTargetId (Task 84)", () => {
   it("lists a lesson without a room under its class's own classroom", () => {
     expect(lessonTargetId(lesson(2, 100), "room")).toBe(homeroomTargetId(10));
     expect(homeroomTargetId(10)).toBe(-10);
+  });
+});
+
+describe("pickDraggedLesson", () => {
+  const schedules = [{ scheduleId: 1 }, { scheduleId: 2 }];
+
+  // Regression (Task 103): the drop hint said 「移到這裡」, but the drop read
+  // only the drag data, which some browsers handed back unreadable -- the
+  // lesson the grid saw start the drag must win.
+  it("uses the lesson the drag started with, whatever the drag data says", () => {
+    expect(pickDraggedLesson(schedules[1], "", schedules)).toBe(schedules[1]);
+    expect(pickDraggedLesson(schedules[1], "not a number", schedules)).toBe(schedules[1]);
+    expect(pickDraggedLesson(schedules[1], "1", schedules)).toBe(schedules[1]);
+  });
+
+  it("falls back to the drag data's scheduleId", () => {
+    expect(pickDraggedLesson(null, "1", schedules)).toBe(schedules[0]);
+  });
+
+  it("is no lesson for a card's drag data, nothing, or a lesson no longer listed", () => {
+    expect(pickDraggedLesson(null, "place:12-3", schedules)).toBeUndefined();
+    expect(pickDraggedLesson(null, "", schedules)).toBeUndefined();
+    expect(pickDraggedLesson({ scheduleId: 9 }, "", schedules)).toBeUndefined();
   });
 });

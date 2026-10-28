@@ -109,6 +109,10 @@ import {
   SUCCESS_TEXT,
   TAB_BUTTON,
   TAB_BUTTON_ACTIVE,
+  TOAST_LOADING,
+  TOAST_NOTICE,
+  TOAST_REGION,
+  TOAST_SUCCESS,
 } from "../styles/ui";
 
 // Before the timetable has loaded: no rows, so nothing to name.
@@ -610,19 +614,21 @@ export default function TimetableView(): ReactElement {
     }
     return mark?.status === "blocked" ? mark.reason : null;
   }
-  function refuseIfBlockedMove(lesson: EnrichedSchedule, timeSlot: TimeSlot): boolean {
+  // Task 103: `notify` false for a drop -- the cell under the pointer
+  // already showed why while dragging, and no notice follows the drop.
+  function refuseIfBlockedMove(lesson: EnrichedSchedule, timeSlot: TimeSlot, notify = true): boolean {
     const reason = blockedMarkOf(lesson, candidateMarks?.cells.get(timeSlot.id));
-    if (reason !== null) {
+    if (reason !== null && notify) {
       blockedFlash.showFlash(reason);
     }
     return reason !== null;
   }
-  function refuseIfBlockedSwap(lesson: EnrichedSchedule, other: EnrichedSchedule): boolean {
+  function refuseIfBlockedSwap(lesson: EnrichedSchedule, other: EnrichedSchedule, notify = true): boolean {
     const reason = blockedMarkOf(
       lesson,
       candidateMarks?.swaps.get(swapMarkKey(other.timeSlotId, other.scheduleId)),
     );
-    if (reason !== null) {
+    if (reason !== null && notify) {
       blockedFlash.showFlash(reason);
     }
     return reason !== null;
@@ -681,7 +687,7 @@ export default function TimetableView(): ReactElement {
   }
 
   function handleDropOnCell(lesson: EnrichedSchedule, timeSlot: TimeSlot): void {
-    if (refuseIfBlockedMove(lesson, timeSlot)) {
+    if (refuseIfBlockedMove(lesson, timeSlot, false)) {
       return;
     }
     previewedLessonIdRef.current = lesson.scheduleId;
@@ -689,7 +695,7 @@ export default function TimetableView(): ReactElement {
   }
 
   function handleDropOnLesson(lesson: EnrichedSchedule, other: EnrichedSchedule): void {
-    if (refuseIfBlockedSwap(lesson, other)) {
+    if (refuseIfBlockedSwap(lesson, other, false)) {
       return;
     }
     previewedLessonIdRef.current = lesson.scheduleId;
@@ -1303,30 +1309,51 @@ export default function TimetableView(): ReactElement {
               課表中多位老師共同上課時，名稱註記*者，為該節課本班授課老師。
             </p>
           )}
-          {/* Task 69: editing (v3: in the working copy). */}
+          {/* Task 103: the short-lived notices float at the bottom of the
+              window (styles/ui.ts TOAST_REGION): seen wherever the page is
+              scrolled, and never moving the timetable when they come and
+              go -- a notice that vanished right as a lesson was pressed used
+              to shift the grid out from under the pointer. */}
           {isEditing && (
-            <div className="mb-4 flex flex-col gap-2 empty:hidden">
+            <div className={TOAST_REGION}>
               {adjustmentFlash.message !== null && (
-                <p className={SUCCESS_TEXT}>✓ {adjustmentFlash.message}</p>
+                <p role="status" className={TOAST_SUCCESS}>
+                  ✓ {adjustmentFlash.message}
+                </p>
               )}
               {blockedFlash.message !== null && (
-                <p role="alert" className={NOTICE}>
+                <p role="alert" className={TOAST_NOTICE}>
                   無法放在這裡：{blockedFlash.message}
                 </p>
               )}
               {placeHintFlash.message !== null && (
-                <p role="alert" className={NOTICE}>
+                <p role="alert" className={TOAST_NOTICE}>
                   {placeHintFlash.message}
                 </p>
               )}
+              {placement.phase === "loadingPreview" && (
+                <p className={TOAST_LOADING} aria-live="polite">
+                  正在預覽放入結果…
+                </p>
+              )}
+              {roomChange.phase === "loadingPreview" && (
+                <p className={TOAST_LOADING} aria-live="polite">
+                  正在預覽更改教室的結果…
+                </p>
+              )}
+              {adjustment.phase === "loadingPreview" && (
+                <p className={TOAST_LOADING} aria-live="polite">
+                  正在預覽異動結果…
+                </p>
+              )}
+            </div>
+          )}
+          {/* Task 69: editing (v3: in the working copy). */}
+          {isEditing && (
+            <div className="mb-4 flex flex-col gap-2 empty:hidden">
               {placement.previewError !== null && (
                 <p role="alert" className={ERROR_TEXT}>
                   無法預覽這次放入，已取消：{placement.previewError}
-                </p>
-              )}
-              {isEditing && placement.phase === "loadingPreview" && (
-                <p className={LOADING_TEXT} aria-live="polite">
-                  正在預覽放入結果…
                 </p>
               )}
               {isEditing && selectedCard !== null && placement.phase === "idle" && (
@@ -1376,19 +1403,9 @@ export default function TimetableView(): ReactElement {
                   無法預覽這次更改，已取消：{roomChange.previewError}
                 </p>
               )}
-              {isEditing && roomChange.phase === "loadingPreview" && (
-                <p className={LOADING_TEXT} aria-live="polite">
-                  正在預覽更改教室的結果…
-                </p>
-              )}
               {adjustment.previewError !== null && (
                 <p role="alert" className={ERROR_TEXT}>
                   無法預覽這次異動，已取消：{adjustment.previewError}
-                </p>
-              )}
-              {isEditing && adjustment.phase === "loadingPreview" && (
-                <p className={LOADING_TEXT} aria-live="polite">
-                  正在預覽異動結果…
                 </p>
               )}
               {isEditing && selectedLesson !== null && adjustment.phase === "idle" && (

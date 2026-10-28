@@ -34,6 +34,8 @@ class ScheduleVersionRead(BaseModel):
     copied_from_display_number: int | None
     editing_source_id: int | None
     note: str | None
+    # Task 103: the furthest 開始排課 step reached (None: not recorded yet).
+    wizard_furthest_step: int | None
     created_at: datetime
     updated_at: datetime
 
@@ -41,11 +43,13 @@ class ScheduleVersionRead(BaseModel):
 
 
 class ScheduleVersionUpdate(BaseModel):
-    """PATCH: only the 備註 changes this way (an empty one is cleared). The
-    status changes through its own actions (run-scheduler, publish,
-    edit/save)."""
+    """PATCH: only the 備註 (an empty one is cleared) and, Task 103, the
+    furthest 開始排課 step reached change this way. The status changes
+    through its own actions (run-scheduler, publish, edit/save)."""
 
     note: str | None = Field(default=None, max_length=NOTE_MAX_LENGTH)
+    # Only ever goes up: a lower value than the stored one is ignored.
+    wizard_furthest_step: int | None = Field(default=None, ge=0)
 
     @field_validator("note")
     @classmethod

@@ -11,6 +11,8 @@ import { list as listSchools } from "../api/schools";
 import { useResource } from "../hooks/useResource";
 import { useCrudList } from "../hooks/useCrudList";
 import { useConfirm } from "../hooks/useConfirm";
+import { usePagination } from "../hooks/usePagination";
+import Pagination from "../components/Pagination";
 import DeactivateConfirmDialog from "../components/DeactivateConfirmDialog";
 import { CANCEL_LABEL, deleteButtonLabel, deleteConfirmText, editButtonLabel } from "../utils/confirmText";
 import type { School } from "../types/school";
@@ -182,6 +184,10 @@ function UserRow({
           />
         ) : (
           <div className={ROW_ACTIONS}>
+            {/* Task 103: 鉛筆 (編輯), 重設密碼, 停用 -- in that order. */}
+            {onEditNationalId !== null && (
+              <EditIconButton label={editButtonLabel(user.username)} onClick={onEditNationalId} disabled={isPending} />
+            )}
             <button
               type="button"
               onClick={onStartResetPassword}
@@ -190,9 +196,6 @@ function UserRow({
             >
               重設密碼
             </button>
-            {onEditNationalId !== null && (
-              <EditIconButton label={editButtonLabel(user.username)} onClick={onEditNationalId} disabled={isPending} />
-            )}
             {/* The backend refuses deactivating / deleting one's own
                 account regardless; these just don't offer a button that
                 can only ever fail. */}
@@ -277,6 +280,9 @@ export default function UserManagement(): ReactElement {
     },
     remove: removeUser,
   });
+  // Task 103: ten accounts to a page; 重設密碼 / 停用 keep the page, a
+  // delete that empties it shows the new last page.
+  const pagination = usePagination(crud.items);
   const { confirm, dialog: confirmDialog } = useConfirm();
   const [deactivating, setDeactivating] = useState<User | null>(null);
   // After saving a teacher whose name was taken: the earlier same-name
@@ -405,7 +411,7 @@ export default function UserManagement(): ReactElement {
             </tr>
           </thead>
           <tbody>
-            {crud.items.map((user) => (
+            {pagination.pageItems.map((user) => (
               <UserRow
                 key={user.id}
                 user={user}
@@ -432,6 +438,7 @@ export default function UserManagement(): ReactElement {
           </tbody>
         </table>
       </div>
+      <Pagination page={pagination.page} totalItems={pagination.totalItems} onPageChange={pagination.setPage} />
       {crud.isAdding && (
         <AccountCreateDialog
           actorRole={actorRole}
