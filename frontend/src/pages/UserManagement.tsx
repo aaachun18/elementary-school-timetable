@@ -5,11 +5,13 @@ import {
   update as updateUser,
   resetPassword,
   remove as removeUser,
+  deactivationImpact as userDeactivationImpact,
 } from "../api/users";
 import { list as listSchools } from "../api/schools";
 import { useResource } from "../hooks/useResource";
 import { useCrudList } from "../hooks/useCrudList";
 import { useConfirm } from "../hooks/useConfirm";
+import DeactivateConfirmDialog from "../components/DeactivateConfirmDialog";
 import { CANCEL_LABEL, deleteButtonLabel, deleteConfirmText, editButtonLabel } from "../utils/confirmText";
 import type { School } from "../types/school";
 import type { PasswordReset, SameNameTeacher, User, UserCreate, UserUpdate } from "../types/user";
@@ -276,6 +278,7 @@ export default function UserManagement(): ReactElement {
     remove: removeUser,
   });
   const { confirm, dialog: confirmDialog } = useConfirm();
+  const [deactivating, setDeactivating] = useState<User | null>(null);
   // After saving a teacher whose name was taken: the earlier same-name
   // teachers still without a 身分證字號, asked for one at a time.
   const [nationalIdQueue, setNationalIdQueue] = useState<SameNameTeacher[]>([]);
@@ -335,21 +338,14 @@ export default function UserManagement(): ReactElement {
     }
   }
 
-  // 停用 asks first; 啟用 doesn't.
-  async function handleToggleActive(user: User): Promise<void> {
+  // 停用 asks first (DeactivateConfirmDialog, with what it touches); 啟用
+  // doesn't.
+  function handleToggleActive(user: User): void {
     if (user.is_active) {
-      const confirmed = await confirm({
-        title: `停用「${user.username}」？`,
-        message: "停用後這個帳號無法登入，教師也不會出現在新的排課名單中。之後可以再按「啟用」恢復。",
-        confirmLabel: "停用帳號",
-        cancelLabel: CANCEL_LABEL,
-        tone: "danger",
-      });
-      if (!confirmed) {
-        return;
-      }
+      setDeactivating(user);
+      return;
     }
-    void crud.submitUpdate(user.id, { kind: "account", data: { is_active: !user.is_active } });
+    void crud.submitUpdate(user.id, { kind: "account", data: { is_active: true } });
   }
 
   async function handleDelete(user: User): Promise<void> {
@@ -361,6 +357,19 @@ export default function UserManagement(): ReactElement {
   return (
     <div className={PAGE}>
       {confirmDialog}
+      {deactivating !== null && (
+        <DeactivateConfirmDialog
+          kind="account"
+          name={deactivating.username}
+          loadImpact={() => userDeactivationImpact(deactivating.id)}
+          onConfirm={() => {
+            const user = deactivating;
+            setDeactivating(null);
+            void crud.submitUpdate(user.id, { kind: "account", data: { is_active: false } });
+          }}
+          onCancel={() => setDeactivating(null)}
+        />
+      )}
       <PageHeader
         title="帳號管理"
         info={
@@ -412,7 +421,7 @@ export default function UserManagement(): ReactElement {
                 onConfirmResetPassword={(data) =>
                   void crud.submitUpdate(user.id, { kind: "password", data })
                 }
-                onToggleActive={() => void handleToggleActive(user)}
+                onToggleActive={() => handleToggleActive(user)}
                 onChangeSchool={(schoolId) =>
                   void crud.submitUpdate(user.id, { kind: "account", data: { school_id: schoolId } })
                 }

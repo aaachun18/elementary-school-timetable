@@ -9,7 +9,9 @@ from app.core.dependencies import (
 from app.database import get_db
 from app.models.room import Room
 from app.schemas.room import RoomCreate, RoomRead, RoomUpdate
+from app.schemas.deactivation import DeactivationImpactRead
 from app.services import room as room_service
+from app.services.deactivation import DeactivationImpact, deactivation_impact
 
 router = APIRouter(
     prefix="/api/v1/rooms",
@@ -49,6 +51,19 @@ def get_room(
             status_code=status.HTTP_404_NOT_FOUND, detail="Room not found"
         )
     return room
+
+
+@router.get("/{room_id}/deactivation-impact", response_model=DeactivationImpactRead)
+def room_deactivation_impact(
+    room_id: int,
+    db: Session = Depends(get_db),
+    school_id: int = Depends(coordinator_school_id),
+) -> DeactivationImpact:
+    if room_service.get_room(db, room_id, school_id=school_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Room not found"
+        )
+    return deactivation_impact(db, "room", room_id)
 
 
 @router.patch("/{room_id}", response_model=RoomRead)

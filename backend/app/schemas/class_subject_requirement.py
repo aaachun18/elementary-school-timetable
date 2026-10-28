@@ -89,6 +89,11 @@ class RequirementSyncRequest(BaseModel):
     schedule_version_id: int
 
 
+class SkippedSubject(BaseModel):
+    id: int
+    name: str
+
+
 class RequirementSyncResult(BaseModel):
     """POST /class-subject-requirements/sync: what copying the school's
     科目需求 into the (尚未排課) record changed."""
@@ -96,3 +101,7 @@ class RequirementSyncResult(BaseModel):
     created: int
     updated: int
     removed: int
+    # 停用的科目 with a 年級科目需求 that applies to a class: left out of
+    # the record (the school's rule itself stays; 啟用 brings it back on the
+    # next sync). Sorted by name.
+    skipped_subjects: list[SkippedSubject] = []

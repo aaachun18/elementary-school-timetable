@@ -161,7 +161,7 @@ export interface DataHealth {
   issues: DataIssue[];
 }
 
-// Counts are of active records (classes are always active). Issues:
+// Counts are of active records (停用 classes too are left out). Issues:
 // nothing of a kind yet.
 export function summarizeDataHealth(data: {
   teachers: readonly Teacher[];
@@ -171,7 +171,7 @@ export function summarizeDataHealth(data: {
 }): DataHealth {
   const active = <T extends { is_active: boolean }>(items: readonly T[]): T[] => items.filter((item) => item.is_active);
   const teachers = active(data.teachers);
-  const classes = data.classes;
+  const classes = active(data.classes);
   const subjects = active(data.subjects);
   const rooms = active(data.rooms);
   const issues: DataIssue[] = [];

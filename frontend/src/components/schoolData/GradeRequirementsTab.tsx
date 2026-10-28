@@ -20,12 +20,15 @@ import ConfirmDialog from "../ConfirmDialog";
 import DeleteIconButton from "../DeleteIconButton";
 import InfoPopover from "../InfoPopover";
 import SuggestionInput from "../SuggestionInput";
+import StatusBadge from "../StatusBadge";
+import { hiddenRequirementsNote, splitBySubjectActive } from "../../utils/subjectDeactivation";
 import {
   BUTTON_PRIMARY,
   ERROR_TEXT,
   FIELD_PAGE,
   HELP_TEXT,
   LABEL,
+  LINK_TEXT,
   LOADING_TEXT,
   ROW_ACTIONS_END,
   SELECT,
@@ -37,6 +40,7 @@ import {
   TABLE_HEAD_ROW,
   TD,
   TD_DATA_ACTIONS,
+  TD_LOCKED,
   TH_DATA_ACTIONS,
   TR_HOVER,
 } from "../../styles/ui";
@@ -51,7 +55,8 @@ const DEFAULT_WEEKLY_PERIODS = 1;
 export default function GradeRequirementsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
   const grades = useResource(() => listGrades(0, 1000), []);
   const subjects = useResource(() => listSubjects(0, 1000), []);
-  const requirements = useResource(() => listRequirements(), []);
+  // Every requirement, 停用 subjects' too: those are hidden until 「顯示」.
+  const requirements = useResource(() => listRequirements(true), []);
 
   const errorMessage = grades.errorMessage ?? subjects.errorMessage ?? requirements.errorMessage;
   if (errorMessage !== null) {
@@ -101,8 +106,15 @@ function GradeRequirementsEditor({
   const [error, setError] = useState<string | null>(null);
   const { confirm, dialog: confirmDialog } = useConfirm();
 
+  const [showHidden, setShowHidden] = useState(false);
   const subjectName = new Map(subjects.map((subject) => [subject.id, subject.name]));
   const gradeRequirements = requirements.filter((requirement) => requirement.grade_id === gradeId);
+  // 停用 subjects' requirements: kept, hidden unless 「顯示」.
+  const { shown: activeRequirements, hidden: hiddenRequirements } = splitBySubjectActive(
+    gradeRequirements,
+    new Set(subjects.filter((subject) => subject.is_active).map((subject) => subject.id)),
+  );
+  const hiddenNote = hiddenRequirementsNote(hiddenRequirements.length);
   const usedSubjectIds = new Set(gradeRequirements.map((requirement) => requirement.subject_id));
   const gradeName = grades.find((grade) => grade.id === gradeId)?.name ?? "";
   // 「一年級的國語」: the requirement's name in its trash button and dialog.
@@ -174,7 +186,7 @@ function GradeRequirementsEditor({
             </tr>
           </thead>
           <tbody>
-            {gradeRequirements.map((requirement) => (
+            {activeRequirements.map((requirement) => (
               <tr key={requirement.id} className={TR_HOVER}>
                 <td className={TD}>{subjectName.get(requirement.subject_id) ?? "—"}</td>
                 <td className={TD}>
@@ -213,7 +225,31 @@ function GradeRequirementsEditor({
                 )}
               </tr>
             ))}
-            {gradeRequirements.length === 0 && (
+            {/* 停用 subjects: faded, read-only periods (after 「顯示」). */}
+            {showHidden &&
+              hiddenRequirements.map((requirement) => (
+                <tr key={requirement.id}>
+                  <td className={TD_LOCKED}>
+                    {subjectName.get(requirement.subject_id) ?? "—"}
+                    <StatusBadge tone="neutral" className="ml-2">
+                      科目已停用
+                    </StatusBadge>
+                  </td>
+                  <td className={TD_LOCKED}>{requirement.weekly_periods} 節</td>
+                  {isAdmin && (
+                    <td className={TD_DATA_ACTIONS}>
+                      <div className={ROW_ACTIONS_END}>
+                        <DeleteIconButton
+                          label={deleteButtonLabel("gradeRequirement", requirementName(requirement))}
+                          onClick={() => void handleDelete(requirement)}
+                          disabled={isPending}
+                        />
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            {activeRequirements.length === 0 && (
               <tr>
                 <td className={TD} colSpan={isAdmin ? 3 : 2}>
                   <span className={HELP_TEXT}>
@@ -225,6 +261,19 @@ function GradeRequirementsEditor({
           </tbody>
         </table>
       </div>
+      {hiddenNote !== null && (
+        <p className="mt-2 text-xs text-text-muted">
+          {hiddenNote}
+          <button
+            type="button"
+            onClick={() => setShowHidden((previous) => !previous)}
+            aria-expanded={showHidden}
+            className={`${LINK_TEXT} ml-2`}
+          >
+            {showHidden ? "隱藏" : "顯示"}
+          </button>
+        </p>
+      )}
       {isAdmin && (
         <p className="mt-3">
           <button type="button" onClick={() => setIsAdding(true)} disabled={isPending} className={BUTTON_PRIMARY}>

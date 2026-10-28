@@ -1,6 +1,12 @@
 import { useEffect, useId, type ReactElement } from "react";
 import { Link } from "react-router-dom";
 import { list as listRequirements } from "../../api/classSubjectRequirements";
+import { list as listClasses } from "../../api/classes";
+import { list as listRooms } from "../../api/rooms";
+import { preflight } from "../../api/scheduleVersions";
+import { list as listSubjects } from "../../api/subjects";
+import { list as listTeachers } from "../../api/teachers";
+import { list as listTimeSlots } from "../../api/timeSlots";
 import { listGradeTimeSlots, listTeachers as listSemesterTeachers } from "../../api/semesterSettings";
 import AutoScheduleOutcome from "../AutoScheduleOutcome";
 import ActionBar from "../ActionBar";
@@ -8,6 +14,9 @@ import CardHeader from "../CardHeader";
 import DisabledReason from "../DisabledReason";
 import { useAutoSchedule } from "../../hooks/useAutoSchedule";
 import { useResource } from "../../hooks/useResource";
+import { useTeacherNames } from "../../hooks/useTeacherAccounts";
+import type { NameLookups } from "../../utils/failureDiagnostics";
+import { PREFLIGHT_BLOCKED_REASON, preflightIssues, type PreflightIssue } from "../../utils/preflight";
 import { autoScheduleDisabledReason } from "../../utils/disabledReason";
 import { wizardStepLabel } from "../../utils/wizard";
 import { forgetWizardRecord } from "../../utils/wizardRecord";
@@ -18,6 +27,7 @@ import {
   ERROR_TEXT,
   LINK_TEXT,
   LOADING_TEXT,
+  PREFLIGHT_PANEL,
   RULE_NOTE,
 } from "../../styles/ui";
 
@@ -31,11 +41,14 @@ export default function RunStep({
   versionNumber,
   semesterLabel,
   onBack,
+  onScheduled,
 }: {
   versionId: number;
   versionNumber: number | null;
   semesterLabel: string | null;
   onBack: () => void;
+  // Task 102: 自動排課 succeeded (the wizard's step row turns read only).
+  onScheduled: () => void;
 }): ReactElement {
   const teachers = useResource(() => listSemesterTeachers(versionId), [versionId]);
   const gradeSlots = useResource(() => listGradeTimeSlots(versionId), [versionId]);
@@ -43,6 +56,15 @@ export default function RunStep({
     () => listRequirements(0, 1000, { schedule_version_id: versionId }),
     [versionId],
   );
+  // 排課前檢查 (read only): what would stop 自動排課, with the names to
+  // say it.
+  const check = useResource(() => preflight(versionId), [versionId]);
+  const schoolTeachers = useResource(() => listTeachers(0, 1000), []);
+  const classes = useResource(() => listClasses(0, 1000), []);
+  const subjects = useResource(() => listSubjects(0, 1000), []);
+  const rooms = useResource(() => listRooms(0, 1000), []);
+  const timeSlots = useResource(() => listTimeSlots(0, 1000), []);
+  const teacherNames = useTeacherNames();
   const autoSchedule = useAutoSchedule(versionId);
   const runReasonId = useId();
   // Scheduled: 開始排課 no longer resumes this record.
@@ -50,10 +72,20 @@ export default function RunStep({
   useEffect(() => {
     if (isScheduled) {
       forgetWizardRecord();
+      onScheduled();
     }
-  }, [isScheduled]);
+  }, [isScheduled, onScheduled]);
 
-  const loadError = teachers.errorMessage ?? gradeSlots.errorMessage ?? requirements.errorMessage;
+  const loadError =
+    teachers.errorMessage ??
+    gradeSlots.errorMessage ??
+    requirements.errorMessage ??
+    check.errorMessage ??
+    schoolTeachers.errorMessage ??
+    classes.errorMessage ??
+    subjects.errorMessage ??
+    rooms.errorMessage ??
+    timeSlots.errorMessage;
   if (loadError !== null) {
     return (
       <p role="alert" className={ERROR_TEXT}>
@@ -61,18 +93,39 @@ export default function RunStep({
       </p>
     );
   }
-  if (teachers.data === null || gradeSlots.data === null || requirements.data === null) {
+  if (
+    teachers.data === null ||
+    gradeSlots.data === null ||
+    requirements.data === null ||
+    check.data === null ||
+    schoolTeachers.data === null ||
+    classes.data === null ||
+    subjects.data === null ||
+    rooms.data === null ||
+    timeSlots.data === null
+  ) {
     return <p className={LOADING_TEXT}>載入中…</p>;
   }
+  const lookups: NameLookups = {
+    teacherById: new Map(schoolTeachers.data.map((teacher) => [teacher.id, teacher])),
+    classById: new Map(classes.data.map((item) => [item.id, item])),
+    subjectById: new Map(subjects.data.map((subject) => [subject.id, subject])),
+    roomById: new Map(rooms.data.map((room) => [room.id, room])),
+    timeSlotById: new Map(timeSlots.data.map((slot) => [slot.id, slot])),
+    requirementById: new Map(requirements.data.map((requirement) => [requirement.id, requirement])),
+    teacherAccountById: teacherNames.accounts,
+  };
+  const issues = preflightIssues(check.data, lookups);
   const lessonCount = requirements.data.reduce((sum, item) => sum + item.weekly_periods, 0);
   const classCount = new Set(requirements.data.map((item) => item.class_id)).size;
   const isDone = autoSchedule.result !== null;
-  const runDisabledReason = autoScheduleDisabledReason({
-    isRunning: autoSchedule.isRunning,
-    isDone,
-    teacherCount: teachers.data.length,
-    requirementCount: requirements.data.length,
-  });
+  const runDisabledReason =
+    autoScheduleDisabledReason({
+      isRunning: autoSchedule.isRunning,
+      isDone,
+      teacherCount: teachers.data.length,
+      requirementCount: requirements.data.length,
+    }) ?? (issues.length > 0 ? PREFLIGHT_BLOCKED_REASON : null);
 
   return (
     <>
@@ -103,6 +156,7 @@ export default function RunStep({
             </Link>
           </p>
         )}
+        {!isDone && <PreflightIssues issues={issues} />}
         <AutoScheduleOutcome versionId={versionId} state={autoSchedule} />
       </div>
       {/* Task 98 Phase E: once scheduled, the outcome's own 檢視課表 /
@@ -132,5 +186,29 @@ export default function RunStep({
         />
       )}
     </>
+  );
+}
+
+// The problems that would stop 自動排課, each with its way back.
+function PreflightIssues({ issues }: { issues: readonly PreflightIssue[] }): ReactElement | null {
+  if (issues.length === 0) {
+    return null;
+  }
+  return (
+    <div className={PREFLIGHT_PANEL} role="alert">
+      <p className="text-sm font-semibold text-red-700">排課前檢查發現以下問題，處理後才能自動排課：</p>
+      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-800">
+        {issues.map((issue) => (
+          <li key={issue.text}>
+            {issue.text}
+            {issue.link !== null && (
+              <Link to={issue.link.path} className={`${LINK_TEXT} ml-2`}>
+                {issue.link.label}
+              </Link>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

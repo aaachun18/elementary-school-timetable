@@ -7,4 +7,7 @@ export interface ApiErrorResponse {
   detail: string;
   // Only on 「此資料仍被其他資料參照，無法刪除」: what to delete first.
   delete_steps?: unknown;
+  // Only on a class in use (code CLASS_IN_USE): how many 排課紀錄 use it.
+  code?: unknown;
+  record_count?: unknown;
 }

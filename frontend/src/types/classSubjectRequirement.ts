@@ -55,4 +55,6 @@ export interface RequirementSyncResult {
   created: number;
   updated: number;
   removed: number;
+  // 停用 subjects whose 年級科目需求 were left out of the record.
+  skipped_subjects: { id: number; name: string }[];
 }

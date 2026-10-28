@@ -166,6 +166,11 @@ export const ROW_ERROR_TEXT_FIXED = "mt-1 text-right text-sm text-red-600";
 export const INPUT =
   "rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-900 focus:border-primary disabled:bg-gray-100 disabled:text-gray-500";
 export const SELECT = INPUT;
+// A picking dropdown whose saved value is 停用 (components/ChoiceSelect.tsx):
+// amber frame and text, 「請重新選擇」, and a hint line below.
+export const SELECT_RESELECT =
+  "rounded-md border border-amber-500 px-2 py-1 text-sm font-medium text-amber-800 focus:border-primary disabled:bg-gray-100 disabled:text-gray-500";
+export const CHOICE_HINT = "mt-1 text-xs text-amber-800";
 // Task 98 Phase D: a field typed right in a table row (排課紀錄's 備註):
 // no frame at rest, the frame shows on hover and focus.
 export const INPUT_INLINE =
@@ -199,6 +204,10 @@ export const REQ_COL_TEACHER = "min-w-32";
 export const REQ_COL_ROOM = "min-w-36";
 export const REQ_COL_FIXED = "w-px";
 
+// 排課前檢查's problems (wizard step 6): a light red frame above the
+// outcome; 自動排課 stays disabled while it shows.
+export const PREFLIGHT_PANEL = "mt-3 rounded-md border border-red-200 bg-red-50 px-4 py-3";
+
 // --- Task 98 Phase E: 共同排課's pickers (1 選年級 → 2 選班級 → 3 選科目) ---
 export const PICK_STEP_LABEL = "mb-1 text-xs font-semibold text-gray-600";
 const PICK_BUTTON_BASE = "inline-flex min-h-8 items-center gap-1 rounded-md px-3 py-1.5 text-sm font-medium";
@@ -221,7 +230,9 @@ export const TH_DATA_ACTIONS = "border-b border-gray-200 px-3 py-2 text-right fo
 export const TD_DATA_ACTIONS = "border-b border-gray-100 px-3 py-2 text-gray-700";
 // Column shares, in column order (the last one is 操作, only for whoever
 // may edit; without it the browser scales the others up).
-export const CLASS_COLS = ["w-[22%]", "w-[24%]", "w-[36%]", "w-[18%]"] as const;
+// 班級: 年級 | 名稱類型 | 班級名稱 | 狀態 | 操作 (停用/啟用 + trash, or the new
+// row's 確認 / 取消).
+export const CLASS_COLS = ["w-[18%]", "w-[20%]", "w-[26%]", "w-[14%]", "w-[22%]"] as const;
 export const SUBJECT_COLS = ["w-[55%]", "w-[25%]", "w-[20%]"] as const;
 export const GRADE_REQUIREMENT_COLS = ["w-[45%]", "w-[40%]", "w-[15%]"] as const;
 export const ROOM_COLS = ["w-[28%]", "w-[34%]", "w-[20%]", "w-[18%]"] as const;
@@ -247,6 +258,11 @@ export const TD_LOCKED = "border-b border-gray-100 px-3 py-2 text-gray-400";
 // -- the table wrapper scrolls sideways instead of squeezing them.
 export const TD_NOWRAP = `${TD} whitespace-nowrap`;
 export const TD_LOCKED_NOWRAP = `${TD_LOCKED} whitespace-nowrap`;
+// Task 102: an editable field's text in 學校資料's lists -- a click starts
+// editing the row in place (no pencil). Looks like the cell's text, with a
+// dashed underline on hover / focus to say it can be clicked.
+export const INLINE_EDIT_TEXT =
+  "max-w-full cursor-text truncate text-left decoration-dashed underline-offset-4 hover:underline focus-visible:underline disabled:cursor-default disabled:no-underline";
 
 // --- Nav ---
 export const NAV_BAR =
@@ -268,7 +284,12 @@ export const TAB_BUTTON_ACTIVE =
 export const STEPPER = "mb-4 flex min-h-12 items-center gap-2 overflow-hidden";
 export const STEPPER_ITEM = "flex min-w-0 flex-1 items-center gap-2 last:flex-none";
 export const STEPPER_BUTTON =
-  "inline-flex min-h-8 shrink-0 items-center gap-2 rounded-md px-1 text-sm disabled:cursor-default enabled:hover:bg-secondary";
+  "inline-flex min-h-8 shrink-0 cursor-pointer items-center gap-2 rounded-md px-1 text-sm hover:bg-secondary";
+// Task 102: a step that isn't a button -- the current or a read-only one,
+// and (grayer, not-allowed cursor) a later one still locked.
+export const STEPPER_ITEM_STATIC = "inline-flex min-h-8 shrink-0 items-center gap-2 rounded-md px-1 text-sm";
+export const STEPPER_ITEM_LOCKED =
+  "inline-flex min-h-8 shrink-0 cursor-not-allowed items-center gap-2 rounded-md px-1 text-sm opacity-60";
 const STEP_CIRCLE_BASE = "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold";
 export const STEP_CIRCLE_DONE = `${STEP_CIRCLE_BASE} bg-primary-soft text-primary`;
 export const STEP_CIRCLE_CURRENT = `${STEP_CIRCLE_BASE} bg-primary text-on-accent`;

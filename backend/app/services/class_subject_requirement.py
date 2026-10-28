@@ -21,6 +21,7 @@ from app.schemas.class_subject_requirement import (
     ClassSubjectRequirementCreate,
     ClassSubjectRequirementUpdate,
     RequirementSyncResult,
+    SkippedSubject,
 )
 from app.services import combined_lesson as combined_lesson_service
 from app.services.exceptions import (
@@ -252,6 +253,11 @@ def sync_version_requirements(
       count are deleted (missing ones are made by generate-lessons when
       scheduling);
     - a requirement with no rule any more -> deleted, lessons with it.
+    Only 啟用 classes and 啟用 subjects have rules here: a 停用 class or
+    subject is left out of new scheduling, so its requirements leave the
+    record like any other rule that is gone (the school's 年級科目需求 stay;
+    啟用 again brings them back on the next sync). The 停用 subjects left
+    out are returned (skipped_subjects).
     The lesson pattern, teacher and room the wizard set are kept. Only a
     尚未排課 record (409 otherwise). All in one transaction. None if the
     record doesn't exist in the school."""
@@ -260,18 +266,31 @@ def sync_version_requirements(
         return None
     lock_record_for_settings(db, schedule_version)
 
+    rule_rows = db.execute(
+        select(
+            Class.id,
+            GradeSubjectRequirement.subject_id,
+            GradeSubjectRequirement.weekly_periods,
+            Subject.is_active,
+            Subject.name,
+        )
+        .join(GradeSubjectRequirement, GradeSubjectRequirement.grade_id == Class.grade_id)
+        .join(Subject, Subject.id == GradeSubjectRequirement.subject_id)
+        .where(in_school(Class, school_id), Class.is_active.is_(True))
+    ).all()
     rule_periods = {
         (class_id, subject_id): weekly_periods
-        for class_id, subject_id, weekly_periods in db.execute(
-            select(
-                Class.id,
-                GradeSubjectRequirement.subject_id,
-                GradeSubjectRequirement.weekly_periods,
-            )
-            .join(GradeSubjectRequirement, GradeSubjectRequirement.grade_id == Class.grade_id)
-            .where(in_school(Class, school_id))
-        ).all()
+        for class_id, subject_id, weekly_periods, subject_active, _ in rule_rows
+        if subject_active
     }
+    skipped_subjects = sorted(
+        {
+            (subject_id, name)
+            for _, subject_id, _, subject_active, name in rule_rows
+            if not subject_active
+        },
+        key=lambda item: (item[1], item[0]),
+    )
     existing = list(
         db.scalars(
             select(ClassSubjectRequirement).where(
@@ -327,7 +346,14 @@ def sync_version_requirements(
         db.rollback()
         raise_for_integrity_error(exc)
 
-    return RequirementSyncResult(created=created, updated=updated, removed=removed)
+    return RequirementSyncResult(
+        created=created,
+        updated=updated,
+        removed=removed,
+        skipped_subjects=[
+            SkippedSubject(id=subject_id, name=name) for subject_id, name in skipped_subjects
+        ],
+    )
 
 
 def _resize(db: Session, requirement: ClassSubjectRequirement, weekly_periods: int) -> None:

@@ -84,13 +84,6 @@ export function isSemesterStepLocked(recordId: number | null): boolean {
   return recordId !== null;
 }
 
-// The Stepper's clickable steps: once the record exists, every step but
-// the current one -- Task 100: 學年度與學期 too (it opens read-only, see
-// isSemesterStepLocked()). Before that, none.
-export function canJumpToStep(index: number, currentIndex: number, hasRecord: boolean): boolean {
-  return hasRecord && index !== currentIndex;
-}
-
 // --- Weekly periods ---
 
 export const WEEKLY_PERIOD_OPTIONS = [1, 2, 3, 4, 5, 6] as const;

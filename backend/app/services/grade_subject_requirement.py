@@ -49,11 +49,22 @@ def create_grade_subject_requirement(
 
 
 def get_grade_subject_requirements(
-    db: Session, *, school_id: int, grade_id: int | None = None
+    db: Session,
+    *,
+    school_id: int,
+    grade_id: int | None = None,
+    include_inactive: bool = False,
 ) -> list[GradeSubjectRequirement]:
+    """A 停用 subject's requirements are hidden unless include_inactive:
+    kept (old records' requirements came from them, 啟用 brings them back),
+    but no longer part of the school's rules."""
     stmt = select(GradeSubjectRequirement).where(
         in_school(GradeSubjectRequirement, school_id)
     )
+    if not include_inactive:
+        stmt = stmt.join(Subject, Subject.id == GradeSubjectRequirement.subject_id).where(
+            Subject.is_active.is_(True)
+        )
     if grade_id is not None:
         stmt = stmt.where(GradeSubjectRequirement.grade_id == grade_id)
     stmt = stmt.order_by(GradeSubjectRequirement.grade_id, GradeSubjectRequirement.id)

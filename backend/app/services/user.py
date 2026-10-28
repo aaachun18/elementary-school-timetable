@@ -6,6 +6,7 @@ from app.core.security import hash_password
 from app.models.teacher import Teacher
 from app.models.user import ADMIN, COORDINATOR, TEACHER, User
 from app.schemas.user import SameNameTeacher, UserCreate, UserListItem, UserUpdate
+from app.services.deactivation import DeactivationImpact, deactivation_impact
 from app.services.delete_guidance import user_delete_steps
 from app.services.exceptions import (
     AccountPermissionError,
@@ -286,6 +287,21 @@ def set_teacher_national_id(
         username=username,
         has_national_id=teacher.national_id is not None,
     )
+
+
+def account_deactivation_impact(
+    db: Session, user_id: int, actor: User
+) -> DeactivationImpact | None:
+    """What 停用 of the account touches: its Teacher's records (an account
+    without a Teacher -- a 教學組長 / 系統管理員 -- touches none). None if
+    the actor can't see the account (caller should 404)."""
+    user = _get_visible_user(db, user_id, actor)
+    if user is None:
+        return None
+    teacher = _teacher_of(db, user.id)
+    if teacher is None:
+        return DeactivationImpact(0, 0, 0, 0)
+    return deactivation_impact(db, "teacher", teacher.id)
 
 
 def update_user(

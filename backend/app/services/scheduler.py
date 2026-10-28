@@ -45,7 +45,7 @@ from scheduling_engine.algorithms.resources import (  # noqa: E402
     SchedulingResources,
     lessons_moved_off_fixed_slot,
 )
-from scheduling_engine.constraints.base import ConstraintViolation  # noqa: E402
+from scheduling_engine.constraints.base import ConstraintViolation, Severity  # noqa: E402
 from scheduling_engine.models.domain import (  # noqa: E402
     ActiveStatusInfo,
     ClassAllowedTimeSlots,
@@ -80,6 +80,7 @@ from app.models.subject import Subject
 from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
 from app.services import combined_lesson as combined_lesson_service
+from app.services.lesson_pattern import block_positions
 from app.services.school_scope import in_school, school_id_of_version
 from app.services.schedule_version import stage_move_to_newest
 from app.services.school_structure import MANDARIN, MATHEMATICS
@@ -185,6 +186,145 @@ def _build_lessons_and_resources(
     if lesson_blocks:
         resources = replace(resources, lesson_blocks=lesson_blocks)
     return lessons, resources
+
+
+# --- 排課前檢查 (preflight): the same static checks, nothing written ---
+
+# A requirement of a 停用 class still in the record. Not an engine check
+# (classes are not part of H12): the preflight lists it so the wizard can
+# send the user back to 科目需求, whose sync leaves the class out.
+INACTIVE_CLASS_IN_RECORD = "INACTIVE_CLASS_IN_RECORD"
+
+
+@dataclass
+class PreflightOutcome:
+    violations: list[ConstraintViolation]
+    lesson_failures: list[LessonFailure]
+
+
+def _preflight_lessons_and_resources(
+    db: Session, schedule_version: ScheduleVersion
+) -> tuple[list[LessonAssignment], SchedulingResources]:
+    """What _build_lessons_and_resources() would read right after
+    generate-lessons, built in memory instead: every requirement gets its
+    weekly_periods lessons -- the stored ones first (with their fixed
+    slots), the missing ones as stand-ins with negative ids -- grouped into
+    blocks by the requirement's pattern. Transient Lesson objects only;
+    nothing is added to the session."""
+    requirements = load_version_requirements(db, schedule_version.id)
+    stored_by_requirement: dict[int, list[Lesson]] = {}
+    if requirements:
+        for lesson in db.scalars(
+            select(Lesson)
+            .where(Lesson.class_subject_requirement_id.in_([r.id for r in requirements]))
+            .order_by(Lesson.sequence_number)
+        ).all():
+            stored_by_requirement.setdefault(lesson.class_subject_requirement_id, []).append(lesson)
+
+    stand_in_id = 0
+    transient: list[Lesson] = []
+    lessons: list[LessonAssignment] = []
+    for requirement in requirements:
+        stored = stored_by_requirement.get(requirement.id, [])
+        positions = block_positions(requirement.lesson_pattern, requirement.weekly_periods)
+        for index, (block_no, block_seq) in enumerate(positions):
+            if index < len(stored):
+                lesson_id = stored[index].id
+                fixed_time_slot_id = stored[index].fixed_time_slot_id
+            else:
+                stand_in_id -= 1
+                lesson_id = stand_in_id
+                fixed_time_slot_id = None
+            transient.append(
+                Lesson(
+                    id=lesson_id,
+                    class_subject_requirement_id=requirement.id,
+                    sequence_number=index + 1,
+                    block_no=block_no,
+                    block_seq=block_seq,
+                )
+            )
+            lessons.append(
+                LessonAssignment(
+                    lesson_id=lesson_id,
+                    class_subject_requirement_id=requirement.id,
+                    class_id=requirement.class_id,
+                    subject_id=requirement.subject_id,
+                    teacher_id=None,
+                    time_slot_id=fixed_time_slot_id,
+                    room_id=None,
+                )
+            )
+
+    resources = build_scheduling_resources(
+        db,
+        requirements,
+        schedule_version_id=schedule_version.id,
+        school_id=school_id_of_version(db, schedule_version),
+    )
+    lesson_blocks = build_lesson_blocks(transient)
+    if lesson_blocks:
+        resources = replace(resources, lesson_blocks=lesson_blocks)
+    return lessons, resources
+
+
+def _inactive_class_violations(db: Session, schedule_version_id: int) -> list[ConstraintViolation]:
+    """One line per 停用 class that still has requirements in the record."""
+    rows = db.execute(
+        select(Class.id, Class.name)
+        .join(ClassSubjectRequirement, ClassSubjectRequirement.class_id == Class.id)
+        .where(
+            ClassSubjectRequirement.schedule_version_id == schedule_version_id,
+            Class.is_active.is_(False),
+        )
+        .distinct()
+        .order_by(Class.id)
+    ).all()
+    return [
+        ConstraintViolation(
+            type=INACTIVE_CLASS_IN_RECORD,
+            severity=Severity.ERROR,
+            lesson_id=None,
+            teacher_id=None,
+            class_id=class_id,
+            subject_id=None,
+            time_slot_id=None,
+            message=f"{name}已停用，但仍在這筆紀錄的科目需求中",
+        )
+        for class_id, name in rows
+    ]
+
+
+def preflight_check(db: Session, schedule_version_id: int) -> PreflightOutcome | None:
+    """排課前檢查: check_static_feasibility() -- unchanged, the very checks
+    run-scheduler starts with -- on the record as it would be scheduled
+    now, plus the 停用 classes still in it. Read only: no lessons are
+    generated, nothing is written. None if the record doesn't exist.
+    A violation never names a stand-in lesson (its lesson_id becomes None);
+    a lesson failure keeps it -- negative -- for the router to drop."""
+    schedule_version = db.get(ScheduleVersion, schedule_version_id)
+    if schedule_version is None:
+        return None
+    lessons, resources = _preflight_lessons_and_resources(db, schedule_version)
+    static_check = check_static_feasibility(lessons, resources)
+
+    def without_stand_in(violation: ConstraintViolation) -> ConstraintViolation:
+        if violation.lesson_id is not None and violation.lesson_id < 0:
+            return replace(violation, lesson_id=None)
+        return violation
+
+    violations = [
+        without_stand_in(violation)
+        for violation in _name_room_violations(db, static_check.violations)
+    ] + _inactive_class_violations(db, schedule_version_id)
+    lesson_failures = [
+        replace(
+            failure,
+            reasons=[without_stand_in(reason) for reason in failure.reasons],
+        )
+        for failure in static_check.lesson_failures
+    ]
+    return PreflightOutcome(violations=violations, lesson_failures=lesson_failures)
 
 
 def load_semester_teachers(

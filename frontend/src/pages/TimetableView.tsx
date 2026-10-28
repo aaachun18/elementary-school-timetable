@@ -32,6 +32,7 @@ import UnscheduledLessonsPanel from "../components/UnscheduledLessonsPanel";
 import { useConfirm } from "../hooks/useConfirm";
 import { CANCEL_LABEL } from "../utils/confirmText";
 import { canSeeCheckTags, checkTags, isCheckListOpen } from "../utils/checkTag";
+import { viewableChoices } from "../utils/choiceSelect";
 import { formatTeacherName } from "../utils/teacherName";
 import type { ScheduleCheckResult } from "../types/scheduler";
 import { useFlashMessage } from "../hooks/useFlashMessage";
@@ -967,19 +968,41 @@ export default function TimetableView(): ReactElement {
     formatTeacherName(name, teacherAccountById.get(teacherId));
   const teacherAccounts = new Set(teacherAccountById.values());
 
+  // Task 102: 停用 classes / teachers / rooms only when this record's
+  // timetable uses them, marked 「（已停用）」 (utils/choiceSelect.ts).
+  const usedClassIds = new Set(schedules.map((row) => row.classId));
+  const usedTeacherIds = new Set(
+    schedules.map((row) => row.teacherId).filter((id): id is number => id !== null),
+  );
+  const usedRoomIds = new Set(schedules.map((row) => row.roomId).filter((id): id is number => id !== null));
+  const classChoices = (classesResource.data ?? []).map((item) => ({
+    id: item.id,
+    label: item.name,
+    isActive: item.is_active,
+  }));
   const targetOptions =
     viewMode === "class"
-      ? (classesResource.data ?? []).map((item) => ({ id: item.id, label: item.name }))
+      ? viewableChoices(classChoices, usedClassIds)
       : viewMode === "teacher"
-        ? (teachersResource.data ?? []).map((item) => ({ id: item.id, label: teacherLabelOf(item.id, item.name) }))
+        ? viewableChoices(
+            (teachersResource.data ?? []).map((item) => ({
+              id: item.id,
+              label: teacherLabelOf(item.id, item.name),
+              isActive: item.is_active,
+            })),
+            usedTeacherIds,
+          )
         : [
             // Every class's own classroom first (原班上課, no Room record;
             // shown by the class's name alone), then the school's rooms.
-            ...(classesResource.data ?? []).map((item) => ({
+            ...viewableChoices(classChoices, usedClassIds).map((item) => ({
               id: homeroomTargetId(item.id),
-              label: item.name,
+              label: item.label,
             })),
-            ...(roomsResource.data ?? []).map((item) => ({ id: item.id, label: item.name })),
+            ...viewableChoices(
+              (roomsResource.data ?? []).map((item) => ({ id: item.id, label: item.name, isActive: item.is_active })),
+              usedRoomIds,
+            ),
           ];
 
   // Task 35: the vertical axis now comes from the school's full, global

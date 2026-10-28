@@ -14,6 +14,7 @@ import type {
   PlaceCandidatesResult,
   PlaceLessonRequest,
   PlaceLessonResult,
+  PreflightResult,
   RunSchedulerSuccessResponse,
   ScheduleAdjustmentResult,
   ScheduleCheckResult,
@@ -84,6 +85,12 @@ export async function generateLessons(
 // 尚未排課) -- the caller distinguishes the two via the promise's
 // resolve/reject, not a return value, matching how every other API module
 // here surfaces errors.
+// 排課前檢查: read only, nothing written (wizard step 6).
+export async function preflight(versionId: number): Promise<PreflightResult> {
+  const response = await apiClient.get<PreflightResult>(`/api/v1/schedule-versions/${versionId}/preflight`);
+  return response.data;
+}
+
 export async function runScheduler(
   versionId: number,
 ): Promise<RunSchedulerSuccessResponse> {

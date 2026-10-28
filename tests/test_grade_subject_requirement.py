@@ -181,7 +181,7 @@ def test_sync_creates_a_requirement_per_class_and_rule(client: TestClient) -> No
 
     result = _sync(client, record_id)
 
-    assert result == {"created": 5, "updated": 0, "removed": 0}
+    assert result == {"created": 5, "updated": 0, "removed": 0, "skipped_subjects": []}
     rows = _requirements(client, record_id)
     assert {key: row["weekly_periods"] for key, row in rows.items()} == {
         (first_a, chinese): 6,
@@ -205,7 +205,7 @@ def test_sync_twice_changes_nothing_the_second_time(client: TestClient) -> None:
     record_id = _record(client)
     _sync(client, record_id)
 
-    assert _sync(client, record_id) == {"created": 0, "updated": 0, "removed": 0}
+    assert _sync(client, record_id) == {"created": 0, "updated": 0, "removed": 0, "skipped_subjects": []}
 
 
 def test_sync_follows_changed_and_removed_rules_but_keeps_wizard_choices(
@@ -232,7 +232,7 @@ def test_sync_follows_changed_and_removed_rules_but_keeps_wizard_choices(
 
     result = _sync(client, record_id)
 
-    assert result == {"created": 0, "updated": 1, "removed": 1}
+    assert result == {"created": 0, "updated": 1, "removed": 1, "skipped_subjects": []}
     rows = _requirements(client, record_id)
     assert set(rows) == {(class_id, chinese), (class_id, maths)}
     assert rows[(class_id, chinese)]["weekly_periods"] == 5

@@ -31,6 +31,7 @@ from app.services.exceptions import (
     CannotDeleteSelfError,
     BlockAdjustmentRefusedError,
     CannotSwapWithSelfError,
+    ClassInUseError,
     CombinedLessonInUseError,
     CombinedLessonRuleError,
     CopyAcrossAcademicYearsError,
@@ -111,6 +112,20 @@ def handle_dependent_records_exist(
         status_code=409,
         # delete_steps: what to delete first, in order (may be empty).
         content={"detail": "此資料仍被其他資料參照，無法刪除", "delete_steps": exc.steps},
+    )
+
+
+# A class used by 排課紀錄: the frontend offers 停用 instead of the steps.
+@app.exception_handler(ClassInUseError)
+def handle_class_in_use(request: Request, exc: ClassInUseError) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={
+            "detail": "此資料仍被其他資料參照，無法刪除",
+            "code": "CLASS_IN_USE",
+            "record_count": exc.record_count,
+            "delete_steps": exc.steps,
+        },
     )
 
 

@@ -29,6 +29,7 @@ class ClassBatchCreate(BaseModel):
 
 class ClassRead(ClassBase):
     id: int
+    is_active: bool
     created_at: datetime
     updated_at: datetime
 

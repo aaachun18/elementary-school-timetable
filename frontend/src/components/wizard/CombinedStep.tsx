@@ -17,7 +17,6 @@ import type { Class } from "../../types/class";
 import type { ClassSubjectRequirement } from "../../types/classSubjectRequirement";
 import type { CombinedLesson, CombinedLessonFields } from "../../types/combinedLesson";
 import type { Grade } from "../../types/grade";
-import type { Room } from "../../types/room";
 import { blockChoiceLabel, blockChoices, canMergeWith } from "../../utils/combinedLessons";
 import ActionBar from "../ActionBar";
 import CardHeader from "../CardHeader";
@@ -25,6 +24,7 @@ import ConfirmDialog from "../ConfirmDialog";
 import EditIconButton from "../EditIconButton";
 import { wizardStepLabel } from "../../utils/wizard";
 import { CheckIcon } from "../icons";
+import { RESELECT_LABEL, selectableChoices, storedChoice, type Choice } from "../../utils/choiceSelect";
 import {
   BUTTON_GHOST_SM,
   BUTTON_PRIMARY,
@@ -32,6 +32,7 @@ import {
   BUTTON_SECONDARY_SM,
   CARD,
   CHECKBOX,
+  CHOICE_HINT,
   ERROR_TEXT,
   LABEL,
   LINK_TEXT,
@@ -42,6 +43,7 @@ import {
   PICK_STEP_LABEL,
   RULE_NOTE,
   SELECT,
+  SELECT_RESELECT,
   SUBSECTION_TITLE,
   TAB_BUTTON,
   TAB_BUTTON_ACTIVE,
@@ -57,7 +59,9 @@ interface Lookups {
   grades: readonly Grade[];
   classes: readonly Class[];
   requirements: readonly ClassSubjectRequirement[];
-  rooms: readonly Room[];
+  // Every room, with whether it is 啟用: only 啟用 ones are offered; a
+  // saved 停用 one asks to pick again (utils/choiceSelect.ts).
+  rooms: readonly Choice[];
   className: ReadonlyMap<number, string>;
   subjectName: ReadonlyMap<number, string>;
 }
@@ -114,9 +118,10 @@ export default function CombinedStep({
   }
   const lookups: Lookups = {
     grades: [...grades.data].sort((a, b) => a.level - b.level),
-    classes: [...classes.data].sort((a, b) => a.id - b.id),
+    // Only 啟用 classes are picked; names cover every class.
+    classes: classes.data.filter((item) => item.is_active).sort((a, b) => a.id - b.id),
     requirements: requirements.data,
-    rooms: rooms.data.filter((room) => room.is_active),
+    rooms: rooms.data.map((room) => ({ id: room.id, label: room.name, isActive: room.is_active })),
     className: new Map(classes.data.map((item) => [item.id, item.name])),
     subjectName: new Map(subjects.data.map((item) => [item.id, item.name])),
   };
@@ -362,6 +367,7 @@ interface PartnerRow {
 }
 
 const ROOM_PREFIX = "room:";
+const RESELECT_VALUE = "__reselect__";
 const HOMEROOM_PREFIX = "class:";
 
 function initialRows(existing: CombinedLesson | null, lookups: Lookups): PartnerRow[] {
@@ -402,6 +408,11 @@ function CombineDialog({
     existing?.room_id != null
       ? `${ROOM_PREFIX}${existing.room_id}`
       : `${HOMEROOM_PREFIX}${existing?.homeroom_class_id ?? host.class_id}`,
+  );
+  // A saved room that is 停用 now: 「請重新選擇」 until another is picked.
+  const roomState = storedChoice(
+    roomValue.startsWith(ROOM_PREFIX) ? Number(roomValue.slice(ROOM_PREFIX.length)) : null,
+    lookups.rooms,
   );
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -597,23 +608,30 @@ function CombineDialog({
       <label className={DIALOG_FIELD_ROW}>
         <span className={LABEL}>上課教室</span>
         <select
-          value={roomValue}
+          value={roomState.kind === "reselect" ? RESELECT_VALUE : roomValue}
           onChange={(event) => setRoomValue(event.target.value)}
           disabled={isSaving}
           aria-label="上課教室"
-          className={`${SELECT} w-full`}
+          aria-invalid={roomState.kind === "reselect" || undefined}
+          className={`${roomState.kind === "reselect" ? SELECT_RESELECT : SELECT} w-full`}
         >
+          {roomState.kind === "reselect" && (
+            <option value={RESELECT_VALUE} disabled>
+              {RESELECT_LABEL}
+            </option>
+          )}
           {memberClassIds.map((memberClassId) => (
             <option key={`class-${memberClassId}`} value={`${HOMEROOM_PREFIX}${memberClassId}`}>
               {lookups.className.get(memberClassId) ?? "—"}
             </option>
           ))}
-          {lookups.rooms.map((room) => (
+          {selectableChoices(lookups.rooms).map((room) => (
             <option key={`room-${room.id}`} value={`${ROOM_PREFIX}${room.id}`}>
-              {room.name}
+              {room.label}
             </option>
           ))}
         </select>
+        {roomState.kind === "reselect" && <span className={CHOICE_HINT}>{roomState.hint}</span>}
       </label>
       {existing !== null && (
         <p>

@@ -12,6 +12,7 @@ import { list as listTimeSlots } from "../../api/timeSlots";
 import { list as listRooms } from "../../api/rooms";
 import { listTeachers as listSemesterTeachers } from "../../api/semesterSettings";
 import { list as listSubjects } from "../../api/subjects";
+import { list as listTeachers } from "../../api/teachers";
 import { extractApiErrorMessage } from "../../constants/errorMessages";
 import { useResource } from "../../hooks/useResource";
 import { useTeacherNames } from "../../hooks/useTeacherAccounts";
@@ -22,8 +23,6 @@ import type {
   RequirementSyncResult,
 } from "../../types/classSubjectRequirement";
 import type { Grade } from "../../types/grade";
-import type { Room } from "../../types/room";
-import type { SemesterTeacher } from "../../types/semesterSettings";
 import type { Subject } from "../../types/subject";
 import type { TimeSlot } from "../../types/timeSlot";
 import { NO_PATTERN, lessonPatternOptions } from "../../utils/lessonPattern";
@@ -31,6 +30,9 @@ import { buildPeriodDisplay } from "../../utils/periodDisplay";
 import ActionBar from "../ActionBar";
 import CardHeader from "../CardHeader";
 import FixedSlotsDialog from "./FixedSlotsDialog";
+import ChoiceSelect from "../ChoiceSelect";
+import type { Choice } from "../../utils/choiceSelect";
+import { skippedSubjectsNote } from "../../utils/subjectDeactivation";
 import { wizardStepLabel } from "../../utils/wizard";
 import {
   BUTTON_PRIMARY,
@@ -91,6 +93,8 @@ export default function RequirementsStep({
   const subjects = useResource(() => listSubjects(0, 1000), []);
   const rooms = useResource(() => listRooms(0, 1000), []);
   const teachers = useResource(() => listSemesterTeachers(versionId), [versionId]);
+  // Which teachers are 停用 (a participant may have been deactivated since).
+  const schoolTeachers = useResource(() => listTeachers(0, 1000), []);
   const timeSlots = useResource(() => listTimeSlots(0, 1000), []);
   const teacherNames = useTeacherNames();
 
@@ -101,6 +105,7 @@ export default function RequirementsStep({
     subjects.errorMessage ??
     rooms.errorMessage ??
     teachers.errorMessage ??
+    schoolTeachers.errorMessage ??
     timeSlots.errorMessage;
   if (errorMessage !== null) {
     return (
@@ -116,26 +121,34 @@ export default function RequirementsStep({
     subjects.data === null ||
     rooms.data === null ||
     teachers.data === null ||
+    schoolTeachers.data === null ||
     timeSlots.data === null
   ) {
     return <p className={LOADING_TEXT}>正在帶入學校的科目需求…</p>;
   }
   const levelOf = new Map(grades.data.map((grade: Grade) => [grade.id, grade.level]));
+  const activeTeacherIds = new Set(
+    schoolTeachers.data.filter((teacher) => teacher.is_active).map((teacher) => teacher.id),
+  );
   return (
     <SyncedRequirements
       key={versionId}
       versionId={versionId}
       syncResult={synced.data}
       grades={[...grades.data].sort((a, b) => a.level - b.level)}
-      classes={[...classes.data].sort(
+      // 停用 classes are left out of new scheduling (the sync drops them).
+      classes={classes.data.filter((item) => item.is_active).sort(
         (a, b) => (levelOf.get(a.grade_id) ?? 0) - (levelOf.get(b.grade_id) ?? 0) || a.id - b.id,
       )}
       subjects={subjects.data}
-      rooms={rooms.data.filter((room) => room.is_active)}
+      // Task 102: every room and taking-part teacher, with whether it is
+      // 啟用 -- the dropdowns offer the 啟用 ones only (ChoiceSelect).
+      rooms={rooms.data.map((room) => ({ id: room.id, label: room.name, isActive: room.is_active }))}
       // Task 99: the dropdown's names, 「王老師(teacher11)」 when shared.
       teachers={teachers.data.map((teacher) => ({
-        ...teacher,
-        teacher_name: teacherNames.label(teacher.teacher_id, teacher.teacher_name),
+        id: teacher.teacher_id,
+        label: teacherNames.label(teacher.teacher_id, teacher.teacher_name),
+        isActive: activeTeacherIds.has(teacher.teacher_id),
       }))}
       timeSlots={timeSlots.data}
       onBack={onBack}
@@ -153,8 +166,8 @@ function SyncedRequirements({
   grades: readonly Grade[];
   classes: readonly Class[];
   subjects: readonly Subject[];
-  rooms: readonly Room[];
-  teachers: readonly SemesterTeacher[];
+  rooms: readonly Choice[];
+  teachers: readonly Choice[];
   timeSlots: readonly TimeSlot[];
   onBack: () => void;
   onNext: () => void;
@@ -204,8 +217,8 @@ function RequirementsForm({
   grades: readonly Grade[];
   classes: readonly Class[];
   subjects: readonly Subject[];
-  rooms: readonly Room[];
-  teachers: readonly SemesterTeacher[];
+  rooms: readonly Choice[];
+  teachers: readonly Choice[];
   initialRequirements: readonly ClassSubjectRequirement[];
   onBack: () => void;
   onNext: () => void;
@@ -246,6 +259,7 @@ function RequirementsForm({
     (item) => !requirements.some((requirement) => requirement.class_id === item.id),
   );
   const summary = syncSummary(syncResult);
+  const skippedNote = skippedSubjectsNote(syncResult.skipped_subjects.length);
 
   function replaceRequirement(saved: ClassSubjectRequirement): void {
     setRequirements((previous) => previous.map((item) => (item.id === saved.id ? saved : item)));
@@ -268,6 +282,7 @@ function RequirementsForm({
         />
         <p className={RULE_NOTE}>修改後會立即儲存</p>
         {summary !== null && <p className={`${NOTICE} mb-3`}>{summary}</p>}
+        {skippedNote !== null && <p className={RULE_NOTE}>{skippedNote}</p>}
         {classes.length === 0 ? (
           <p className={MUTED_TEXT}>
             還沒有班級，請先到
@@ -397,8 +412,8 @@ function RequirementRow({
 }: {
   requirement: ClassSubjectRequirement;
   subjectName: string;
-  rooms: readonly Room[];
-  teachers: readonly SemesterTeacher[];
+  rooms: readonly Choice[];
+  teachers: readonly Choice[];
   fixedCount: number;
   onOpenFixed: () => void;
   onSaved: (saved: ClassSubjectRequirement) => void;
@@ -465,40 +480,24 @@ function RequirementRow({
         </button>
       </td>
       <td className={TD}>
-        <select
-          value={requirement.required_teacher_id ?? ""}
-          onChange={(event) =>
-            void save({ required_teacher_id: event.target.value === "" ? null : Number(event.target.value) })
-          }
+        <ChoiceSelect
+          value={requirement.required_teacher_id ?? null}
+          choices={teachers}
+          noneLabel="不指定"
+          onChange={(id) => void save({ required_teacher_id: id })}
           disabled={disabled}
-          aria-label={`${subjectName}指定老師`}
-          className={`${SELECT} w-full`}
-        >
-          <option value="">不指定</option>
-          {teachers.map((teacher) => (
-            <option key={teacher.teacher_id} value={teacher.teacher_id}>
-              {teacher.teacher_name}
-            </option>
-          ))}
-        </select>
+          ariaLabel={`${subjectName}指定老師`}
+        />
       </td>
       <td className={TD}>
-        <select
-          value={requirement.required_room_id ?? ""}
-          onChange={(event) =>
-            void save({ required_room_id: event.target.value === "" ? null : Number(event.target.value) })
-          }
+        <ChoiceSelect
+          value={requirement.required_room_id ?? null}
+          choices={rooms}
+          noneLabel="原班教室"
+          onChange={(id) => void save({ required_room_id: id })}
           disabled={disabled}
-          aria-label={`${subjectName}特殊教室`}
-          className={`${SELECT} w-full`}
-        >
-          <option value="">原班教室</option>
-          {rooms.map((room) => (
-            <option key={room.id} value={room.id}>
-              {room.name}
-            </option>
-          ))}
-        </select>
+          ariaLabel={`${subjectName}特殊教室`}
+        />
       </td>
     </tr>
   );

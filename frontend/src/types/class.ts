@@ -9,6 +9,8 @@ export interface Class {
   grade_id: number;
   name_style: ClassNameStyle;
   name: string;
+  // 停用: left out of new scheduling, kept in old records.
+  is_active: boolean;
   created_at: string;
   updated_at: string;
 }

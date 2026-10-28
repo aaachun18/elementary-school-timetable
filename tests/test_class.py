@@ -20,7 +20,8 @@ def test_create_class(client: TestClient) -> None:
     assert data["grade_id"] == grade_id
     assert data["name"] == "一年甲班"
     assert data["name_style"] == "HEAVENLY_STEM"
-    assert "is_active" not in data
+    # 停用 came back (classes in use are deactivated, not deleted).
+    assert data["is_active"] is True
     assert "homeroom_room_id" not in data
     assert "id" in data
     assert "created_at" in data

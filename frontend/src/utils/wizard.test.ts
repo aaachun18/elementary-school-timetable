@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  canJumpToStep,
   isSemesterStepLocked,
   WIZARD_STEPS,
   buildTimeSlotGrid,
@@ -84,21 +83,5 @@ describe("isSemesterStepLocked", () => {
 
   it("is locked once the record exists", () => {
     expect(isSemesterStepLocked(12)).toBe(true);
-  });
-});
-
-describe("canJumpToStep", () => {
-  it("allows no step before the record exists", () => {
-    expect(canJumpToStep(0, 1, false)).toBe(false);
-    expect(canJumpToStep(2, 1, false)).toBe(false);
-  });
-
-  it("allows every other step once it exists, step 1 included", () => {
-    expect(canJumpToStep(0, 1, true)).toBe(true);
-    expect(canJumpToStep(3, 1, true)).toBe(true);
-  });
-
-  it("never the current step", () => {
-    expect(canJumpToStep(1, 1, true)).toBe(false);
   });
 });

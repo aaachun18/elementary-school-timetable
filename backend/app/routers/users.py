@@ -12,7 +12,9 @@ from app.schemas.user import (
     UsernameAvailability,
     UserUpdate,
 )
+from app.schemas.deactivation import DeactivationImpactRead
 from app.services import user as user_service
+from app.services.deactivation import DeactivationImpact
 
 # Task 59: account management for the frontend's 帳號管理 page. Creating an
 # account is deliberately NOT duplicated here -- it stays POST
@@ -91,6 +93,18 @@ def update_user(
     if user is None:
         raise _not_found()
     return user_service.get_user_list_item(db, user)
+
+
+@router.get("/{user_id}/deactivation-impact", response_model=DeactivationImpactRead)
+def user_deactivation_impact(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_manager),
+) -> DeactivationImpact:
+    impact = user_service.account_deactivation_impact(db, user_id, current_user)
+    if impact is None:
+        raise _not_found()
+    return impact
 
 
 @router.patch("/{user_id}/password", status_code=status.HTTP_204_NO_CONTENT)

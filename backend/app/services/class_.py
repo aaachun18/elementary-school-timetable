@@ -4,8 +4,10 @@ from sqlalchemy.orm import Session
 
 from app.models.grade_class import Class, Grade
 from app.schemas.class_ import ClassBatchCreate, ClassCreate
+from app.services.deactivation import class_record_count
 from app.services.delete_guidance import class_delete_steps
 from app.services.exceptions import (
+    ClassInUseError,
     DependentRecordsExistError,
     SchoolStructureViolationError,
     raise_for_integrity_error,
@@ -20,7 +22,8 @@ from app.services.school_structure import ClassNameStyle, class_name_options
 INVALID_CLASS_NAME_MESSAGE = "班級名稱必須是該年級與名稱類型提供的選項"
 BATCH_TOO_MANY_MESSAGE = "這個年級的此名稱類型最多只能再新增 {available} 班"
 
-# A class is only created and deleted (學校資料 > 班級), never edited.
+# A class is only created, deactivated / reactivated and deleted (學校資料 >
+# 班級); its grade and name never change.
 
 
 def create_class(db: Session, class_data: ClassCreate, *, school_id: int) -> Class:
@@ -99,10 +102,34 @@ def get_classes(
     return list(db.scalars(stmt).all())
 
 
+def set_class_active(
+    db: Session, class_id: int, is_active: bool, *, school_id: int
+) -> Class | None:
+    """停用 / 啟用. Nothing else changes: the class's requirements in old
+    records stay; new scheduling just leaves an inactive class out."""
+    class_obj = get_in_school(db, Class, class_id, school_id)
+    if class_obj is None:
+        return None
+    class_obj.is_active = is_active
+    db.commit()
+    db.refresh(class_obj)
+    return class_obj
+
+
 def delete_class(db: Session, class_id: int, *, school_id: int) -> bool:
+    """A class no 排課紀錄 uses is deleted; one in use -> ClassInUseError
+    (409 CLASS_IN_USE with the record count), to be deactivated instead."""
     class_obj = get_in_school(db, Class, class_id, school_id)
     if class_obj is None:
         return False
+
+    record_count = class_record_count(db, class_id)
+    if record_count > 0:
+        raise ClassInUseError(
+            f"Class {class_id} is used by {record_count} schedule record(s).",
+            record_count,
+            class_delete_steps(db, class_id),
+        )
 
     try:
         db.delete(class_obj)

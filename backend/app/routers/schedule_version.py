@@ -32,6 +32,8 @@ from app.schemas.scheduler import (
     PlaceCandidateSlot,
     PlaceCandidatesResult,
     PlacedLessonDetail,
+    PreflightLessonFailure,
+    PreflightResult,
     PlaceLessonRequest,
     PlaceLessonResult,
     PlacementChangeDetail,
@@ -346,6 +348,41 @@ def run_scheduler(
     return JSONResponse(
         status_code=422,
         content=detail.model_dump(),
+    )
+
+
+@router.get(
+    "/{schedule_version_id}/preflight",
+    response_model=PreflightResult,
+    dependencies=[Depends(require_version_in_school)],
+)
+def preflight_schedule_version(
+    schedule_version_id: int, db: Session = Depends(get_db)
+) -> PreflightResult:
+    # 排課前檢查 (wizard step 6): read only, nothing written.
+    outcome = scheduler_service.preflight_check(db, schedule_version_id)
+    if outcome is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ScheduleVersion not found",
+        )
+    return PreflightResult(
+        can_schedule=not outcome.violations and not outcome.lesson_failures,
+        violations=[
+            ConstraintViolationDetail.model_validate(violation)
+            for violation in outcome.violations
+        ],
+        lesson_failures=[
+            PreflightLessonFailure(
+                lesson_id=failure.lesson_id if failure.lesson_id > 0 else None,
+                class_subject_requirement_id=failure.class_subject_requirement_id,
+                reasons=[
+                    ConstraintViolationDetail.model_validate(reason)
+                    for reason in failure.reasons
+                ],
+            )
+            for failure in outcome.lesson_failures
+        ],
     )
 
 

@@ -134,6 +134,16 @@ export function extractDeleteSteps(error: unknown): string[] {
   return Array.isArray(steps) ? steps.filter((step): step is string => typeof step === "string") : [];
 }
 
+// A refused class delete (409, code CLASS_IN_USE): how many 排課紀錄 use
+// the class -- the page then offers 停用. null for any other error.
+export function extractClassInUseCount(error: unknown): number | null {
+  if (!axios.isAxiosError<ApiErrorResponse>(error)) {
+    return null;
+  }
+  const data = error.response?.data;
+  return data?.code === "CLASS_IN_USE" && typeof data.record_count === "number" ? data.record_count : null;
+}
+
 // --- Task 60: FastAPI 422 validation-error array -------------------------
 
 // One item of FastAPI's 422 `detail` array (pydantic's ValidationError

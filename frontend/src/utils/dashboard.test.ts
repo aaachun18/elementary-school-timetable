@@ -156,19 +156,29 @@ describe("summarizeDraftHealth", () => {
 
 describe("summarizeDataHealth", () => {
   const teacher = (id: number, active = true): Teacher => ({ id, name: `T${id}`, is_active: active }) as Teacher;
-  const klass = (id: number): Class => ({ id, name: `${id}班` }) as Class;
+  const klass = (id: number, active = true): Class => ({ id, name: `${id}班`, is_active: active }) as Class;
   const subject = (id: number): Subject => ({ id, name: `S${id}`, is_active: true }) as Subject;
   const room = (id: number, active = true): Room => ({ id, name: `R${id}`, is_active: active }) as Room;
 
-  it("counts active records (every class counts: classes are always active)", () => {
+  it("counts active records (停用 classes are left out too)", () => {
     const health = summarizeDataHealth({
       teachers: [teacher(1), teacher(2, false)],
-      classes: [klass(1), klass(2)],
+      classes: [klass(1), klass(2), klass(3, false)],
       subjects: [subject(1)],
       rooms: [room(10), room(11, false)],
     });
     expect([health.teacherCount, health.classCount, health.subjectCount, health.roomCount]).toEqual([1, 2, 1, 1]);
     expect(health.issues).toEqual([]);
+  });
+
+  it("says classes are missing when every class is 停用", () => {
+    const health = summarizeDataHealth({
+      teachers: [teacher(1)],
+      classes: [klass(1, false)],
+      subjects: [subject(1)],
+      rooms: [room(10)],
+    });
+    expect(health.issues.map((issue) => issue.path)).toEqual(["/data?tab=classes"]);
   });
 
   it("says what is missing when there is nothing at all", () => {

@@ -44,6 +44,27 @@ class LessonFailureDetail(BaseModel):
     reasons: list[ConstraintViolationDetail]
 
 
+class PreflightLessonFailure(BaseModel):
+    """A lesson with no possible teacher, found before scheduling. lesson_id
+    is None when the lesson isn't generated yet (the check works on the
+    record as it would be scheduled, without writing lessons)."""
+
+    lesson_id: int | None
+    class_subject_requirement_id: int
+    reasons: list[ConstraintViolationDetail]
+
+
+class PreflightResult(BaseModel):
+    """GET /schedule-versions/{id}/preflight (排課前檢查, read only):
+    can_schedule is False when anything would stop 自動排課 before its
+    search -- the same static checks run-scheduler starts with, plus a
+    停用 class still in the record (INACTIVE_CLASS_IN_RECORD)."""
+
+    can_schedule: bool
+    violations: list[ConstraintViolationDetail]
+    lesson_failures: list[PreflightLessonFailure]
+
+
 class SchedulerRunResult(BaseModel):
     """200 response: the scheduler placed every Lesson successfully.
     preferred_period_*: the soft constraint -- how many of the 國語文 / 數學

@@ -8,9 +8,11 @@ import type {
 // Mirrors backend/app/routers/grade_subject_requirement.py (學校資料 >
 // 科目需求).
 
-export async function list(): Promise<GradeSubjectRequirement[]> {
+// A 停用 subject's requirements are left out unless includeInactive.
+export async function list(includeInactive = false): Promise<GradeSubjectRequirement[]> {
   const response = await apiClient.get<GradeSubjectRequirement[]>(
     "/api/v1/grade-subject-requirements/",
+    { params: includeInactive ? { include_inactive: true } : undefined },
   );
   return response.data;
 }

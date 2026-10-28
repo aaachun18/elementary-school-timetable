@@ -1,4 +1,5 @@
 import { apiClient } from "./client";
+import type { DeactivationImpact } from "../utils/deactivation";
 import type {
   PasswordReset,
   SameNameTeacher,
@@ -87,4 +88,10 @@ export async function setTeacherNationalId(teacherId: number, nationalId: string
 
 export async function remove(userId: number): Promise<void> {
   await apiClient.delete(`/api/v1/users/${userId}`);
+}
+
+// What 停用 would touch (counts for DeactivateConfirmDialog).
+export async function deactivationImpact(id: number): Promise<DeactivationImpact> {
+  const response = await apiClient.get<DeactivationImpact>(`/api/v1/users/${id}/deactivation-impact`);
+  return response.data;
 }

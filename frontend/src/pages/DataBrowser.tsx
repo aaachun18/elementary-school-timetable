@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useState, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   list as listSchools,
@@ -11,15 +11,19 @@ import {
   create as createSubject,
   update as updateSubject,
   remove as removeSubject,
+  deactivationImpact as subjectDeactivationImpact,
 } from "../api/subjects";
 import {
   list as listRooms,
   create as createRoom,
   update as updateRoom,
   remove as removeRoom,
+  deactivationImpact as roomDeactivationImpact,
 } from "../api/rooms";
 import { RowErrorText } from "../components/DeleteStepsHint";
 import PageHeader from "../components/PageHeader";
+import DeactivateConfirmDialog from "../components/DeactivateConfirmDialog";
+import StatusBadge from "../components/StatusBadge";
 import { useResource } from "../hooks/useResource";
 import { useCrudList } from "../hooks/useCrudList";
 import { useConfirm } from "../hooks/useConfirm";
@@ -27,12 +31,15 @@ import DeleteIconButton from "../components/DeleteIconButton";
 import EditIconButton from "../components/EditIconButton";
 import { deleteButtonLabel, deleteConfirmText, editButtonLabel } from "../utils/confirmText";
 import { isCurrentUserCoordinator } from "../utils/auth";
+import { activeStatusBadge, visibleItems } from "../utils/deactivation";
+import { inlineEditKeyAction } from "../utils/inlineEdit";
 import { SCHOOL_TYPE_LABELS } from "../utils/schoolStructure";
 import ClassesTab from "../components/schoolData/ClassesTab";
 import GradeRequirementsTab from "../components/schoolData/GradeRequirementsTab";
 import NameCreateDialog from "../components/schoolData/NameCreateDialog";
 import RoomCreateDialog from "../components/schoolData/RoomCreateDialog";
 import SchoolCreateDialog from "../components/schoolData/SchoolCreateDialog";
+import ShowInactiveToggle from "../components/schoolData/ShowInactiveToggle";
 import TimeSlotsTab from "../components/schoolData/TimeSlotsTab";
 import type { School, SchoolCreate, SchoolUpdate } from "../types/school";
 import type { Subject, SubjectCreate, SubjectUpdate } from "../types/subject";
@@ -41,11 +48,13 @@ import {
   BUTTON_PRIMARY,
   BUTTON_PRIMARY_ROW,
   BUTTON_SECONDARY_ROW,
-  CHECKBOX,
   ERROR_TEXT,
+  HELP_TEXT,
+  INLINE_EDIT_TEXT,
   INPUT,
   LOADING_TEXT,
   PAGE_DATA,
+  ROW_ACTIONS,
   ROW_ACTIONS_END,
   ROW_ERROR_TEXT,
   ROW_ERROR_TEXT_FIXED,
@@ -63,6 +72,8 @@ import {
   TD,
   TD_ACTIONS,
   TD_DATA_ACTIONS,
+  TD_LOCKED,
+  TD_NOWRAP,
   TH,
   TH_ACTIONS,
   TH_DATA_ACTIONS,
@@ -284,98 +295,213 @@ export function SchoolsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
   );
 }
 
+// --- Task 102: 科目 / 教室 -- the same list shape as 班級 (ClassesTab.tsx):
+// ... | 狀態 | 操作. 狀態 is a 啟用中 / 已停用 badge; 操作 is 停用 (asks
+// first, DeactivateConfirmDialog) or 啟用 (doesn't), then the trash. No
+// pencil and no 啟用中 checkbox: an editable field's text is clicked to edit
+// the row in place (Enter saves, Esc cancels, or 確認 / 取消), and 啟用 /
+// 停用 only goes through the 操作 button. 已停用 rows are hidden until
+// 「顯示已停用」, then shown faded.
+
+function ActiveStatusCell({ isActive }: { isActive: boolean }): ReactElement {
+  const badge = activeStatusBadge(isActive);
+  return (
+    <td className={TD_NOWRAP}>
+      <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>
+    </td>
+  );
+}
+
+// A row's 操作 while it isn't being edited: 停用 / 啟用, then the trash.
+function ActiveRowActions({
+  isActive,
+  deleteLabel,
+  disabled,
+  onToggleActive,
+  onDelete,
+}: {
+  isActive: boolean;
+  deleteLabel: string;
+  disabled: boolean;
+  onToggleActive: () => void;
+  onDelete: () => void;
+}): ReactElement {
+  return (
+    <div className={ROW_ACTIONS_END}>
+      <button type="button" onClick={onToggleActive} disabled={disabled} className={BUTTON_SECONDARY_ROW}>
+        {isActive ? "停用" : "啟用"}
+      </button>
+      <DeleteIconButton label={deleteLabel} onClick={onDelete} disabled={disabled} />
+    </div>
+  );
+}
+
+// An editing row's 操作: 確認 / 取消, and the row's error under them.
+function InlineEditActions({
+  isPending,
+  canSave,
+  errorMessage,
+  onSave,
+  onCancel,
+}: {
+  isPending: boolean;
+  canSave: boolean;
+  errorMessage: string | undefined;
+  onSave: () => void;
+  onCancel: () => void;
+}): ReactElement {
+  return (
+    <td className={TD_DATA_ACTIONS}>
+      <div className={ROW_ACTIONS_END}>
+        <button type="button" onClick={onSave} disabled={isPending || !canSave} className={BUTTON_PRIMARY_ROW}>
+          {isPending ? "送出中…" : "確認"}
+        </button>
+        <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_ROW}>
+          取消
+        </button>
+      </div>
+      {errorMessage !== undefined && (
+        <p role="alert" className={ROW_ERROR_TEXT_FIXED}>
+          {errorMessage}
+        </p>
+      )}
+    </td>
+  );
+}
+
+// The editing row's onKeyDown: Enter in a field saves, Esc cancels.
+function inlineEditKeyDown(onSave: () => void, onCancel: () => void): (event: KeyboardEvent<HTMLElement>) => void {
+  return (event) => {
+    const tag = event.target instanceof HTMLElement ? event.target.tagName : "";
+    const action = inlineEditKeyAction(event.key, event.code, tag, event.nativeEvent.isComposing);
+    if (action === null) {
+      return;
+    }
+    event.preventDefault();
+    if (action === "save") {
+      onSave();
+    } else {
+      onCancel();
+    }
+  };
+}
+
+// An editable field's text: a click edits the row (coordinators only --
+// everyone else just reads it).
+function InlineEditText({
+  canEdit,
+  label,
+  disabled,
+  onClick,
+  children,
+}: {
+  canEdit: boolean;
+  label: string;
+  disabled: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}): ReactElement {
+  if (!canEdit) {
+    return <>{children}</>;
+  }
+  return (
+    <button type="button" onClick={onClick} disabled={disabled} aria-label={label} className={INLINE_EDIT_TEXT}>
+      {children}
+    </button>
+  );
+}
+
 function SubjectRow({
   subject,
   isAdmin,
   isEditing,
   isPending,
+  isBusy,
   errorMessage,
   deleteSteps,
   onStartEdit,
   onCancelEdit,
   onConfirmEdit,
+  onToggleActive,
   onDelete,
 }: {
   subject: Subject;
   isAdmin: boolean;
   isEditing: boolean;
   isPending: boolean;
+  // Some row's request is in flight: every row's buttons wait.
+  isBusy: boolean;
   errorMessage: string | undefined;
   deleteSteps: readonly string[] | undefined;
   onStartEdit: () => void;
   onCancelEdit: () => void;
   onConfirmEdit: (data: SubjectUpdate) => void;
+  onToggleActive: () => void;
   onDelete: () => void;
 }): ReactElement {
   const [draftName, setDraftName] = useState(subject.name);
-  const [draftIsActive, setDraftIsActive] = useState(subject.is_active);
+  const canSave = draftName.trim() !== "";
 
-  useEffect(() => {
-    if (isEditing) {
-      setDraftName(subject.name);
-      setDraftIsActive(subject.is_active);
+  // The draft starts from the row's current name every time editing starts,
+  // so 取消 needs nothing to restore.
+  function startEdit(): void {
+    setDraftName(subject.name);
+    onStartEdit();
+  }
+
+  function save(): void {
+    if (canSave && !isPending) {
+      onConfirmEdit({ name: draftName });
     }
-  }, [isEditing, subject]);
+  }
+
+  const cell = subject.is_active ? TD : TD_LOCKED;
 
   if (isEditing) {
     return (
-      <tr className="bg-blue-50/40" data-row-key={subject.id}>
+      <tr className="bg-blue-50/40" data-row-key={subject.id} onKeyDown={inlineEditKeyDown(save, onCancelEdit)}>
         <td className={TD}>
           <input
             value={draftName}
             onChange={(event) => setDraftName(event.target.value)}
             disabled={isPending}
             aria-label="科目名稱"
-          className={`${INPUT} w-full`}
+            autoFocus
+            className={`${INPUT} w-full`}
           />
         </td>
-        <td className={TD}>
-          <label>
-            <input
-              type="checkbox"
-              checked={draftIsActive}
-              onChange={(event) => setDraftIsActive(event.target.checked)}
-              disabled={isPending}
-            className={CHECKBOX}
-            />
-            啟用中
-          </label>
-        </td>
-        <td className={TD_DATA_ACTIONS}>
-          <div className={ROW_ACTIONS_END}>
-          <button
-            type="button"
-            onClick={() => onConfirmEdit({ name: draftName, is_active: draftIsActive })}
-            disabled={isPending || draftName.trim() === ""}
-            className={BUTTON_PRIMARY_ROW}
-          >
-            {isPending ? "送出中…" : "確認"}
-          </button>
-          <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_ROW}>
-            取消
-          </button>
-          </div>
-          {errorMessage !== undefined && (
-            <p role="alert" className={ROW_ERROR_TEXT_FIXED}>{errorMessage}</p>
-          )}
-        </td>
+        <ActiveStatusCell isActive={subject.is_active} />
+        <InlineEditActions
+          isPending={isPending}
+          canSave={canSave}
+          errorMessage={errorMessage}
+          onSave={save}
+          onCancel={onCancelEdit}
+        />
       </tr>
     );
   }
 
   return (
     <tr className={TR_HOVER}>
-      <td className={TD}>{subject.name}</td>
-      <td className={TD}>{subject.is_active ? "是" : "否"}</td>
-      <td className={TD_DATA_ACTIONS}>
-        {isAdmin && (
-          <div className={ROW_ACTIONS_END}>
-            <EditIconButton label={editButtonLabel(subject.name)} onClick={onStartEdit} disabled={isPending} />
-            <DeleteIconButton label={deleteButtonLabel("subject", subject.name)} onClick={onDelete} disabled={isPending} />
-          </div>
-        )}
-        {errorMessage !== undefined && <RowErrorText message={errorMessage} deleteSteps={deleteSteps} inFixedColumn />}
+      <td className={cell}>
+        <InlineEditText canEdit={isAdmin} label={`修改「${subject.name}」的名稱`} disabled={isBusy} onClick={startEdit}>
+          {subject.name}
+        </InlineEditText>
       </td>
+      <ActiveStatusCell isActive={subject.is_active} />
+      {isAdmin && (
+        <td className={TD_DATA_ACTIONS}>
+          <ActiveRowActions
+            isActive={subject.is_active}
+            deleteLabel={deleteButtonLabel("subject", subject.name)}
+            disabled={isBusy}
+            onToggleActive={onToggleActive}
+            onDelete={onDelete}
+          />
+          {errorMessage !== undefined && <RowErrorText message={errorMessage} deleteSteps={deleteSteps} inFixedColumn />}
+        </td>
+      )}
     </tr>
   );
 }
@@ -388,6 +514,17 @@ function SubjectsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
     remove: removeSubject,
   });
   const { confirm, dialog: confirmDialog } = useConfirm();
+  const [showInactive, setShowInactive] = useState(false);
+  // 停用 asks first, with what it touches; 啟用 doesn't.
+  const [deactivating, setDeactivating] = useState<Subject | null>(null);
+
+  function handleToggleActive(item: Subject): void {
+    if (item.is_active) {
+      setDeactivating(item);
+      return;
+    }
+    void crud.submitUpdate(item.id, { is_active: true });
+  }
 
   async function handleDelete(id: number, name: string): Promise<void> {
     if (await confirm(deleteConfirmText("subject", name))) {
@@ -395,57 +532,87 @@ function SubjectsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
     }
   }
 
+  const shown = visibleItems(crud.items, showInactive);
+  const columnCount = isAdmin ? 3 : 2;
+
   return (
     <div>
       <LoadingOrError isLoading={isLoading} errorMessage={errorMessage} />
       {data !== null && (
         <>
-          {isAdmin && (
-            <p className="mb-3">
-              <button
-                type="button"
-                onClick={crud.startAdding}
-                disabled={crud.isAdding || crud.pendingKey !== null}
-              className={BUTTON_PRIMARY}
-              >
-                新增
-              </button>
-            </p>
-          )}
+          <div className="mb-3 flex flex-wrap items-end gap-3">
+            <ShowInactiveToggle checked={showInactive} onChange={setShowInactive} />
+            {isAdmin && (
+              <div className={ROW_ACTIONS}>
+                <button
+                  type="button"
+                  onClick={crud.startAdding}
+                  disabled={crud.isAdding || crud.pendingKey !== null}
+                  className={BUTTON_PRIMARY}
+                >
+                  新增
+                </button>
+              </div>
+            )}
+          </div>
           <div className={DATA_TABLE_WRAPPER}>
-          <table className={DATA_TABLE}>
-            <colgroup>
-              {SUBJECT_COLS.slice(0, isAdmin ? 3 : 2).map((width) => (
-                <col key={width} className={width} />
-              ))}
-            </colgroup>
-            <thead>
-              <tr className={TABLE_HEAD_ROW}>
-                <th className={TH_DATA}>名稱</th>
-                <th className={TH_DATA}>啟用中</th>
-                {isAdmin && <th className={TH_DATA_ACTIONS}>操作</th>}
-              </tr>
-            </thead>
-            <tbody onChange={crud.handleRowChange}>
-              {crud.items.map((subject) => (
-                <SubjectRow
-                  key={subject.id}
-                  subject={subject}
-                  isAdmin={isAdmin}
-                  isEditing={crud.editingId === subject.id}
-                  isPending={crud.pendingKey === subject.id}
-                  errorMessage={crud.rowErrors.get(subject.id)}
-                  deleteSteps={crud.rowDeleteSteps.get(subject.id)}
-                  onStartEdit={() => crud.startEditing(subject.id)}
-                  onCancelEdit={crud.cancelEditing}
-                  onConfirmEdit={(data) => void crud.submitUpdate(subject.id, data)}
-                  onDelete={() => void handleDelete(subject.id, subject.name)}
-                />
-              ))}
-            </tbody>
-          </table>
+            <table className={DATA_TABLE}>
+              <colgroup>
+                {SUBJECT_COLS.slice(0, columnCount).map((width) => (
+                  <col key={width} className={width} />
+                ))}
+              </colgroup>
+              <thead>
+                <tr className={TABLE_HEAD_ROW}>
+                  <th className={TH_DATA}>名稱</th>
+                  <th className={TH_DATA}>狀態</th>
+                  {isAdmin && <th className={TH_DATA_ACTIONS}>操作</th>}
+                </tr>
+              </thead>
+              <tbody onChange={crud.handleRowChange}>
+                {shown.map((subject) => (
+                  <SubjectRow
+                    key={subject.id}
+                    subject={subject}
+                    isAdmin={isAdmin}
+                    isEditing={crud.editingId === subject.id}
+                    isPending={crud.pendingKey === subject.id}
+                    isBusy={crud.pendingKey !== null}
+                    errorMessage={crud.rowErrors.get(subject.id)}
+                    deleteSteps={crud.rowDeleteSteps.get(subject.id)}
+                    onStartEdit={() => crud.startEditing(subject.id)}
+                    onCancelEdit={crud.cancelEditing}
+                    onConfirmEdit={(changes) => void crud.submitUpdate(subject.id, changes)}
+                    onToggleActive={() => handleToggleActive(subject)}
+                    onDelete={() => void handleDelete(subject.id, subject.name)}
+                  />
+                ))}
+                {shown.length === 0 && (
+                  <tr>
+                    <td className={TD} colSpan={columnCount}>
+                      <span className={HELP_TEXT}>
+                        {crud.items.length === 0 ? "目前沒有科目。" : "目前沒有啟用中的科目。"}
+                      </span>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
           {confirmDialog}
+          {deactivating !== null && (
+            <DeactivateConfirmDialog
+              kind="subject"
+              name={deactivating.name}
+              loadImpact={() => subjectDeactivationImpact(deactivating.id)}
+              onConfirm={() => {
+                const item = deactivating;
+                setDeactivating(null);
+                void crud.submitUpdate(item.id, { is_active: false });
+              }}
+              onCancel={() => setDeactivating(null)}
+            />
+          )}
           {crud.isAdding && (
             <NameCreateDialog
               title="新增科目"
@@ -462,51 +629,67 @@ function SubjectsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
   );
 }
 
+type RoomField = "name" | "maxClasses";
+
 function RoomRow({
   room,
   isAdmin,
   isEditing,
   isPending,
+  isBusy,
   errorMessage,
   deleteSteps,
   onStartEdit,
   onCancelEdit,
   onConfirmEdit,
+  onToggleActive,
   onDelete,
 }: {
   room: Room;
   isAdmin: boolean;
   isEditing: boolean;
   isPending: boolean;
+  isBusy: boolean;
   errorMessage: string | undefined;
   deleteSteps: readonly string[] | undefined;
   onStartEdit: () => void;
   onCancelEdit: () => void;
   onConfirmEdit: (data: RoomUpdate) => void;
+  onToggleActive: () => void;
   onDelete: () => void;
 }): ReactElement {
   const [draftName, setDraftName] = useState(room.name);
-  const [draftIsActive, setDraftIsActive] = useState(room.is_active);
   const [draftMaxClasses, setDraftMaxClasses] = useState(room.max_classes);
+  // The field whose text was clicked gets the focus.
+  const [focusField, setFocusField] = useState<RoomField>("name");
+  const canSave = draftName.trim() !== "";
 
-  useEffect(() => {
-    if (isEditing) {
-      setDraftName(room.name);
-      setDraftIsActive(room.is_active);
-      setDraftMaxClasses(room.max_classes);
+  function startEdit(field: RoomField): void {
+    setDraftName(room.name);
+    setDraftMaxClasses(room.max_classes);
+    setFocusField(field);
+    onStartEdit();
+  }
+
+  function save(): void {
+    if (canSave && !isPending) {
+      onConfirmEdit({ name: draftName, max_classes: draftMaxClasses });
     }
-  }, [isEditing, room]);
+  }
+
+  const cell = room.is_active ? TD : TD_LOCKED;
 
   if (isEditing) {
     return (
-      <tr className="bg-blue-50/40" data-row-key={room.id}>
+      <tr className="bg-blue-50/40" data-row-key={room.id} onKeyDown={inlineEditKeyDown(save, onCancelEdit)}>
         <td className={TD}>
           <input
             value={draftName}
             onChange={(event) => setDraftName(event.target.value)}
             disabled={isPending}
             aria-label="教室名稱"
-          className={`${INPUT} w-full`}
+            autoFocus={focusField === "name"}
+            className={`${INPUT} w-full`}
           />
         </td>
         <td className={TD}>
@@ -515,6 +698,7 @@ function RoomRow({
             onChange={(event) => setDraftMaxClasses(Number(event.target.value))}
             disabled={isPending}
             aria-label="一次最多幾班同時使用"
+            autoFocus={focusField === "maxClasses"}
             className={`${SELECT} w-full`}
           >
             {ROOM_MAX_CLASSES_OPTIONS.map((option) => (
@@ -524,60 +708,53 @@ function RoomRow({
             ))}
           </select>
         </td>
-        <td className={TD}>
-          <label>
-            <input
-              type="checkbox"
-              checked={draftIsActive}
-              onChange={(event) => setDraftIsActive(event.target.checked)}
-              disabled={isPending}
-            className={CHECKBOX}
-            />
-            啟用中
-          </label>
-        </td>
-        <td className={TD_DATA_ACTIONS}>
-          <div className={ROW_ACTIONS_END}>
-          <button
-            type="button"
-            onClick={() =>
-              onConfirmEdit({
-                name: draftName,
-                is_active: draftIsActive,
-                max_classes: draftMaxClasses,
-              })
-            }
-            disabled={isPending || draftName.trim() === ""}
-            className={BUTTON_PRIMARY_ROW}
-          >
-            {isPending ? "送出中…" : "確認"}
-          </button>
-          <button type="button" onClick={onCancelEdit} disabled={isPending} className={BUTTON_SECONDARY_ROW}>
-            取消
-          </button>
-          </div>
-          {errorMessage !== undefined && (
-            <p role="alert" className={ROW_ERROR_TEXT_FIXED}>{errorMessage}</p>
-          )}
-        </td>
+        <ActiveStatusCell isActive={room.is_active} />
+        <InlineEditActions
+          isPending={isPending}
+          canSave={canSave}
+          errorMessage={errorMessage}
+          onSave={save}
+          onCancel={onCancelEdit}
+        />
       </tr>
     );
   }
 
   return (
     <tr className={TR_HOVER}>
-      <td className={TD}>{room.name}</td>
-      <td className={TD}>{room.max_classes} 班</td>
-      <td className={TD}>{room.is_active ? "是" : "否"}</td>
-      <td className={TD_DATA_ACTIONS}>
-        {isAdmin && (
-          <div className={ROW_ACTIONS_END}>
-            <EditIconButton label={editButtonLabel(room.name)} onClick={onStartEdit} disabled={isPending} />
-            <DeleteIconButton label={deleteButtonLabel("room", room.name)} onClick={onDelete} disabled={isPending} />
-          </div>
-        )}
-        {errorMessage !== undefined && <RowErrorText message={errorMessage} deleteSteps={deleteSteps} inFixedColumn />}
+      <td className={cell}>
+        <InlineEditText
+          canEdit={isAdmin}
+          label={`修改「${room.name}」的名稱`}
+          disabled={isBusy}
+          onClick={() => startEdit("name")}
+        >
+          {room.name}
+        </InlineEditText>
       </td>
+      <td className={cell}>
+        <InlineEditText
+          canEdit={isAdmin}
+          label={`修改「${room.name}」一次最多幾班同時使用`}
+          disabled={isBusy}
+          onClick={() => startEdit("maxClasses")}
+        >
+          {room.max_classes} 班
+        </InlineEditText>
+      </td>
+      <ActiveStatusCell isActive={room.is_active} />
+      {isAdmin && (
+        <td className={TD_DATA_ACTIONS}>
+          <ActiveRowActions
+            isActive={room.is_active}
+            deleteLabel={deleteButtonLabel("room", room.name)}
+            disabled={isBusy}
+            onToggleActive={onToggleActive}
+            onDelete={onDelete}
+          />
+          {errorMessage !== undefined && <RowErrorText message={errorMessage} deleteSteps={deleteSteps} inFixedColumn />}
+        </td>
+      )}
     </tr>
   );
 }
@@ -593,6 +770,17 @@ function RoomsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
     remove: removeRoom,
   });
   const { confirm, dialog: confirmDialog } = useConfirm();
+  const [showInactive, setShowInactive] = useState(false);
+  // 停用 asks first, with what it touches; 啟用 doesn't.
+  const [deactivating, setDeactivating] = useState<Room | null>(null);
+
+  function handleToggleActive(item: Room): void {
+    if (item.is_active) {
+      setDeactivating(item);
+      return;
+    }
+    void crud.submitUpdate(item.id, { is_active: true });
+  }
 
   async function handleDelete(id: number, name: string): Promise<void> {
     if (await confirm(deleteConfirmText("room", name))) {
@@ -600,58 +788,88 @@ function RoomsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
     }
   }
 
+  const shown = visibleItems(crud.items, showInactive);
+  const columnCount = isAdmin ? 4 : 3;
+
   return (
     <div>
       <LoadingOrError isLoading={isLoading} errorMessage={errorMessage} />
       {data !== null && (
         <>
-          {isAdmin && (
-            <p className="mb-3">
-              <button
-                type="button"
-                onClick={crud.startAdding}
-                disabled={crud.isAdding || crud.pendingKey !== null}
-              className={BUTTON_PRIMARY}
-              >
-                新增
-              </button>
-            </p>
-          )}
+          <div className="mb-3 flex flex-wrap items-end gap-3">
+            <ShowInactiveToggle checked={showInactive} onChange={setShowInactive} />
+            {isAdmin && (
+              <div className={ROW_ACTIONS}>
+                <button
+                  type="button"
+                  onClick={crud.startAdding}
+                  disabled={crud.isAdding || crud.pendingKey !== null}
+                  className={BUTTON_PRIMARY}
+                >
+                  新增
+                </button>
+              </div>
+            )}
+          </div>
           <div className={DATA_TABLE_WRAPPER}>
-          <table className={DATA_TABLE}>
-            <colgroup>
-              {ROOM_COLS.slice(0, isAdmin ? 4 : 3).map((width) => (
-                <col key={width} className={width} />
-              ))}
-            </colgroup>
-            <thead>
-              <tr className={TABLE_HEAD_ROW}>
-                <th className={TH_DATA}>名稱</th>
-                <th className={TH_DATA}>一次最多幾班同時使用</th>
-                <th className={TH_DATA}>啟用中</th>
-                {isAdmin && <th className={TH_DATA_ACTIONS}>操作</th>}
-              </tr>
-            </thead>
-            <tbody onChange={crud.handleRowChange}>
-              {crud.items.map((room) => (
-                <RoomRow
-                  key={room.id}
-                  room={room}
-                  isAdmin={isAdmin}
-                  isEditing={crud.editingId === room.id}
-                  isPending={crud.pendingKey === room.id}
-                  errorMessage={crud.rowErrors.get(room.id)}
-                  deleteSteps={crud.rowDeleteSteps.get(room.id)}
-                  onStartEdit={() => crud.startEditing(room.id)}
-                  onCancelEdit={crud.cancelEditing}
-                  onConfirmEdit={(data) => void crud.submitUpdate(room.id, data)}
-                  onDelete={() => void handleDelete(room.id, room.name)}
-                />
-              ))}
-            </tbody>
-          </table>
+            <table className={DATA_TABLE}>
+              <colgroup>
+                {ROOM_COLS.slice(0, columnCount).map((width) => (
+                  <col key={width} className={width} />
+                ))}
+              </colgroup>
+              <thead>
+                <tr className={TABLE_HEAD_ROW}>
+                  <th className={TH_DATA}>名稱</th>
+                  <th className={TH_DATA}>一次最多幾班同時使用</th>
+                  <th className={TH_DATA}>狀態</th>
+                  {isAdmin && <th className={TH_DATA_ACTIONS}>操作</th>}
+                </tr>
+              </thead>
+              <tbody onChange={crud.handleRowChange}>
+                {shown.map((room) => (
+                  <RoomRow
+                    key={room.id}
+                    room={room}
+                    isAdmin={isAdmin}
+                    isEditing={crud.editingId === room.id}
+                    isPending={crud.pendingKey === room.id}
+                    isBusy={crud.pendingKey !== null}
+                    errorMessage={crud.rowErrors.get(room.id)}
+                    deleteSteps={crud.rowDeleteSteps.get(room.id)}
+                    onStartEdit={() => crud.startEditing(room.id)}
+                    onCancelEdit={crud.cancelEditing}
+                    onConfirmEdit={(changes) => void crud.submitUpdate(room.id, changes)}
+                    onToggleActive={() => handleToggleActive(room)}
+                    onDelete={() => void handleDelete(room.id, room.name)}
+                  />
+                ))}
+                {shown.length === 0 && (
+                  <tr>
+                    <td className={TD} colSpan={columnCount}>
+                      <span className={HELP_TEXT}>
+                        {crud.items.length === 0 ? "目前沒有教室。" : "目前沒有啟用中的教室。"}
+                      </span>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
           {confirmDialog}
+          {deactivating !== null && (
+            <DeactivateConfirmDialog
+              kind="room"
+              name={deactivating.name}
+              loadImpact={() => roomDeactivationImpact(deactivating.id)}
+              onConfirm={() => {
+                const item = deactivating;
+                setDeactivating(null);
+                void crud.submitUpdate(item.id, { is_active: false });
+              }}
+              onCancel={() => setDeactivating(null)}
+            />
+          )}
           {crud.isAdding && (
             <RoomCreateDialog
               busy={crud.pendingKey === "new"}

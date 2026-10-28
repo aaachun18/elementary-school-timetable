@@ -1,4 +1,4 @@
-import { useId, useState, type ReactElement } from "react";
+import { useEffect, useId, useState, type ReactElement } from "react";
 import { Link } from "react-router-dom";
 import { list as listClasses } from "../../api/classes";
 import { list as listGrades } from "../../api/grades";
@@ -46,6 +46,11 @@ interface Draft {
   homeroomClassId: number | null;
 }
 
+// The form's content as one comparable string.
+function draftsKey(drafts: ReadonlyMap<number, Draft>): string {
+  return JSON.stringify([...drafts.entries()].sort(([a], [b]) => a - b));
+}
+
 function initialDrafts(
   teachers: readonly Teacher[],
   current: readonly SemesterTeacher[],
@@ -78,9 +83,13 @@ function initialDrafts(
 export default function TeachersStep({
   versionId,
   onNext,
+  onDirtyChange,
 }: {
   versionId: number;
   onNext: () => void;
+  // Task 102: whether the form has changes not saved yet (the wizard asks
+  // before its step row leaves the step).
+  onDirtyChange: (isDirty: boolean) => void;
 }): ReactElement {
   const teachers = useResource(() => listTeachers(0, 1000), []);
   const current = useResource(() => listSemesterTeachers(versionId), [versionId]);
@@ -119,9 +128,11 @@ export default function TeachersStep({
       teachers={teachers.data.filter((teacher) => teacher.is_active)}
       current={current.data}
       timeSlots={timeSlots.data}
-      classes={sortClassesByGrade(classes.data, gradeLevelById)}
+      // 停用 classes are left out of new scheduling (no 導師 needed).
+      classes={sortClassesByGrade(classes.data.filter((item) => item.is_active), gradeLevelById)}
       teacherLabel={(teacher) => teacherNames.label(teacher.id, teacher.name)}
       onNext={onNext}
+      onDirtyChange={onDirtyChange}
     />
   );
 }
@@ -134,6 +145,7 @@ function TeachersForm({
   classes,
   teacherLabel,
   onNext,
+  onDirtyChange,
 }: {
   versionId: number;
   teachers: readonly Teacher[];
@@ -143,8 +155,15 @@ function TeachersForm({
   // Task 99: 「王老師(teacher11)」 when two teachers share a name.
   teacherLabel: (teacher: Teacher) => string;
   onNext: () => void;
+  onDirtyChange: (isDirty: boolean) => void;
 }): ReactElement {
   const [drafts, setDrafts] = useState(() => initialDrafts(teachers, current));
+  // What was saved: any difference is an unsaved change.
+  const [savedDrafts] = useState(() => draftsKey(initialDrafts(teachers, current)));
+  const isDirty = draftsKey(drafts) !== savedDrafts;
+  useEffect(() => {
+    onDirtyChange(isDirty);
+  }, [isDirty, onDirtyChange]);
   const [pickerTeacher, setPickerTeacher] = useState<Teacher | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

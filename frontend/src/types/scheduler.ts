@@ -349,3 +349,19 @@ export interface ChangeRoomResult {
   changes: RoomChangeDetail[];
   check: ScheduleCheckResult;
 }
+
+// GET /schedule-versions/{id}/preflight (排課前檢查, read only): what would
+// stop 自動排課 before its search. lesson_id is null for a lesson not
+// generated yet. INACTIVE_CLASS_IN_RECORD: a 停用 class still in the
+// record's requirements.
+export interface PreflightLessonFailure {
+  lesson_id: number | null;
+  class_subject_requirement_id: number;
+  reasons: ConstraintViolationDetail[];
+}
+
+export interface PreflightResult {
+  can_schedule: boolean;
+  violations: ConstraintViolationDetail[];
+  lesson_failures: PreflightLessonFailure[];
+}

@@ -23,6 +23,15 @@ class DependentRecordsExistError(Exception):
         super().__init__(message)
 
 
+class ClassInUseError(DependentRecordsExistError):
+    """A class used by 排課紀錄 can't be deleted (-> 409, code
+    CLASS_IN_USE, with how many records use it): deactivate it instead."""
+
+    def __init__(self, message: str, record_count: int, steps: list[str] | None = None) -> None:
+        self.record_count = record_count
+        super().__init__(message, steps)
+
+
 class AccountPermissionError(Exception):
     """Task 98: the logged-in account may not create / change this account
     the way it asked (-> 403), e.g. a 教學組長 creating a 教學組長, or

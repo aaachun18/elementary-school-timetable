@@ -38,11 +38,12 @@ def create_grade_subject_requirement(
 @router.get("/", response_model=list[GradeSubjectRequirementRead])
 def list_grade_subject_requirements(
     grade_id: int | None = None,
+    include_inactive: bool = False,
     db: Session = Depends(get_db),
     school_id: int = Depends(member_school_id),
 ) -> list[GradeSubjectRequirement]:
     return grade_requirement_service.get_grade_subject_requirements(
-        db, school_id=school_id, grade_id=grade_id
+        db, school_id=school_id, grade_id=grade_id, include_inactive=include_inactive
     )
 
 

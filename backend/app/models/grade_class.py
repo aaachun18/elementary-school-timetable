@@ -1,4 +1,4 @@
-from sqlalchemy import CheckConstraint, ForeignKey, String, UniqueConstraint
+from sqlalchemy import CheckConstraint, ForeignKey, String, UniqueConstraint, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -50,5 +50,9 @@ class Class(TimestampMixin, Base):
     name_style: Mapped[str] = mapped_column(
         String(20), default="NUMBER", server_default="NUMBER"
     )
+    # 停用: left out of every new scheduling (開始排課, the record's
+    # requirements, the home page), kept in old records. Not part of H12 --
+    # a deactivated class never makes an existing timetable wrong.
+    is_active: Mapped[bool] = mapped_column(default=True, server_default=true())
 
     grade: Mapped["Grade"] = relationship(back_populates="classes")
