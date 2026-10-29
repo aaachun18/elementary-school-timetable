@@ -245,3 +245,86 @@ def test_unauthenticated_cannot_publish(
     (record,) = _records(Builder(db_session), "AUTO")
 
     assert _publish_response(unauthenticated_client, record.id).status_code == 401
+
+
+# --- 取消發布 ---
+
+
+def _unpublish_response(client: TestClient, version_id: int) -> Any:
+    return client.post(f"/api/v1/schedule-versions/{version_id}/unpublish")
+
+
+def test_unpublish_leaves_the_semester_without_a_published_record(
+    client: TestClient, db_session: Session
+) -> None:
+    v1, v2 = _records(Builder(db_session), "MANUAL", "AUTO")
+    _publish(client, v1.id)
+
+    response = _unpublish_response(client, v1.id)
+
+    assert response.status_code == 200, response.json()
+    assert response.json()["is_published"] is False
+    # Back to an ordinary 手動排課 record; no other record is published instead.
+    assert _states(db_session, v1, v2) == [("MANUAL", False), ("AUTO", False)]
+
+
+def test_unpublish_then_publish_again(client: TestClient, db_session: Session) -> None:
+    (record,) = _records(Builder(db_session), "COPIED")
+    _publish(client, record.id)
+    _unpublish_response(client, record.id)
+
+    _publish(client, record.id)
+
+    assert _states(db_session, record) == [("COPIED", True)]
+
+
+def test_unpublishing_a_record_that_is_not_published_changes_nothing(
+    client: TestClient, db_session: Session
+) -> None:
+    (record,) = _records(Builder(db_session), "AUTO")
+    before = _version_snapshot(db_session)
+
+    response = _unpublish_response(client, record.id)
+
+    assert response.status_code == 200
+    assert _version_snapshot(db_session) == before
+
+
+def test_unpublish_does_not_affect_other_semesters(
+    client: TestClient, db_session: Session
+) -> None:
+    builder = Builder(db_session)
+    v1 = builder.version(status="AUTO")
+    other = builder.version(builder.semester_in_year(number=2), status="AUTO")
+    _publish(client, v1.id)
+    _publish(client, other.id)
+
+    _unpublish_response(client, v1.id)
+
+    assert _states(db_session, v1, other) == [("AUTO", False), ("AUTO", True)]
+
+
+def test_teacher_sees_nothing_once_unpublished(
+    client: TestClient, teacher_client: TestClient, db_session: Session
+) -> None:
+    (record,) = _records(Builder(db_session), "AUTO")
+    _publish(client, record.id)
+
+    _unpublish_response(client, record.id)
+
+    assert teacher_client.get("/api/v1/schedule-versions/").json() == []
+
+
+def test_unpublish_missing_record_returns_404(client: TestClient) -> None:
+    assert _unpublish_response(client, 999999).status_code == 404
+
+
+def test_teacher_cannot_unpublish(
+    client: TestClient, teacher_client: TestClient, db_session: Session
+) -> None:
+    (record,) = _records(Builder(db_session), "AUTO")
+    _publish(client, record.id)
+    before = _version_snapshot(db_session)
+
+    assert _unpublish_response(teacher_client, record.id).status_code == 403
+    assert _version_snapshot(db_session) == before

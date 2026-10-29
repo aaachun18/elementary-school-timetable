@@ -1,4 +1,5 @@
 import axios from "axios";
+import { rememberLogoutReason } from "../utils/session";
 
 // sessionStorage (not localStorage): cleared when the browser tab closes --
 // see docs/FRONTEND_REQUIREMENTS.md Task 27's Token 儲存 decision.
@@ -44,6 +45,8 @@ apiClient.interceptors.response.use(
       !isLoginRequest
     ) {
       sessionStorage.removeItem(TOKEN_KEY);
+      // The login page says why (utils/session.ts).
+      rememberLogoutReason("expired");
       window.location.href = "/login";
     }
     return Promise.reject(error);

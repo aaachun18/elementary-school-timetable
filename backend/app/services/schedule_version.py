@@ -263,6 +263,29 @@ def publish_schedule_version(
     return schedule_version
 
 
+def unpublish_schedule_version(
+    db: Session, schedule_version_id: int, *, school_id: int
+) -> ScheduleVersion | None:
+    """取消發布: the published record goes back to an ordinary record of its
+    own status (自動排課 / 手動排課 / 複製), and the semester has no published
+    timetable until another one is published -- 一般老師 see none meanwhile.
+    Its timetable and settings stay as they are. A record that isn't
+    published changes nothing."""
+    schedule_version = get_in_school(db, ScheduleVersion, schedule_version_id, school_id)
+    if schedule_version is None:
+        return None
+    if not schedule_version.is_published:
+        return schedule_version
+    schedule_version.is_published = False
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise_for_integrity_error(exc)
+    db.refresh(schedule_version)
+    return schedule_version
+
+
 def delete_schedule_version(
     db: Session, schedule_version_id: int, *, school_id: int
 ) -> bool:

@@ -188,6 +188,25 @@ def publish_schedule_version(
 
 
 @router.post(
+    "/{schedule_version_id}/unpublish",
+    response_model=ScheduleVersionRead,
+    dependencies=[Depends(require_version_in_school)],
+)
+def unpublish_schedule_version(
+    schedule_version_id: int,
+    db: Session = Depends(get_db),
+    school_id: int = Depends(coordinator_school_id),
+) -> ScheduleVersion:
+    """取消發布: the semester has no published record until another one is
+    published."""
+    return _found(
+        schedule_version_service.unpublish_schedule_version(
+            db, schedule_version_id, school_id=school_id
+        )
+    )
+
+
+@router.post(
     "/{schedule_version_id}/copy-settings",
     response_model=ScheduleVersionRead,
     status_code=status.HTTP_201_CREATED,

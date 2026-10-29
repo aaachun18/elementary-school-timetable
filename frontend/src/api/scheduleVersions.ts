@@ -112,6 +112,15 @@ export async function publish(versionId: number): Promise<ScheduleVersion> {
   return response.data;
 }
 
+// 取消發布: the semester has no published record until another one is
+// published (the record and its timetable stay).
+export async function unpublish(versionId: number): Promise<ScheduleVersion> {
+  const response = await apiClient.post<ScheduleVersion>(
+    `/api/v1/schedule-versions/${versionId}/unpublish`,
+  );
+  return response.data;
+}
+
 // 複製此課表: settings and timetable into a new 複製自編號 x record of any
 // semester of the same academic year (null: the source's own).
 export async function copy(

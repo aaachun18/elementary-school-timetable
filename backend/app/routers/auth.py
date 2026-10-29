@@ -76,3 +76,16 @@ def login(
     # claims.
     access_token = create_access_token({"sub": user.username, "role": user.role})
     return Token(access_token=access_token)
+
+
+@router.post("/refresh", response_model=Token)
+def refresh(current_user: User = Depends(get_current_user)) -> Token:
+    """Idle logout: a new token, with a fresh expiry, for someone still
+    working -- the frontend asks for one while they are active, so only
+    someone idle for IDLE_TIMEOUT_MINUTES is logged out. Needs a valid
+    (unexpired) token of an active account, like any other call; the role
+    is read again from the account, not copied from the old token."""
+    access_token = create_access_token(
+        {"sub": current_user.username, "role": current_user.role}
+    )
+    return Token(access_token=access_token)

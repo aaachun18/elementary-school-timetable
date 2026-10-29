@@ -4,6 +4,7 @@ import {
   copy as copyTimetable,
   list as listScheduleVersions,
   publish as publishRecord,
+  unpublish as unpublishRecord,
   remove as removeRecord,
   saveEditing,
   startEditing,
@@ -179,7 +180,7 @@ export default function TimetableView(): ReactElement {
     () => (selectedVersionId === null ? Promise.resolve([]) : listRecordTeachers(selectedVersionId)),
     [selectedVersionId],
   );
-  const [recordAction, setRecordAction] = useState<"publish" | "copy" | null>(null);
+  const [recordAction, setRecordAction] = useState<"publish" | "unpublish" | "copy" | null>(null);
   // Task 99: 發布此課表 found lessons not yet in the timetable -- the
   // warning's line, or null.
   const [publishBlocked, setPublishBlocked] = useState<string | null>(null);
@@ -433,7 +434,7 @@ export default function TimetableView(): ReactElement {
 
   // --- v3: 發布此課表 / 複製此課表 ---
 
-  function openRecordAction(action: "publish" | "copy"): void {
+  function openRecordAction(action: "publish" | "unpublish" | "copy"): void {
     setRecordError(null);
     setCopyTargetSemesterId(selectedVersion?.semester_id ?? null);
     setRecordAction(action);
@@ -473,6 +474,27 @@ export default function TimetableView(): ReactElement {
       versionsResource.reload();
       setRecordAction(null);
       recordFlash.showFlash(`已發布編號 ${published.display_number}，老師現在看得到這份課表`);
+    } catch (caught) {
+      setRecordError(extractApiErrorMessage(caught));
+    } finally {
+      setIsRecordBusy(false);
+    }
+  }
+
+  // 取消發布: the record stays (as 自動排課 / 手動排課 / 複製), but no
+  // timetable of the semester is published -- 一般老師 see none until
+  // another one is published.
+  async function handleConfirmUnpublish(): Promise<void> {
+    if (selectedVersionId === null) {
+      return;
+    }
+    setIsRecordBusy(true);
+    setRecordError(null);
+    try {
+      const unpublished = await unpublishRecord(selectedVersionId);
+      versionsResource.reload();
+      setRecordAction(null);
+      recordFlash.showFlash(`已取消發布編號 ${unpublished.display_number}，老師目前看不到這學期的課表`);
     } catch (caught) {
       setRecordError(extractApiErrorMessage(caught));
     } finally {
@@ -1119,7 +1141,8 @@ export default function TimetableView(): ReactElement {
             </>
           ) : (
             // v3: the record's actions -- secondary ones first, 發布 (the
-            // last step) on the right; a published one shows its badge.
+            // last step) on the right; a published one offers 取消發布
+            // there instead (its 已發布 status is in the title row).
             <>
               <button
                 type="button"
@@ -1138,7 +1161,14 @@ export default function TimetableView(): ReactElement {
                 複製此課表
               </button>
               {selectedVersion.is_published ? (
-                <StatusBadge tone="success">✓ 已發布</StatusBadge>
+                <button
+                  type="button"
+                  onClick={() => openRecordAction("unpublish")}
+                  disabled={isRecordBusy}
+                  className={BUTTON_SECONDARY}
+                >
+                  取消發布
+                </button>
               ) : (
                 <button
                   type="button"
@@ -1614,6 +1644,29 @@ export default function TimetableView(): ReactElement {
               」會改為未發布（紀錄本身保留）。
             </p>
           )}
+          {recordError !== null && (
+            <p role="alert" className={ERROR_TEXT}>
+              {recordError}
+            </p>
+          )}
+        </ConfirmDialog>
+      )}
+      {/* 取消發布 */}
+      {selectedVersion !== undefined && (
+        <ConfirmDialog
+          open={recordAction === "unpublish"}
+          title="取消發布這份課表？"
+          confirmLabel="取消發布"
+          tone="danger"
+          busy={isRecordBusy}
+          busyLabel="處理中…"
+          onConfirm={() => void handleConfirmUnpublish()}
+          onCancel={() => setRecordAction(null)}
+        >
+          <p>
+            取消發布「{formatVersionLabel(selectedVersion, semesterById, academicYearById)}
+            」後，老師就看不到這學期的課表，直到再發布一份。紀錄與課表都會保留，之後可以再發布。
+          </p>
           {recordError !== null && (
             <p role="alert" className={ERROR_TEXT}>
               {recordError}

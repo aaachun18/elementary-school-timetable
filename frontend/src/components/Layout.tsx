@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { TOKEN_KEY } from "../api/client";
 import { useConfirm } from "../hooks/useConfirm";
+import { useIdleSession } from "../hooks/useIdleSession";
 import { CANCEL_LABEL } from "../utils/confirmText";
 import { getCurrentUserRole, isCurrentUserManager } from "../utils/auth";
 import { BUTTON_SECONDARY_SM, NAV_BAR, NAV_LINK, NAV_LINK_ACTIVE } from "../styles/ui";
@@ -25,6 +26,9 @@ export default function Layout(): ReactElement {
   const isTeacher = role === "TEACHER";
   const canManageAccounts = isCurrentUserManager();
   const { confirm, dialog: confirmDialog } = useConfirm();
+  // Logged out only after IDLE_TIMEOUT_MINUTES without any activity -- never
+  // in the middle of working (utils/session.ts).
+  useIdleSession();
 
   // Asked first in the middle of the screen: 登出 or 取消.
   async function handleLogout(): Promise<void> {

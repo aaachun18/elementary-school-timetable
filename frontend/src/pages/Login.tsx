@@ -1,11 +1,12 @@
-import { useState, type ChangeEvent, type FormEvent, type ReactElement } from "react";
+import { useEffect, useState, type ChangeEvent, type FormEvent, type ReactElement } from "react";
 import { useNavigate } from "react-router-dom";
 import { login } from "../api/auth";
 import { TOKEN_KEY } from "../api/client";
 import { extractApiErrorMessage } from "../constants/errorMessages";
 import { EyeIcon, EyeOffIcon } from "../components/icons";
 import { SYSTEM_NAME } from "../constants/systemName";
-import { BUTTON_PRIMARY, ERROR_TEXT, ICON_BUTTON, INPUT, LABEL } from "../styles/ui";
+import { LOGOUT_REASON_MESSAGES, clearLogoutReason, readLogoutReason } from "../utils/session";
+import { BUTTON_PRIMARY, ERROR_TEXT, ICON_BUTTON, INPUT, LABEL, NOTICE } from "../styles/ui";
 
 export default function Login(): ReactElement {
   const [username, setUsername] = useState("");
@@ -14,6 +15,12 @@ export default function Login(): ReactElement {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
+  // Why this page opened by itself (idle logout, or the login ran out) --
+  // shown on this visit only.
+  const [logoutReason] = useState(readLogoutReason);
+  useEffect(() => {
+    clearLogoutReason();
+  }, []);
 
   // Task 29.5: clearing on every keystroke (rather than only at the next
   // submit) means the stale error disappears the moment the user starts
@@ -65,6 +72,11 @@ export default function Login(): ReactElement {
       <h1 className="mb-6 text-center text-3xl font-bold text-gray-900">{SYSTEM_NAME}</h1>
       <div className="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-8 shadow-sm">
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          {logoutReason !== null && (
+            <p role="status" className={NOTICE}>
+              {LOGOUT_REASON_MESSAGES[logoutReason]}
+            </p>
+          )}
           <div className="flex flex-col gap-1">
             <label htmlFor="username" className={LABEL}>
               帳號

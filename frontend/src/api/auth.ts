@@ -19,3 +19,10 @@ export async function login(
   );
   return response.data;
 }
+
+// Idle logout: a new token with a fresh expiry for someone still working
+// (hooks/useIdleSession.ts). Needs the current, still valid token.
+export async function refreshToken(): Promise<LoginResponse> {
+  const response = await apiClient.post<LoginResponse>("/api/v1/auth/refresh");
+  return response.data;
+}
