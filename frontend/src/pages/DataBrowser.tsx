@@ -540,8 +540,7 @@ function SubjectsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
       <LoadingOrError isLoading={isLoading} errorMessage={errorMessage} />
       {data !== null && (
         <>
-          <div className="mb-3 flex flex-wrap items-end gap-3">
-            <ShowInactiveToggle checked={showInactive} onChange={setShowInactive} />
+          <div className="mb-3 flex flex-wrap items-end gap-3">            
             {isAdmin && (
               <div className={ROW_ACTIONS}>
                 <button
@@ -554,6 +553,7 @@ function SubjectsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
                 </button>
               </div>
             )}
+            <ShowInactiveToggle checked={showInactive} onChange={setShowInactive} noun="科目" />
           </div>
           <div className={DATA_TABLE_WRAPPER}>
             <table className={DATA_TABLE}>
@@ -797,7 +797,6 @@ function RoomsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
       {data !== null && (
         <>
           <div className="mb-3 flex flex-wrap items-end gap-3">
-            <ShowInactiveToggle checked={showInactive} onChange={setShowInactive} />
             {isAdmin && (
               <div className={ROW_ACTIONS}>
                 <button
@@ -810,6 +809,7 @@ function RoomsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
                 </button>
               </div>
             )}
+            <ShowInactiveToggle checked={showInactive} onChange={setShowInactive} noun="教室" />
           </div>
           <div className={DATA_TABLE_WRAPPER}>
             <table className={DATA_TABLE}>

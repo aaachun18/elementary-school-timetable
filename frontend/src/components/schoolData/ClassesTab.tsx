@@ -200,7 +200,6 @@ function ClassesTable({
             ))}
           </select>
         </label>
-        <ShowInactiveToggle checked={showInactive} onChange={setShowInactive} />
         {isAdmin && (
           <div className={ROW_ACTIONS}>
             <button
@@ -216,6 +215,7 @@ function ClassesTable({
             </button>
           </div>
         )}
+        <ShowInactiveToggle checked={showInactive} onChange={setShowInactive} noun="班級" />
       </div>
       <div className={DATA_TABLE_WRAPPER}>
         <table className={DATA_TABLE}>
