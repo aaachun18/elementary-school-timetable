@@ -21,6 +21,7 @@ from app.schemas.class_subject_requirement import (
     ClassSubjectRequirementCreate,
     ClassSubjectRequirementUpdate,
     LessonPatternItem,
+    RequiredRoomItem,
     RequirementSyncResult,
     SkippedSubject,
 )
@@ -232,6 +233,39 @@ def update_lesson_patterns(
         raise_for_integrity_error(exc)
     except (InvalidLessonPatternError, CombinedLessonInUseError, SettingsLockedError):
         # Nothing of the batch stays staged.
+        db.rollback()
+        raise
+    for requirement in updated:
+        db.refresh(requirement)
+    return updated
+
+
+def update_required_rooms(
+    db: Session, items: list[RequiredRoomItem], *, school_id: int
+) -> list[ClassSubjectRequirement] | None:
+    """「複製此教室設定至所有同年級班級」 -- several requirements' 特殊教室 in
+    ONE transaction, each checked like a single PATCH of it (the room is
+    the school's, the record still 尚未排課): either all are saved or none.
+    Which requirements to copy to is the wizard's choice
+    (utils/requiredRoomCopy.ts). None -- nothing saved -- when one of them
+    isn't the school's (the router's 404)."""
+    updated: list[ClassSubjectRequirement] = []
+    try:
+        for item in items:
+            requirement = get_in_school(db, ClassSubjectRequirement, item.id, school_id)
+            if requirement is None:
+                db.rollback()
+                return None
+            _ensure_references_in_school(db, school_id, {"required_room_id": item.required_room_id})
+            _raise_if_locked(db, requirement.schedule_version_id)
+            requirement.required_room_id = item.required_room_id
+            updated.append(requirement)
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise_for_integrity_error(exc)
+    except Exception:
+        # Not swallowed: nothing of the batch stays staged, then re-raised.
         db.rollback()
         raise
     for requirement in updated:

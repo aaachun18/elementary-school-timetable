@@ -61,6 +61,12 @@ export interface RequirementSyncResult {
 
 // Task 103: PATCH /class-subject-requirements/lesson-patterns -- one
 // requirement's new 連堂樣式 in a batch saved in one transaction.
+export interface RequiredRoomItem {
+  id: number;
+  // null: 原班教室.
+  required_room_id: number | null;
+}
+
 export interface LessonPatternItem {
   id: number;
   lesson_pattern: string | null;

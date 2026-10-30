@@ -31,6 +31,7 @@ import {
   semesterLabelOf,
 } from "../utils/scheduleVersionFormat";
 import { describeLessonPattern } from "../utils/lessonPattern";
+import { compareSubjectNames } from "../utils/subjectOrder";
 import type { Class } from "../types/class";
 import type { ClassSubjectRequirement } from "../types/classSubjectRequirement";
 import type { Grade } from "../types/grade";
@@ -202,7 +203,7 @@ function SettingsView({ record, onChanged }: { record: ScheduleVersion; onChange
     (a, b) =>
       levelOfClass(a.class_id) - levelOfClass(b.class_id) ||
       a.class_id - b.class_id ||
-      a.subject_id - b.subject_id,
+      compareSubjectNames(subjectNameById.get(a.subject_id) ?? "", subjectNameById.get(b.subject_id) ?? ""),
   );
   const sortedGradeSlots = [...gradeSlots].sort(
     (a, b) => (gradeById.get(a.grade_id)?.level ?? 0) - (gradeById.get(b.grade_id)?.level ?? 0),

@@ -303,6 +303,7 @@ export const VIOLATION_TYPE_TEMPLATES: Record<string, string> = {
   H5_TEACHER_NOT_PARTICIPATING: "{teacherName}沒有參與本學期排課，卻被排入{className}的{subjectName}！",
   H6_REQUIRED_TEACHER:
     "{className}的{subjectName}指定了特定教師，但實際排定的教師（{teacherName}）與指定教師不符！",
+  H15_REQUIREMENT_MIXED_TEACHERS: "{className}的{subjectName}由不只一位老師授課，同一門課的每一節都要由同一位老師上！",
   H7_WEEKLY_PERIODS: "{requirementLabel}的每週排課節數，與需求設定的節數不符！",
   H8_TEACHER_MAX_WORKLOAD: "{teacherName}的排課總節數超過每週授課節數上限！",
   H9_REQUIRED_ROOM:
@@ -390,6 +391,7 @@ export const VIOLATION_TYPE_HEADINGS: Record<string, string> = {
   H4_TEACHER_AVAILABILITY: "排在老師不可排課的時段",
   H5_TEACHER_NOT_PARTICIPATING: "老師沒有參與本學期排課",
   H6_REQUIRED_TEACHER: "與指定教師不符",
+  H15_REQUIREMENT_MIXED_TEACHERS: "同一門課有不只一位老師",
   H7_WEEKLY_PERIODS: "每週節數不符",
   H8_TEACHER_MAX_WORKLOAD: "超過每週授課節數上限",
   H9_REQUIRED_ROOM: "不在指定的教室",
@@ -423,6 +425,7 @@ export const VIOLATION_TYPE_SUGGESTIONS: Record<string, string> = {
   H5_TEACHER_NOT_PARTICIPATING:
     "改由參與本學期排課的老師授課，或到開始排課的教師設定把這位老師加入本學期。",
   H6_REQUIRED_TEACHER: "改回需求指定的教師，或到開始排課的科目需求修改指定教師。",
+  H15_REQUIREMENT_MIXED_TEACHERS: "選取這門課的任一節，用「更換教師」把整門課改由同一位老師授課。",
   H7_WEEKLY_PERIODS: "補排或移除這門課的節次，讓排定堂數與需求的每週節數一致。",
   H8_TEACHER_MAX_WORKLOAD: "把這位老師的部分課改由其他老師授課，或調整老師的每週授課節數上限。",
   H9_REQUIRED_ROOM: "把這堂課改回需求指定的教室。",
@@ -443,8 +446,7 @@ export const VIOLATION_TYPE_SUGGESTIONS: Record<string, string> = {
 // tooltip and the message shown instead of sending the request.
 export const BLOCK_REFUSAL_MESSAGES: Record<string, string> = {
   BLOCK_OUT_OF_RANGE: "整組放不下：會超出當天節次或跨過午休",
-  BLOCK_TARGET_OCCUPIED: "整組會壓到本班其他課，請改拖到要對調的那堂課上",
-  BLOCK_SWAP_UNSUPPORTED: "連堂只能與節數相同、已全部排課的另一組對調",
+  BLOCK_DISPLACED_UNFIT: "被換走的課放不進連堂空出來的時段",
 };
 
 // The BLOCK_* reason of a 409 from move-lesson / swap-lessons, or null for
@@ -488,6 +490,7 @@ export const LESSON_FAILURE_REASON_TEMPLATES: Record<string, string> = {
   H4_TEACHER_AVAILABILITY: "{teacherName}在{timeSlotLabel}已標記為不可排課，但仍被排入該時段",
   H5_TEACHER_NOT_PARTICIPATING: "{teacherName}沒有參與本學期排課",
   H6_REQUIRED_TEACHER: "指定了特定教師，但實際排定的教師（{teacherName}）與指定教師不符",
+  H15_REQUIREMENT_MIXED_TEACHERS: "由不只一位老師授課",
   H9_REQUIRED_ROOM: "指定了上課教室，但實際排定的教室（{roomName}）不是指定的教室",
   H13_CLASS_TIME_SLOT: "被排入所屬年級沒有開放的節次（{timeSlotLabel}）",
   H11_NON_TEACHING_PERIOD: "被排入非教學時段（{timeSlotLabel}）",

@@ -216,8 +216,8 @@ class BlockMemberDetail(BaseModel):
 
 class UnsupportedSwapDetail(BaseModel):
     """Task 89: a lesson in the slot that can't be swapped with under the
-    block rules; reason is BLOCK_SWAP_UNSUPPORTED (what swap-lessons would
-    answer with 409)."""
+    block rules; reason is BLOCK_DISPLACED_UNFIT or BLOCK_OUT_OF_RANGE (what
+    swap-lessons would answer with 409)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -242,8 +242,8 @@ class MoveCandidateSlot(BaseModel):
     `move` is null; unavailable_reason is NON_TEACHING_SLOT or CURRENT_SLOT,
     or (Task 89, a lesson in a block only) BLOCK_OUT_OF_RANGE -- the whole
     block doesn't fit into adjacent teaching periods of that day there --
-    or BLOCK_TARGET_OCCUPIED -- the block would land on other lessons of
-    its class (swap with them instead, if `swaps` offers it). `move` is the
+    or BLOCK_DISPLACED_UNFIT -- the class's lessons in the block's way don't
+    fit into the periods it leaves. `move` is the
     version's check after moving the lesson here (room unchanged) -- what
     move-lesson with dry_run would report. `swaps` lists every possible
     swap in this slot (possibly empty). Task 89: block_members (lesson in a

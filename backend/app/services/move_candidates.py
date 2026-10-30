@@ -16,7 +16,7 @@ swap-lessons apply -- so for the same data each `move`/`swaps` entry equals
 that endpoint's dry_run check (tests/test_move_candidates.py and
 tests/test_block_adjustment.py compare them slot by slot). For a lesson in a
 lesson block (連堂) the whole block moves; a target the block rules refuse
-is not available (BLOCK_OUT_OF_RANGE / BLOCK_TARGET_OCCUPIED), and a swap
+is not available (BLOCK_OUT_OF_RANGE / BLOCK_DISPLACED_UNFIT), and a swap
 they refuse is listed in unsupported_swaps instead of swaps.
 """
 
@@ -64,7 +64,7 @@ class SwapCandidate:
 @dataclass
 class UnsupportedSwap:
     """Task 89: a lesson in this slot the selected one can't be swapped
-    with under the block rules (reason BLOCK_SWAP_UNSUPPORTED)."""
+    with under the block rules (reason BLOCK_DISPLACED_UNFIT / BLOCK_OUT_OF_RANGE)."""
 
     swap_with_schedule_id: int
     reason: str

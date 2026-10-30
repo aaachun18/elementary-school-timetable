@@ -14,8 +14,12 @@ import type {
 // they may manage); apiClient attaches the stored JWT to every request
 // automatically.
 
-export async function list(): Promise<User[]> {
-  const response = await apiClient.get<User[]>("/api/v1/users/");
+// `search`: only the accounts whose 帳號名稱, 教師姓名 or 身分證字號 contains
+// it (the backend searches -- the list itself only has the number masked).
+export async function list(search: string | null = null): Promise<User[]> {
+  const response = await apiClient.get<User[]>("/api/v1/users/", {
+    params: search === null || search.trim() === "" ? undefined : { search: search.trim() },
+  });
   return response.data;
 }
 

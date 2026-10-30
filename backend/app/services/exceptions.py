@@ -73,7 +73,7 @@ class InvalidTeacherPeriodsError(Exception):
 class BlockAdjustmentRefusedError(Exception):
     """Task 89: a move or swap the lesson block (連堂) rules don't allow
     (-> 409). `reason` is the code from app/services/block_adjustment.py
-    (BLOCK_OUT_OF_RANGE / BLOCK_TARGET_OCCUPIED / BLOCK_SWAP_UNSUPPORTED),
+    (BLOCK_OUT_OF_RANGE / BLOCK_DISPLACED_UNFIT),
     the same one move-candidates reports for that target."""
 
     def __init__(self, reason: str) -> None:

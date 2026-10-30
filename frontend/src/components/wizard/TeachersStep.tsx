@@ -18,6 +18,7 @@ import { DEFAULT_MAX_WEEKLY_PERIODS, periodsRangeError, wizardStepLabel } from "
 import ActionBar from "../ActionBar";
 import CardHeader from "../CardHeader";
 import DisabledReason from "../DisabledReason";
+import SearchableSelect from "../SearchableSelect";
 import TimeSlotPickerDialog from "./TimeSlotPickerDialog";
 import {
   BUTTON_PRIMARY,
@@ -313,25 +314,21 @@ function TeachersForm({
                         )}
                       </label>
                       {draft.homeroomClassId === null ? (
-                        <select
-                          value=""
-                          onChange={(event) => {
-                            if (event.target.value !== "") {
-                              update(teacher.id, { checked: true, homeroomClassId: Number(event.target.value) });
+                        <SearchableSelect
+                          value={null}
+                          options={freeClasses.map((item) => ({ value: item.id, label: item.name }))}
+                          onChange={(id) => {
+                            if (id !== null) {
+                              update(teacher.id, { checked: true, homeroomClassId: id });
                               setError(null);
                             }
                           }}
                           disabled={freeClasses.length === 0}
-                          aria-label={`${teacherLabel(teacher)}擔任導師的班級`}
-                          className={`${SELECT} w-32 text-xs`}
-                        >
-                          <option value="">設定導師班級</option>
-                          {freeClasses.map((item) => (
-                            <option key={item.id} value={item.id}>
-                              {item.name}
-                            </option>
-                          ))}
-                        </select>
+                          ariaLabel={`${teacherLabel(teacher)}擔任導師的班級`}
+                          placeholder="設定導師班級"
+                          className="w-32"
+                          inputClassName={`${SELECT} text-xs`}
+                        />
                       ) : (
                         // Task 98 Phase B: only takes this teacher off the
                         // class as 導師 in this form (nothing is saved until

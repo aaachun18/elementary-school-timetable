@@ -37,9 +37,13 @@ def _not_found() -> HTTPException:
 
 @router.get("/", response_model=list[UserListItem])
 def list_users(
-    db: Session = Depends(get_db), current_user: User = Depends(require_manager)
+    search: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_manager),
 ) -> list[UserListItem]:
-    return user_service.get_users(db, current_user)
+    """`search`: only the accounts whose 帳號名稱, 教師姓名 or 身分證字號
+    contains it (帳號管理's 搜尋帳號)."""
+    return user_service.get_users(db, current_user, search)
 
 
 # 新增帳號 checks the 帳號名稱 while it is typed, before 儲存.

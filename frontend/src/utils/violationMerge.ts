@@ -131,6 +131,7 @@ const IDENTITY_FIELDS_BY_TYPE: Record<string, readonly (keyof ConstraintViolatio
   H4_TEACHER_AVAILABILITY: ["teacher_id", "time_slot_id"],
   H5_TEACHER_NOT_PARTICIPATING: ["teacher_id", "class_subject_requirement_id"],
   H6_REQUIRED_TEACHER: ["class_id", "subject_id", "teacher_id"],
+  H15_REQUIREMENT_MIXED_TEACHERS: ["class_subject_requirement_id"],
   H7_WEEKLY_PERIODS: ["class_subject_requirement_id"],
   H8_TEACHER_MAX_WORKLOAD: ["teacher_id"],
   H9_REQUIRED_ROOM: ["class_id", "subject_id", "room_id"],

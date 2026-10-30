@@ -1,4 +1,4 @@
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -196,9 +196,12 @@ def _list_item(
     )
 
 
-def get_users(db: Session, actor: User) -> list[UserListItem]:
+def get_users(db: Session, actor: User, search: str | None = None) -> list[UserListItem]:
     """Every account the actor may manage, each with its Teacher (name,
-    masked 身分證字號, whether one is missing) for a TEACHER account."""
+    masked 身分證字號, whether one is missing) for a TEACHER account.
+    帳號管理's 搜尋: with `search`, only the accounts whose 帳號名稱, 教師姓名
+    or 身分證字號 contains it (ignoring case) -- the number is searched here
+    because the list itself only carries it masked."""
     stmt = (
         select(User, Teacher)
         .outerjoin(Teacher, Teacher.user_id == User.id)
@@ -206,6 +209,15 @@ def get_users(db: Session, actor: User) -> list[UserListItem]:
     )
     if actor.role != ADMIN:
         stmt = stmt.where(User.role == TEACHER, User.school_id == actor.school_id)
+    needle = (search or "").strip()
+    if needle != "":
+        stmt = stmt.where(
+            or_(
+                User.username.icontains(needle, autoescape=True),
+                Teacher.name.icontains(needle, autoescape=True),
+                Teacher.national_id.icontains(needle, autoescape=True),
+            )
+        )
     shared_names = _shared_teacher_names(db)
     return [_list_item(user, teacher, shared_names) for user, teacher in db.execute(stmt).all()]
 

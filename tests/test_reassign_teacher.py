@@ -632,21 +632,22 @@ def test_reassign_outside_a_manual_edit_returns_409(
 
 
 @pytest.mark.parametrize("source_status", ["AUTO", "MANUAL"])
-def test_reassign_in_an_edit_of_a_not_copied_timetable_returns_409(
+def test_reassign_works_in_an_edit_of_any_timetable(
     client: TestClient, db_session: Session, source_status: str
 ) -> None:
-    """v3: 換教師 is only for a copied timetable (複製自編號 x)."""
+    """換教師 is part of every manual edit now, not only of a copied
+    timetable (複製自編號 x): the requirement and its rows both change."""
     world = _build_world(db_session)
     mark_status_in_db(db_session, world.version.id, "EDITING", source_status=source_status)
-    before = _snapshot(db_session)
 
-    response = _reassign(
+    data = _reassign_ok(
         client, world.version.id, world.english_requirement.id, world.new_teacher.id
     )
 
-    assert response.status_code == 409
-    assert response.json()["detail"] == "只有複製的課表可以換教師"
-    assert _snapshot(db_session) == before
+    assert data["updated_schedule_row_count"] == 2
+    assert _required_teacher_id(db_session, world.english_requirement.id) == world.new_teacher.id
+    english_rows = _rows_of(db_session, world.version.id, world.english_requirement.id)
+    assert [r.teacher_id for r in english_rows] == [world.new_teacher.id] * 2
 
 
 def test_reassign_to_inactive_teacher_returns_409(

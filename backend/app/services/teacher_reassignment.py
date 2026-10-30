@@ -1,9 +1,10 @@
 """Task 63: reassign one course (one ClassSubjectRequirement) to a new
 teacher, then report the timetable's full schedule check.
 
-v3: 換教師 exists only for a copied timetable (複製自編號 x -- e.g. next
-semester's copy, where some teachers changed): it runs in the working copy
-of a manual edit (EDITING) whose record is COPIED, and 儲存課表 keeps it.
+換教師 is part of every manual edit (it was only for a copied timetable
+before): it runs in the working copy of a manual edit (EDITING), and
+儲存課表 keeps it. A course has one teacher (H15), so the whole course --
+every lesson of the requirement -- changes at once.
 
 This is a manual adjustment, not re-scheduling: only teachers change --
 no lesson moves to another time slot or room. Two places hold the teacher
@@ -11,7 +12,7 @@ and both are updated, both the working copy's own:
 - ClassSubjectRequirement.required_teacher_id;
 - teacher_id on the Schedule rows for that requirement's Lessons.
 
-Only a missing record, a timetable that is not such a working copy, a
+Only a missing record, a timetable that is not a working copy, a
 requirement of another record, or an inactive new teacher is refused. Qualification (H5),
 availability (H4), workload (H8) and double-booking (H1) do NOT block: the
 change is still saved, and the returned check lists them. dry_run performs
@@ -30,16 +31,12 @@ from app.models.schedule_version import ScheduleVersion
 from app.models.teacher import Teacher
 from app.services import schedule_check
 from app.services.school_scope import get_in_school, school_id_of_version
-from app.models.schedule_version import COPIED
 from app.services.exceptions import (
     InactiveTeacherAssignmentError,
     ReassignmentTargetNotFoundError,
-    RecordStatusError,
     RequirementNotInVersionError,
 )
 from app.services.schedule_version import raise_if_timetable_locked
-
-REASSIGN_ONLY_FOR_COPIES_MESSAGE = "只有複製的課表可以換教師"
 
 # schedule_check returns the engine's own ConstraintViolation objects; the
 # alias keeps this module from importing scheduling_engine directly (see
@@ -59,13 +56,6 @@ def _validate(
 ) -> ClassSubjectRequirement:
     """Every refusal happens here, before anything is changed."""
     raise_if_timetable_locked(schedule_version)
-    source = (
-        db.get(ScheduleVersion, schedule_version.editing_source_id)
-        if schedule_version.editing_source_id is not None
-        else None
-    )
-    if source is None or source.status != COPIED:
-        raise RecordStatusError(REASSIGN_ONLY_FOR_COPIES_MESSAGE)
     school_id = school_id_of_version(db, schedule_version)
 
     requirement = get_in_school(db, ClassSubjectRequirement, requirement_id, school_id)
@@ -127,7 +117,7 @@ def reassign_teacher(
     dry_run: bool,
 ) -> ReassignmentOutcome | None:
     """Returns None if the ScheduleVersion doesn't exist (caller -> 404).
-    Raises TimetableLockedError / RecordStatusError /
+    Raises TimetableLockedError /
     ReassignmentTargetNotFoundError / RequirementNotInVersionError /
     InactiveTeacherAssignmentError before changing anything. Otherwise updates the requirement and this
     version's matching Schedule rows, runs the schedule check against the

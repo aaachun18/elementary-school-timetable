@@ -10,6 +10,9 @@ from scheduling_engine.constraints.non_teaching_period import (
     NonTeachingPeriodConstraint,
 )
 from scheduling_engine.constraints.required_teacher import RequiredTeacherConstraint
+from scheduling_engine.constraints.requirement_teacher import (
+    RequirementSingleTeacherConstraint,
+)
 from scheduling_engine.constraints.room_conflict import RoomConflictConstraint
 from scheduling_engine.constraints.required_room import RequiredRoomConstraint
 from scheduling_engine.constraints.teacher_availability import (
@@ -35,6 +38,7 @@ __all__ = [
     "TeacherAvailabilityConstraint",
     "TeacherParticipationConstraint",
     "RequiredTeacherConstraint",
+    "RequirementSingleTeacherConstraint",
     "RequiredRoomConstraint",
     "ClassTimeSlotConstraint",
     "NonTeachingPeriodConstraint",

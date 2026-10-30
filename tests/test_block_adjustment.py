@@ -224,23 +224,54 @@ def test_move_out_of_range_is_refused_and_not_a_candidate(
     assert world.where() == before
 
 
-def test_move_onto_other_lessons_of_the_class_is_refused(
+def test_move_onto_other_lessons_of_the_class_makes_room(
     client: TestClient, db_session: Session
 ) -> None:
-    """Wed 1-2 hold E1 and E2: not a move but a swap -- and a block of two
-    can't swap with one single lesson, so nothing is offered there."""
+    """Wed 1-2 hold E1 and E2: the block goes there anyway, and E1 / E2 go
+    to the periods it leaves (Mon 1-2), in order."""
     world = _world(db_session)
+
+    candidate = _by_slot(_ok(_candidates(client, world.version.id, world.row("S1"))))[world.slot(3, 1)]
+    data = _ok(_move(client, world.version.id, world.row("S1"), world.slot(3, 1)))
+
+    assert candidate["available"] is True
+    assert _moved(data) == {
+        world.row("S1"): world.slot(3, 1),
+        world.row("S2"): world.slot(3, 2),
+        world.row("E1"): world.slot(1, 1),
+        world.row("E2"): world.slot(1, 2),
+    }
+    assert data["check"]["violations"] == []
+
+
+def test_shifting_a_block_by_one_period_moves_the_lesson_in_its_way(
+    client: TestClient, db_session: Session
+) -> None:
+    """Science block 1 (Mon 1-2) dragged by S1 onto Mon 2: it shifts to
+    Mon 2-3, and nothing was in Mon 3 -- only the block moves."""
+    world = _world(db_session)
+
+    data = _ok(_move(client, world.version.id, world.row("S1"), world.slot(1, 2)))
+
+    assert _moved(data) == {world.row("S1"): world.slot(1, 2), world.row("S2"): world.slot(1, 3)}
+
+
+def test_move_whose_displaced_lessons_dont_fit_is_refused(
+    client: TestClient, db_session: Session
+) -> None:
+    """Science block 1 (Mon 1-2) shifted onto Mon 2-3 leaves only Mon 1,
+    but Mon 3 holds two lessons (E1 and A1 were moved there): they can't
+    both go to Mon 1."""
+    world = _world(db_session)
+    _ok(_move(client, world.version.id, world.row("E1"), world.slot(1, 3)))
+    _ok(_move(client, world.version.id, world.row("A1"), world.slot(1, 3)))
     before = world.where()
 
-    response = _move(client, world.version.id, world.row("S1"), world.slot(3, 1))
-    candidate = _by_slot(_ok(_candidates(client, world.version.id, world.row("S1"))))[world.slot(3, 1)]
+    response = _move(client, world.version.id, world.row("S1"), world.slot(1, 2))
+    candidate = _by_slot(_ok(_candidates(client, world.version.id, world.row("S1"))))[world.slot(1, 2)]
 
-    _refused(response, "BLOCK_TARGET_OCCUPIED")
-    assert candidate["unavailable_reason"] == "BLOCK_TARGET_OCCUPIED"
-    assert candidate["swaps"] == []
-    assert candidate["unsupported_swaps"] == [
-        {"swap_with_schedule_id": world.row("E1"), "reason": "BLOCK_SWAP_UNSUPPORTED"}
-    ]
+    _refused(response, "BLOCK_DISPLACED_UNFIT")
+    assert candidate["unavailable_reason"] == "BLOCK_DISPLACED_UNFIT"
     assert world.where() == before
 
 
@@ -290,45 +321,82 @@ def test_single_lessons_swap_as_before(
     }
 
 
-@pytest.mark.parametrize(
-    ("first", "second", "why"),
-    [
-        ("S1", "A1", "a block of two with a single lesson"),
-        ("E1", "M2", "a single lesson with a block of two"),
-        ("S1", "S2", "two lessons of the same block"),
-    ],
-)
-def test_unsupported_swaps_are_refused(
-    client: TestClient, db_session: Session, first: str, second: str, why: str
-) -> None:
-    world = _world(db_session)
-    before = world.where()
-
-    _refused(_swap(client, world.version.id, world.row(first), world.row(second)), "BLOCK_SWAP_UNSUPPORTED")
-    assert world.where() == before, why
-
-
-def test_swap_with_a_partly_placed_block_is_refused(
+def test_a_block_swapped_with_a_single_lesson_takes_its_place(
     client: TestClient, db_session: Session
 ) -> None:
+    """S1 (science block 1, Mon 1-2) dropped on A1 (Mon 5): the block goes
+    to Mon 5-6, A1 to Mon 1."""
+    world = _world(db_session)
+
+    data = _ok(_swap(client, world.version.id, world.row("S1"), world.row("A1")))
+
+    assert _moved(data) == {
+        world.row("S1"): world.slot(1, 5),
+        world.row("S2"): world.slot(1, 6),
+        world.row("A1"): world.slot(1, 1),
+    }
+
+
+def test_a_single_lesson_dropped_on_a_block_brings_the_block_to_it(
+    client: TestClient, db_session: Session
+) -> None:
+    """E1 (Wed 1) dropped on M2 (math's second lesson, Tue 6): M2 can't land
+    on Wed 1 (no period before it), so the block comes with M1 there --
+    Wed 1-2 -- and E1 / E2 go to Tue 5-6."""
+    world = _world(db_session)
+
+    data = _ok(_swap(client, world.version.id, world.row("E1"), world.row("M2")))
+
+    assert _moved(data) == {
+        world.row("E1"): world.slot(2, 5),
+        world.row("M1"): world.slot(3, 1),
+        world.row("M2"): world.slot(3, 2),
+        world.row("E2"): world.slot(2, 6),
+    }
+
+
+def test_two_lessons_of_one_block_shift_the_block(client: TestClient, db_session: Session) -> None:
+    world = _world(db_session)
+
+    data = _ok(_swap(client, world.version.id, world.row("S1"), world.row("S2")))
+
+    assert _moved(data) == {world.row("S1"): world.slot(1, 2), world.row("S2"): world.slot(1, 3)}
+
+
+def test_swap_with_a_partly_placed_block_moves_what_it_has(
+    client: TestClient, db_session: Session
+) -> None:
+    """M2 has no row: science block 1 onto M1 (Tue 5) takes Tue 5-6 and M1
+    goes to Mon 1."""
     world = _world(db_session, skip_rows=("M2",))
 
-    _refused(_swap(client, world.version.id, world.row("S1"), world.row("M1")), "BLOCK_SWAP_UNSUPPORTED")
+    data = _ok(_swap(client, world.version.id, world.row("S1"), world.row("M1")))
+
+    assert _moved(data) == {
+        world.row("S1"): world.slot(2, 5),
+        world.row("S2"): world.slot(2, 6),
+        world.row("M1"): world.slot(1, 1),
+    }
 
 
-def test_swap_with_a_block_and_several_single_lessons_is_not_offered(
+def test_a_block_dropped_on_several_single_lessons_moves_them_all(
     client: TestClient, db_session: Session
 ) -> None:
-    """Dropping science block 1 on Wed 2 (E2, with E1 before it): the move
-    lands on two other lessons and neither is a block of two."""
+    """Science block 1 dragged by S2 onto Wed 2 (E2, with E1 before it):
+    the block takes Wed 1-2, E1 and E2 take Mon 1-2."""
     world = _world(db_session)
 
     candidate = _by_slot(_ok(_candidates(client, world.version.id, world.row("S2"))))[world.slot(3, 2)]
 
-    assert candidate["available"] is False
-    assert candidate["unavailable_reason"] == "BLOCK_TARGET_OCCUPIED"
-    assert candidate["swaps"] == []
-    assert [item["swap_with_schedule_id"] for item in candidate["unsupported_swaps"]] == [world.row("E2")]
+    assert candidate["available"] is True
+    assert {m["schedule_id"]: m["to_time_slot_id"] for m in candidate["block_members"]} == {
+        world.row("S1"): world.slot(3, 1),
+        world.row("S2"): world.slot(3, 2),
+        world.row("E1"): world.slot(1, 1),
+        world.row("E2"): world.slot(1, 2),
+    }
+    assert [item["swap_with_schedule_id"] for item in candidate["swaps"]] == [world.row("E2")]
+    assert candidate["unsupported_swaps"] is None
 
 
 # --- Fixed lessons: not blocked, reported (decision 15) ---
@@ -446,13 +514,17 @@ def test_candidates_of_a_lesson_without_block_have_no_block_fields(
 
     for candidate in data["candidates"]:
         assert candidate["block_members"] is None
-        assert all(swap["block_members"] is None for swap in candidate["swaps"])
-    # Mon 1 holds S1 (block of two): offered as unsupported, not as a swap.
+    # Mon 1 holds S1 (block of two): swapping with it moves the block, so
+    # that swap lists where every row goes.
     monday_1 = _by_slot(data)[world.slot(1, 1)]
-    assert monday_1["swaps"] == []
-    assert monday_1["unsupported_swaps"] == [
-        {"swap_with_schedule_id": world.row("S1"), "reason": "BLOCK_SWAP_UNSUPPORTED"}
-    ]
+    [swap] = monday_1["swaps"]
+    assert swap["swap_with_schedule_id"] == world.row("S1")
+    assert {m["schedule_id"]: m["to_time_slot_id"] for m in swap["block_members"]} == {
+        world.row("A1"): world.slot(1, 1),
+        world.row("S1"): world.slot(1, 5),
+        world.row("S2"): world.slot(1, 6),
+    }
+    assert monday_1["unsupported_swaps"] is None
     # A move onto it is still allowed for a single lesson (H2 reported).
     assert monday_1["available"] is True
     assert "H2_CLASS_CONFLICT" in {v["type"] for v in monday_1["move"]["violations"]}

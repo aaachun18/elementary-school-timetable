@@ -11,7 +11,8 @@ limit although a timetable exists. This search differs in four ways:
    algorithms/blocks.py) at once removes every candidate of the units
    still waiting that it rules out -- the same teacher, class or room in
    the same time slot, a room that is now full, a teacher now at their
-   weekly maximum, another block of the same requirement on that day. A
+   weekly maximum, another block of the same requirement on that day, a
+   different teacher for another lesson of the same requirement (H15). A
    unit left with no candidate is a dead end found immediately, not when
    the search reaches it.
 2. Free slot counting. A class (or a lesson's fixed teacher) still needs as
@@ -122,6 +123,9 @@ class _Candidate:
     teacher_periods: tuple[tuple[int, int], ...]
     # The (class, slot) / (teacher, slot) it would fill: counted for point 2.
     covered_slots: frozenset[tuple[Owner, int]]
+    # H15: (requirement, teacher) of its lessons -- every other lesson of
+    # the requirement must get the same teacher.
+    requirement_teachers: frozenset[tuple[int, int]] = frozenset()
 
 
 @dataclass
@@ -263,6 +267,11 @@ def _describe(
     room_slots: set[tuple[int, int]] = set()
     teacher_slots: dict[int, set[int]] = defaultdict(set)
     covered: set[tuple[Owner, int]] = set()
+    requirement_teachers = {
+        (assignment.class_subject_requirement_id, assignment.teacher_id)
+        for assignment in assignments
+        if assignment.teacher_id is not None
+    }
     for assignment in assignments:
         slot = assignment.time_slot_id
         if slot is None:
@@ -284,6 +293,7 @@ def _describe(
         room_slots=frozenset(room_slots),
         teacher_periods=tuple(sorted((teacher, len(slots)) for teacher, slots in teacher_slots.items())),
         covered_slots=frozenset(covered),
+        requirement_teachers=frozenset(requirement_teachers),
     )
 
 
@@ -354,6 +364,8 @@ class _Search:
         self.by_held_key: dict[HeldKey, list[tuple[int, int]]] = defaultdict(list)
         self.by_room_slot: dict[tuple[int, int], list[tuple[int, int]]] = defaultdict(list)
         self.by_teacher: dict[int, list[tuple[int, int, int]]] = defaultdict(list)
+        # H15: requirement -> [(unit, candidate, teacher)].
+        self.by_requirement: dict[int, list[tuple[int, int, int]]] = defaultdict(list)
         for unit_index, unit in enumerate(self.units):
             for candidate_index, candidate in enumerate(unit.candidates):
                 for key in candidate.held_keys:
@@ -362,6 +374,8 @@ class _Search:
                     self.by_room_slot[room_slot].append((unit_index, candidate_index))
                 for teacher, periods in candidate.teacher_periods:
                     self.by_teacher[teacher].append((unit_index, candidate_index, periods))
+                for requirement, teacher in candidate.requirement_teachers:
+                    self.by_requirement[requirement].append((unit_index, candidate_index, teacher))
 
     # --- one run --------------------------------------------------------
 
@@ -478,6 +492,11 @@ class _Search:
         for key in candidate.held_keys:
             for other_unit, other_index in self.by_held_key[key]:
                 self._remove_if_waiting(other_unit, other_index)
+        # H15: the requirement's other lessons get this teacher too.
+        for requirement, teacher in candidate.requirement_teachers:
+            for other_unit, other_index, other_teacher in self.by_requirement[requirement]:
+                if other_teacher != teacher:
+                    self._remove_if_waiting(other_unit, other_index)
         for room_slot in candidate.room_slots:
             self.room_use[room_slot] += 1
             if self.room_use[room_slot] >= self.room_capacity.get(room_slot[0], 1):

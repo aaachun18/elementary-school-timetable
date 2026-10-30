@@ -14,6 +14,7 @@ from app.schemas.class_subject_requirement import (
     ClassSubjectRequirementRead,
     ClassSubjectRequirementUpdate,
     LessonPatternBatch,
+    RequiredRoomBatch,
     RequirementSyncRequest,
     RequirementSyncResult,
 )
@@ -140,6 +141,24 @@ def update_lesson_patterns(
     requirements = requirement_service.update_lesson_patterns(
         db, data.items, school_id=school_id
     )
+    if requirements is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ClassSubjectRequirement not found",
+        )
+    return [_to_read_one(db, requirement) for requirement in requirements]
+
+
+# Declared before PATCH /{requirement_id}, like lesson-patterns.
+@router.patch("/required-rooms", response_model=list[ClassSubjectRequirementRead])
+def update_required_rooms(
+    data: RequiredRoomBatch,
+    db: Session = Depends(get_db),
+    school_id: int = Depends(coordinator_school_id),
+) -> list[ClassSubjectRequirementRead]:
+    """Several requirements' 特殊教室 at once, in one transaction -- the
+    wizard's 「複製此教室設定至所有同年級班級」."""
+    requirements = requirement_service.update_required_rooms(db, data.items, school_id=school_id)
     if requirements is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

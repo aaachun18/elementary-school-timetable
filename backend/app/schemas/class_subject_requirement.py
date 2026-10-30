@@ -116,6 +116,21 @@ class LessonPatternItem(BaseModel):
     _normalize_pattern = field_validator("lesson_pattern")(_normalize)
 
 
+class RequiredRoomItem(BaseModel):
+    """One requirement's new 特殊教室 in a batch (None = 原班教室)."""
+
+    id: int
+    required_room_id: int | None = None
+
+
+class RequiredRoomBatch(BaseModel):
+    """PATCH /class-subject-requirements/required-rooms: 「複製此教室設定至
+    所有同年級班級」 -- every item is checked like a single PATCH, and all of
+    them are saved in one transaction (or none)."""
+
+    items: list[RequiredRoomItem] = Field(min_length=1)
+
+
 class LessonPatternBatch(BaseModel):
     """PATCH /class-subject-requirements/lesson-patterns: 「複製此連堂設定至
     所有同年級班級」 -- every item is checked like a single PATCH, and all of

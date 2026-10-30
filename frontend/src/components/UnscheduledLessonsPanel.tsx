@@ -1,4 +1,5 @@
 import type { DragEvent, ReactElement } from "react";
+import SearchableSelect from "./SearchableSelect";
 import {
   groupCardsByClass,
   needsTeacherChoice,
@@ -128,22 +129,19 @@ export default function UnscheduledLessonsPanel({
                       {card.label}
                     </button>
                     {needsTeacherChoice(card) && (
-                      <select
-                        aria-label={`${group.className} ${card.subjectName}的教師`}
-                        className={PLACE_TEACHER_SELECT}
-                        value={teacherId ?? ""}
+                      <SearchableSelect
+                        ariaLabel={`${group.className} ${card.subjectName}的教師`}
+                        inputClassName={PLACE_TEACHER_SELECT}
+                        className="w-32"
+                        value={teacherId}
+                        options={card.eligibleTeachers.map((teacher) => ({
+                          value: teacher.teacher_id,
+                          label: teacherLabel(teacher.teacher_id, teacher.name),
+                        }))}
+                        placeholder="選教師…"
                         disabled={disabled}
-                        onChange={(event) =>
-                          onChooseTeacher(card, event.target.value === "" ? null : Number(event.target.value))
-                        }
-                      >
-                        <option value="">選教師…</option>
-                        {card.eligibleTeachers.map((teacher) => (
-                          <option key={teacher.teacher_id} value={teacher.teacher_id}>
-                            {teacherLabel(teacher.teacher_id, teacher.name)}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(id) => onChooseTeacher(card, id)}
+                      />
                     )}
                   </div>
                 );

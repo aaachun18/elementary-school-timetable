@@ -13,19 +13,23 @@ block with only one lesson (the "1" of "2+1") behaves exactly like a lesson
 of no block. Without blocks every plan is the single row the endpoints have
 always changed, so nothing about them changes.
 
-Rules (docs/SYSTEM_DESIGN.md, decision 26):
+Rules (docs/SYSTEM_DESIGN.md, decision 26; since 2026-10-30 a block may go
+anywhere it fits):
 - Move: the dragged lesson is lesson k of its block; dropped on time slot
   T, the block starts k-1 periods before T, one lesson per period, all on
   T's weekday. Every period the whole block would take there must exist and
-  be a teaching period (BLOCK_OUT_OF_RANGE), and no other lesson of the
-  class may sit in a slot the moved lessons would take
-  (BLOCK_TARGET_OCCUPIED -- that is a swap). Teacher and room stay.
-- Swap: two groups of the same size exchange places -- lesson i of each
-  goes to the time slot lesson i of the other is in; each keeps its teacher
-  and room. With a block of two or more involved, both groups must be
-  complete (every lesson of the block has a row with a time slot) and the
-  same size, and not the same block (BLOCK_SWAP_UNSUPPORTED). Two groups of
-  one lesson each swap exactly as two lessons always did.
+  be a teaching period (BLOCK_OUT_OF_RANGE). The class's other lessons in
+  those periods make room: each of them (with its whole block) goes to the
+  periods the block leaves -- a block of them into consecutive ones, single
+  lessons into the rest in period order. When they don't fit there, the
+  move is refused (BLOCK_DISPLACED_UNFIT). Teacher and room stay.
+- Swap: two lessons of no block exchange time slots, and so do two complete
+  blocks of the same size (lesson i of each goes to the time slot lesson i
+  of the other is in). Any other swap with a block involved is the move
+  above: the block (the dragged one; else the one dropped on) moves so that
+  its lesson lands where the other one is, and the other one -- with
+  whatever else of the class is in the way -- goes to the periods it
+  leaves. Each row keeps its teacher and room.
 - A fixed lesson does not stop anything: moving it off its fixed slot is
   reported by the check (FIXED_TIME_SLOT_MISMATCH), as for single lessons.
 - 共同排課: every planned row takes the other members' rows of its 合併節
@@ -56,7 +60,7 @@ LessonAssignment = schedule_check.LessonAssignment
 
 BLOCK_OUT_OF_RANGE = "BLOCK_OUT_OF_RANGE"
 BLOCK_TARGET_OCCUPIED = "BLOCK_TARGET_OCCUPIED"
-BLOCK_SWAP_UNSUPPORTED = "BLOCK_SWAP_UNSUPPORTED"
+BLOCK_DISPLACED_UNFIT = "BLOCK_DISPLACED_UNFIT"
 # Task 92: placement only (move-candidates has always reported this one
 # for its own targets; services/move_candidates.py uses this constant).
 NON_TEACHING_SLOT = "NON_TEACHING_SLOT"
@@ -64,8 +68,8 @@ BLOCK_PARTIAL_MISMATCH = "BLOCK_PARTIAL_MISMATCH"
 
 REFUSAL_MESSAGES = {
     BLOCK_OUT_OF_RANGE: "連堂整組放不進這個位置，整組需要同一天相鄰的教學時段",
-    BLOCK_TARGET_OCCUPIED: "連堂整組要佔用的時段已有本班的其他課，請改用對調",
-    BLOCK_SWAP_UNSUPPORTED: "連堂只能與節數相同且已全部排課的另一組對調",
+    BLOCK_TARGET_OCCUPIED: "要放入的時段已有本班的其他課",
+    BLOCK_DISPLACED_UNFIT: "被換走的課放不進連堂空出來的時段",
 }
 
 
@@ -81,10 +85,13 @@ class PlannedSlot:
 class Plan:
     """Exactly one of the two is set. `slots` lists every row that moves
     with the change (rows already in their target slot included), dragged
-    group first; `refusal` is one of the codes above."""
+    group first; `refusal` is one of the codes above. `displaced`: the rows
+    among `slots` that only make room for a block (a move's target room is
+    not theirs)."""
 
     slots: tuple[PlannedSlot, ...] | None
     refusal: str | None
+    displaced: frozenset[int] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -212,7 +219,7 @@ class Layout:
                 if partner not in seen:
                     seen.add(partner)
                     planned.append(PlannedSlot(partner, item.time_slot_id))
-        return Plan(slots=tuple(planned), refusal=None)
+        return Plan(slots=tuple(planned), refusal=None, displaced=plan.displaced)
 
     def plan_move(self, schedule_id: int, target_time_slot_id: int) -> Plan:
         return self._with_partners(self._plan_move(schedule_id, target_time_slot_id))
@@ -224,11 +231,25 @@ class Layout:
         return self._with_partners(self._plan_swap(schedule_id, other_schedule_id))
 
     def _plan_move(self, schedule_id: int, target_time_slot_id: int) -> Plan:
-        group = self.group(schedule_id)
-        if group.key is None:
+        if self.group(schedule_id).key is None:
             return Plan(slots=(PlannedSlot(schedule_id, target_time_slot_id),), refusal=None)
+        return self._plan_block_to(schedule_id, target_time_slot_id)
 
-        place = self._position.get(target_time_slot_id)
+    def _rows_of_group(self, schedule_id: int) -> list[int]:
+        return [member for _, member in self.group(schedule_id).members]
+
+    def _slot_order(self, time_slot_id: int) -> tuple[int, int]:
+        return self._position.get(time_slot_id, (0, 0))
+
+    def _plan_block_to(
+        self, schedule_id: int, target_time_slot_id: int | None, also_displaced: int | None = None
+    ) -> Plan:
+        """The block of `schedule_id` moves so that this lesson lands in the
+        target slot; the class's lessons in its way (and `also_displaced`'s
+        group, for a swap) go to the periods it leaves (see the module
+        docstring)."""
+        group = self.group(schedule_id)
+        place = None if target_time_slot_id is None else self._position.get(target_time_slot_id)
         if place is None:
             return Plan(slots=None, refusal=BLOCK_OUT_OF_RANGE)
         weekday, period = place
@@ -239,44 +260,128 @@ class Layout:
             return Plan(slots=None, refusal=BLOCK_OUT_OF_RANGE)
 
         targets = {member: span[index] for index, member in group.members}
-        moving = set(targets)
+        window = set(targets.values())
         class_id = self.assignment[schedule_id].class_id
-        taken = set(targets.values())
-        for other_id, other in self.assignment.items():
-            if other_id not in moving and other.class_id == class_id and other.time_slot_id in taken:
-                return Plan(slots=None, refusal=BLOCK_TARGET_OCCUPIED)
-        return Plan(
-            slots=tuple(PlannedSlot(member, targets[member]) for _, member in group.members),
-            refusal=None,
+        seen = set(targets)
+        displaced: list[int] = []
+
+        def displace(row_id: int) -> None:
+            for member in self._rows_of_group(row_id):
+                if member not in seen:
+                    seen.add(member)
+                    displaced.append(member)
+
+        for other_id in sorted(self.assignment):
+            other = self.assignment[other_id]
+            if other_id not in seen and other.class_id == class_id and other.time_slot_id in window:
+                displace(other_id)
+        if also_displaced is not None:
+            displace(also_displaced)
+
+        old_slots = {self.assignment[member].time_slot_id for member in targets}
+        left = sorted(
+            (slot_id for slot_id in old_slots if slot_id is not None and slot_id not in window),
+            key=self._slot_order,
         )
+        fitted = self._fit_displaced(displaced, left)
+        if fitted is None:
+            return Plan(slots=None, refusal=BLOCK_DISPLACED_UNFIT)
+        return Plan(
+            slots=tuple(PlannedSlot(member, targets[member]) for _, member in group.members)
+            + tuple(PlannedSlot(row_id, slot_id) for row_id, slot_id in fitted),
+            refusal=None,
+            displaced=frozenset(row_id for row_id, _ in fitted),
+        )
+
+    def _fit_displaced(self, displaced: list[int], free: list[int]) -> list[tuple[int, int]] | None:
+        """Where each displaced row goes among the `free` slots (in period
+        order): every displaced block into consecutive periods of one day
+        (longest first), then the single lessons in order. None when they
+        don't fit."""
+        groups: list[list[int]] = []
+        grouped: set[int] = set()
+        for row_id in displaced:
+            if row_id in grouped:
+                continue
+            members = [member for member in self._rows_of_group(row_id) if member in displaced]
+            grouped.update(members)
+            groups.append(members)
+        remaining = list(free)
+        fitted: list[tuple[int, int]] = []
+        for members in sorted((g for g in groups if len(g) > 1), key=len, reverse=True):
+            run = self._consecutive_run(remaining, len(members))
+            if run is None:
+                return None
+            for member, slot_id in zip(members, run, strict=True):
+                fitted.append((member, slot_id))
+                remaining.remove(slot_id)
+        for members in groups:
+            if len(members) > 1:
+                continue
+            if not remaining:
+                return None
+            fitted.append((members[0], remaining.pop(0)))
+        return fitted
+
+    def _consecutive_run(self, free: list[int], size: int) -> list[int] | None:
+        """The first `size` slots in a row of `free` that are consecutive
+        periods of one day, or None."""
+        for start in range(len(free) - size + 1):
+            run = free[start : start + size]
+            places = [self._slot_order(slot_id) for slot_id in run]
+            weekday, period = places[0]
+            if all(place == (weekday, period + index) for index, place in enumerate(places)):
+                return run
+        return None
 
     def _plan_swap(self, schedule_id: int, other_schedule_id: int) -> Plan:
         first, second = self.group(schedule_id), self.group(other_schedule_id)
+        slot_of = {row_id: assignment.time_slot_id for row_id, assignment in self.assignment.items()}
         if first.key is None and second.key is None:
             return Plan(
                 slots=(
-                    PlannedSlot(schedule_id, self.assignment[other_schedule_id].time_slot_id),
-                    PlannedSlot(other_schedule_id, self.assignment[schedule_id].time_slot_id),
+                    PlannedSlot(schedule_id, slot_of[other_schedule_id]),
+                    PlannedSlot(other_schedule_id, slot_of[schedule_id]),
                 ),
                 refusal=None,
             )
         if (
-            first.key == second.key
-            or first.size != second.size
-            or not first.complete
-            or not second.complete
+            first.key is not None
+            and second.key is not None
+            and first.key != second.key
+            and first.size == second.size
+            and first.complete
+            and second.complete
         ):
-            return Plan(slots=None, refusal=BLOCK_SWAP_UNSUPPORTED)
-        slot_of = {schedule_id: self.assignment[schedule_id].time_slot_id for schedule_id in self.assignment}
-        planned = [
-            PlannedSlot(mine, slot_of[theirs])
-            for (_, mine), (_, theirs) in zip(first.members, second.members)
-        ] + [
-            PlannedSlot(theirs, slot_of[mine])
-            for (_, mine), (_, theirs) in zip(first.members, second.members)
+            planned = [
+                PlannedSlot(mine, slot_of[theirs])
+                for (_, mine), (_, theirs) in zip(first.members, second.members)
+            ] + [
+                PlannedSlot(theirs, slot_of[mine])
+                for (_, mine), (_, theirs) in zip(first.members, second.members)
+            ]
+            return Plan(slots=tuple(planned), refusal=None)
+        if first.key is not None:
+            # The dragged block moves onto the other lesson (two lessons of
+            # one block: the block shifts).
+            also = None if first.key == second.key else other_schedule_id
+            return self._plan_block_to(schedule_id, slot_of[other_schedule_id], also)
+        # A single lesson dropped on a block: the block comes to it -- the
+        # lesson dropped on landing in its slot, else (that runs off the
+        # day) the first other lesson of the block that fits.
+        anchors = [other_schedule_id] + [
+            member for member in self._rows_of_group(other_schedule_id) if member != other_schedule_id
         ]
-        return Plan(slots=tuple(planned), refusal=None)
-
+        plan = Plan(slots=None, refusal=BLOCK_OUT_OF_RANGE)
+        for anchor in anchors:
+            plan = self._plan_block_to(anchor, slot_of[schedule_id], schedule_id)
+            if plan.slots is not None:
+                break
+        if plan.slots is None:
+            return plan
+        mine = [item for item in plan.slots if item.schedule_id == schedule_id]
+        rest = [item for item in plan.slots if item.schedule_id != schedule_id]
+        return Plan(slots=tuple(mine + rest), refusal=None, displaced=plan.displaced)
 
     def is_lesson_in_block(self, lesson_id: int) -> bool:
         """Task 92: by lesson, for a lesson that may have no row."""

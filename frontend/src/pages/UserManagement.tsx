@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react";
+import { useState, type FormEvent, type ReactElement } from "react";
 import {
   list as listUsers,
   create as createUser,
@@ -27,10 +27,14 @@ import StatusBadge from "../components/StatusBadge";
 import PageHeader from "../components/PageHeader";
 import DeleteIconButton from "../components/DeleteIconButton";
 import EditIconButton from "../components/EditIconButton";
+import { SearchIcon, XIcon } from "../components/icons";
+import { searchResultText, serialNumber, sortAccounts } from "../utils/accountList";
+import { PAGE_SIZE } from "../utils/pagination";
 import {
   BUTTON_PRIMARY,
   BUTTON_PRIMARY_ROW,
   BUTTON_SECONDARY_ROW,
+  BUTTON_GHOST_SM,
   ERROR_TEXT,
   ROW_ACTIONS,
   INPUT,
@@ -105,6 +109,7 @@ function PasswordResetForm({
 }
 
 function UserRow({
+  serial,
   user,
   isAdminActor,
   schools,
@@ -121,6 +126,8 @@ function UserRow({
   onEditNationalId,
   onDelete,
 }: {
+  // 序號: the row's place in the (sorted, searched) list, across pages.
+  serial: number;
   user: User;
   isAdminActor: boolean;
   schools: School[];
@@ -140,6 +147,7 @@ function UserRow({
 }): ReactElement {
   return (
     <tr className={TR_HOVER}>
+      <td className={`${TD_NOWRAP} text-right text-gray-500`}>{serial}</td>
       <td className={TD}>
         {user.username}
         {isSelf && <span className="ml-2 text-xs text-gray-500">（目前登入中）</span>}
@@ -253,7 +261,12 @@ function isEditableTeacher(
 export default function UserManagement(): ReactElement {
   const actorRole = getCurrentUserRole();
   const isAdminActor = actorRole === "ADMIN";
-  const usersResource = useResource(() => listUsers(), []);
+  // 搜尋帳號: what is typed, and the search the list shows (null = every
+  // account). Only the magnifier (or Enter) applies what was typed;
+  // ✕ / 「顯示全部」 -- or searching for nothing -- shows every account again.
+  const [searchText, setSearchText] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState<string | null>(null);
+  const usersResource = useResource(() => listUsers(appliedSearch), [appliedSearch]);
   // Only the 系統管理員 sees / chooses schools.
   const schoolsResource = useResource(
     () => (isAdminActor ? listSchools() : Promise.resolve<School[]>([])),
@@ -282,7 +295,9 @@ export default function UserManagement(): ReactElement {
   });
   // Task 103: ten accounts to a page; 重設密碼 / 停用 keep the page, a
   // delete that empties it shows the new last page.
-  const pagination = usePagination(crud.items);
+  // Teachers by the strokes of their name (utils/accountList.ts).
+  const sortedUsers = sortAccounts(crud.items);
+  const pagination = usePagination(sortedUsers);
   const { confirm, dialog: confirmDialog } = useConfirm();
   const [deactivating, setDeactivating] = useState<User | null>(null);
   // After saving a teacher whose name was taken: the earlier same-name
@@ -311,6 +326,22 @@ export default function UserManagement(): ReactElement {
     );
   }
   const schools = schoolsResource.data ?? [];
+
+  function applySearch(next: string | null): void {
+    const trimmed = next?.trim() ?? "";
+    setAppliedSearch(trimmed === "" ? null : trimmed);
+    pagination.setPage(1);
+  }
+
+  function handleSearchSubmit(event: FormEvent<HTMLFormElement>): void {
+    event.preventDefault();
+    applySearch(searchText);
+  }
+
+  function clearSearch(): void {
+    setSearchText("");
+    applySearch(null);
+  }
 
   async function handleCreate(data: UserCreate, sameNameTeachers: readonly SameNameTeacher[]): Promise<void> {
     if (await crud.submitCreate(data)) {
@@ -397,10 +428,51 @@ export default function UserManagement(): ReactElement {
           </button>
         }
       />
+      <form role="search" onSubmit={handleSearchSubmit} className="mb-2 flex items-center gap-2">
+        <div className="relative w-72 max-w-full">
+          <input
+            type="search"
+            value={searchText}
+            onChange={(event) => setSearchText(event.target.value)}
+            aria-label="搜尋帳號"
+            placeholder="搜尋帳號、姓名或身分證字號"
+            className={`${INPUT} w-full pr-16 [&::-webkit-search-cancel-button]:hidden`}
+          />
+          {(searchText !== "" || appliedSearch !== null) && (
+            <button
+              type="button"
+              onClick={clearSearch}
+              aria-label="清除搜尋"
+              title="清除搜尋，顯示全部帳號"
+              className="absolute right-8 top-1/2 -translate-y-1/2 rounded p-0.5 text-gray-400 hover:text-gray-700"
+            >
+              <XIcon size={16} />
+            </button>
+          )}
+          <button
+            type="submit"
+            aria-label="搜尋"
+            title="搜尋"
+            className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-primary"
+          >
+            <SearchIcon size={18} />
+          </button>
+        </div>
+        {usersResource.isLoading && <span className={MUTED_TEXT}>搜尋中…</span>}
+      </form>
+      {appliedSearch !== null && (
+        <p className="mb-3 flex flex-wrap items-center gap-2 text-sm text-gray-700" role="status">
+          {searchResultText(appliedSearch, sortedUsers.length)}
+          <button type="button" onClick={clearSearch} className={BUTTON_GHOST_SM}>
+            顯示全部
+          </button>
+        </p>
+      )}
       <div className={TABLE_WRAPPER}>
         <table className={TABLE}>
           <thead>
             <tr className={TABLE_HEAD_ROW}>
+              <th className={`${TH} w-14 text-right`}>序號</th>
               <th className={TH}>帳號名稱</th>
               <th className={TH}>角色</th>
               <th className={TH}>教師姓名</th>
@@ -411,9 +483,10 @@ export default function UserManagement(): ReactElement {
             </tr>
           </thead>
           <tbody>
-            {pagination.pageItems.map((user) => (
+            {pagination.pageItems.map((user, index) => (
               <UserRow
                 key={user.id}
+                serial={serialNumber(pagination.page, PAGE_SIZE, index)}
                 user={user}
                 isAdminActor={isAdminActor}
                 schools={schools}

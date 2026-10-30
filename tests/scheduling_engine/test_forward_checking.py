@@ -521,3 +521,38 @@ def test_schedules_the_semester_backtracking_gave_up_on() -> None:
     fixed = [lesson for lesson in lessons if lesson.time_slot_id is not None]
     assert fixed
     assert all(placed[lesson.lesson_id].time_slot_id == lesson.time_slot_id for lesson in fixed)
+
+
+# --- H15: one teacher per requirement ---
+
+
+def test_every_lesson_of_a_requirement_gets_the_same_teacher() -> None:
+    # Three lessons of one course, three teachers who could each take any
+    # of them: the whole course still goes to one teacher, for every seed.
+    lessons = [_lesson(1, 1), _lesson(2, 1), _lesson(3, 1), _lesson(4, 2), _lesson(5, 2)]
+    resources = _resources(lessons, {1: [1, 2, 3], 2: [1, 2]}, [7, 8, 9])
+
+    for seed in range(10):
+        placed = _assert_valid(schedule_forward_checking(lessons, resources, seed=seed), lessons, resources)
+        assert len({placed[lesson_id].teacher_id for lesson_id in (1, 2, 3)}) == 1
+        assert len({placed[lesson_id].teacher_id for lesson_id in (4, 5)}) == 1
+
+
+def test_one_teacher_per_requirement_can_make_a_timetable_impossible() -> None:
+    # Two lessons of one course in the only two periods, but each teacher
+    # can only teach one of those periods: splitting would work, H15 forbids it.
+    lessons = [_lesson(1, 1), _lesson(2, 1)]
+    resources = _resources(
+        lessons,
+        {1: [1, 2]},
+        [7, 8],
+        teacher_unavailability=[
+            TeacherUnavailability(teacher_id=7, time_slot_id=12),
+            TeacherUnavailability(teacher_id=8, time_slot_id=11),
+        ],
+    )
+
+    result = schedule_forward_checking(lessons, resources)
+
+    assert result.success is False
+    assert result.failure_type == "DEFINITELY_INFEASIBLE"

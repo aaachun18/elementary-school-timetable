@@ -22,7 +22,9 @@ import ActionBar from "../ActionBar";
 import CardHeader from "../CardHeader";
 import ConfirmDialog from "../ConfirmDialog";
 import EditIconButton from "../EditIconButton";
+import SearchableSelect from "../SearchableSelect";
 import { wizardStepLabel } from "../../utils/wizard";
+import { sortBySubject } from "../../utils/subjectOrder";
 import { CheckIcon } from "../icons";
 import { RESELECT_LABEL, selectableChoices, storedChoice, type Choice } from "../../utils/choiceSelect";
 import {
@@ -191,9 +193,11 @@ function CombinedEditor({
   }
   const requirementById = new Map(lookups.requirements.map((item) => [item.id, item]));
   const gradeClasses = lookups.classes.filter((item) => item.grade_id === gradeId);
-  const classRequirements = lookups.requirements
-    .filter((item) => item.class_id === classId)
-    .sort((a, b) => a.subject_id - b.subject_id);
+  // In the school order of subjects (utils/subjectOrder.ts).
+  const classRequirements = sortBySubject(
+    lookups.requirements.filter((item) => item.class_id === classId),
+    (item) => lookups.subjectName.get(item.subject_id) ?? "",
+  );
 
   function openFor(requirement: ClassSubjectRequirement): void {
     const existing = combinedOf.get(requirement.id) ?? null;
@@ -488,10 +492,13 @@ function CombineDialog({
         const rowClasses = lookups.classes.filter(
           (item) => item.grade_id === row.gradeId && (item.id === row.classId || !usedClassIds.has(item.id)),
         );
-        const rowRequirements = lookups.requirements.filter(
-          (item) =>
-            item.class_id === row.classId &&
-            (item.id === row.requirementId || canMergeWith(host, item, combinedRequirementIds)),
+        const rowRequirements = sortBySubject(
+          lookups.requirements.filter(
+            (item) =>
+              item.class_id === row.classId &&
+              (item.id === row.requirementId || canMergeWith(host, item, combinedRequirementIds)),
+          ),
+          (item) => lookups.subjectName.get(item.subject_id) ?? "",
         );
         return (
           <div key={index} className="grid grid-cols-[1fr_1fr_1fr_auto] items-center gap-2">
@@ -515,25 +522,15 @@ function CombineDialog({
                 </option>
               ))}
             </select>
-            <select
-              value={row.classId ?? ""}
-              onChange={(event) =>
-                updateRow(index, {
-                  classId: event.target.value === "" ? null : Number(event.target.value),
-                  requirementId: null,
-                })
-              }
+            <SearchableSelect
+              value={row.classId}
+              options={rowClasses.map((item) => ({ value: item.id, label: item.name }))}
+              onChange={(id) => updateRow(index, { classId: id, requirementId: null })}
               disabled={isSaving || row.gradeId === null}
-              aria-label={`第 ${index + 1} 列班級`}
-              className={`${SELECT} w-full`}
-            >
-              <option value="">班級</option>
-              {rowClasses.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
+              ariaLabel={`第 ${index + 1} 列班級`}
+              placeholder="班級"
+              className="w-full"
+            />
             <select
               value={row.requirementId ?? ""}
               onChange={(event) =>

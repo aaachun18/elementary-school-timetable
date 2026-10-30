@@ -1,4 +1,5 @@
 import type { ReactElement } from "react";
+import SearchableSelect from "./SearchableSelect";
 import { RESELECT_LABEL, selectableChoices, storedChoice, type Choice } from "../utils/choiceSelect";
 import { CHOICE_HINT, SELECT, SELECT_RESELECT } from "../styles/ui";
 
@@ -14,6 +15,7 @@ export default function ChoiceSelect({
   onChange,
   ariaLabel,
   disabled = false,
+  searchable = false,
 }: {
   value: number | null;
   choices: readonly Choice[];
@@ -22,9 +24,29 @@ export default function ChoiceSelect({
   onChange: (id: number | null) => void;
   ariaLabel: string;
   disabled?: boolean;
+  // Typed into and filtered (components/SearchableSelect.tsx) -- for teachers.
+  searchable?: boolean;
 }): ReactElement {
   const stored = storedChoice(value, choices);
   const isReselect = stored.kind === "reselect";
+  if (searchable) {
+    return (
+      <div>
+        <SearchableSelect
+          value={stored.kind === "active" ? stored.id : null}
+          options={selectableChoices(choices).map((choice) => ({ value: choice.id, label: choice.label }))}
+          noneLabel={noneLabel}
+          placeholder={isReselect ? RESELECT_LABEL : noneLabel}
+          onChange={onChange}
+          disabled={disabled}
+          ariaLabel={ariaLabel}
+          invalid={isReselect}
+          className="w-full"
+        />
+        {stored.kind === "reselect" && <p className={CHOICE_HINT}>{stored.hint}</p>}
+      </div>
+    );
+  }
   const selectValue = stored.kind === "active" ? String(stored.id) : isReselect ? RESELECT_VALUE : "";
   return (
     <div>

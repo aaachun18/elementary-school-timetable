@@ -14,6 +14,7 @@ import type { Grade } from "../../types/grade";
 import type { GradeSubjectRequirement } from "../../types/gradeSubjectRequirement";
 import type { Subject } from "../../types/subject";
 import { findSubjectByName, normalizeSubjectName } from "../../utils/subjectName";
+import { sortBySubject } from "../../utils/subjectOrder";
 import { WEEKLY_PERIOD_OPTIONS } from "../../utils/wizard";
 import { deleteButtonLabel, deleteConfirmText } from "../../utils/confirmText";
 import ConfirmDialog from "../ConfirmDialog";
@@ -108,7 +109,11 @@ function GradeRequirementsEditor({
 
   const [showHidden, setShowHidden] = useState(false);
   const subjectName = new Map(subjects.map((subject) => [subject.id, subject.name]));
-  const gradeRequirements = requirements.filter((requirement) => requirement.grade_id === gradeId);
+  // In the school order of subjects (utils/subjectOrder.ts).
+  const gradeRequirements = sortBySubject(
+    requirements.filter((requirement) => requirement.grade_id === gradeId),
+    (requirement) => subjectName.get(requirement.subject_id) ?? "",
+  );
   // 停用 subjects' requirements: kept, hidden unless 「顯示」.
   const { shown: activeRequirements, hidden: hiddenRequirements } = splitBySubjectActive(
     gradeRequirements,

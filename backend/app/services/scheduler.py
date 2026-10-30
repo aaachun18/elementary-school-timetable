@@ -77,6 +77,7 @@ from app.models.room import Room
 from app.models.schedule import Schedule
 from app.models.schedule_version import AUTO, NOT_SCHEDULED, ScheduleVersion
 from app.models.semester_grade_time_slot import SemesterGradeTimeSlot
+from app.models.school import School
 from app.models.semester_teacher import SemesterTeacher, SemesterTeacherUnavailability
 from app.models.subject import Subject
 from app.models.teacher import Teacher
@@ -85,7 +86,7 @@ from app.services import combined_lesson as combined_lesson_service
 from app.services.lesson_pattern import block_positions
 from app.services.school_scope import in_school, school_id_of_version
 from app.services.schedule_version import stage_move_to_newest
-from app.services.school_structure import MANDARIN, MATHEMATICS
+from app.services.school_structure import SchoolType
 from app.services.exceptions import (
     ScheduleVersionAlreadyScheduledError,
     raise_for_integrity_error,
@@ -606,24 +607,45 @@ class SchedulerRunOutcome:
     static_violations: list[ConstraintViolation] | None
     static_lesson_failures: list[LessonFailure] | None
     search_result: ForwardCheckingResult | None
-    # On success only: the soft constraint pass (國語文、數學 in 第 1–2 節)
+    # On success only: the soft constraint pass (preferred_periods.py)
     # that improved the search's timetable before it was written.
     preferred_periods: PreferredPeriodsResult | None = None
 
 
-# The soft constraint's subjects, found by name (any school type).
-PREFERRED_PERIOD_SUBJECT_NAMES = (MANDARIN, MATHEMATICS)
+# The soft constraints' subjects are found by name. Schools name subjects
+# a little differently (國語文 / 國語 / 國文), so a subject counts when its
+# name CONTAINS one of these words.
+# S8: in 第 1–2 節 (any school type).
+PREFERRED_PERIOD_KEYWORDS = ("國語", "國文", "數學")
+# S9: not in 第 1、4、5 節 (any school type).
+AVOIDED_PERIOD_KEYWORDS = ("體育",)
+# S10 (國小 only): every subject whose name contains none of these is an
+# activity subject (活動性課程) for the last period of a full day.
+NON_ACTIVITY_KEYWORDS = ("國語", "國文", "數學", "英語", "英文", "社會", "自然", "本土語")
 
 
-def preferred_subject_ids(db: Session, school_id: int) -> frozenset[int]:
-    """The school's subjects that should be in 第 1–2 節: 國語文 and 數學."""
-    return frozenset(
-        db.scalars(
-            select(Subject.id).where(
-                Subject.school_id == school_id,
-                Subject.name.in_(PREFERRED_PERIOD_SUBJECT_NAMES),
-            )
-        ).all()
+def _name_contains_any(name: str, keywords: tuple[str, ...]) -> bool:
+    return any(keyword in name for keyword in keywords)
+
+
+@dataclass(frozen=True)
+class SoftSubjects:
+    preferred: frozenset[int]
+    avoided: frozenset[int]
+    activity: frozenset[int]
+
+
+def soft_constraint_subjects(db: Session, school_id: int) -> SoftSubjects:
+    """The school's subjects each soft constraint is about (keywords above)."""
+    school = db.get(School, school_id)
+    subjects = db.scalars(select(Subject).where(Subject.school_id == school_id)).all()
+    is_elementary = school is not None and school.school_type == SchoolType.ELEMENTARY.value
+    return SoftSubjects(
+        preferred=frozenset(s.id for s in subjects if _name_contains_any(s.name, PREFERRED_PERIOD_KEYWORDS)),
+        avoided=frozenset(s.id for s in subjects if _name_contains_any(s.name, AVOIDED_PERIOD_KEYWORDS)),
+        activity=frozenset(
+            s.id for s in subjects if is_elementary and not _name_contains_any(s.name, NON_ACTIVITY_KEYWORDS)
+        ),
     )
 
 
@@ -698,14 +720,19 @@ def run_scheduler(
     preferred_periods: PreferredPeriodsResult | None = None
 
     if result.success and result.state is not None:
-        # Every hard constraint holds; now the soft one, school-wide: as
-        # many 國語文 / 數學 lessons as possible in 第 1–2 節, without
-        # breaking any hard constraint (engine: preferred_periods.py).
+        # Every hard constraint holds; now the soft ones, school-wide,
+        # without breaking any hard constraint (engine:
+        # preferred_periods.py): 國語文 / 數學 in 第 1–2 節, 體育 out of
+        # 第 1、4、5 節, and (國小) activity subjects in the last period of
+        # a full day.
+        soft = soft_constraint_subjects(db, school_id_of_version(db, schedule_version))
         preferred_periods = optimize_preferred_periods(
             result.state.assignments,
             lessons,
             resources,
-            preferred_subject_ids(db, school_id_of_version(db, schedule_version)),
+            soft.preferred,
+            avoided_subject_ids=soft.avoided,
+            activity_subject_ids=soft.activity,
         )
         result.state.assignments = preferred_periods.assignments
         # Task 81: never write a schedule that moved a fixed Lesson. Cannot

@@ -28,6 +28,9 @@ from scheduling_engine.constraints.non_teaching_period import (
 )
 from scheduling_engine.constraints.required_room import RequiredRoomConstraint
 from scheduling_engine.constraints.required_teacher import RequiredTeacherConstraint
+from scheduling_engine.constraints.requirement_teacher import (
+    RequirementSingleTeacherConstraint,
+)
 from scheduling_engine.constraints.room_conflict import RoomConflictConstraint
 from scheduling_engine.constraints.teacher_availability import (
     TeacherAvailabilityConstraint,
@@ -253,7 +256,7 @@ def room_of_lesson(lesson: LessonAssignment, tables: LookupTables) -> int | None
 def build_real_time_constraints(
     resources: SchedulingResources, *, include_teacher_workload: bool = False
 ) -> list[BaseConstraint]:
-    """H1-H6, H9, H11-H13 -- the constraints checked against every
+    """H1-H6, H9, H11-H15 -- the constraints checked against every
     candidate before it's committed (Task 98: H5 is now teacher
     participation, not qualification).
 
@@ -276,6 +279,8 @@ def build_real_time_constraints(
         TeacherAvailabilityConstraint(resources.teacher_unavailability),
         TeacherParticipationConstraint(resources.teacher_ids),
         RequiredTeacherConstraint(resources.required_teacher_rules),
+        # H15: one teacher for all lessons of a requirement.
+        RequirementSingleTeacherConstraint(),
         RequiredRoomConstraint(resources.required_room_rules, frozenset(keys)),
         NonTeachingPeriodConstraint(resources.time_slots),
         ActiveStatusConstraint(resources.active_statuses),

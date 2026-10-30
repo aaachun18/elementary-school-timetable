@@ -9,6 +9,7 @@ from scheduling_engine.constraints import (
     NonTeachingPeriodConstraint,
     RequiredRoomConstraint,
     RequiredTeacherConstraint,
+    RequirementSingleTeacherConstraint,
     RoomConflictConstraint,
     TeacherAvailabilityConstraint,
     TeacherConflictConstraint,
@@ -540,3 +541,33 @@ def test_teacher_workload_ok_when_no_known_limit() -> None:
     constraint = TeacherWorkloadConstraint(teachers=[])
 
     assert constraint.validate(assignments) is True
+
+
+# --- H15 One Teacher per Requirement ---
+
+
+def test_requirement_with_two_teachers_is_reported_for_every_lesson() -> None:
+    assignments = [
+        _assignment(lesson_id=1, class_subject_requirement_id=7, teacher_id=10, time_slot_id=1),
+        _assignment(lesson_id=2, class_subject_requirement_id=7, teacher_id=11, time_slot_id=2),
+    ]
+    constraint = RequirementSingleTeacherConstraint()
+
+    violations = constraint.explain_violations(assignments)
+
+    assert [violation.lesson_id for violation in violations] == [1, 2]
+    assert {violation.type for violation in violations} == {"H15_REQUIREMENT_MIXED_TEACHERS"}
+    assert {violation.class_subject_requirement_id for violation in violations} == {7}
+
+
+def test_requirement_with_one_teacher_is_fine() -> None:
+    assignments = [
+        _assignment(lesson_id=1, class_subject_requirement_id=7, teacher_id=10, time_slot_id=1),
+        _assignment(lesson_id=2, class_subject_requirement_id=7, teacher_id=10, time_slot_id=2),
+        # Another requirement may have another teacher.
+        _assignment(lesson_id=3, class_subject_requirement_id=8, teacher_id=11, time_slot_id=3),
+        # A lesson without a teacher isn't checked.
+        _assignment(lesson_id=4, class_subject_requirement_id=7, teacher_id=None, time_slot_id=4),
+    ]
+
+    assert RequirementSingleTeacherConstraint().validate(assignments) is True

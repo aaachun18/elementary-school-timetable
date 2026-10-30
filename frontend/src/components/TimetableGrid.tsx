@@ -33,6 +33,7 @@ import {
   CANDIDATE_ICON_BLOCKED,
   CANDIDATE_ICON_CONFLICT,
   CANDIDATE_ICON_SAFE,
+  CANDIDATE_ICON_SWAP,
   CELL_MOVE_TARGET,
   DROP_TARGET_BLOCKED,
   DROP_TARGET_OK,
@@ -46,14 +47,15 @@ import {
   LESSON_BUTTON_DRAGGING,
   LESSON_BUTTON_DROP_OK,
   LESSON_BUTTON_SELECTED,
+  LESSON_BUTTON_SWAP_OK,
   MOVE_TARGET_STRIP,
   TABLE_HEAD_ROW,
   TABLE_WRAPPER,
   TD,
-  TD_ADJUSTED,
   TD_CANDIDATE_BLOCKED,
   TD_CANDIDATE_CONFLICT,
   TD_CANDIDATE_SAFE,
+  TD_CANDIDATE_SWAP,
   TD_HIGHLIGHT,
   TD_NON_TEACHING,
   TD_NON_TEACHING_BASE,
@@ -112,9 +114,6 @@ interface TimetableGridProps {
   timeSlotByWeekdayAndPeriod: Map<string, TimeSlot>;
   // Task 68: the cell 「在課表中查看」 points at.
   highlightedTimeSlotId: number | null;
-  // Task 71 fix: the cell a just-saved move/swap landed in; the parent only
-  // passes it in edit mode.
-  adjustedTimeSlotId: number | null;
   edit: TimetableGridEditProps | null;
   // class_id -> its 導師's teacher_id in this record. In class view a lesson
   // the 導師 teaches shows the teacher's name as a colored tag.
@@ -155,14 +154,17 @@ function CandidateIcon({
   }
   const isSafe = mark.status === "safe";
   const isBlocked = mark.status === "blocked";
+  const isSafeSwap = isSafe && action === "swap";
+  const className = isSafeSwap
+    ? CANDIDATE_ICON_SWAP
+    : isSafe
+      ? CANDIDATE_ICON_SAFE
+      : isBlocked
+        ? CANDIDATE_ICON_BLOCKED
+        : CANDIDATE_ICON_CONFLICT;
   return (
-    <span
-      className={isSafe ? CANDIDATE_ICON_SAFE : isBlocked ? CANDIDATE_ICON_BLOCKED : CANDIDATE_ICON_CONFLICT}
-      title={`${label}：${description}`}
-      aria-label={`${label}：${description}`}
-      role="img"
-    >
-      {isSafe ? "✓" : isBlocked ? "⊘" : "✕"}
+    <span className={className} title={`${label}：${description}`} aria-label={`${label}：${description}`} role="img">
+      {isSafeSwap ? "⇄" : isSafe ? "✓" : isBlocked ? "⊘" : "✕"}
     </span>
   );
 }
@@ -310,12 +312,15 @@ function LessonButton({
 }): ReactElement {
   const isSelected = edit.selected?.scheduleId === lesson.scheduleId;
   const isFixed = (edit.lessonById.get(lesson.lessonId)?.fixed_time_slot_id ?? null) !== null;
+  // A lesson it can swap with without adding a problem: light blue.
   const className =
     dragState !== null
       ? LESSON_CLASS_BY_DRAG_STATE[dragState]
       : isSelected || isInSelectedGroup
         ? LESSON_BUTTON_SELECTED
-        : LESSON_BUTTON;
+        : candidateMark.status === "safe"
+          ? LESSON_BUTTON_SWAP_OK
+          : LESSON_BUTTON;
   const candidateText = candidateDescription(candidateMark, "swap");
   const ariaLabel = lessonAriaLabel(lesson, edit.selected);
   return (
@@ -366,7 +371,6 @@ export default function TimetableGrid({
   targetId,
   timeSlotByWeekdayAndPeriod,
   highlightedTimeSlotId,
-  adjustedTimeSlotId,
   edit,
   homeroomTeacherByClass,
   teacherAccounts,
@@ -396,6 +400,37 @@ export default function TimetableGrid({
   const isPlacingDrag = dragging === null && edit?.placing?.isDragging === true;
   const isDragActive = dragging !== null || isPlacingDrag;
   const markAction: CandidateAction = (edit?.placing ?? null) !== null ? "place" : "move";
+  // 依班級 / 依教師: a cell holds one lesson of the class / teacher, so
+  // dropping on a cell that has one swaps with it -- the whole cell is that
+  // lesson's swap target, and only an empty cell is a move. 依教室 keeps
+  // both: several classes may share a room.
+  const isSwapCellMode = viewMode !== "room";
+  const sourceLesson = dragging ?? selectedLesson;
+  const sourceGroup = dragging !== null ? draggingGroup : selectedGroup;
+
+  // The lesson of a cell the dragged / selected lesson would swap with
+  // (swap-cell mode only): not itself, not one of its own block, not one in
+  // its own time slot. null for none -- an empty cell, a move.
+  function swapTargetIn(matches: readonly EnrichedSchedule[]): EnrichedSchedule | null {
+    if (!isSwapCellMode || sourceLesson === null || (edit?.placing ?? null) !== null) {
+      return null;
+    }
+    return (
+      matches.find(
+        (lesson) => sourceGroup?.has(lesson.scheduleId) !== true && canSwapLessons(sourceLesson, lesson),
+      ) ?? null
+    );
+  }
+
+  // The lessons shown in one cell of this grid.
+  function cellLessons(weekday: number, period: number): EnrichedSchedule[] {
+    return schedules.filter(
+      (schedule) =>
+        schedule.period === period &&
+        schedule.weekday === weekday &&
+        lessonTargetId(schedule, viewMode) === targetId,
+    );
+  }
   const timeSlotById = useMemo(
     () => new Map(Array.from(timeSlotByWeekdayAndPeriod.values(), (slot) => [slot.id, slot])),
     [timeSlotByWeekdayAndPeriod],
@@ -418,7 +453,15 @@ export default function TimetableGrid({
     }
     if (dragHover.kind === "cell") {
       const slot = timeSlotByWeekdayAndPeriod.get(dragHover.key);
-      return new Set(slot === undefined ? [] : (marks.cellRanges.get(slot.id) ?? []));
+      if (slot === undefined) {
+        return new Set();
+      }
+      const swapTarget = swapTargetIn(cellLessons(slot.weekday, slot.period));
+      return new Set(
+        swapTarget === null
+          ? (marks.cellRanges.get(slot.id) ?? [])
+          : (marks.swapRanges.get(swapMarkKey(slot.id, swapTarget.scheduleId)) ?? []),
+      );
     }
     const target = schedules.find((schedule) => schedule.scheduleId === dragHover.scheduleId);
     return new Set(
@@ -470,6 +513,10 @@ export default function TimetableGrid({
   // A drop is only accepted (preventDefault on dragover) where allowed;
   // elsewhere the browser shows its "not allowed" cursor.
   function handleLessonDragOver(target: EnrichedSchedule, event: DragEvent<HTMLButtonElement>): void {
+    // Swap-cell mode: the cell around the lesson is the target.
+    if (isSwapCellMode) {
+      return;
+    }
     // A lesson it can't swap with (itself, or one in its own time slot)
     // lies in the dragged lesson's own cell: let the event reach the cell,
     // which marks the whole cell as not droppable.
@@ -490,6 +537,10 @@ export default function TimetableGrid({
   }
 
   function handleLessonDrop(target: EnrichedSchedule, event: DragEvent<HTMLButtonElement>): void {
+    // Swap-cell mode: the drop goes on to the cell around the lesson.
+    if (isSwapCellMode) {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     const lesson = draggedLessonOf(event);
@@ -512,13 +563,14 @@ export default function TimetableGrid({
   function handleCellDragOver(
     key: string,
     timeSlot: TimeSlot | undefined,
+    swapTarget: EnrichedSchedule | null,
     event: DragEvent<HTMLTableCellElement>,
   ): void {
     if (!isDragActive) {
       return;
     }
     updateHover({ kind: "cell", key });
-    if (canDropAt(timeSlot)) {
+    if (swapTarget !== null || canDropAt(timeSlot)) {
       event.preventDefault();
       event.dataTransfer.dropEffect = "move";
     } else {
@@ -526,7 +578,11 @@ export default function TimetableGrid({
     }
   }
 
-  function handleCellDrop(timeSlot: TimeSlot | undefined, event: DragEvent<HTMLTableCellElement>): void {
+  function handleCellDrop(
+    timeSlot: TimeSlot | undefined,
+    swapTarget: EnrichedSchedule | null,
+    event: DragEvent<HTMLTableCellElement>,
+  ): void {
     event.preventDefault();
     const lesson = draggedLessonOf(event);
     const canPlace = lesson === undefined && isPlacingDrag && canDropAt(timeSlot);
@@ -534,7 +590,9 @@ export default function TimetableGrid({
     if (edit === null || !acceptDrop(lesson !== undefined || canPlace)) {
       return;
     }
-    if (lesson !== undefined && canMoveLessonTo(lesson, timeSlot)) {
+    if (lesson !== undefined && swapTarget !== null && canSwapLessons(lesson, swapTarget)) {
+      edit.onDropOnLesson(lesson, swapTarget);
+    } else if (lesson !== undefined && canMoveLessonTo(lesson, timeSlot)) {
       edit.onDropOnCell(lesson, timeSlot);
     } else if (canPlace && timeSlot !== undefined) {
       edit.onPlaceOnCell(timeSlot);
@@ -550,7 +608,12 @@ export default function TimetableGrid({
   }
 
   // The drop hint for a cell under the pointer, if any; null otherwise.
-  function cellDropClass(key: string, timeSlot: TimeSlot | undefined): string | null {
+  function cellDropClass(
+    key: string,
+    timeSlot: TimeSlot | undefined,
+    swapTarget: EnrichedSchedule | null,
+    cellMark: CandidateMark,
+  ): string | null {
     if (!isDragActive) {
       return null;
     }
@@ -558,9 +621,8 @@ export default function TimetableGrid({
       // Task 90: another cell the dragged block would land in.
       return timeSlot !== undefined && landing.has(timeSlot.id) ? DROP_TARGET_RANGE : null;
     }
-    const isBlocked =
-      timeSlot !== undefined && marks?.cells.get(timeSlot.id)?.status === "blocked";
-    return canDropAt(timeSlot) && !isBlocked ? DROP_TARGET_OK : DROP_TARGET_BLOCKED;
+    const canDrop = swapTarget !== null || canDropAt(timeSlot);
+    return canDrop && cellMark.status !== "blocked" ? DROP_TARGET_OK : DROP_TARGET_BLOCKED;
   }
 
   function lessonDragState(lesson: EnrichedSchedule): LessonDragState {
@@ -599,9 +661,12 @@ export default function TimetableGrid({
   }
 
   // Task 69: 「移到這裡」 for the clicked-to-select lesson -- the same cells
-  // a drag could drop on (utils/lessonDrop.ts).
-  function canMoveHere(timeSlot: TimeSlot | undefined): timeSlot is TimeSlot {
-    return edit !== null && edit.selected !== null && canMoveLessonTo(edit.selected, timeSlot);
+  // a drag could drop on (utils/lessonDrop.ts); in swap-cell mode only an
+  // empty one (a lesson there is clicked to swap with it).
+  function canMoveHere(timeSlot: TimeSlot | undefined, swapTarget: EnrichedSchedule | null): timeSlot is TimeSlot {
+    return (
+      edit !== null && edit.selected !== null && swapTarget === null && canMoveLessonTo(edit.selected, timeSlot)
+    );
   }
 
   // Task 93: 「放到這裡」 for a selected (not dragged) card -- every
@@ -671,21 +736,27 @@ export default function TimetableGrid({
                 // (H11) can be highlighted too.
                 const isHighlighted =
                   highlightedTimeSlotId !== null && timeSlot?.id === highlightedTimeSlotId;
-                const isAdjusted =
-                  adjustedTimeSlotId !== null && timeSlot?.id === adjustedTimeSlotId;
-                const dropClass = edit !== null ? cellDropClass(key, timeSlot) : null;
-                // One marker per cell: a drop hint, else the just-adjusted
-                // marker, else the locate highlight.
-                const markerClass =
-                  dropClass ?? (isAdjusted ? TD_ADJUSTED : isHighlighted ? TD_HIGHLIGHT : null);
+                const matches = cellLessons(weekday, period);
+                const swapTarget = edit !== null && nonTeachingLabel === null ? swapTargetIn(matches) : null;
+                // Task 84: the mark for this cell -- in swap-cell mode the
+                // swap with its lesson, otherwise moving here.
+                const cellMark =
+                  edit === null || edit.candidateMarks === null || timeSlot === undefined
+                    ? NO_MARK
+                    : swapTarget !== null
+                      ? swapMarkOf(swapTarget)
+                      : (edit.candidateMarks.cells.get(timeSlot.id) ?? NO_MARK);
+                const dropClass = edit !== null ? cellDropClass(key, timeSlot, swapTarget, cellMark) : null;
+                // One marker per cell: a drop hint, else the locate highlight.
+                const markerClass = dropClass ?? (isHighlighted ? TD_HIGHLIGHT : null);
                 // Drag events only in edit mode; the read-only grid has none.
                 const dropHandlers =
                   edit !== null
                     ? {
                         onDragOver: (event: DragEvent<HTMLTableCellElement>) =>
-                          handleCellDragOver(key, timeSlot, event),
+                          handleCellDragOver(key, timeSlot, swapTarget, event),
                         onDrop: (event: DragEvent<HTMLTableCellElement>) =>
-                          handleCellDrop(timeSlot, event),
+                          handleCellDrop(timeSlot, swapTarget, event),
                       }
                     : {};
                 // Non-teaching cells show only their own label (or the
@@ -702,35 +773,23 @@ export default function TimetableGrid({
                     </td>
                   );
                 }
-                const matches = schedules.filter(
-                  (schedule) =>
-                    schedule.period === period &&
-                    schedule.weekday === weekday &&
-                    lessonTargetId(schedule, viewMode) === targetId,
-                );
                 const cellClass = markerClass !== null ? `${TD} ${markerClass}` : TD;
                 // Task 90: the first lesson here that belongs to a block.
                 const blockLink =
                   matches
                     .map((lesson) => blockLinks.get(lesson.scheduleId))
                     .find((link) => link !== undefined) ?? null;
-                // Task 84: the move mark for this cell (teaching cells only --
-                // non-teaching ones returned above).
-                const cellMark =
-                  edit !== null && edit.candidateMarks !== null && timeSlot !== undefined
-                    ? (edit.candidateMarks.cells.get(timeSlot.id) ?? NO_MARK)
-                    : NO_MARK;
                 const canDropHere = isDragActive && canDropAt(timeSlot);
                 const isDragOverCell =
                   isDragActive && dragHover?.kind === "cell" && dragHover.key === key;
                 // Task 85: a cell showing another marker (drag hover,
-                // 剛調整, 在課表中查看) shows that instead of the fill; its
-                // corner icon stays.
+                // 在課表中查看) shows that instead of the fill; its corner
+                // icon stays. A safe swap is light blue, a safe move green.
                 const candidateCellClass =
                   markerClass !== null
                     ? ""
                     : cellMark.status === "safe"
-                      ? ` ${TD_CANDIDATE_SAFE}`
+                      ? ` ${swapTarget !== null ? TD_CANDIDATE_SWAP : TD_CANDIDATE_SAFE}`
                       : cellMark.status === "conflict"
                         ? ` ${TD_CANDIDATE_CONFLICT}`
                         : cellMark.status === "blocked"
@@ -749,9 +808,6 @@ export default function TimetableGrid({
                     >
                       {blockLink !== null && <BlockBar link={blockLink} />}
                       <div className="flex min-h-12 flex-col gap-1">
-                        {isAdjusted && (
-                          <span className="text-center text-xs font-semibold text-sky-700">剛調整</span>
-                        )}
                         {matches.map((lesson) => (
                           <LessonButton
                             key={lesson.scheduleId}
@@ -779,7 +835,7 @@ export default function TimetableGrid({
                             pointer. Mouse-only, so hidden from assistive tech
                             (keyboard users have the click flow's buttons
                             below). */}
-                        {matches.length > 0 && !canMoveHere(timeSlot) && !canPlaceHere(timeSlot) && (
+                        {!isSwapCellMode && matches.length > 0 && !canMoveHere(timeSlot, swapTarget) && !canPlaceHere(timeSlot) && (
                           <div
                             aria-hidden="true"
                             data-drop-zone={canDropHere ? "" : undefined}
@@ -789,22 +845,24 @@ export default function TimetableGrid({
                         {/* While the drag is over this cell: 「移到這裡」 (or
                             why not), laid over the cell's bottom -- Task 103:
                             never taking room, so the row doesn't grow. */}
-                        {canDropHere &&
+                        {/* Swap-cell mode: dropping on a lesson swaps -- no
+                            「移到這裡」 there, only why not when refused. */}
+                        {(canDropHere || swapTarget !== null) &&
                           isDragOverCell &&
                           (cellMark.status === "blocked" ? (
                             <div aria-hidden="true" data-drop-zone="" className={DROP_ZONE_BLOCKED}>
                               {cellMark.reason}
                             </div>
-                          ) : (
+                          ) : swapTarget === null ? (
                             <div aria-hidden="true" data-drop-zone="" className={DROP_ZONE}>
                               {markAction === "place" ? "放到這裡" : "移到這裡"}
                             </div>
-                          ))}
+                          ) : null)}
                         {/* Task 85: the click flow's move target -- the whole
                             empty cell, or a thin strip under the lessons that
                             expands on hover / focus. Both are real buttons
                             (Tab, Enter, Space). */}
-                        {canMoveHere(timeSlot) && (
+                        {canMoveHere(timeSlot, swapTarget) && (
                           <button
                             type="button"
                             onClick={() => edit.onMoveHere(timeSlot)}
@@ -831,12 +889,37 @@ export default function TimetableGrid({
                         )}
                         {/* Task 84: added last, so nothing above it ever shifts
                             position (no lesson button is remounted mid-drag). */}
-                        <CandidateIcon mark={cellMark} action={markAction} />
+                        <CandidateIcon mark={cellMark} action={swapTarget !== null ? "swap" : markAction} />
                       </div>
                     </td>
                   );
                 }
 
+                // 依教室: several classes may share the room -- every one is
+                // listed (more than the room holds is an error above the grid).
+                if (viewMode === "room" && matches.length > 1) {
+                  return (
+                    <td
+                      key={weekday}
+                      className={blockLink !== null ? `${cellClass} relative text-center` : `${cellClass} text-center`}
+                    >
+                      {blockLink !== null && <BlockBar link={blockLink} />}
+                      <div className="flex flex-col items-center gap-1">
+                        {matches.map((lesson) => (
+                          <div key={lesson.scheduleId} className="flex flex-col items-center">
+                            <span className="whitespace-nowrap font-medium text-gray-900">{lesson.subjectName}</span>
+                            <CellDetail
+                              row={lesson}
+                              viewMode={viewMode}
+                              homeroomTeacherByClass={homeroomTeacherByClass}
+                              teacherAccounts={teacherAccounts}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                  );
+                }
                 const schedule = matches[0];
                 // Subject, teacher(s), room: each on its own line, centered.
                 return (

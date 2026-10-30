@@ -354,15 +354,10 @@ export const DIALOG_TITLE = "text-lg font-semibold text-gray-900";
 // Task 68: the cell 「在課表中查看」 points at -- an amber inset ring plus a
 // light fill: clearly visible, but not the red used for errors.
 export const TD_HIGHLIGHT = "bg-amber-50 ring-2 ring-inset ring-amber-400";
-// Task 71 fix: the cell a just-saved move/swap landed in (edit mode only).
-// Deliberately not TD_HIGHLIGHT: that one belongs to 「在課表中查看」 and
-// has its own lifetime.
-export const TD_ADJUSTED = "bg-sky-50 ring-2 ring-inset ring-sky-500";
 // Task 84 / Task 85: candidate marks while a lesson is selected or dragged
 // in edit mode -- at most one soft fill per cell plus one small icon in its
 // top-right corner. Low-saturation fills, so they read apart from the
-// amber locate ring (TD_HIGHLIGHT), the sky 「剛調整」 ring (TD_ADJUSTED),
-// the drag-hover outline (DROP_TARGET_OK / DROP_TARGET_BLOCKED) and the
+// amber locate ring (TD_HIGHLIGHT), the drag-hover outline (DROP_TARGET_OK / DROP_TARGET_BLOCKED) and the
 // dark gray non-teaching fill; a cell carrying one of those markers shows
 // the marker instead of the fill (its icon stays). Never colour alone: a
 // conflict also gets fine diagonal stripes, and the icons differ (✓ / ✕);
@@ -374,19 +369,22 @@ const CANDIDATE_ICON_BASE =
   "pointer-events-auto absolute right-1 top-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] leading-none font-bold text-white";
 export const CANDIDATE_ICON_SAFE = `${CANDIDATE_ICON_BASE} bg-emerald-600`;
 export const CANDIDATE_ICON_CONFLICT = `${CANDIDATE_ICON_BASE} bg-rose-600`;
+// A lesson the selected / dragged one can swap with without adding a
+// problem: light blue (cell and lesson alike), icon ⇄.
+export const TD_CANDIDATE_SWAP = "bg-sky-100";
+export const CANDIDATE_ICON_SWAP = `${CANDIDATE_ICON_BASE} bg-sky-600`;
 // Task 90: a target the lesson block (連堂) rules refuse -- gray with a
 // "no entry" icon; nothing is sent when dropping there.
 export const TD_CANDIDATE_BLOCKED =
   "bg-gray-100 bg-[repeating-linear-gradient(45deg,rgb(107_114_128/0.12)_0_2px,transparent_2px_8px)]";
 export const CANDIDATE_ICON_BLOCKED = `${CANDIDATE_ICON_BASE} bg-gray-500`;
-// The legend above the grid: small swatches with one word each (Task 90
-// added the fourth, 「不可放」).
+// The legend above the grid: 可放 / 衝突 / 可對調, a small swatch with one
+// word each.
 export const CANDIDATE_LEGEND = "mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600";
 const CANDIDATE_SWATCH_BASE = "inline-block h-3 w-3 rounded-sm border";
 export const CANDIDATE_LEGEND_SAFE_SWATCH = `${CANDIDATE_SWATCH_BASE} border-emerald-300 ${TD_CANDIDATE_SAFE}`;
 export const CANDIDATE_LEGEND_CONFLICT_SWATCH = `${CANDIDATE_SWATCH_BASE} border-rose-300 ${TD_CANDIDATE_CONFLICT}`;
-export const CANDIDATE_LEGEND_UNAVAILABLE_SWATCH = `${CANDIDATE_SWATCH_BASE} border-gray-300 bg-gray-200`;
-export const CANDIDATE_LEGEND_BLOCKED_SWATCH = `${CANDIDATE_SWATCH_BASE} border-gray-400 ${TD_CANDIDATE_BLOCKED}`;
+export const CANDIDATE_LEGEND_SWAP_SWATCH = `${CANDIDATE_SWATCH_BASE} border-sky-300 ${TD_CANDIDATE_SWAP}`;
 
 // --- Task 90: lesson blocks (連堂) on the timetable ---
 // A thin bar along the left edge of each cell of a block; two adjacent
@@ -425,7 +423,7 @@ export const TIMETABLE_ROW_HEADER =
 export const TIMETABLE_ROW_HEADER_NON_TEACHING =
   "border-b border-gray-300 bg-gray-200 px-3 py-2 text-center font-medium text-gray-600 whitespace-nowrap";
 // A non-teaching cell without background, for combining with one marker
-// (TD_HIGHLIGHT / TD_ADJUSTED / DROP_TARGET_BLOCKED), which brings its own.
+// (TD_HIGHLIGHT / DROP_TARGET_BLOCKED), which brings its own.
 export const TD_NON_TEACHING_BASE = "border-b border-gray-300 px-3 py-2 text-center text-gray-600";
 export const TD_NON_TEACHING = `${TD_NON_TEACHING_BASE} bg-gray-200`;
 
@@ -444,6 +442,8 @@ export const LESSON_BUTTON_SELECTED = `${LESSON_BUTTON_BASE} border-2 border-blu
 // lesson's own time slot, so the whole cell shows DROP_TARGET_BLOCKED.)
 export const LESSON_BUTTON_DRAGGING = `${LESSON_BUTTON_BASE} border border-dashed border-gray-400 bg-gray-100 opacity-50`;
 export const LESSON_BUTTON_DROP_OK = `${LESSON_BUTTON_BASE} border-2 border-green-600 bg-green-50`;
+// A lesson the selected / dragged one can swap with safely (TD_CANDIDATE_SWAP).
+export const LESSON_BUTTON_SWAP_OK = `${LESSON_BUTTON_BASE} border border-sky-300 bg-sky-100 hover:border-blue-400`;
 // Task 71: a cell under the pointer while dragging -- solid green ring =
 // can move here; dashed red outline = can't (non-teaching period, or the
 // dragged lesson's own time slot). Ring vs. dashed outline, not color alone.

@@ -34,6 +34,7 @@ import { isCurrentUserCoordinator } from "../utils/auth";
 import { activeStatusBadge, visibleItems } from "../utils/deactivation";
 import { inlineEditKeyAction } from "../utils/inlineEdit";
 import { SCHOOL_TYPE_LABELS } from "../utils/schoolStructure";
+import { sortBySubject } from "../utils/subjectOrder";
 import ClassesTab from "../components/schoolData/ClassesTab";
 import GradeRequirementsTab from "../components/schoolData/GradeRequirementsTab";
 import NameCreateDialog from "../components/schoolData/NameCreateDialog";
@@ -532,7 +533,8 @@ function SubjectsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
     }
   }
 
-  const shown = visibleItems(crud.items, showInactive);
+  // The school order of subjects (utils/subjectOrder.ts).
+  const shown = sortBySubject(visibleItems(crud.items, showInactive), (item) => item.name);
   const columnCount = isAdmin ? 3 : 2;
 
   return (

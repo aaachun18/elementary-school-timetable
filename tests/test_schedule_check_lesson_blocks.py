@@ -351,12 +351,13 @@ def test_row_without_teacher_is_not_a_second_teacher(
 def test_lessons_without_blocks_are_not_affected(
     client: TestClient, db_session: Session
 ) -> None:
-    """English (no pattern): both lessons on the same day, apart, by two
-    teachers -- nothing a block rule would allow, and nothing reported."""
+    """English (no pattern): both lessons on the same day, apart --
+    nothing a block rule would allow, and nothing reported. (One teacher:
+    two would be H15, which is not a block rule.)"""
     world = _world(db_session)
     _place_valid_science(world)
     world.place(world.english[0], 3, 1)
-    world.place(world.english[1], 3, 5, world.t2)
+    world.place(world.english[1], 3, 5)
 
     assert _check(client, world)["violations"] == []
 

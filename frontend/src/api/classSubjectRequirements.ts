@@ -5,6 +5,7 @@ import type {
   ClassSubjectRequirementListFilters,
   ClassSubjectRequirementUpdate,
   LessonPatternItem,
+  RequiredRoomItem,
   RequirementSyncResult,
 } from "../types/classSubjectRequirement";
 
@@ -64,6 +65,18 @@ export async function syncWithSchool(versionId: number): Promise<RequirementSync
   const response = await apiClient.post<RequirementSyncResult>(
     "/api/v1/class-subject-requirements/sync",
     { schedule_version_id: versionId },
+  );
+  return response.data;
+}
+
+// 「複製此教室設定至所有同年級班級」 -- several requirements' 特殊教室 in one
+// transaction (all saved, or none); returns the saved rows.
+export async function updateRequiredRooms(
+  items: readonly RequiredRoomItem[],
+): Promise<ClassSubjectRequirement[]> {
+  const response = await apiClient.patch<ClassSubjectRequirement[]>(
+    "/api/v1/class-subject-requirements/required-rooms",
+    { items },
   );
   return response.data;
 }

@@ -6,6 +6,7 @@ import {
   syncWithSchool,
   update as updateRequirement,
   updateLessonPatterns,
+  updateRequiredRooms,
 } from "../../api/classSubjectRequirements";
 import { list as listCombinedLessons } from "../../api/combinedLessons";
 import { list as listGrades } from "../../api/grades";
@@ -34,6 +35,13 @@ import ActionBar from "../ActionBar";
 import CardHeader from "../CardHeader";
 import FixedSlotsDialog from "./FixedSlotsDialog";
 import ChoiceSelect from "../ChoiceSelect";
+import { sortBySubject } from "../../utils/subjectOrder";
+import {
+  COPY_ROOMS_CONFIRM,
+  COPY_ROOMS_LABEL,
+  copyRoomsResultText,
+  planRequiredRoomCopy,
+} from "../../utils/requiredRoomCopy";
 import type { Choice } from "../../utils/choiceSelect";
 import { skippedSubjectsNote } from "../../utils/subjectDeactivation";
 import {
@@ -269,11 +277,15 @@ function RequirementsForm({
   const [isCopyingPatterns, setIsCopyingPatterns] = useState(false);
   const [copyPatternsMessage, setCopyPatternsMessage] = useState<string | null>(null);
   const [copyPatternsError, setCopyPatternsError] = useState<string | null>(null);
+  // 「複製此教室設定至所有同年級班級」: the same flow for 特殊教室.
+  const [isCopyingRooms, setIsCopyingRooms] = useState(false);
 
   const subjectName = new Map(subjects.map((subject) => [subject.id, subject.name]));
-  const classRequirements = requirements
-    .filter((requirement) => requirement.class_id === classId)
-    .sort((a, b) => a.subject_id - b.subject_id);
+  // In the school order of subjects (utils/subjectOrder.ts).
+  const classRequirements = sortBySubject(
+    requirements.filter((requirement) => requirement.class_id === classId),
+    (requirement) => subjectName.get(requirement.subject_id) ?? "",
+  );
   const classesWithout = classes.filter(
     (item) => !requirements.some((requirement) => requirement.class_id === item.id),
   );
@@ -318,6 +330,39 @@ function RequirementsForm({
       }
     }
     setCopyPatternsMessage(copyPatternsResultText(plan.copiedClassIds.length, plan.skippedCount));
+  }
+
+  // The same for 特殊教室 (utils/requiredRoomCopy.ts); its result shares
+  // the message lines above.
+  const copyRoomsReason = copyPatternsDisabledReason(gradeClasses.length, classRequirements.length);
+
+  async function handleCopyRooms(): Promise<void> {
+    if (classId === null) {
+      return;
+    }
+    setCopyPatternsMessage(null);
+    setCopyPatternsError(null);
+    if (!(await confirm(COPY_ROOMS_CONFIRM))) {
+      return;
+    }
+    const plan = planRequiredRoomCopy({
+      sourceClassId: classId,
+      gradeClassIds: gradeClasses.map((item) => item.id),
+      requirements,
+      activeRoomIds: new Set(rooms.filter((room) => room.isActive).map((room) => room.id)),
+    });
+    if (plan.items.length > 0) {
+      setIsCopyingRooms(true);
+      try {
+        (await updateRequiredRooms(plan.items)).forEach(replaceRequirement);
+      } catch (caught) {
+        setCopyPatternsError(extractApiErrorMessage(caught));
+        return;
+      } finally {
+        setIsCopyingRooms(false);
+      }
+    }
+    setCopyPatternsMessage(copyRoomsResultText(plan.copiedClassIds.length, plan.skippedCount));
   }
 
   return (
@@ -374,6 +419,15 @@ function RequirementsForm({
                 className={BUTTON_SECONDARY}
               >
                 {isCopyingPatterns ? "複製中…" : COPY_PATTERNS_LABEL}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleCopyRooms()}
+                disabled={copyRoomsReason !== null || isCopyingRooms}
+                title={copyRoomsReason ?? undefined}
+                className={BUTTON_SECONDARY}
+              >
+                {isCopyingRooms ? "複製中…" : COPY_ROOMS_LABEL}
               </button>
             </div>
             {copyPatternsMessage !== null && (
@@ -567,6 +621,7 @@ function RequirementRow({
           onChange={(id) => void save({ required_teacher_id: id })}
           disabled={disabled}
           ariaLabel={`${subjectName}指定老師`}
+          searchable
         />
       </td>
       <td className={TD}>

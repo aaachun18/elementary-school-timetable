@@ -170,9 +170,9 @@ def move_lesson(
     target_room_id None means "keep the current room" (this API cannot
     clear a room). Moving to the current slot (and room) is a no-op with
     no changes. A slot where the class already has another lesson is NOT
-    turned into a swap -- that's swap_lessons()'s job (for a block such a
-    target is refused: BLOCK_TARGET_OCCUPIED). Task 89: a lesson in a block
-    moves with its whole block; a target room then applies to all of it."""
+    turned into a swap -- that's swap_lessons()'s job. Task 89: a lesson in a
+    block moves with its whole block (the class's lessons in its way make
+    room, block_adjustment.py); a target room then applies to the block."""
     schedule_version = _get_unlocked_version(db, schedule_version_id)
     if schedule_version is None:
         return None
@@ -191,7 +191,11 @@ def move_lesson(
         room_ids = (
             {}
             if target_room_id is None
-            else {planned.schedule_id: target_room_id for planned in plan.slots}
+            else {
+                planned.schedule_id: target_room_id
+                for planned in plan.slots
+                if planned.schedule_id not in plan.displaced
+            }
         )
         changes = _apply_plan(db, plan, room_ids)
         violations = _flush_check_and_finish(db, schedule_version_id, dry_run=dry_run)
@@ -213,7 +217,7 @@ def swap_lessons(
     """Returns None if the ScheduleVersion doesn't exist (caller -> 404).
     The two rows exchange time_slot_id; each keeps its own teacher and
     room. Two rows already in the same slot produce no changes. Task 89:
-    with a block involved the two whole groups exchange places (see
+    with a block involved whole groups move (see
     services/block_adjustment.py), or BlockAdjustmentRefusedError."""
     schedule_version = _get_unlocked_version(db, schedule_version_id)
     if schedule_version is None:

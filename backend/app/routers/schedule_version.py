@@ -343,7 +343,7 @@ def run_scheduler(
         return SchedulerRunResult(
             scheduled_count=len(result.state.assignments) if result.state else 0,
             backtrack_count=result.backtrack_count,
-            preferred_period_score=preferred.score_after if preferred else 0,
+            preferred_period_score=preferred.preferred_in_place if preferred else 0,
             preferred_period_lesson_count=preferred.preferred_lesson_count if preferred else 0,
             node_count=result.node_count,
             restart_count=result.restart_count,
