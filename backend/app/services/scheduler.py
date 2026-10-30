@@ -1,7 +1,8 @@
 """Bridges the database to the framework-independent scheduling_engine/
 package: reads the DB rows a 排課紀錄 (ScheduleVersion) needs scheduled,
 converts them into scheduling_engine's plain dataclasses, runs the
-Backtracking Scheduler, and (on success) writes the result back as
+Forward Checking Scheduler (Task 104; the Backtracking Scheduler stays in
+the engine for comparison), and (on success) writes the result back as
 Schedule rows.
 
 This file and services/schedule_check.py (Task 61, which reuses this
@@ -11,6 +12,7 @@ scheduling_engine. Nothing under scheduling_engine/ imports anything from
 here, or from SQLAlchemy/FastAPI at all -- see AGENTS.md section 4.
 """
 
+import secrets
 import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -32,9 +34,9 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from scheduling_engine.algorithms.backtracking import (  # noqa: E402
-    BacktrackingResult,
-    schedule_backtracking,
+from scheduling_engine.algorithms.forward_checking import (  # noqa: E402
+    ForwardCheckingResult,
+    schedule_forward_checking,
 )
 from scheduling_engine.algorithms.preferred_periods import (  # noqa: E402
     PreferredPeriodsResult,
@@ -596,15 +598,14 @@ class SchedulerRunOutcome:
       zero candidate teachers at all (static_lesson_failures, Task 38 --
       see static_feasibility.py's module docstring for why this became a
       4th static check instead of only ever being discovered, or missed,
-      inside schedule_backtracking()). schedule_backtracking() was never
-      even called.
-    - search_result: the static checks passed, and Backtracking actually
-      ran -- see BacktrackingResult for its own success/failure shape.
+      inside the search). The search was never even started.
+    - search_result: the static checks passed, and the search actually
+      ran -- see ForwardCheckingResult for its own success/failure shape.
     """
 
     static_violations: list[ConstraintViolation] | None
     static_lesson_failures: list[LessonFailure] | None
-    search_result: BacktrackingResult | None
+    search_result: ForwardCheckingResult | None
     # On success only: the soft constraint pass (國語文、數學 in 第 1–2 節)
     # that improved the search's timetable before it was written.
     preferred_periods: PreferredPeriodsResult | None = None
@@ -626,8 +627,19 @@ def preferred_subject_ids(db: Session, school_id: int) -> frozenset[int]:
     )
 
 
+# Task 104: how long 自動排課 may search before answering TIMEOUT.
+SCHEDULER_TIMEOUT_SECONDS = 90
+
+
+def new_scheduler_seed() -> int:
+    """Task 104: every run gets a new seed, so 重新排課 gives a different
+    timetable each time; the seed is returned with the result, and the
+    same data with the same seed gives the same timetable again."""
+    return secrets.randbelow(2**31)
+
+
 def run_scheduler(
-    db: Session, schedule_version_id: int
+    db: Session, schedule_version_id: int, seed: int | None = None
 ) -> SchedulerRunOutcome | None:
     """Returns None if the ScheduleVersion doesn't exist (caller -> 404).
 
@@ -639,7 +651,7 @@ def run_scheduler(
     (teacher workload, teacher availability, inactive entities, a Lesson
     with zero candidate teachers at all, and -- Task 81 -- fixed time slots
     that can never be honored) that settle infeasibility without a single
-    search step -- and only calls schedule_backtracking() if all of them
+    search step -- and only calls schedule_forward_checking() if all of them
     pass. A fixed Lesson can only ever be placed in its fixed slot (the
     search never tries another); that is re-checked before writing. In
     both cases:
@@ -677,7 +689,12 @@ def run_scheduler(
             search_result=None,
         )
 
-    result = schedule_backtracking(lessons, resources)
+    result = schedule_forward_checking(
+        lessons,
+        resources,
+        seed=new_scheduler_seed() if seed is None else seed,
+        timeout_seconds=SCHEDULER_TIMEOUT_SECONDS,
+    )
     preferred_periods: PreferredPeriodsResult | None = None
 
     if result.success and result.state is not None:

@@ -345,6 +345,10 @@ def run_scheduler(
             backtrack_count=result.backtrack_count,
             preferred_period_score=preferred.score_after if preferred else 0,
             preferred_period_lesson_count=preferred.preferred_lesson_count if preferred else 0,
+            node_count=result.node_count,
+            restart_count=result.restart_count,
+            elapsed_seconds=result.elapsed_seconds,
+            seed=result.seed,
         )
 
     # failure_type is None only in the one non-search-level failure case:
@@ -363,6 +367,10 @@ def run_scheduler(
             for violation in result.post_hoc_violations
         ],
         backtrack_count=result.backtrack_count,
+        node_count=result.node_count,
+        restart_count=result.restart_count,
+        elapsed_seconds=result.elapsed_seconds,
+        seed=result.seed,
     )
     return JSONResponse(
         status_code=422,

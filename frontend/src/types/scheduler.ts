@@ -26,6 +26,12 @@ export interface RunSchedulerSuccessResponse {
   // how many there are.
   preferred_period_score: number;
   preferred_period_lesson_count: number;
+  // Task 104: the search's statistics. seed: the same data with the same
+  // seed gives the same timetable (every run picks a new one).
+  node_count: number;
+  restart_count: number;
+  elapsed_seconds: number;
+  seed: number | null;
 }
 
 // Mirrors scheduling_engine.constraints.base.ConstraintViolation via
@@ -79,6 +85,11 @@ export interface RunSchedulerFailureResponse {
   lesson_failures: LessonFailureDetail[];
   post_hoc_violations: ConstraintViolationDetail[];
   backtrack_count: number;
+  // Task 104: as RunSchedulerSuccessResponse (zero / null when no search ran).
+  node_count: number;
+  restart_count: number;
+  elapsed_seconds: number;
+  seed: number | null;
 }
 
 // Task 68: GET /schedule-versions/{id}/check (Task 61) -- a read-only Hard

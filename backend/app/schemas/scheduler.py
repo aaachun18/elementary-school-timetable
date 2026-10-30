@@ -74,6 +74,13 @@ class SchedulerRunResult(BaseModel):
     backtrack_count: int
     preferred_period_score: int = 0
     preferred_period_lesson_count: int = 0
+    # Task 104: the search's statistics -- placements tried, restarts, how
+    # long it took, and the seed (the same data and seed give the same
+    # timetable again).
+    node_count: int = 0
+    restart_count: int = 0
+    elapsed_seconds: float = 0.0
+    seed: int | None = None
 
 
 class SchedulerFailureDetail(BaseModel):
@@ -108,6 +115,12 @@ class SchedulerFailureDetail(BaseModel):
     lesson_failures: list[LessonFailureDetail]
     post_hoc_violations: list[ConstraintViolationDetail]
     backtrack_count: int
+    # Task 104: as SchedulerRunResult; zero / None for STATIC_CHECK_FAILED,
+    # where no search ran.
+    node_count: int = 0
+    restart_count: int = 0
+    elapsed_seconds: float = 0.0
+    seed: int | None = None
 
 
 class ScheduleCheckResult(BaseModel):

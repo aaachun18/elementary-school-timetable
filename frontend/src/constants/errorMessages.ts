@@ -247,8 +247,10 @@ function formatValidationErrorDetail(detail: ValidationErrorItem[]): string {
 // unrecognized value still displays (the raw string), never blank.
 const FAILURE_TYPE_MESSAGES: Record<string, string> = {
   DEFINITELY_INFEASIBLE: "確定無法排出課表",
-  SEARCH_LIMIT_EXCEEDED: "排課嘗試次數已達上限，但不代表無解，可調整條件後重新嘗試",
-  TIMEOUT: "排課時間已達上限，但不代表無解，可調整條件後重新嘗試",
+  // Task 104: every run tries in a different order, so simply running it
+  // again can succeed.
+  SEARCH_LIMIT_EXCEEDED: "排課嘗試次數已達上限，但不代表無解；每次排課的嘗試順序都不同，可以再按一次「自動排課」，或調整條件後重新嘗試",
+  TIMEOUT: "排課時間已達上限，但不代表無解；每次排課的嘗試順序都不同，可以再按一次「自動排課」，或調整條件後重新嘗試",
   REQUIREMENT_PERIODS_MISMATCH: "每堂課都已排入時段，但部分需求的每週節數與實際排定堂數不符",
   STATIC_CHECK_FAILED: "排課前的可行性檢查未通過（尚未開始搜尋課表）",
 };
