@@ -47,6 +47,11 @@
   --color-badge-success-fg: #1b5e20;
   --color-badge-neutral-bg: #f3f4f6;
   --color-badge-neutral-fg: #374151;
+
+  /* 登入頁's brand panel: the primary, a shade deeper (white at 85% on
+     the primary itself would only reach 3.9). */
+  --color-brand-start: #005f7f;
+  --color-brand-end: #003f55;
 }
 
 body {
@@ -86,40 +91,21 @@ body {
   }
 }
 
-/* A blue scrollbar with white arrows (SuggestionInput's list). Chromium /
-   Safari draw it from the ::-webkit-scrollbar parts; Firefox only takes
-   the two colors. (Setting scrollbar-color in Chromium would turn the
-   ::-webkit-scrollbar parts off, hence the @supports.) */
-.scrollbar-blue::-webkit-scrollbar {
-  width: 14px;
-}
-.scrollbar-blue::-webkit-scrollbar-track {
-  background-color: #dbeafe; /* blue-100 */
-}
-.scrollbar-blue::-webkit-scrollbar-thumb {
-  background-color: #2563eb; /* blue-600 */
-  border: 3px solid #dbeafe;
-  border-radius: 7px;
-}
-.scrollbar-blue::-webkit-scrollbar-thumb:hover {
-  background-color: #1d4ed8; /* blue-700 */
-}
-.scrollbar-blue::-webkit-scrollbar-button:single-button {
-  display: block;
-  height: 14px;
-  background-color: #2563eb;
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: 8px 8px;
-}
-.scrollbar-blue::-webkit-scrollbar-button:single-button:vertical:decrement {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Cpath d='M4 1.5 7.5 6.5h-7z' fill='white'/%3E%3C/svg%3E");
-}
-.scrollbar-blue::-webkit-scrollbar-button:single-button:vertical:increment {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Cpath d='M4 6.5 0.5 1.5h7z' fill='white'/%3E%3C/svg%3E");
-}
-@supports not selector(::-webkit-scrollbar) {
-  .scrollbar-blue {
-    scrollbar-color: #2563eb #dbeafe;
-  }
+/* 登入頁's brand panel (components/LoginBrandPanel.tsx), top layer first:
+   a soft glow in the top-right corner (white 12%, kept within 360px so it
+   never sits under the 85% subtitle), a faint timetable grid (white 6%,
+   every 56px), and the brand gradient. styles/tokens.test.ts checks the
+   text against these same percentages -- change them together. */
+.login-brand-panel {
+  background-color: var(--color-brand-start);
+  background-image:
+    radial-gradient(360px circle at 100% 0%, rgb(255 255 255 / 0.12), transparent),
+    linear-gradient(rgb(255 255 255 / 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 0.06) 1px, transparent 1px),
+    linear-gradient(135deg, var(--color-brand-start), var(--color-brand-end));
+  background-size:
+    auto,
+    56px 56px,
+    56px 56px,
+    auto;
 }

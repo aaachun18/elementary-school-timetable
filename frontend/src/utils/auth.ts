@@ -100,5 +100,5 @@ export function homePathFor(role: UserRole | null): string {
   if (role === "ADMIN") {
     return "/schools";
   }
-  return "/";
+  return "/home";
 }

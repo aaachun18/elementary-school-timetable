@@ -26,6 +26,24 @@ export function relativeLuminance(hex: string): number {
   return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
 }
 
+// `foreground` at `alpha` (0-1) painted over `background`, as one "#rrggbb"
+// -- what a semi-transparent color (text-white/85, a white 6% grid line)
+// actually shows, so its contrast can be checked too.
+export function blendOver(foreground: string, alpha: number, background: string): string {
+  const channels = (hex: string): number[] => {
+    relativeLuminance(hex); // validates the format
+    const digits = hex.trim().slice(1);
+    const full = digits.length === 3 ? digits.split("").map((digit) => digit + digit).join("") : digits;
+    return [0, 2, 4].map((start) => parseInt(full.slice(start, start + 2), 16));
+  };
+  const top = channels(foreground);
+  const bottom = channels(background);
+  return `#${top
+    .map((channel, index) => Math.round(alpha * channel + (1 - alpha) * bottom[index]))
+    .map((channel) => channel.toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
 export function contrastRatio(foreground: string, background: string): number {
   const first = relativeLuminance(foreground);
   const second = relativeLuminance(background);

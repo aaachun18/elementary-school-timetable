@@ -4,9 +4,8 @@ import { INPUT } from "../styles/ui";
 const NO_HIGHLIGHT = -1;
 
 // A free-text field with a list of suggestions under it while focused --
-// what <datalist> did, but drawn by the page, so its scrollbar can be
-// styled (the browser's own datalist popup can't be): blue with white
-// arrows (.scrollbar-blue in index.css). The list sits in the flow, not
+// what <datalist> did, but drawn by the page (the browser's own datalist
+// popup can't be styled to match). The list sits in the flow, not
 // floating, so it never makes the surrounding dialog scroll. Typing filters
 // it; a click or ↑/↓ + Enter picks one.
 export default function SuggestionInput({
@@ -81,7 +80,7 @@ export default function SuggestionInput({
         <ul
           id={listId}
           role="listbox"
-          className="scrollbar-blue mt-1 max-h-40 overflow-y-auto rounded-md border border-gray-300 bg-white py-1 text-sm shadow-sm"
+          className="mt-1 max-h-40 overflow-y-auto rounded-md border border-gray-300 bg-white py-1 text-sm shadow-sm"
         >
           {shown.map((item, index) => (
             <li

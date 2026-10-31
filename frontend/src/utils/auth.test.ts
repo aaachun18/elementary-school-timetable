@@ -7,8 +7,8 @@ describe("homePathFor", () => {
   });
 
   it("sends school accounts (and an unknown role) to 首頁", () => {
-    expect(homePathFor("COORDINATOR")).toBe("/");
-    expect(homePathFor("TEACHER")).toBe("/");
-    expect(homePathFor(null)).toBe("/");
+    expect(homePathFor("COORDINATOR")).toBe("/home");
+    expect(homePathFor("TEACHER")).toBe("/home");
+    expect(homePathFor(null)).toBe("/home");
   });
 });

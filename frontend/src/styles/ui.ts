@@ -259,10 +259,11 @@ export const TD_LOCKED = "border-b border-gray-100 px-3 py-2 text-gray-400";
 export const TD_NOWRAP = `${TD} whitespace-nowrap`;
 export const TD_LOCKED_NOWRAP = `${TD_LOCKED} whitespace-nowrap`;
 // Task 102: an editable field's text in 學校資料's lists -- a click starts
-// editing the row in place (no pencil). Looks like the cell's text, with a
-// dashed underline on hover / focus to say it can be clicked.
+// editing the row in place (no pencil). Always drawn in a light dashed box,
+// so it reads as "可以編輯" at a glance; hover / focus fills it with the
+// primary tint. Disabled (busy) keeps the box but drops the hover.
 export const INLINE_EDIT_TEXT =
-  "max-w-full cursor-text truncate text-left decoration-dashed underline-offset-4 hover:underline focus-visible:underline disabled:cursor-default disabled:no-underline";
+  "-mx-1.5 max-w-full cursor-text truncate rounded border border-dashed border-gray-300 bg-white px-1.5 py-0.5 text-left hover:border-primary hover:bg-primary-soft focus-visible:border-primary focus-visible:bg-primary-soft disabled:cursor-default disabled:hover:border-gray-300 disabled:hover:bg-white";
 
 // --- Nav ---
 export const NAV_BAR =

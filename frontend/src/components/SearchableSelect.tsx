@@ -129,7 +129,7 @@ export default function SearchableSelect({
         <ul
           id={listId}
           role="listbox"
-          className="scrollbar-blue absolute left-0 z-30 mt-1 max-h-60 w-full min-w-max overflow-y-auto rounded-md border border-gray-300 bg-white py-1 text-left text-sm shadow-lg"
+          className="absolute left-0 z-30 mt-1 max-h-60 w-full min-w-max overflow-y-auto rounded-md border border-gray-300 bg-white py-1 text-left text-sm shadow-lg"
         >
           {rows.length === 0 && <li className="px-2 py-1 text-gray-500">找不到符合的項目</li>}
           {rows.map((row, index) => (

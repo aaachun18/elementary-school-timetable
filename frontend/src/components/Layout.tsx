@@ -62,7 +62,7 @@ export default function Layout(): ReactElement {
             學校管理
           </NavLink>
         ) : (
-          <NavLink to="/" end className={navLinkClassName}>
+          <NavLink to="/home" end className={navLinkClassName}>
             首頁
           </NavLink>
         )}

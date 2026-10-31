@@ -5,6 +5,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import RoleRoute from "./components/RoleRoute";
 import DataBrowser from "./pages/DataBrowser";
 import Home from "./pages/Home";
+import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import RecordSettings from "./pages/RecordSettings";
 import ScheduleRecords from "./pages/ScheduleRecords";
@@ -24,6 +25,9 @@ export default function App(): ReactElement {
   return (
     <BrowserRouter>
       <Routes>
+        {/* The public home page; a logged-in visit goes on to the
+            role's own landing page (homePathFor). */}
+        <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
         {/* ProtectedRoute + Layout combined as one parent layout route --
             every nested route below renders inside Layout's <Outlet />,
@@ -40,9 +44,10 @@ export default function App(): ReactElement {
               hitting a URL it may not open (not just missing the nav
               link) is redirected instead of rendering. The 系統管理員
               only has 學校管理 and 帳號管理; a TEACHER only 首頁 (a
-              simplified dashboard, Task 97) and 課表. */}
+              simplified dashboard, Task 97) and 課表. 首頁 is /home:
+              / is the public page. */}
           <Route
-            path="/"
+            path="/home"
             element={
               <RoleRoute allow={SCHOOL_MEMBERS}>
                 <Home />

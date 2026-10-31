@@ -406,7 +406,7 @@ function InlineEditText({
     return <>{children}</>;
   }
   return (
-    <button type="button" onClick={onClick} disabled={disabled} aria-label={label} className={INLINE_EDIT_TEXT}>
+    <button type="button" onClick={onClick} disabled={disabled} aria-label={label} title="點一下即可編輯" className={INLINE_EDIT_TEXT}>
       {children}
     </button>
   );

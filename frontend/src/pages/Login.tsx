@@ -1,12 +1,14 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent, type ReactElement } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { login } from "../api/auth";
 import { TOKEN_KEY } from "../api/client";
 import { extractApiErrorMessage } from "../constants/errorMessages";
 import { EyeIcon, EyeOffIcon } from "../components/icons";
+import LoginBrandPanel from "../components/LoginBrandPanel";
 import { SYSTEM_NAME } from "../constants/systemName";
 import { LOGOUT_REASON_MESSAGES, clearLogoutReason, readLogoutReason } from "../utils/session";
-import { BUTTON_PRIMARY, ERROR_TEXT, ICON_BUTTON, INPUT, LABEL, NOTICE } from "../styles/ui";
+import { BUTTON_PRIMARY, ERROR_TEXT, ICON_BUTTON, INPUT, LABEL, LINK_TEXT, NOTICE, PAGE_TITLE } from "../styles/ui";
+
 
 export default function Login(): ReactElement {
   const [username, setUsername] = useState("");
@@ -65,71 +67,82 @@ export default function Login(): ReactElement {
   }
 
   return (
-    // Task 101: the system's name above the card, centered; the name and
-    // the card together sit centered, a little above the middle (pb-[10vh]).
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 px-4 pb-[10vh]">
-      {/* Task 99: the system's name is the page title (the button says 登入). */}
-      <h1 className="mb-6 text-center text-3xl font-bold text-gray-900">{SYSTEM_NAME}</h1>
-      <div className="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-8 shadow-sm">
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          {logoutReason !== null && (
-            <p role="status" className={NOTICE}>
-              {LOGOUT_REASON_MESSAGES[logoutReason]}
-            </p>
-          )}
-          <div className="flex flex-col gap-1">
-            <label htmlFor="username" className={LABEL}>
-              帳號
-            </label>
-            <input
-              id="username"
-              name="username"
-              type="text"
-              autoComplete="username"
-              value={username}
-              onChange={handleUsernameChange}
-              required
-              className={`${INPUT} min-h-9 w-full`}
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label htmlFor="password" className={LABEL}>
-              密碼
-            </label>
-            {/* Task 99: the eye sits inside the field, at its right end, so
-                both fields are equally wide. */}
-            <div className="relative">
+    // Split: the brand panel (components/LoginBrandPanel) on the left from
+    // 768px up, the form on the right. Narrower, only the form, with the
+    // system's name above it.
+    <div className="flex min-h-screen bg-gray-50">
+      <LoginBrandPanel />
+      {/* Task 101: the name (narrow screens) and the card sit centered, a
+          little above the middle (pb-[10vh]). */}
+      <div className="flex flex-1 flex-col items-center justify-center px-4 pb-[10vh]">
+        {/* Task 99: the system's name above the card -- here only when the
+            brand panel (which shows it) is hidden. */}
+        <p className="mb-6 text-center text-3xl font-bold text-gray-900 md:hidden">{SYSTEM_NAME}</p>
+        <div className="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-8 shadow-sm">
+          <h1 className={`${PAGE_TITLE} text-center`}>歡迎回來</h1>
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            {logoutReason !== null && (
+              <p role="status" className={NOTICE}>
+                {LOGOUT_REASON_MESSAGES[logoutReason]}
+              </p>
+            )}
+            <div className="flex flex-col gap-1">
+              <label htmlFor="username" className={LABEL}>
+                帳號
+              </label>
               <input
-                id="password"
-                name="password"
-                type={isPasswordVisible ? "text" : "password"}
-                autoComplete="current-password"
-                value={password}
-                onChange={handlePasswordChange}
+                id="username"
+                name="username"
+                type="text"
+                autoComplete="username"
+                value={username}
+                onChange={handleUsernameChange}
                 required
-                className={`${INPUT} min-h-9 w-full pr-10`}
+                className={`${INPUT} min-h-9 w-full`}
               />
-              <button
-                type="button"
-                onClick={() => setIsPasswordVisible((visible) => !visible)}
-                aria-label={isPasswordVisible ? "隱藏密碼" : "顯示密碼"}
-                aria-pressed={isPasswordVisible}
-                title={isPasswordVisible ? "隱藏密碼" : "顯示密碼"}
-                className={`${ICON_BUTTON} absolute inset-y-0 right-0.5 my-auto`}
-              >
-                {isPasswordVisible ? <EyeOffIcon /> : <EyeIcon />}
-              </button>
             </div>
-          </div>
-          {errorMessage !== null && (
-            <p role="alert" className={ERROR_TEXT}>
-              {errorMessage}
-            </p>
-          )}
-          <button type="submit" disabled={isSubmitting} className={`${BUTTON_PRIMARY} mt-2`}>
-            {isSubmitting ? "登入中…" : "登入"}
-          </button>
-        </form>
+            <div className="flex flex-col gap-1">
+              <label htmlFor="password" className={LABEL}>
+                密碼
+              </label>
+              {/* Task 99: the eye sits inside the field, at its right end, so
+                  both fields are equally wide. */}
+              <div className="relative">
+                <input
+                  id="password"
+                  name="password"
+                  type={isPasswordVisible ? "text" : "password"}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={handlePasswordChange}
+                  required
+                  className={`${INPUT} min-h-9 w-full pr-10`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setIsPasswordVisible((visible) => !visible)}
+                  aria-label={isPasswordVisible ? "隱藏密碼" : "顯示密碼"}
+                  aria-pressed={isPasswordVisible}
+                  title={isPasswordVisible ? "隱藏密碼" : "顯示密碼"}
+                  className={`${ICON_BUTTON} absolute inset-y-0 right-0.5 my-auto`}
+                >
+                  {isPasswordVisible ? <EyeOffIcon /> : <EyeIcon />}
+                </button>
+              </div>
+            </div>
+            {errorMessage !== null && (
+              <p role="alert" className={ERROR_TEXT}>
+                {errorMessage}
+              </p>
+            )}
+            <button type="submit" disabled={isSubmitting} className={`${BUTTON_PRIMARY} mt-2`}>
+              {isSubmitting ? "登入中…" : "登入"}
+            </button>
+          </form>
+        </div>
+        <Link to="/" className={`${LINK_TEXT} mt-6 text-sm md:hidden`}>
+          返回首頁
+        </Link>
       </div>
     </div>
   );

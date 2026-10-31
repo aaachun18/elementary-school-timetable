@@ -32,8 +32,35 @@ export function serialNumber(page: number, pageSize: number, index: number): num
   return (page - 1) * pageSize + index + 1;
 }
 
-// The line under the search box while a search is applied: how many were
-// found, so it is clear the table is filtered (清除搜尋 sits next to it).
-export function searchResultText(search: string, count: number): string {
-  return count === 0 ? `找不到包含「${search}」的帳號` : `搜尋「${search}」：共 ${count} 個帳號`;
+// 系統管理員's role filter (left of the search box): every account, or
+// one role's. Applied in the page to what the search returned.
+export type RoleFilter = "ALL" | UserRole;
+
+export const ROLE_FILTER_OPTIONS: readonly { value: RoleFilter; label: string }[] = [
+  { value: "ALL", label: "所有角色" },
+  { value: "TEACHER", label: "教師" },
+  { value: "ADMIN", label: "系統管理員" },
+  { value: "COORDINATOR", label: "教學組長" },
+];
+
+export function roleFilterLabel(filter: RoleFilter): string {
+  return ROLE_FILTER_OPTIONS.find((option) => option.value === filter)?.label ?? "";
+}
+
+export function filterByRole<T extends { role: UserRole }>(accounts: readonly T[], filter: RoleFilter): T[] {
+  return filter === "ALL" ? [...accounts] : accounts.filter((account) => account.role === filter);
+}
+
+// The line under the search box while a search or a role is applied: what
+// the table shows and how many, so it is clear the table is filtered
+// (「顯示全部」 sits next to it). `role` is the role's label, null = every role.
+export function searchResultText(search: string | null, role: string | null, count: number): string {
+  const roleName = role ?? "";
+  if (search === null) {
+    return count === 0 ? `沒有${roleName}帳號` : `${roleName}：共 ${count} 個帳號`;
+  }
+  if (count === 0) {
+    return `找不到包含「${search}」的${roleName}帳號`;
+  }
+  return `${role === null ? "" : `${role}中`}搜尋「${search}」：共 ${count} 個帳號`;
 }

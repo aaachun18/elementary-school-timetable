@@ -28,7 +28,15 @@ import PageHeader from "../components/PageHeader";
 import DeleteIconButton from "../components/DeleteIconButton";
 import EditIconButton from "../components/EditIconButton";
 import { SearchIcon, XIcon } from "../components/icons";
-import { searchResultText, serialNumber, sortAccounts } from "../utils/accountList";
+import {
+  filterByRole,
+  ROLE_FILTER_OPTIONS,
+  roleFilterLabel,
+  searchResultText,
+  serialNumber,
+  sortAccounts,
+  type RoleFilter,
+} from "../utils/accountList";
 import { PAGE_SIZE } from "../utils/pagination";
 import {
   BUTTON_PRIMARY,
@@ -267,6 +275,8 @@ export default function UserManagement(): ReactElement {
   const [searchText, setSearchText] = useState("");
   const [appliedSearch, setAppliedSearch] = useState<string | null>(null);
   const usersResource = useResource(() => listUsers(appliedSearch), [appliedSearch]);
+  // 系統管理員 only: one role's accounts, shown as soon as it is picked.
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>("ALL");
   // Only the 系統管理員 sees / chooses schools.
   const schoolsResource = useResource(
     () => (isAdminActor ? listSchools() : Promise.resolve<School[]>([])),
@@ -296,7 +306,9 @@ export default function UserManagement(): ReactElement {
   // Task 103: ten accounts to a page; 重設密碼 / 停用 keep the page, a
   // delete that empties it shows the new last page.
   // Teachers by the strokes of their name (utils/accountList.ts).
-  const sortedUsers = sortAccounts(crud.items);
+  const shownRole: RoleFilter = isAdminActor ? roleFilter : "ALL";
+  const sortedUsers = sortAccounts(filterByRole(crud.items, shownRole));
+  const isFiltered = appliedSearch !== null || shownRole !== "ALL";
   const pagination = usePagination(sortedUsers);
   const { confirm, dialog: confirmDialog } = useConfirm();
   const [deactivating, setDeactivating] = useState<User | null>(null);
@@ -341,6 +353,17 @@ export default function UserManagement(): ReactElement {
   function clearSearch(): void {
     setSearchText("");
     applySearch(null);
+  }
+
+  function handleRoleFilterChange(next: RoleFilter): void {
+    setRoleFilter(next);
+    pagination.setPage(1);
+  }
+
+  // 「顯示全部」: no search and every role.
+  function showAll(): void {
+    clearSearch();
+    setRoleFilter("ALL");
   }
 
   async function handleCreate(data: UserCreate, sameNameTeachers: readonly SameNameTeacher[]): Promise<void> {
@@ -428,7 +451,21 @@ export default function UserManagement(): ReactElement {
           </button>
         }
       />
-      <form role="search" onSubmit={handleSearchSubmit} className="mb-2 flex items-center gap-2">
+      <form role="search" onSubmit={handleSearchSubmit} className="mb-2 flex flex-wrap items-center gap-2">
+        {isAdminActor && (
+          <select
+            value={roleFilter}
+            onChange={(event) => handleRoleFilterChange(event.target.value as RoleFilter)}
+            aria-label="篩選角色"
+            className={SELECT}
+          >
+            {ROLE_FILTER_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        )}
         <div className="relative w-72 max-w-full">
           <input
             type="search"
@@ -460,10 +497,14 @@ export default function UserManagement(): ReactElement {
         </div>
         {usersResource.isLoading && <span className={MUTED_TEXT}>搜尋中…</span>}
       </form>
-      {appliedSearch !== null && (
+      {isFiltered && (
         <p className="mb-3 flex flex-wrap items-center gap-2 text-sm text-gray-700" role="status">
-          {searchResultText(appliedSearch, sortedUsers.length)}
-          <button type="button" onClick={clearSearch} className={BUTTON_GHOST_SM}>
+          {searchResultText(
+            appliedSearch,
+            shownRole === "ALL" ? null : roleFilterLabel(shownRole),
+            sortedUsers.length,
+          )}
+          <button type="button" onClick={showAll} className={BUTTON_GHOST_SM}>
             顯示全部
           </button>
         </p>

@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { contrastRatio, MIN_TEXT_CONTRAST, parseThemeColors } from "../utils/contrast";
+import { blendOver, contrastRatio, MIN_TEXT_CONTRAST, parseThemeColors } from "../utils/contrast";
 
 // Task 98: the colors are read from index.css's @theme block -- the one
 // place they are written -- so this test can never drift from what the
@@ -60,6 +60,40 @@ describe("design tokens (index.css @theme)", () => {
     expect(tokenColor("primary")).toBe("#00749b");
     expect(tokenColor("success")).toBe("#2e7d32");
     expect(tokenColor("danger")).toBe("#d32f2f");
+  });
+});
+
+// 登入頁's brand panel (index.css .login-brand-panel): its text is white,
+// the subtitle white at 85%, on the gradient with a white 6% grid line
+// under it -- and the glow (white 12%) on top of that in the corner, which
+// only the full-white text can reach.
+const GRID_ALPHA = 0.06;
+const GLOW_ALPHA = 0.12;
+const SUBTITLE_ALPHA = 0.85;
+
+describe("登入頁 brand panel", () => {
+  it.each(["brand-start", "brand-end"])("keeps its text readable on %s", (token) => {
+    const white = tokenColor("on-accent");
+    const onGrid = blendOver(white, GRID_ALPHA, tokenColor(token));
+    const onGlow = blendOver(white, GLOW_ALPHA, onGrid);
+
+    expect(contrastRatio(white, onGlow)).toBeGreaterThanOrEqual(MIN_TEXT_CONTRAST);
+    expect(contrastRatio(blendOver(white, SUBTITLE_ALPHA, onGrid), onGrid)).toBeGreaterThanOrEqual(MIN_TEXT_CONTRAST);
+  });
+
+  it("would not be readable on the primary itself (why the panel is a shade deeper)", () => {
+    const white = tokenColor("on-accent");
+    const onGrid = blendOver(white, GRID_ALPHA, tokenColor("primary"));
+
+    expect(contrastRatio(blendOver(white, SUBTITLE_ALPHA, onGrid), onGrid)).toBeLessThan(MIN_TEXT_CONTRAST);
+  });
+});
+
+describe("blendOver", () => {
+  it("mixes the two colors by alpha", () => {
+    expect(blendOver("#ffffff", 1, "#000000")).toBe("#ffffff");
+    expect(blendOver("#ffffff", 0, "#00749b")).toBe("#00749b");
+    expect(blendOver("#fff", 0.5, "#000")).toBe("#808080");
   });
 });
 
