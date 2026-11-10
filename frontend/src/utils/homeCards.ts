@@ -31,7 +31,7 @@ export function recordsCardText(records: readonly RecordSource[]): string {
   const latest = listed.reduce((newest, record) =>
     (record.display_number ?? Infinity) < (newest.display_number ?? Infinity) ? record : newest,
   );
-  return `${unpublished} 筆未發布紀錄 · 最近一筆：${formatRecordStatus(latest)}`;
+  return `${unpublished} 筆未發布紀錄`;
 }
 
 // 學校資料: 「10 位老師 · 6 個班級」.

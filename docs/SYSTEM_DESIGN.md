@@ -1,39 +1,111 @@
-# 系統設計文件:國小智慧排課系統
+# 系統設計文件:學校自動排課系統
 
 > 本文件給面試/作品集講述用,說明「為什麼這樣設計」。API 規格已經由 FastAPI 自動產生的 `/docs` 涵蓋,這裡不重複。內容來自實際程式碼、docstring,以及開發過程中每個 Task 的實作紀錄;不確定的地方會註明「這是我的推論,不是逐字紀錄」。
+>
+> **閱讀方式**:第 0 節是 2026-10-31 的系統現況,與後文衝突時一律以第 0 節為準;第 3–10 節保留各 Task 當時的設計紀錄(標明「歷史紀錄」的段落描述的是當時的畫面與規則),第 7 節的決策紀錄依時間排列,後面的決策可能取代前面的。
 
 ---
 
-## 0. Task 98 改版摘要(最新,本文件其餘章節描述的是改版前的設計,與這裡衝突時以這裡為準)
+## 0. 目前系統現況(2026-10-31,與後文衝突時以這裡為準)
 
-這次改版依使用者的需求,把「基礎資料、排課需求總覽、排課控制台」整併成一個排課精靈,並把「課表檢視」改成「排課紀錄」。動到的 domain 決定,都經使用者逐項確認:
+### 0.1 一句話
 
-| 項目 | 改版前 | 改版後 |
+各級學校(國小、國中、高中)的排課系統:教學組長用 6 步驟精靈設定一筆「排課紀錄」,排課引擎在滿足 15 條 Hard Constraint 的前提下自動排出課表、再依 3 條 Soft Constraint 調整,排不出來時說明原因;之後可以手動拖曳微調(每次調整自動重新檢查),最後發布給全校老師查看。
+
+### 0.2 角色與學校
+
+| 角色 | 能做什麼 |
+|---|---|
+| 系統管理員 `ADMIN` | 只管理學校與帳號:建立學校(國小/國中/高中,建立時自動產生年級、時段,國小另帶 10 個預設科目與各年級節數)、建立/停用/刪除教學組長與一般老師帳號、改帳號所屬學校;完全不能讀寫排課資料(後端 403) |
+| 教學組長 `COORDINATOR` | 自己學校的全部排課工作與學校資料,也能建立/停用自己學校的一般老師帳號 |
+| 一般老師 `TEACHER` | 唯讀,只看得到自己學校已發布的課表 |
+
+- 一般老師帳號與教師一對一(`teachers.user_id`),建帳號同時建教師;停用帳號即不出現在排課勾選清單。同校同名的老師必須填身分證字號(`teachers.national_id`,同校唯一;API 只回 `has_national_id`,不回號碼),畫面上對管理者在名字後加帳號區分(「王老師(teacher11)」)。
+- 教師、科目、教室、時段、學年度、年級帶 `school_id`;其他資料經由它們歸屬學校(`services/school_scope.py`),跨校存取一律當成不存在。
+- 登入後閒置 30 分鐘才自動登出,操作中前端自動換發 token(`POST /auth/refresh`)。
+
+### 0.3 排課紀錄(ScheduleVersion,v3)
+
+每次「開始排課」或複製都會留下一筆**排課紀錄**,每筆紀錄各自保存一整份排課設定與課表——修改一筆永遠不會影響另一筆:
+
+- **設定掛在紀錄上**:參與教師與每週最低/最高節數、不可排時段、導師班級(`semester_teachers`、`semester_teacher_unavailabilities`)、各年級可排節次(`semester_grade_time_slots`)、班級科目需求與課程(`class_subject_requirements.schedule_version_id`、`lessons`)、共同排課(`combined_lessons`)。
+- **狀態**:`NOT_SCHEDULED` 尚未排課 / `AUTO` 自動排課 / `MANUAL` 手動排課 / `COPIED` 複製自編號 x;另有不列出的 `EDITING` 暫存副本。只有「尚未排課」能改設定與執行自動排課;要改設定請「複製此次排課設定」。
+- **發布不是狀態**:`is_published` 標記每學期唯一一筆已發布的紀錄;發布新的一筆時,舊的那筆回到原本的狀態;也可以「取消發布」。
+- **編號**:`version_number` 是永久的全校流水號;畫面顯示 `display_number`(1 = 全校最新,建立/刪除都會位移);「複製自編號 x」顯示來源目前的顯示編號。
+- **手動編輯不直接改紀錄**:開始手動編輯時在背景建立 `EDITING` 暫存副本;「儲存課表」時,手動排課紀錄直接覆蓋,其他(自動排課、複製、已發布)另存成新的手動排課紀錄;離開頁面則丟棄暫存副本。
+- **學期鎖定**:紀錄建立後學期就固定;精靈的步驟導覽可點回第 1 步,但只是唯讀畫面。
+
+### 0.4 前端頁面
+
+| 頁面 | 路由 | 誰能用 | 內容 |
+|---|---|---|---|
+| 公開首頁 | `/` | 所有人 | 系統介紹、四張功能卡片、登入入口;已登入者自動導向自己的後台首頁 |
+| 登入 | `/login` | 所有人 | 左右分割(寬度 <768px 只顯示表單);左側品牌區為純 CSS/SVG 裝飾 |
+| 後台首頁 | `/home` | 教學組長、一般老師 | 依角色的儀表板:學期狀態、最新紀錄的檢查結果、學校資料缺漏與三張入口卡片;一般老師只看已發布課表的資訊 |
+| 學校資料 | `/data` | 教學組長 | 班級、科目、科目需求(學校層級的年級節數)、教室(含「一次最多幾班同時使用」1–10)、時段五個分頁;名稱點一下即可在列內編輯(淡灰虛線框);班級/科目/教室統一「狀態」徽章與停用/啟用 |
+| 開始排課 | `/wizard` | 教學組長 | 6 步驟精靈:學年度與學期 → 教師設定 → 年級與可排節次 → 科目需求 → 共同排課 → 確認並排課;自動回到上次未完成的紀錄與步驟 |
+| 排課紀錄 | `/records` | 教學組長 | 紀錄清單(分頁、備註、狀態、檢視課表、檢視排課設定、刪除) |
+| 檢視排課設定 | `/records/:id/settings` | 教學組長 | 該筆紀錄的全部設定(唯讀),「複製此次排課設定」重新排課 |
+| 課表 | `/timetable` | 教學組長、一般老師 | 依班級/教師/教室三種視角;教學組長可手動編輯、複製、發布 |
+| 帳號管理 | `/users` | 系統管理員、教學組長 | 序號、依教師姓名筆畫排序、後端搜尋(帳號/姓名/身分證字號)、系統管理員另有角色篩選 |
+| 學校管理 | `/schools` | 系統管理員 | 學校清單與建立 |
+
+所有教師/班級下拉選單都可以打字搜尋(`components/SearchableSelect.tsx`);科目一律依「國語、英、數、生活、美勞、自然、社會、藝術、音樂、健康、體育、綜合」排序(名稱包含即可,`utils/subjectOrder.ts`)。所有確認框都是系統置中對話框(`hooks/useConfirm.tsx`),否定選項一律「取消」。
+
+### 0.5 Domain 語意(相對於 `AGENTS.md` 原始設計的變更,皆經使用者確認)
+
+| 項目 | 原始設計 | 目前 |
 |---|---|---|
-| 角色 | `ADMIN` / `TEACHER` | `ADMIN`(系統管理員:只管學校與帳號)/ `COORDINATOR`(教學組長:自己學校的排課與一般老師帳號)/ `TEACHER`(一般老師:唯讀) |
-| 學校 | 隱含單一學校 | 教師、科目、教室、時段、學年度、年級帶 `school_id`;其他資料經由它們歸屬學校(`services/school_scope.py` 的 `in_school()`);跨校存取一律當成不存在 |
-| 帳號與教師 | 無關聯 | 一對一:建立一般老師帳號時一併建立教師(`teachers.user_id`);停用帳號即停用教師 |
-| 教師節數上下限與不可排時段 | 教師層級(全域) | 每學期一份(`semester_teachers`、`semester_teacher_unavailabilities`);只有列在這學期的老師參與排課 |
-| H5 | 任教資格(`TeacherSubject`) | **參與本學期排課**:取消資格概念,任何參與的老師都能教任何科目;沒指定老師的課分給還沒超過上限的老師 |
-| H9 | 教室類型配對 | **指定教室**:需求指定一間特殊教室(`required_room_id`),沒指定就在班級的導師教室(原班教室);教室不再有類型 |
-| H13(新增) | — | **年級可排節次**:每學期每個年級開放的節次(`semester_grade_time_slots`),預設依低/中/高年級與國中產生 |
-| 年級 | 任意整數 | 1–9(國小 1–6、國中 7–9) |
-| 每週節數 | 任意正整數 | 1–6 |
-| 前端 | 基礎資料 / 排課需求總覽 / 排課控制台 / 課表檢視 | 開始排課(精靈)/ 排課紀錄 / 課表 / 學校資料 / 帳號管理 / 學校管理 |
+| H5 | 任教資格(`TeacherSubject`) | **參與這筆紀錄的排課**:取消資格概念,任何參與的老師都能教任何科目;沒指定老師的課分給還沒超過上限的老師 |
+| H9 | 教室類型配對 | **指定教室**:需求指定一間教室(`required_room_id`);沒指定 = 原班上課,不佔教室、不做教室衝突(班級沒有導師教室欄位) |
+| H10 | 教室容量 | 不實作:教室容量欄位已刪除,改為教室「一次最多幾班同時使用」(`rooms.max_classes`),併入 H3 |
+| 導師 | — | 每筆紀錄在教師設定指派,一位老師最多一班、每班都要有導師;國小選定導師時把該班國語文、數學的指定老師設為導師 |
+| 年級 | 任意整數 | 國小 1–6、國中 7–9、高中 10–12;每年級的可排節次在每筆紀錄的精靈中勾選(H13) |
+| 每週節數 | 任意正整數 | 1–6;連堂樣式(例如 `2+1`)最多 5 組 |
+| 時段 | 可新增刪除 | 建立學校時自動產生(國小 0–9 節、國高中 0–10 節;0/午休/末節預設不可排),只能改標籤與是否可排課 |
 
-**引擎的做法**:`SchedulingResources` 以 `teacher_ids`(參與的老師)取代資格清單,以 `required_room_rules` 取代教室類型與教室清單,新增選填的 `class_allowed_time_slots`。候選產生:指定教師若沒參與就沒有候選(與 Task 22 同樣在排課前就回報 `H6_REQUIRED_TEACHER_NOT_PARTICIPATING`);每堂課只有一個教室候選(指定教室優先於導師教室,`room_by_requirement()`);時段候選與連堂的連續節次都只取年級開放的節次。靜態預檢新增「教室的課多於教學時段」(`STATIC_ROOM_OVERBOOKED`,涵蓋共用導師教室與共用特殊教室)、「年級開放節次不足」(`STATIC_CLASS_SLOTS_INSUFFICIENT`)與「固定在年級沒開放的節次」(`STATIC_FIXED_SLOT_CLASS_CLOSED`);原本的教室類型相關檢查移除。
+舊的資料表與欄位(`teacher_subjects`、`teacher_availabilities`、`teachers.min/max_weekly_periods`、`rooms.room_type`、`class_subject_requirements.required_room_type`、`consecutive_limit`)保留但不再讀取。
 
-**取捨**:
-- 年級在某學期沒有任何開放節次的設定時視為不受限制——精靈一定會為每個年級存下設定(至少一節),只有直接用 API 跳過時才會發生。
-- 每學期設定不隨版本鎖定:它們和排課需求一樣是學期共用的,已發布版本之後重新檢查會依目前的設定判斷;跨學期複製版本時,若目標學期還沒有設定,會把來源學期的設定一併複製。
-- 舊的資料表與欄位(`teacher_subjects`、`teacher_availabilities`、`teachers.min/max_weekly_periods`、`rooms.room_type`、`class_subject_requirements.required_room_type`)保留資料但不再讀取,和 `consecutive_limit` 的處理方式相同。
-- 手動調整時指派沒參與本學期的老師不會被擋下,但檢查會回報 `H5_TEACHER_NOT_PARTICIPATING`(與其他手動調整「預覽但不阻擋」的原則一致)。
+### 0.6 排課規則
+
+**Hard Constraints(15 條,`scheduling_engine/constraints/`)**:H1 教師衝堂(同一合併節的老師可同時出現在多班)、H2 班級衝堂、H3 教室衝堂(教室同時段最多 `max_classes` 班,合併節算 1 班)、H4 教師不可排時段、H5 參與排課、H6 指定教師、H7 每週節數、H8 每週節數上限、H9 指定教室、H11 非教學時段、H12 停用狀態、H13 年級可排節次、H14 合併節(共同排課)不可拆開、H15 同一班同一科目只能由一位老師授課;H10 不實作(見 0.5)。另有以定義域保證的連堂組合與固定時段,以及只警告、不阻擋的最低每週節數(`TEACHER_MIN_WORKLOAD`)。
+
+**Soft Constraints(3 條,`algorithms/preferred_periods.py`)**:所有 Hard Constraint 都滿足之後,再以爬山法對全校課表加分,每項權重相同(一堂課一分):
+
+- **S8**:國語文、數學排在每天第 1–2 節(名稱包含「國語」「國文」「數學」)。
+- **S9**:體育避開每天第 1、4、5 個教學節(第 5 節是午休後的第一節;名稱包含「體育」)。
+- **S10**(只限國小):班級「全日」(午休前後都有課的日子)的最後一節排活動性課程;非活動性課程以名稱判定(包含國語、國文、數學、英語、英文、社會、自然、本土語),其餘都算活動性。
+
+**演算法**:自動排課使用前向檢查(`algorithms/forward_checking.py`,決策 45):每次重新挑候選最少的排課單位、放下後立即刪除其他單位不能用的候選(含 H15:一門課選定一位老師後,同一門課其他節只剩這位老師),依 Luby 數列重新開始,90 秒上限;每次排課用新的 seed,所以每次課表不同。Greedy 與 Backtracking 保留作為對照。
+
+### 0.7 手動調整(課表頁,手動編輯中)
+
+- **拖曳或點選**:選取或拖曳一堂課時,後端 `move-candidates` 一次試算每一格——可放(淺綠)、衝突(淺紅)、可對調(淺藍,圖示 ⇄);圖例依序為「可放 / 衝突 / 可對調」。依班級、依教師檢視中拖到有課的格子就是對調(空格才出現「移到這裡」);依教室檢視列出同一格所有共用教室的班級,超過教室的「一次最多幾班」時頁面上方顯示錯誤。
+- **連堂**:可以拖到任何放得下的位置;擋在路上的本班課會換到連堂空出來的時段,放不進去時拒絕(「被換走的課放不進連堂空出來的時段」);兩組節數相同的連堂可以整組對調;單節拖到連堂上時連堂整組移過來。
+- **更換教師**:選取一堂課後在工具列換老師,整門課一起換,同時更新這筆紀錄的科目需求指定教師;「換教師」面板也可逐門課處理離職的連鎖換人。任何手動編輯都能用(不再只限複製的課表)。
+- **選取後的兩列**:第一列「已選取:班級 科目(時段)。點選課表上節次以移動或對調課程。」與「取消」;第二列(藍底)是「目前教師/更換教師(可搜尋)」與「目前教室/更換教室(這一堂或整門課)」,各自先預覽再儲存。「換教師」面板的開關在課表區塊右上方(主色按鈕)。「剛調整」標記已移除。
+- **先預覽再儲存**:每次調整都先預覽會新增/解決哪些問題(以「問題身分」比對),衝突不阻擋;調整後自動重新檢查整份課表,結果以標題下方的標籤顯示。
+- **移出課表與未排入課程**:把課拖到課表上方的「移出課表」框(或選取後點它),先預覽、確認後這堂課——連堂整組一起——從暫存副本移出(`POST /schedule-versions/{id}/unschedule-lesson`),回到「未排入課程」卡片,之後可拖曳或點選放回;共同排課的課不能移出(`UNSCHEDULE_COMBINED`),因為放回時無法帶著其他班的課。
+
+### 0.8 改版歷程摘要
+
+| 時間 | 改版 | 重點 |
+|---|---|---|
+| Task 98(2026-10-19) | 排課精靈 | 基礎資料/需求總覽/排課控制台整併成精靈;三種角色、依學校隔離、帳號與教師一對一;取消任教資格與教室類型;H13 |
+| 第五輪 | 學校類型 | 學校類型、自動建年級與時段、年級科目需求、未指定教室 = 原班上課 |
+| v3 | 排課紀錄 | 設定改掛每筆紀錄;新狀態;暫存副本;每學期一筆已發布 |
+| 第八、九輪 | 導師與共同排課 | 導師指派;S8;共同排課(合併節)與 H14;教室 `max_classes` |
+| Task 99–103 | 介面一致化 | 系統置中確認框、設計 token 與對比測試、停用一致化、分頁、複製連堂設定 |
+| Task 104 | 演算法與首頁 | 前向檢查排課;取消發布;閒置登出;公開首頁與左右分割登入頁 |
+| 第十四、十五輪(2026-10-30–31) | 規則與手動調整 | H15、S9、S10;連堂任意拖放、可對調淺藍標示、手動換教師;可搜尋選單、科目排序、複製教室設定;帳號序號、筆畫排序、搜尋與角色篩選 |
+
+開發中各輪的詳細決策,見第 7 節決策 35 起。
 
 ---
 
 ## 1. 專案定位
 
-這是一個**約束滿足問題(Constraint Satisfaction Problem, CSP)的建模與求解專案**:輸入是老師的任教資格、可用時段、工作量上限、班級的每週授課節數需求、教室類型限制;輸出是一份滿足所有 Hard Constraint 的課表,或者——當滿足不了的時候——一份講得出具體原因的失敗報告。CRUD、Auth、REST API 是把這個求解引擎包裝成可操作系統所需要的基礎設施,核心是 `scheduling_engine/` 這個完全獨立的約束引擎與排課演算法。
+這是一個**約束滿足問題(Constraint Satisfaction Problem, CSP)的建模與求解專案**:輸入是一筆排課紀錄的設定——參與的老師、他們的不可排時段與每週節數上下限、各年級可排的節次、班級的每週授課節數需求、指定教師、指定教室、連堂與固定時段、共同排課;輸出是一份滿足所有 Hard Constraint 的課表,或者——當滿足不了的時候——一份講得出具體原因的失敗報告。CRUD、Auth、REST API 是把這個求解引擎包裝成可操作系統所需要的基礎設施,核心是 `scheduling_engine/` 這個完全獨立的約束引擎與排課演算法。
 
 ---
 
@@ -41,23 +113,24 @@
 
 ```mermaid
 flowchart TB
-    subgraph Client["前端 — frontend/(階段 A、B 已完成)"]
-        React["React / TypeScript / Vite<br/>6 個核心頁面(登入/基礎資料/<br/>需求總覽/排課控制台/課表/失敗診斷)"]
+    subgraph Client["前端 — frontend/"]
+        React["React / TypeScript / Vite<br/>公開首頁 / 登入 / 後台首頁 / 學校資料 /<br/>開始排課精靈 / 排課紀錄 / 課表 /<br/>帳號管理 / 學校管理"]
     end
 
     subgraph API["API Layer — backend/app/routers/"]
-        FastAPI["FastAPI Routers<br/>/api/v1/*<br/>JWT Auth + RBAC"]
+        FastAPI["FastAPI Routers<br/>/api/v1/*<br/>JWT Auth + RBAC(三種角色)"]
     end
 
     subgraph Service["Service Layer — backend/app/services/"]
-        SVC["業務邏輯 / Session 管理<br/>ORM ↔ Domain Dataclass 轉換<br/>例外分類與轉譯"]
+        SVC["業務邏輯 / Session 管理<br/>依學校隔離 / 暫存副本<br/>ORM ↔ Domain Dataclass 轉換<br/>例外分類與轉譯"]
     end
 
     subgraph Engine["Scheduling Engine — scheduling_engine/(框架獨立)"]
         Domain["Domain Dataclasses<br/>LessonAssignment / SchedulingResources"]
-        Static["Static Feasibility Checks<br/>(工作量 / 可用時段 / 停用狀態 / 零合格教師)"]
-        Constraints["Constraint Engine<br/>H1–H9, H11, H12"]
-        Algo["Greedy Scheduler<br/>Backtracking Scheduler"]
+        Static["Static Feasibility Checks<br/>(工作量 / 可用時段 / 停用狀態 / 固定時段 /<br/>連堂 / 教室 / 年級節次 / 共同排課)"]
+        Constraints["Constraint Engine<br/>H1–H9, H11–H15"]
+        Algo["Forward Checking Scheduler<br/>(Greedy / Backtracking 作為對照)"]
+        Soft["Soft Constraint Optimizer<br/>S8 / S9 / S10"]
     end
 
     subgraph Data["Data Layer"]
@@ -72,7 +145,9 @@ flowchart TB
     Static -->|"通過"| Algo
     Domain --> Constraints
     Constraints -->|"提供即時驗證"| Algo
-    Algo -->|"排課結果 / 失敗原因"| SVC
+    Algo -->|"合法課表"| Soft
+    Constraints -->|"每一步都不得違反"| Soft
+    Soft -->|"排課結果 / 失敗原因"| SVC
     SVC --> ORM
     ORM --> PG
 
@@ -81,13 +156,15 @@ flowchart TB
 
 **為什麼 Scheduling Engine 要獨立於框架**:`scheduling_engine/` 底下沒有任何一行 import SQLAlchemy、FastAPI,或是直接碰資料庫,只吃/吐純 Python dataclass(`LessonAssignment`、`SchedulingResources`、`ConstraintViolation`…)。這個邊界帶來幾個具體、可驗證的好處:
 
-- **測試速度**:`tests/scheduling_engine/` 底下總共 150 個測試(Constraint、Greedy、Backtracking、靜態可行性檢查、Fixed Time Slot),實測 `pytest tests/scheduling_engine/ -q` 只要 **0.12 秒**,因為完全不需要 `Base.metadata.create_all()`/`drop_all()` 這種資料庫層級的操作。相對地,`tests/` 底下 672 個 API 層測試,因為每個測試都要對真實 PostgreSQL 建表/清表,總耗時約 2 分鐘。
+- **測試速度**:`tests/scheduling_engine/` 底下的 213 個測試(Constraint、Greedy、Backtracking、前向檢查、Soft Constraint、靜態可行性檢查、固定時段、連堂、共同排課)都不需要資料庫,幾秒內就跑完,因為完全不需要 `Base.metadata.create_all()`/`drop_all()` 這種資料庫層級的操作。相對地,`tests/` 底下 942 個 API 層測試,因為每個測試都要對真實 PostgreSQL 建表/清表,總耗時約 24 分鐘(2026-10-31 完整後端實測)。
 - **獨立可測試性**:Task 17 到 Task 23 開發整個約束引擎、Greedy、Backtracking、靜態可行性檢查的過程中,一次都沒有啟動過 FastAPI 或連過資料庫——所有邏輯都是用手寫的 dataclass 資料直接驗證。直到 Task 21 才第一次需要「接上真實資料庫」,而那個轉接層(`backend/app/services/scheduler.py`)清楚地被隔離在 Service 層,`scheduling_engine/` 本身完全沒被碰過。
 - **關注點分離**:排課邏輯的正確性(這組候選會不會衝突、這樣排合不合法)跟「這筆資料在資料庫裡長怎樣」是兩個完全不同層次的問題,混在一起會讓兩邊都難測試、難改。
 
 ---
 
 ## 3. 前端架構
+
+> **歷史紀錄**:本節記錄前端從 Task 26 起的設計歷程;目前的頁面、角色與手動調整方式見第 0.4、0.7 節。
 
 第一版本文件(Task 26)寫成時,系統完全沒有前端,只能透過 Swagger UI 操作——這種呈現方式沒辦法讓非技術背景的人(或只有幾分鐘評估時間的面試官)在短時間內感受到 Scheduling Engine 背後的設計價值。`docs/FRONTEND_REQUIREMENTS.md` 明確把前端存在的目的定義為「**降低理解門檻,不是做一套完整的教務系統**」,並訂出一條貫穿所有頁面取捨的判斷標準:「這個畫面能不能讓看的人在 10 秒內感受到『這是一個會思考的排課系統,不是一個表單工具』?不能的,不做。」
 
@@ -112,7 +189,7 @@ flowchart TB
 
 ### 3.2 六個核心頁面
 
-> Task 98 起頁面改為:開始排課(`/wizard`,精靈)、排課紀錄(`/records`,原排課控制台的版本管理、固定時段與重新排課)、課表(`/timetable`,從排課紀錄開啟,保留編輯模式)、學校資料(`/data`,不再有老師分頁與教室類型)、帳號管理(`/users`)、學校管理(`/schools`,系統管理員);排課需求總覽已移除,舊網址會導向新頁面。下表為改版前的紀錄。
+> **歷史紀錄**:下表是 Task 98 改版前的頁面;目前的頁面見第 0.4 節(排課需求總覽與排課控制台已移除,舊網址 `/requirements`、`/scheduler` 會導向新頁面)。
 
 | 頁面 | 路由 | 定位 |
 |---|---|---|
@@ -123,7 +200,7 @@ flowchart TB
 | 課表檢視 | `/timetable` | **核心亮點頁面**:依班級/教師/教室三種視角查看排課結果,縱軸節次、橫軸星期一到五;選到已封存版本時提示「僅供查看」;`ADMIN` 可「檢查衝突」並從清單定位到課表格子(見 3.8) |
 | 失敗診斷 | 無獨立路由,內嵌於排課控制台 | **核心亮點頁面**:見 3.3 |
 
-（`/` 首頁是依角色顯示的儀表板(Task 97,決策 33):管理員看學期狀態、最新草稿健康度、資料健康度與快速入口,教師只看已發布課表與前往課表檢視的入口;不計入上述 6 個核心頁面。另有僅 `ADMIN` 可用的「帳號管理」頁(`/users`,Task 59):列出帳號、新增帳號(沿用 `POST /auth/register`)、重設密碼、刪除帳號,屬於系統管理功能,同樣不計入核心頁面。）
+（改版前 `/` 是依角色顯示的儀表板(Task 97,決策 33);目前 `/` 是公開首頁,儀表板移到 `/home`,見第 0.4 節。）
 
 「失敗診斷」刻意沒有獨立路由,而是排課失敗時直接嵌入排課控制台畫面——這是實作階段做的決定:失敗診斷永遠緊接在「按下開始排課」這個動作之後,拆成獨立頁面等於多一次導覽、多傳一份跨頁面的 state,對這個一次性、上下文緊密的畫面沒有實質好處。
 
@@ -157,14 +234,16 @@ flowchart TB
 
 ### 3.6 角色權限:JWT 帶 role,但只用於畫面呈現
 
-- **後端**:登入時把 `role` 寫進 JWT 的 claim(`backend/app/routers/auth.py`,Task 42),見第 7 節決策 10。
-- **前端**:`utils/auth.ts` 只解碼 JWT 的 payload 段取出 `role`(**不驗證簽章**,前端也無法驗證),用來決定要不要顯示新增/編輯/刪除按鈕;解不出來或不認得的 role 一律視為非 ADMIN(fail closed)。
-- **路由**:`components/AdminOnlyRoute.tsx`(Task 43)讓 `TEACHER` 帳號除了 `/timetable` 之外的路由都被導回 `/timetable`,`Layout.tsx` 的導覽列也只顯示課表檢視與登出。帳號管理頁 `/users`(Task 59)同樣包在 `AdminOnlyRoute` 內、導覽列只對非 `TEACHER` 顯示,而後端 `/api/v1/users` 的所有端點一律由 `require_admin` 把關。
-- **真正的權限邊界在後端**:所有寫入端點都由 `require_admin`(`backend/app/core/dependencies.py`)檢查;`TEACHER` 只能看到已發布版本也是後端查詢時過濾(第 7 節決策 11);課程與排課需求只回傳目前有已發布版本的學期,衝突檢查只限 `ADMIN`(決策 20)。前端的按鈕隱藏與路由導回只是使用體驗,就算有人竄改 token 讓按鈕出現,呼叫時仍會被後端拒絕。
+- **後端**:登入時把 `role` 寫進 JWT 的 claim(`backend/app/routers/auth.py`,Task 42),見第 7 節決策 10。目前角色為 `ADMIN`(系統管理員)、`COORDINATOR`(教學組長)、`TEACHER`(一般老師)三種(第 0.2 節)。
+- **前端**:`utils/auth.ts` 只解碼 JWT 的 payload 段取出 `role`(**不驗證簽章**,前端也無法驗證),用來決定導覽列、按鈕與每個角色的落地頁(`homePathFor()`:系統管理員到學校管理,其他人到 `/home`);解不出來的 role 不顯示管理入口(fail closed)。
+- **路由**:`components/RoleRoute.tsx`(Task 98,取代 Task 43 的 `AdminOnlyRoute`)讓每個頁面只對列出的角色開放,其他角色被導回自己的落地頁;`components/ProtectedRoute.tsx` 擋下未登入的請求並導向 `/login`;公開首頁 `/` 與 `/login` 不需登入。
+- **真正的權限邊界在後端**:排課資料的寫入由 `require_coordinator` 把關,帳號管理由 `require_manager`,學校管理由 `require_admin`;每個查詢都依登入者的學校過濾,系統管理員讀不到任何排課資料,一般老師只看得到已發布的紀錄(決策 11、20)。前端的按鈕隱藏與路由導回只是使用體驗,就算有人竄改 token 讓按鈕出現,呼叫時仍會被後端拒絕。
 
 ---
 
 ### 3.7 版本管理介面(Task 67)
+
+> **歷史紀錄**:3.7–3.10 描述 Task 67–70 當時的「排課控制台」與課表編輯模式(草稿/已發布/已封存、`ADMIN` 操作)。目前的排課紀錄與手動調整見第 0.3、0.7 節;其中「剛調整」標記、手動更改教室已移除,換教師不再限於草稿或複製的課表。
 
 排課控制台在「目前操作版本」卡片上依版本狀態提供不同動作,版本狀態一律以同一個函式(`utils/scheduleVersionFormat.ts` 的 `formatVersionStatus()`)顯示為草稿/已發布/已封存,未知狀態顯示原始字串:
 
@@ -219,22 +298,40 @@ flowchart TB
 
 ## 4. Domain Model
 
+目前的資料模型(2026-10-31;歷史版本的 ER 圖已移除,演進見第 0 節與決策紀錄):
+
 ```mermaid
 erDiagram
+    SCHOOL ||--o{ USER : "教學組長 / 一般老師"
+    SCHOOL ||--o{ TEACHER : "有"
+    SCHOOL ||--o{ ACADEMIC_YEAR : "有"
+    SCHOOL ||--o{ GRADE : "有"
+    SCHOOL ||--o{ SUBJECT : "有"
+    SCHOOL ||--o{ ROOM : "有"
+    SCHOOL ||--o{ TIME_SLOT : "有"
+    SCHOOL ||--o{ SCHEDULE_VERSION : "有(排課紀錄)"
+    USER |o--o| TEACHER : "一般老師帳號 = 教師"
     ACADEMIC_YEAR ||--o{ SEMESTER : "有"
-    SEMESTER ||--o{ CLASS_SUBJECT_REQUIREMENT : "有"
     SEMESTER ||--o{ SCHEDULE_VERSION : "有"
     GRADE ||--o{ CLASS_GROUP : "有"
-    ROOM |o--o{ CLASS_GROUP : "擔任導師班教室(選填)"
+    GRADE ||--o{ GRADE_SUBJECT_REQUIREMENT : "學校層級的年級節數"
+    SUBJECT ||--o{ GRADE_SUBJECT_REQUIREMENT : "有"
+    SCHEDULE_VERSION ||--o{ SEMESTER_TEACHER : "參與排課的教師"
+    TEACHER ||--o{ SEMESTER_TEACHER : "參與"
+    CLASS_GROUP |o--o{ SEMESTER_TEACHER : "導師班級(選填)"
+    SEMESTER_TEACHER ||--o{ SEMESTER_TEACHER_UNAVAILABILITY : "不可排時段"
+    SCHEDULE_VERSION ||--o{ SEMESTER_GRADE_TIME_SLOT : "年級可排節次"
+    GRADE ||--o{ SEMESTER_GRADE_TIME_SLOT : "開放"
+    SCHEDULE_VERSION ||--o{ CLASS_SUBJECT_REQUIREMENT : "科目需求"
     CLASS_GROUP ||--o{ CLASS_SUBJECT_REQUIREMENT : "有"
     SUBJECT ||--o{ CLASS_SUBJECT_REQUIREMENT : "有"
     TEACHER |o--o{ CLASS_SUBJECT_REQUIREMENT : "指定教師(選填)"
-    TEACHER ||--o{ TEACHER_SUBJECT : "任教資格"
-    SUBJECT ||--o{ TEACHER_SUBJECT : "被授資格"
-    TEACHER ||--o{ TEACHER_AVAILABILITY : "不可用時段"
-    TIME_SLOT ||--o{ TEACHER_AVAILABILITY : "被標記不可用"
+    ROOM |o--o{ CLASS_SUBJECT_REQUIREMENT : "指定教室(選填)"
     CLASS_SUBJECT_REQUIREMENT ||--o{ LESSON : "產生(diff-sync)"
-    LESSON ||--o{ SCHEDULE : "在某版本中被排入"
+    SCHEDULE_VERSION ||--o{ COMBINED_LESSON : "共同排課"
+    COMBINED_LESSON ||--o{ COMBINED_LESSON_MEMBER : "合併的各班需求"
+    CLASS_SUBJECT_REQUIREMENT ||--o{ COMBINED_LESSON_MEMBER : "被合併"
+    LESSON ||--o{ SCHEDULE : "被排入"
     SCHEDULE_VERSION ||--o{ SCHEDULE : "包含"
     TEACHER |o--o{ SCHEDULE : "被指派(選填)"
     TIME_SLOT |o--o{ SCHEDULE : "被指派(選填)"
@@ -243,37 +340,73 @@ erDiagram
     SCHOOL {
         int id PK
         string name
-        bool is_active
+        string school_type
     }
     USER {
         int id PK
         string username
-        string hashed_password
         string role
+        bool is_active
+        int school_id FK
+    }
+    TEACHER {
+        int id PK
+        int school_id FK
+        string name
+        int user_id FK
+        string national_id
+        bool is_active
+    }
+    ROOM {
+        int id PK
+        int school_id FK
+        string name
+        int max_classes
+        bool is_active
+    }
+    SCHEDULE_VERSION {
+        int id PK
+        int school_id FK
+        int semester_id FK
+        int version_number
+        string status
+        bool is_published
+        int copied_from_number
+        int editing_source_id FK
+        string note
+    }
+    SEMESTER_TEACHER {
+        int id PK
+        int schedule_version_id FK
+        int teacher_id FK
+        int min_weekly_periods
+        int max_weekly_periods
+        int homeroom_class_id FK
     }
     CLASS_SUBJECT_REQUIREMENT {
         int id PK
-        int semester_id FK
+        int schedule_version_id FK
         int class_id FK
         int subject_id FK
         int weekly_periods
         int required_teacher_id FK
-        string required_room_type
-        int consecutive_limit
+        int required_room_id FK
         string lesson_pattern
     }
     LESSON {
         int id PK
         int class_subject_requirement_id FK
         int sequence_number
+        int fixed_time_slot_id FK
         int block_no
         int block_seq
     }
-    SCHEDULE_VERSION {
+    COMBINED_LESSON {
         int id PK
-        int semester_id FK
-        int version_number
-        string status
+        int schedule_version_id FK
+        int merged_count
+        string block_nos
+        int room_id FK
     }
     SCHEDULE {
         int id PK
@@ -283,20 +416,13 @@ erDiagram
         int time_slot_id FK
         int room_id FK
     }
-    TEACHER {
-        int id PK
-        string name
-        bool is_active
-        int min_weekly_periods
-        int max_weekly_periods
-    }
 ```
 
-> 圖中的 `CLASS_GROUP` 對應程式碼裡的 `Class`(班級)——`CLASS` 是 Mermaid erDiagram 語法的保留字,拿來當實體名稱會導致解析失敗,因此圖上改用 `CLASS_GROUP`。屬性型別/是否必填等細節以第 4.1 節文字與 `backend/app/models/` 原始碼為準;`role` 目前只接受 `ADMIN`/`TEACHER`,`status` 接受 `DRAFT`/`PUBLISHED`/`ARCHIVED`(新版本一律以 `DRAFT` 建立;允許的狀態轉換只有 `DRAFT`/`ARCHIVED` → `PUBLISHED`(同學期原本的 `PUBLISHED` 自動改為 `ARCHIVED`)與 `PUBLISHED` → `ARCHIVED`,見第 7 節決策 18),`required_teacher_id`/`required_room_type`/`consecutive_limit` 與 `SCHEDULE` 的 `teacher_id`/`time_slot_id`/`room_id` 均為選填欄位。
-
-> 圖中 `SCHOOL` 跟 `USER` 沒有任何關聯線,是如實反映現況。細節見第 10 節「已知限制」。
+> 圖中的 `CLASS_GROUP` 對應程式碼裡的 `Class`(班級)——`CLASS` 是 Mermaid erDiagram 語法的保留字,拿來當實體名稱會導致解析失敗。學期、班級、需求、課程與排課結果沒有自己的 `school_id`,而是經由學年度/年級/紀錄往上找到學校(`backend/app/services/school_scope.py`)。`status` 只接受 `NOT_SCHEDULED`/`AUTO`/`MANUAL`/`COPIED`/`EDITING`(資料庫 CheckConstraint),`EDITING` 沒有編號、必有 `editing_source_id`;`COPIED` 必有 `copied_from_number`。已停用但保留資料的表與欄位(`teacher_subjects`、`teacher_availabilities`、`teachers.min/max_weekly_periods`、`rooms.room_type`、`class_subject_requirements.required_room_type`、`consecutive_limit`)未畫出。屬性細節以 `backend/app/models/` 原始碼為準。
 
 ### 4.1 四個非直覺但刻意的設計決策
+
+> (1)、(3) 提到的 `TeacherAvailability`、`TeacherSubject` 已在 Task 98 停用;同樣「只記錄例外」的稀疏表示,現在用在每筆排課紀錄的不可排時段(`semester_teacher_unavailabilities`)。
 
 **(1) `TeacherAvailability`:用「存在即不可用」取代 `is_available: bool` 欄位**
 `TeacherAvailability` 表只記錄「這位老師在這個時段不可用」的例外情況,沒有欄位存「可用」——一個老師沒有出現在這張表裡,就代表所有時段都可用。這是刻意的精簡設計:現實中「不可用時段」通常是少數例外(某老師週三下午要開會),把「可用」當預設值、只記錄例外,資料量遠比「每個老師 × 每個時段都存一筆 True/False」小得多,查詢邏輯也更貼近業務語意(「這個時段有沒有被排除」而不是「查出所有 True 的列」)。`RequiredTeacherRule`、`RoomTypeRequirement` 也採用同一種「稀疏表示,沒有規則=無限制」的模式。
@@ -326,29 +452,30 @@ H12(停用狀態)理論上要分別檢查教師/班級/科目/教室四種實體
 
 4. **Forward Checking Scheduler(Task 104,目前自動排課使用的演算法,決策 45)**:`algorithms/forward_checking.py`。Backtracking 的順序一開始就固定、候選一律從最早的時段試起;每個班都剛好排滿時,真正出錯的往往是很早以前的某個選擇,只撤回最近幾個位置永遠修不到它,於是在上限內排不出來(實際案例:一個六班、每班時段全滿的學期,把上限放寬到 20 萬次也排不出來)。新的做法:(1) **前向檢查**——每放一個排課單位,就立刻刪掉其他還沒排的單位因此不能用的候選(同老師/同班/同教室同時段、教室已滿、老師已達上限、同需求另一組連堂在同一天),有單位沒候選了就馬上換;(2) **空位計數**——每個班(以及固定由某位老師教的課)剩下還能用的不同時段,必須不少於還沒排的節數;(3) **每一步重新挑剩下候選最少的單位**;(4) **重新開始**——一輪撤回太多次就換一個嘗試順序重來,每輪允許的撤回次數依 Luby 數列(1, 1, 2, 1, 1, 2, 4, …)× 30。嘗試順序由 `seed` 決定:同樣的輸入與 seed 一定得到同樣的課表;服務每次排課都用新的 seed(回傳在結果裡),所以每次排出的課表不同。Hard Constraint 仍只有原本那一套 Constraint 類別:候選先逐一用它們檢查,排完的課表再整份用它們檢查一次,不通過就視為引擎錯誤丟出例外、什麼都不寫入。Backtracking 與 Greedy 保留在引擎中作為對照,測試不變。
 
-### 5.2 H1–H13 實作狀態
-
-> Task 98:H5 改為「參與本學期排課」、H9 改為「指定教室」,並新增 H13「年級可排節次」,見第 0 節;下表其餘說明為改版前的紀錄。
+### 5.2 Hard Constraint 實作狀態(H1–H15)
 
 | # | 名稱 | 狀態 | 說明 |
 |---|------|------|------|
-| H1 | Teacher Conflict | ✅ 已做 | 即時檢查,兩演算法皆有 |
+| H1 | Teacher Conflict | ✅ 已做 | 即時檢查;同一個合併節(共同排課)的老師可同時出現在多班 |
 | H2 | Class Conflict | ✅ 已做 | 即時檢查 |
-| H3 | Room Conflict | ✅ 已做 | 即時檢查 |
-| H4 | Teacher Availability | ✅ 已做 | 即時檢查 |
-| H5 | Teacher Qualification | ✅ 已做 | 即時檢查;曾有一個與 H6 交互的邊界案例(指定教師剛好不具資格)沒被正確判定為零候選,已在 Task 22 修正 |
-| H6 | Required Teacher | ✅ 已做 | 同時影響候選產生(MRV 篩到只剩 1 個)與即時驗證(雙重保險) |
+| H3 | Room Conflict | ✅ 已做 | 即時檢查;教室同時段最多 `max_classes` 班(預設 1),合併節算 1 班;沒有教室的課(原班上課)不參與 |
+| H4 | Teacher Availability | ✅ 已做 | 即時檢查;不可排時段是每筆紀錄各自的設定 |
+| H5 | Teacher Participation | ✅ 已做 | Task 98 起取代任教資格:只有參與這筆紀錄的老師能授課;手動調整時違反會被檢查回報,不阻擋 |
+| H6 | Required Teacher | ✅ 已做 | 同時影響候選產生與即時驗證;指定的老師沒參與排課時在排課前回報 |
 | H7 | Weekly Subject Requirement | ✅ 已做,**僅整批驗證** | 數學上無法逐候選檢查,詳見 5.3 |
-| H8 | Teacher Maximum Workload | ✅ 已做,**Greedy 整批 / Backtracking 即時** | 兩演算法刻意採不同策略,詳見 5.3 |
-| H9 | Room Type | ✅ 已做 | 即時檢查;查無資料時的處理原則見第 7 節 |
-| H10 | Room Capacity | ⏸️ **延後** | `Room.capacity` 欄位已預留(nullable),但未實作對應 Constraint,見第 10 節 |
-| H11 | Non-teaching Period | ✅ 已做 | 即時檢查;在目前的 API 流程中實際上不會被觸發(只有 `greedy.py` 的逐候選解釋路徑會產生,但 `run_scheduler()` 只呼叫 Backtracking),前端失敗診斷因此對它顯示「此為排課引擎內部判斷」而非導向某個修正頁面,見 3.3 |
-| H12 | Active Status | ✅ 已做 | 即時檢查,涵蓋教師/班級/科目/教室 |
-| — | 連堂組合(Lesson Block,非 H 編號) | ✅ 已做 | 需求的連堂樣式(如 2+1);同組同一天相鄰教學時段、同教師同教室,不同組不同天;以「一組一個排課單位」實作(決策 26);檢查服務以同一個 `LessonBlockConstraint` 回報 `BLOCK_NOT_CONSECUTIVE`/`BLOCK_SAME_DAY`(Task 88);手動移動、對調、換教師以整組為單位(Task 89),前端整組拖曳見決策 27(Task 90) |
-| — | 最低授課節數(`TEACHER_MIN_WORKLOAD`,非 H 編號) | ✅ 只檢查、不阻擋 | 教師在該版本的節數低於 `min_weekly_periods` 時,檢查結果列出一筆 **WARNING**(唯一的非 ERROR 類型);不在任何排課演算法或預檢中,不影響 `is_valid`,不阻擋排課、發布、移動或對調(Task 88,決策 15) |
-| — | 固定時段(Fixed Time Slot,非 H 編號) | ✅ 已做 | 以定義域實作:固定課的時段候選只剩固定時段(Task 28);不可能成立的固定時段在排課前預檢(6.3 第 5 類,Task 81);寫入前再確認沒有被移動(決策 23) |
+| H8 | Teacher Maximum Workload | ✅ 已做 | 前向檢查與 Backtracking 即時過濾,Greedy 整批驗證,詳見 5.3 |
+| H9 | Required Room | ✅ 已做 | Task 98 起取代教室類型:指定了教室就必須在那間上課 |
+| H10 | Room Capacity | ➖ 不實作 | 教室容量欄位已刪除(第五輪,使用者決定),改以 H3 的 `max_classes` 表達一間教室同時能容納幾班 |
+| H11 | Non-teaching Period | ✅ 已做 | 即時檢查 |
+| H12 | Active Status | ✅ 已做 | 即時檢查,涵蓋教師/班級/科目/教室;排課前檢查也會列出 |
+| H13 | Grade Time Slots | ✅ 已做 | Task 98:班級只能排在所屬年級在這筆紀錄開放的節次 |
+| H14 | Combined Lesson Split | ✅ 已做 | 第九輪:同一個合併節的各班必須排在同一時段 |
+| H15 | Requirement Mixed Teachers | ✅ 已做 | 第十四輪:同一班同一科目的所有節由同一位老師授課;前向檢查選定老師後立即刪去同一門課其他節的其他老師候選(`constraints/requirement_teacher.py`) |
+| — | 連堂組合(Lesson Block,非 H 編號) | ✅ 已做 | 需求的連堂樣式(如 2+1,最多 5 組);同組同一天相鄰教學時段、同教師同教室,不同組不同天;以「一組一個排課單位」實作(決策 26);手動移動的規則見決策 48 |
+| — | 固定時段(Fixed Time Slot,非 H 編號) | ✅ 已做 | 以定義域實作:固定課的時段候選只剩固定時段;不可能成立的固定時段在排課前預檢 |
+| — | 最低授課節數(`TEACHER_MIN_WORKLOAD`) | ✅ 只檢查、不阻擋 | 低於最低每週節數時列為 WARNING,不影響課表是否合法 |
 
-13 條 Hard Constraint 中 12 條已實作(H1–H9、H11–H13),H10 是唯一延後項目;另外固定時段也是引擎保證的規則(不在 H 編號內)。
+15 個編號中 14 條已實作(H1–H9、H11–H15),H10 依使用者決定不實作;連堂與固定時段也是引擎保證的規則(不在 H 編號內)。
 
 ### 5.3 H7 與 H8:為什麼一個永遠整批驗證、一個可以即時過濾
 
@@ -356,6 +483,21 @@ H7(「這個需求恰好要有 N 節課」)是一個**等式**限制:排課過�
 
 H8(「這位老師每週不能超過上限」)是一個**上限**限制:一旦某個候選會讓老師超過上限,這個事實不會因為後面又排了別的東西而改變,可以安全地在候選產生階段就篩掉。但兩個演算法對這件事的態度不一樣——**Greedy 選擇不做即時 H8 過濾**,因為 Greedy 沒有回頭機制,提早篩掉候選只會讓失敗發生在更早的 `Lesson`,不會改變「這次排課到底成不成功」的結果,所以不值得為此增加複雜度;**Backtracking 選擇即時過濾**,因為 Backtracking 可以靠撤回重試來利用這個提早發現的資訊,避免整個搜尋走進一個從一開始就注定失敗的分支,能有效減少不必要的回溯次數。
 
+
+### 5.4 Soft Constraints:排出合法課表之後才調整
+
+`AGENTS.md` 的原則是「先滿足所有 Hard Constraints,再比較 Soft Constraint score」。實作上把兩者完全分開:搜尋(5.1)只負責產生一份完整、合法的課表,之後才交給 `algorithms/preferred_periods.py` 的 `optimize_preferred_periods()`,它只會把課表換成**另一份同樣完整、合法**的課表。
+
+| # | 偏好 | 計分 | 科目判定(`services/scheduler.py` 的 `soft_constraint_subjects()`) |
+|---|---|---|---|
+| S8 | 國語文、數學排在每天第 1–2 節 | 每堂 +1 | 名稱包含「國語」「國文」「數學」 |
+| S9 | 體育避開每天第 1、4、5 個教學節(第 5 節是午休後的第一節) | 每堂 −1 | 名稱包含「體育」 |
+| S10 | 國小班級「全日」(午休前後都有課)的最後一節排活動性課程 | 每堂 +1 | 只限國小;名稱不含國語、國文、數學、英語、英文、社會、自然、本土語的科目都算活動性 |
+
+- **方法**:爬山法,每一步移動一個排課單位(單節或整組連堂)到本班空著的位置,或與本班佔著那裡的課對調;只有「這一步移動到的課總分會提高」、而且整份課表仍滿足所有即時 Hard Constraint(H1–H6、H8、H9、H11–H15 與連堂規則)時才接受。另外不讓同一需求的非連堂課在同一天變多,所以一週的分散程度不會變差。
+- **不動的課**:固定時段的課、合併節(共同排課)的課;每一步都保留原本的老師與教室,只換時段。
+- **確定性**:步驟依固定順序嘗試,相同輸入一定得到相同結果;`max_checks`/`timeout_seconds` 限制工作量。
+- **為什麼科目用名稱判定**:系統沒有「科目類別」欄位,學校的科目名稱又各自不同(國語文/國語/國文);以「名稱包含」判定可以涵蓋這些寫法,不需要改資料模型。代價見第 10 節。
 ---
 
 ## 6. Explainable Scheduling
@@ -387,7 +529,11 @@ Backtracking 的結果區分三種本質不同的失敗:
 5. **固定時段不可能成立**(Task 81,決策 23):固定的時段不存在或是非教學時段、能教這堂課的教師在該時段都不可排課、同班或只能由同一位教師授課的兩堂以上課固定在同一時段、同一時段需要某類型教室的固定課多於該類型教室數。每一項都指出是哪一堂課(班級、科目、時段)。
 6. **連堂組合不可能成立**(Task 87,決策 26):一組的節數超過任何一天最長的連續教學時段(`STATIC_BLOCK_TOO_LONG`)、組數多於有教學時段的天數(`_TOO_MANY_DAYS`)、有足夠天數但沒有足夠「各自有夠長連續時段」的不同天(例如 3+3 只有一天有連續 3 節,`_NOT_ENOUGH_DAYS`)、組內固定時段互相矛盾或讓整組跨過非教學時段(`_FIXED_CONFLICT`)、同一需求的兩組被固定在同一天(`_FIXED_SAME_DAY`)、能教這組的教師在每一段可能的連續時段裡都有不可排課的節次(`_TEACHER_UNAVAILABLE`)。每一項都指出需求(班級、科目)與組別。搜尋中排不進去的組(Greedy)會把該組每一節都列為失敗,沒有任何可用起始位置時原因是 `BLOCK_NO_WINDOW`。
 
-這六類檢查在 `run-scheduler` 呼叫 `schedule_backtracking()` 之前執行,一旦命中就直接回報,完全不進入搜尋。這樣做除了節省搜尋時間,也避免這類失敗被 Backtracking 自己發現時,落入「搜尋整個耗盡、但無法歸咎到單一 `Lesson`」的模糊地帶(這正是 Task 22 修的那個 bug 的根源:一個必然失敗的案例,因為候選產生邏輯沒有正確識別它是「零候選」,結果搜尋跑到底才回報「無解」卻給不出任何理由——跟 Task 38 的案例是同一種「零候選沒被正確辨識」的根本問題,只是發生在流程的不同位置)。
+7. **教室的課多於教學時段**(Task 98,`STATIC_ROOM_OVERBOOKED`):指定同一間教室的課,超過這間教室在教學時段能容納的節數(依 `max_classes` 計算)。
+8. **年級開放節次不足**(Task 98,`STATIC_CLASS_SLOTS_INSUFFICIENT`、`STATIC_FIXED_SLOT_CLASS_CLOSED`):班級每週要上的節數多於年級開放的節次,或固定在年級沒開放的節次。
+9. **共同排課的固定時段互相矛盾**(第九輪,`STATIC_COMBINED_FIXED_CONFLICT`):合併節裡各班的固定時段不一致。
+
+這些檢查(標題的「六類」是 Task 87 時的數量,目前共九類)在自動排課之前執行(目前呼叫前向檢查 `schedule_forward_checking()`,當時是 `schedule_backtracking()`),一旦命中就直接回報,完全不進入搜尋。這樣做除了節省搜尋時間,也避免這類失敗被 Backtracking 自己發現時,落入「搜尋整個耗盡、但無法歸咎到單一 `Lesson`」的模糊地帶(這正是 Task 22 修的那個 bug 的根源:一個必然失敗的案例,因為候選產生邏輯沒有正確識別它是「零候選」,結果搜尋跑到底才回報「無解」卻給不出任何理由——跟 Task 38 的案例是同一種「零候選沒被正確辨識」的根本問題,只是發生在流程的不同位置)。
 
 ### 6.4 具體案例:教師工作量超標的完整錯誤訊息
 
@@ -471,8 +617,17 @@ HTTP 422
 | 43 | v3 只有「發布新的一筆時,舊的自動改為未發布」,已發布的課表無法單獨撤下。要怎麼讓教學組長取消發布? | (a) 維持只能用發布另一筆來取代 (b) 新增取消發布,學期可以暫時沒有已發布的課表 | (b)。`POST /schedule-versions/{id}/unpublish`(教學組長):`is_published` 改回 false,紀錄回到原本的狀態(自動排課/手動排課/複製),課表與設定不變,也不會自動發布其他紀錄;未發布的紀錄呼叫它不會有任何變化。課表頁中,已發布紀錄右上角原本的「已發布」標籤改為「取消發布」按鈕(次要按鈕;狀態仍顯示在標題列),先確認(「取消發布這份課表?」,danger)再執行 | 「每學期最多一筆已發布」不變(資料庫的部分唯一索引),只是允許零筆;撤下錯誤發布的課表不必先另外準備一份來取代。一般老師在這段期間看不到這學期的課表 |
 | 44 | 登入後的 JWT 固定 60 分鐘到期,之後任何一個請求收到 401 就被導回登入頁——編輯到一半也一樣。要怎麼做到「閒置才登出、工作中不會被踢出」? | (a) 把效期拉長(例如 8 小時) (b) 前端偵測閒置,工作中定期向後端換新的 token;閒置 30 分鐘自動登出 (c) 另做 refresh token 機制 | (b)。後端 `IDLE_TIMEOUT_MINUTES = 30`,token 效期為它再加 5 分鐘(`ACCESS_TOKEN_EXPIRE_MINUTES`,`app/core/security.py`),新增 `POST /api/v1/auth/refresh`:需要仍有效的 token 與啟用中的帳號,依帳號目前的角色發新 token。前端 `hooks/useIdleSession.ts`(掛在共用的 `Layout`)記錄最後一次操作(滑鼠、鍵盤、觸控、捲動、拖曳),每 30 秒依 `utils/session.ts` 的 `sessionAction()` 判斷:閒置滿 30 分鐘就清掉 token 並回到登入頁;最近有操作且距上次換發滿 5 分鐘就換新 token;回到分頁時立即檢查一次。登入頁會說明原因(「閒置超過 30 分鐘,已自動登出」;token 被拒時「登入已逾時」) | (a) 只是把被踢出的時間往後延,閒置的人也一直保持登入;(c) 需要另存 refresh token、撤銷機制與資料表,對目前規模太重。(b) 的 token 仍是短效期的,電腦休眠或分頁關閉後一樣會失效;代價是工作中每 5 分鐘一個續期請求。要改成 15 分鐘時,前後端的 `IDLE_TIMEOUT_MINUTES` 一起改 |
 | 45 | 自動排課在「每班時段全滿、部分老師只能排特定幾天、有固定時段與連堂」的學期失敗:「排課嘗試次數已達上限」,放寬上限也一樣,但手排得出符合所有規則的課表。要怎麼改進搜尋?(Task 104) | (a) 只放寬 Backtracking 的上限 (b) 換外部求解器(如 OR-Tools) (c) 自己實作前向檢查 + 動態 MRV + 空位計數 + 隨機重新開始 | (c),`algorithms/forward_checking.py` 的 `schedule_forward_checking()`,做法見 5.1 第 4 點;`run_scheduler()` 改呼叫它,時間上限 90 秒(`SCHEDULER_TIMEOUT_SECONDS`),嘗試次數上限 100 萬次;Backtracking 保留作為對照。每次排課用新的隨機 seed(`new_scheduler_seed()`),所以同一份設定每次排出不同的課表;seed 與搜尋統計(`node_count`、`restart_count`、`elapsed_seconds`、`seed`)加在 run-scheduler 的成功與失敗回應中,前端在排課完成時顯示花費秒數。失敗類型照舊:一輪沒有被重新開始打斷就走完全部可能才回報「確定無法排出」,其餘為次數或時間上限(不代表無解,前端提示可以再按一次)。迴歸測試用該學期的實際輸入(`tests/scheduling_engine/data/full_school_semester.json`,只有編號):Backtracking 回報 SEARCH_LIMIT_EXCEEDED,新演算法排出通過所有 Hard Constraint 的課表 | (a) 已實測放寬到 20 萬次、2 分鐘仍排不出;(b) 是大型 dependency,也會把專案的核心(排課引擎)交給外部套件。(c) 在該學期 30 個 seed 全部排出,多數在幾秒內;代價是每次結果不同(由使用者決定,要重現時用回傳的 seed),且搜尋仍有上限,極端情況可能要再按一次 |
+| 46 | 一個班的一門課(例如國語 6 節)可能被自動排課分給兩位老師,實務上不可能。要在哪裡保證「一門課一位老師」?(第十四輪) | (a) 排完再修正 (b) 新增 Hard Constraint,搜尋時就排除 | (b):H15 `H15_REQUIREMENT_MIXED_TEACHERS`(H14 已被共同排課使用);前向檢查放下一堂課後,立即刪掉同一需求其他節不同老師的候選 | 與其他 Hard Constraint 同一套 Constraint 類別,檢查服務也會在手動編輯造成多位老師時列出;搜尋中提早剪枝,不會讓排課變慢 |
+| 47 | 體育排在第 1 節或剛吃完午餐的第 5 節不理想;國小全日的最後一節希望是活動性課程。要硬性還是軟性?科目怎麼認?(第十四輪) | (a) Hard Constraint (b) Soft Constraint,依科目名稱關鍵字判定 | (b):S9(體育避開第 1、4、5 個教學節)與 S10(國小全日最後一節排活動性課程),與 S8 一起在合法課表上爬山,權重相同;S8 也改成名稱包含比對 | 這些是偏好,做成硬性會讓本來排得出來的學期失敗;科目沒有類別欄位,用名稱包含可以涵蓋各校不同寫法,不需改資料模型。「本土語」「國文」是否算非活動性已向使用者確認(本土語算) |
+| 48 | 手動移動連堂原本只能和「同樣節數的整組」對調,落點有其他課就拒絕,教學組長常常拖不動。要怎麼放寬?(第十四輪,取代決策 26、27 的手動移動規則) | (a) 維持只能整組對調 (b) 連堂可拖到任何放得下的位置,擋路的本班課換到連堂空出的時段 | (b):`services/block_adjustment.py` 的 `_plan_block_to()`:連堂落點上本班的課(及它所屬的整組)放進連堂空出來的時段,放不下時回 `BLOCK_DISPLACED_UNFIT`;同節數整組照舊兩兩對調;單節拖到連堂上時連堂整組移過來 | 交換只在本班內發生,換走的課仍受所有 Hard Constraint 檢查並在預覽中列出,不會偷偷產生衝突;放入未排課仍不能蓋掉本班其他課(`BLOCK_TARGET_OCCUPIED`) |
+| 49 | 手動編輯中,換教師原本只限「複製」的課表,而且教室可以手動改。實際使用時常要直接換人,改教室反而少用、還容易和指定教室不一致。(第十四輪,取代決策 32 的前端部分) | (a) 維持 (b) 所有手動編輯都能換教師,並同步需求的指定教師;移除手動更改教室 | (b):選取一堂課後在工具列換老師(整門課),同時更新這筆紀錄的需求指定教師;前端的更改教室元件移除,後端 `change-room` API 暫時保留 | v3 起需求屬於每筆紀錄(暫存副本),同步需求不會影響其他紀錄,決策 17 的「改到學期共用需求」問題已不存在;保留後端 API 是因為刪除功能需使用者另外確認 |
+| 50 | 依教室檢視一格只顯示一堂課,看不出共用教室的班級;教室「一次最多幾班」被超過時沒有提示。(第十四輪) | (a) 只在檢查清單中列出 (b) 檢視中列出同一格所有班級,超過時頁面上方顯示錯誤 | (b):`utils/roomCapacity.ts` 計算每格的班級數(合併節算 1 班) | 問題直接出現在看得出來的地方;H3 的檢查仍是後端權威 |
+| 51 | 帳號管理要能搜尋帳號、姓名、身分證字號,但前端只拿得到 `has_national_id`。要在哪裡搜尋?(第十四輪) | (a) 前端過濾 (b) 後端 `GET /users?search=` | (b):後端以 `icontains`(自動跳脫 `%`、`_`)比對三個欄位;前端只有按放大鏡或 Enter 才查詢,✕、「顯示全部」與空白搜尋都回到全部帳號 | 身分證字號不會為了搜尋而送到前端;教師依姓名筆畫排序用瀏覽器內建的 `zh-Hant-TW` 排序,不需新增套件 |
+| 52 | 系統沒有公開頁面,未登入者打開網站只看到登入表單。要放什麼、後台首頁搬到哪?(Task 104) | (a) 維持 (b) `/` 改為公開首頁,後台首頁移到 `/home` | (b):`pages/Landing.tsx`;已登入者進 `/` 依角色導向(`homePathFor()`);登入頁改左右分割,品牌區為純 CSS/SVG 裝飾,文字對比以 vitest 檢查(含半透明文字,`utils/contrast.ts` 的 `blendOver()`) | 不需新增套件或字體;漸層改用比主色深一階的 `--color-brand-start/end`,因為 85% 白的副標放在原主色上只有 3.88 的對比 |
+| 53 | 系統管理員要能只看某一種角色的帳號。要後端還是前端篩選?(第十五輪) | (a) 後端參數 (b) 前端對已載入清單篩選 | (b):`utils/accountList.ts` 的 `filterByRole()`,可與後端搜尋並用;「顯示全部」同時清除搜尋與角色 | 角色在清單資料中本來就有,不需要新的 API;帳號數量小,前端篩選即可 |
+| 54 | v3 起需求在排課後鎖定,「未排入課程」面板(Task 93)沒有正常的觸發方式;決策 49 拿掉手動更改教室後,教學組長又需要逐堂改教室。(第十六輪,部分取代決策 49) | (a) 移除面板 (b) 加「移出課表」,並把更換教室加回 | (b):課表上方的「移出課表」框(拖曳或選取後點選)→ `unschedule-lesson`(只限暫存副本,連堂整組刪除排課列,共同排課的課拒絕 `UNSCHEDULE_COMBINED`);選取列拆成兩列,第二列放更換教師與更換教室(沿用 `change-room` API 與當時的元件) | 移出與放入是一組對稱的操作,教學組長可以先把課拿出來、再放到別的位置;沿用既有的預覽流程與檢查,沒有新的規則。共同排課的課放回時無法帶著其他班,所以不允許移出 |
 
-**決策 18 的狀態轉換表**(`PATCH /schedule-versions/{id}` 的 `status`):
+**決策 18 的狀態轉換表**(歷史紀錄:v3 起狀態改為尚未排課/自動排課/手動排課/複製,發布改用 `is_published` 標記,見第 0.3 節;下表是 Task 65 當時 `PATCH /schedule-versions/{id}` 的 `status`):
 
 | 目前狀態 \ 目標狀態 | DRAFT | PUBLISHED | ARCHIVED |
 |---|---|---|---|
@@ -571,124 +726,78 @@ PUBLISHED 與 ARCHIVED 版本的其他欄位(`semester_id`、`version_number`)�
 
 ## 9. 測試策略
 
-測試分成兩個完全獨立的層級,理由直接對應第 2 節提到的架構分離:
+測試分成三個完全獨立的層級,理由直接對應第 2 節提到的架構分離:
 
-- **`tests/scheduling_engine/`(150 個測試)**:純 Python 邏輯測試,輸入輸出都是手寫的 dataclass,不碰資料庫、不啟動 FastAPI。這一層測試的是「約束有沒有正確判斷違規」「MRV 排序對不對」「回溯的邊界語意精不精確」這些領域邏輯的正確性,可以用最小、最精確的手造資料涵蓋邊界案例(例如刻意讓 Greedy 失敗、Backtracking 成功的對照組)。
-- **`tests/`(672 個測試)**:透過 `TestClient` 打真實的 FastAPI + PostgreSQL(獨立的 `timetable_test` 資料庫,每個測試前後 `create_all`/`drop_all`),測試的是「這一層有沒有正確接起來」——路由、認證/授權、Pydantic 驗證、資料庫約束、例外轉譯成正確的 HTTP 狀態碼。
+- **`tests/scheduling_engine/`(213 個測試)**:純 Python 邏輯測試,輸入輸出都是手寫的 dataclass,不碰資料庫、不啟動 FastAPI。
+- **`tests/`(942 個測試)**:透過 `TestClient` 打真實的 FastAPI + PostgreSQL(獨立的測試資料庫,`TEST_DATABASE_URL`),涵蓋 API、資料庫互動、認證與權限、依學校隔離。
+- **`frontend/src/**/*.test.ts`(560 個測試)**:Vitest,只測純函式(不使用 jsdom 或 Testing Library)。
 
-兩層分開測試,是因為它們回答的問題完全不同:引擎層測試不應該因為資料庫連線設定錯誤而失敗,API 層測試也不需要重新驗證約束邏輯本身對不對(那是引擎層的責任)。前端(第 3 節)目前沒有對應的自動化測試層,以真實資料手動驗證取代,見 3.3 節末段。
+兩層後端測試分開,是因為它們回答的問題完全不同:引擎層測試不應該因為資料庫連線設定錯誤而失敗,API 層測試也不需要重新驗證約束邏輯本身對不對(那是引擎層的責任)。前端把規則抽成純函式(`utils/*.ts`),畫面元件只負責呈現,所以規則可以在不啟動瀏覽器的情況下測試。
 
-**持續整合(Task 58)**:每次 push 到 `main` 與每個 pull request,都會由 GitHub Actions(`.github/workflows/ci.yml`)在乾淨的 Linux 環境自動執行兩個獨立的 job:後端 job 啟動一個真實的 PostgreSQL 16 服務,執行完整的 `python -m pytest tests/`,再於另一個全新的空資料庫上執行 `alembic upgrade head`,確認 migration 能從零跑完;前端 job 執行 `npm ci`、`npm run lint`、`npm test`(Task 74,純函式單元測試)與 `npm run build`。CI 使用的資料庫帳密與 `SECRET_KEY` 都是只存在於該次執行的假值,不依賴 `.env`。
+**持續整合(Task 58)**:每次 push 到 `main` 與每個 pull request,都會由 GitHub Actions(`.github/workflows/ci.yml`)執行後端測試、遷移驗證,以及前端的 lint、test、build。
 
-**目前總計 1571 個測試,全數通過**:後端 1073 個(2026-10-28 實際執行,見 README),前端 498 個(2026-10-28 以 `npm test` 實際執行,`498 passed`)。下表後端各類數字為 2026-10-19(後端 822 個時)以 `pytest --collect-only` 依檔案統計的分佈,之後新增的後端測試未逐類補入。分佈:
+**目前總計 1715 個測試**(2026-10-31 以 `pytest --collect-only` 與 `npm test` 計數):後端 1155 個、前端 560 個。其中 1146 個後端測試於 2026-10-31 完整執行,全數通過(約 24 分鐘);之後新增的 9 個移出課表測試與相關測試檔另外執行通過;前端 560 個全數通過。
 
 | 類別 | 測試數 |
 |---|---|
-| Scheduling Engine(純邏輯) | 150 |
-| ├─ Constraint 單元測試 | 37 |
+| **Scheduling Engine(純邏輯)** | **213** |
+| ├─ Constraint 單元測試(H1–H15 與連堂、最低節數) | 42 |
+| ├─ 固定時段的保證與預檢 | 40 |
+| ├─ 連堂組合 | 26 |
+| ├─ 前向檢查(含 H15 剪枝、重新開始、seed 決定性) | 24 |
+| ├─ 原班上課的教室候選 | 15 |
 | ├─ 靜態可行性檢查 | 13 |
-| ├─ Backtracking | 10 |
-| ├─ Greedy | 7 |
-| ├─ Fixed Time Slot(Task 28) | 6 |
-| ├─ Fixed Time Slot 保證與預檢(多組資料下一定排在固定時段、混合時滿足所有硬性約束、六種預檢各自觸發與不誤判、與其他約束競爭時判定無解,Task 81) | 34 |
-| ├─ Lesson Blocks 連堂(連續時段的計算與午休斷開、整組排進連續時段且不同組不同天、Greedy 與 Backtracking、多需求並存不違反任何硬性約束、固定時段決定起點、無法成立時判定無解、沒有分組時結果與回溯次數完全相同、連堂規則本身、六種預檢與不誤判,Task 87;只排一部分的組依整組範圍判斷,Task 88) | 26 |
-| ├─ TeacherMinWorkload(低於最低節數為 WARNING、等於與高於不報、空值與 0 不限、沒有排課列算 0 節,Task 88) | 5 |
-| └─ Homeroom 導師教室(原班上課的唯一教室候選、沒有導師教室時為空、有類型時不用、Greedy 與 Backtracking、連堂同一間、固定時段、共用導師教室由 H3 錯開、超量/固定同時段/停用的預檢、教室類型完全相同字串比對與只有停用教室,Task 92B) | 12 |
-| API / 整合測試 | 672 |
-| ├─ ScheduleVersion(含 PUBLISHED 鎖定、TEACHER 過濾、草稿連同排課結果刪除) | 28 |
-| ├─ ScheduleVersionDelete(刪除已封存連同排課列、取消發布後刪除、需求鎖定重算、已發布 409、草稿不變、複製來源、權限、刪除後換人與複製,Task 80) | 10 |
-| ├─ ScheduleCopy(複製課表:跨學期/同學期、原樣複製、rollback、權限,Task 62) | 23 |
-| ├─ LessonPattern(連堂樣式的正規化與各種非法格式、加總不符、範圍、建立與修改的 422、編輯保護 409、展開課程的分組、修改樣式立即重新分組、展開時校正分組、排課端到端與預檢 422,Task 87) | 38 |
-| ├─ TeacherReassignment(換人:更新範圍、換人後檢查、連鎖換人、dry_run、隔離、rollback、權限,Task 63;變動列計數,Task 64) | 24 |
-| ├─ ScheduleVersionPublish(發布即切換、來回切換、非法轉換、rollback、DB unique index、ARCHIVED 鎖定與可見性,Task 64;取消發布、建立限草稿,Task 65) | 28 |
-| ├─ MoveSwapLessons(移動與對調節次:變動內容、衝突回報、dry_run、拒絕、隔離、rollback、權限、複製→換人→移動,Task 65;移離固定時段改為回報違規,Task 66) | 29 |
-| ├─ MoveCandidates(移動候選試算:每個候選與 move-lesson/swap-lessons 的 dry_run 完全一致、不可落點的原因碼、衝突與乾淨時段、對調對象、不寫入、權限與 404/409、回應時間,Task 83) | 11 |
-| ├─ Schedule(含 PUBLISHED 鎖定、TEACHER 過濾) | 20 |
-| ├─ Auth(含 register 首個帳號匿名、之後需 ADMIN,Task 57;密碼規則,Task 59) | 20 |
-| ├─ TimeSlot(含 label,Task 35;連同不可用時段刪除) | 17 |
-| ├─ ClassSubjectRequirement(含連同 Lesson 刪除、已發布/已封存引用時擋下,Task 56、64) | 16 |
-| ├─ User(帳號管理:清單、重設密碼、刪除、密碼規則,Task 59;訊息斷言,Task 60) | 17 |
-| ├─ Scheduler(排課 API 端到端;固定時段預檢的 422,Task 81) | 15 |
-| ├─ SchedulerHomeroom(自動排課的導師教室:有導師教室全帶、沒有維持空白、有類型用該類型教室、連堂同一間且相鄰、固定時段課、兩班共用不同時段、共用超量與固定同時段與停用的 422、教室類型配不到的中文訊息、只有停用教室、相同字串配得到,Task 92B) | 11 |
-| ├─ Class / Teacher(含連同附屬資料刪除) | 各 13 |
-| ├─ Subject | 12 |
-| ├─ ScheduleCheck(檢查既有課表:各類違規、PUBLISHED、唯讀、排序穩定、權限,Task 61;未填完整的列,Task 62;固定時段偏離:移動/對調/複製/空時段/已發布與已封存,Task 66;改為 ADMIN 限定,Task 72) | 25 |
-| ├─ ScheduleCheckLessonBlocks(檢查連堂:正常不報、隔午休、跨天、順序錯、兩位教師、同需求兩組同天、不同天不報、只排一部分依整組範圍判斷、沒有教師的列、沒有分組不受影響;移動/對調/換教師預覽與實際儲存後的檢查一致、移動候選與預覽一致、移動前後 identity_key 不變、schedule_id 正確,Task 88) | 20 |
-| ├─ BlockAdjustment(連堂整組調整:依第 1、2 節推算起點、與自己重疊、整組換教室、範圍外/午休/第一節前/最後一節後不可用、落在本班其他課上不可用、部分排課的組;2↔2 整組對調、1↔1 與 1 節組照舊、2↔1/同組/未排滿/多堂單節不支援;固定時段照樣移動並回報;換教師整組;預覽=執行=/check、候選與預覽及 409 原因一致、沒有分組時沒有整組欄位;執行到一半失敗整組不動;403/409、其他版本不受影響,Task 89) | 33 |
-| ├─ LessonPlacement(未排入課程:清單的全部/部分/全部已排、排序、任教資格教師與建議教室、鎖定版本可讀、其他學期不列;放入:單節、連堂依第 1、2 節推算起點、已排部分節次的組、目標被佔用、範圍外與跨午休、非教學時段、教師決定規則、教室預設(無類型有導師教室、無類型無導師教室、有類型、請求帶教室,Task 92B)、不屬於學期與已有排課列、原子性、權限與版本狀態;預覽與執行與 /check、候選與預覽逐格一致;放入後每週節數不符消失、2+1 同天回報,Task 92) | 57 |
-| ├─ RoomMissingWarning(指定類型卻沒有教室的警告:每堂一筆與 identity_key、有教室或原班上課不報、類型不符是 H9、未填完整的列不報、移動後身分不變、不阻擋移動對調換教師發布、放入的候選與預覽與 /check 一致;未排入清單的 room_type、default_room_id、has_matching_room 各種情況,Task 94) | 17 |
-| ├─ ChangeRoom(更改已排課的教室:單節、連堂整組、2+1 的單節組、整門課、教師與時段不變、清除教室、與現狀相同回空 changes、只列真正改變的列、停用教室 409、教室/排課列/版本不存在 404、已發布/已封存 409、TEACHER 403、範圍不合法 422、預覽與執行與 /check 一致、原子性、類型不符由 H9 回報、補上教室後缺教室警告消失、教室衝堂在預覽中出現,Task 95) | 24 |
-| ├─ ScheduleCheckMinWorkload(最低授課節數:低於為 WARNING 且仍 is_valid、等於不報、沒有課算 0、停用教師不報、與 ERROR 並存、不阻擋移動、不阻擋自動排課與發布,Task 88) | 7 |
-| ├─ TeacherPeriods(教師最低/最高每週節數:建立與修改的負數與最低大於最高回 422 中文訊息、修改依修改後的值判斷,Task 88) | 12 |
-| ├─ RequirementEditLock(被已發布/已封存使用的需求逐欄位拒絕修改、相同值不算修改、只被草稿使用或未使用可修改、刪除防護共用判斷、草稿換人不受影響,Task 72) | 21 |
-| ├─ RequirementIsLocked(`is_locked`:已發布/已封存/草稿/未使用、隨狀態改變、列表與單筆一致、新增與修改的回應、請求中的 `is_locked` 被忽略、`TEACHER` 也看得到、列表不隨筆數增加查詢次數,Task 73) | 11 |
-| ├─ TeacherReadScope(`TEACHER` 只看到有已發布版本學期的課程與需求、單筆 404、取消發布即隱藏、排課列只限已發布、課表檢視所需請求、檢查限 ADMIN,Task 72) | 11 |
-| ├─ ListFilters(清單依版本/學期篩選:不混入、分頁銜接、無參數不變、不存在→空陣列、TEACHER 可見性、401,Task 66) | 17 |
-| ├─ Semester | 11 |
-| ├─ AcademicYear / Room | 各 10 |
-| ├─ Grade / School | 各 9 |
-| ├─ TeacherAvailability / TeacherSubject | 各 8 |
-| └─ Lesson(含 fixed_time_slot,Task 28) | 7 |
-| 前端純函式單元測試(Vitest,Task 74、78、80、81、84、85、86、90、92A、93、94、95、96、97、98、99) | 449 |
-| ├─ Task 99(首頁健康度徽章與數字顏色、課表檢查標籤與清單展開、同名老師的帳號顯示、未排入課程時擋下發布) | 23 |
-| ├─ 設計系統(色票對比、StatusBadge 語氣、停用原因、InfoPopover 狀態與位置、刪除確認框文字、Stepper 狀態、首頁卡片說明文字、年級可排節次表格,Task 98) | 75 |
-| ├─ violationMerge(合併 ×N、分組、問題身分鍵、前後比對) | 25 |
-| ├─ violationLocate(各類型的檢視、H12 依停用項目、欄位退路) | 23 |
-| ├─ errorMessages(字串 detail、422 陣列、無回應、無法辨識的回應) | 8 |
-| ├─ scheduleVersionFormat(狀態標籤、未知狀態、版本標籤) | 8 |
-| ├─ teacherReassignment(目前教師判定、教師名下的課) | 9 |
-| ├─ lessonDrop(可移動的格子、可對調的課、各檢視的歸屬,Task 84) | 8 |
-| ├─ passwordRule(8 字元到 72 位元組、全形字元、emoji) | 6 |
-| ├─ periodDisplay(教學節序號、非教學列名稱、全為教學列、沒有 label、空陣列、period 不連續,Task 78) | 10 |
-| ├─ timeSlotFormat(教學節序號的「星期X第 N 節」、非教學時段名稱、退路,Task 78) | 6 |
-| ├─ versionDelete(可刪除判斷、刪除警語、刪除後切換到哪個版本,Task 80) | 10 |
-| ├─ failureDiagnostics(固定時段預檢的中文句子與教學節序號、修正頁面連結,Task 81) | 9 |
-| ├─ moveCandidates(新增問題→衝突、只解決或維持→安全、移動的同一問題不算新增、移動與對調的資料挑選與找不到、標籤與最多 3 條原因、快取鍵、過期回應不套用,Task 84) | 18 |
-| └─ dialogKeyboard(Esc 不論焦點都是返回、進行中忽略、焦點在按鈕上的 Enter 不 preventDefault 並監看是否需補按、輸入法處理過的 Enter 與數字鍵盤 Enter、自動重複忽略、焦點在外時拉回返回、Tab/Shift+Tab 循環、keyup 補按規則,Task 85、86) | 19 |
+| ├─ Soft Constraints(S8 偏好節次 8、S9/S10 5) | 13 |
+| ├─ Backtracking / Greedy | 17 |
+| ├─ 共同排課(合併節) | 10 |
+| ├─ 年級可排節次(H13) | 8 |
+| └─ 最低每週節數警告 | 5 |
+| **API / 整合測試** | **942** |
+| ├─ 排課設定與需求(每筆紀錄的教師/年級設定、連堂樣式與批次複製、指定教室批次複製、需求鎖定、年級科目需求、課程) | 200 |
+| ├─ 手動調整(移出課表與放入、連堂調整與換位、移動/對調、換教師、更換教室、移動候選試算) | 201 |
+| ├─ 排課紀錄(建立、複製、發布與取消發布、刪除、暫存副本、精靈進度、清單篩選、排課列) | 152 |
+| ├─ 學校資料(學校與自動結構、班級、科目、教室、時段、學年度/學期、教師、年級、停用與刪除指引) | 147 |
+| ├─ 帳號與權限(三種角色、登入與換發、帳號管理與搜尋、身分證字號、依學校隔離、一般老師的讀取範圍) | 124 |
+| ├─ 檢查衝突(各類違規、連堂、固定時段、最低節數、指定教室警告) | 65 |
+| └─ 自動排課(排課 API、教室、導師、共同排課、Soft Constraint 科目判定) | 53 |
+| **前端純函式單元測試(Vitest,55 個檔案)** | **560** |
 
----
+前端測試涵蓋:設計 token 與對比(含登入頁半透明文字)、失敗診斷句子、衝突句子合併與前後比對、「在課表中查看」定位、候選格標示(可放/衝突/可對調)、未排入課程、拖放規則、對話框鍵盤操作、預覽對話框、排課紀錄與精靈規則、連堂樣式與複製、共同排課、可搜尋選單、科目排序、教室容量、帳號清單排序與篩選、閒置登出等。各測試檔與原始碼相鄰(`utils/xxx.test.ts`)。
 
 ## 10. 已知限制與未來規劃
 
-以下項目都是**有意識排定優先順序後暫緩的項目**,`AGENTS.md` 本身就把它們排在目前開發階段之後(見其第 26 節的優先順序清單):
+以下是 2026-10-31 仍然存在的限制(早期版本列過、之後已解決或因改版不再適用的項目已移除:例如帳號與教師沒有關聯、`School` 沒接進資料模型、Soft Constraints 未開始、刪除使用瀏覽器內建確認框、教室類型必須完全相同、換人改到學期共用需求)。
 
-- **H10 Room Capacity 未實作**:`Room.capacity` 欄位已經預留(nullable,方便未來不需要改 schema 就能加上這條 Constraint),但 Constraint 本身在 Task 17–20 系列被明確排除在範圍外。
-- **Soft Constraints(S1–S7)完全未開始**:例如教師每日負擔平衡、避免連續過多堂課等。`AGENTS.md` 明訂「先滿足所有 Hard Constraint,再比較 Soft Constraint 分數」,Soft Constraint 排在後面。
-- **版本複製有使用範圍限制**:`POST /schedule-versions/{id}/copy`(Task 62,決策 16)可以把任何版本(含已發布的)複製成新的 DRAFT,但跨學期複製只能在同一學年內進行(`Class` 不分學期,跨學年的升級問題目前無法表達),目標學期必須還沒有任何排課需求,而且複製出的版本已有排課結果,不能直接重新執行 `run-scheduler`,只能手動調整。複製後的「逐門課換人」可使用換人 API(Task 63,決策 17)。
-- **手動調整課表沒有重新驗證**:`AGENTS.md` 第 15 節要求手動調整課表時後端仍要重新驗證 Hard Constraint,但目前 `PATCH /schedules/{id}` 只檢查了型別、外鍵存在性、與 PUBLISHED 鎖定,沒有跑任何一條 H1–H12 檢查——也就是說目前可以透過手動 PATCH 把兩堂課排到同一個老師的同一個時段。Task 61 新增了唯讀的 `GET /schedule-versions/{id}/check`,可以事後對整份課表跑 H1–H9、H11、H12 檢查(以及未填完整的列、固定時段偏離、連堂,Task 62、66、88)並列出違規,但它只回報、不阻擋(第 7 節決策 15):手動修改仍然不會被即時擋下。Task 63、65 另外提供了換人、移動節次、對調節次的專用端點(決策 17、19),它們同樣不阻擋衝突,但每次都會附上檢查結果。前端的課表檢視已提供檢查衝突(Task 68)與點選式的移動、對調(Task 69),但同樣只預覽、回報,不阻擋。
-- **帳號管理功能有限**:「帳號管理」頁(Task 59)已提供帳號清單、新增、重設密碼、刪除,但仍有以下限制:不能修改既有帳號的角色;沒有停用帳號(`User.is_active` 欄位存在但沒有操作介面);沒有「忘記密碼」流程,只能由 `ADMIN` 重設;密碼規則為長度 8 到 72(下限以字元數計,上限以 UTF-8 位元組計,對應 bcrypt 的 72 位元組輸入上限,避免超出的部分被靜默截斷;register 與重設密碼共用同一條規則,前端表單會先行檢查並顯示中文原因);**重設密碼後,該帳號已簽發的舊 token 在到期前仍然有效**(token 驗證只查帳號是否存在且啟用,不記錄密碼變更時間)——刪除帳號則會立即讓舊 token 失效;帳號沒有與 `Teacher` 綁定(見下方「`User` 帳號與 `Teacher` 網域實體沒有關聯」)。第一個帳號仍需透過 API 匿名建立(第 7 節決策 13)。
-- **刪除帳號後以同名重建,舊 token 會被視為新帳號**:token 只以帳號名稱(`sub`)辨識使用者,`get_current_user()` 每次依名稱查資料庫。帳號被刪除後,舊 token 會立即失效;但若之後又建立一個同名的新帳號,舊 token 在到期前會被當成這個新帳號(包含它的角色)。要根治需要把 user id 放進 token 並在驗證時比對,屬於認證機制的改動,暫不處理。
-- **錯誤翻譯依賴後端英文原文字串比對**:前端 `constants/errorMessages.ts` 的 `KNOWN_ERROR_MESSAGES` 以後端 `detail` 的完整英文字串當 key 對照中文。後端只要改一個字、一個標點,對照就會靜默失效,畫面改顯示英文原文(有 fallback,不會變空白,但使用者會看到英文)。較穩固的做法是後端回傳穩定的錯誤代碼(例如 `error_code`)讓前端依代碼翻譯,或由後端直接送出使用者看得懂的訊息;目前部分全域例外處理器已採後者(第 8 節案例六),但各 router 自己的 404 訊息仍是英文原文比對。FastAPI 的 422 驗證錯誤(`detail` 是陣列)現在由 `extractApiErrorMessage()` 統一處理(Task 60):後端自訂驗證器的中文訊息(例如密碼規則)直接顯示,其餘依錯誤類型改用簡短中文(如「缺少必填欄位」「欄位格式不正確」)或通用訊息,不再被誤顯示成「無法連線到伺服器」。「無法連線到伺服器」只在完全沒有收到回應時顯示;有回應但格式無法辨識(例如純文字的 500)則顯示「伺服器回應異常,請稍後再試或聯絡管理員」。
-- **修改資料可能讓既有排課結果失效,系統不會察覺**:排課結果寫入 `Schedule` 之後,若再修改老師的任教資格、不可用時段、工作量上限、停用狀態,或修改排課需求,既有的 `Schedule` 不會被重新驗證,也不會被標記為「可能已不合法」——例如把某位老師標記為週一第 2 節不可用,他原本就排在那一節的課仍留在課表上,沒有任何提示。已發布版本同樣適用:發布後鎖定的是版本本身,不是它所依賴的基礎資料。現在可以用 `GET /schedule-versions/{id}/check`(Task 61)事後重新檢查,但系統不會主動觸發或提示。
-- **在已有已發布版本的學期新增排課需求,已發布課表會出現 H7**:編輯與刪除被已發布或已封存課表使用的需求都會被擋下(決策 20),但 `POST /class-subject-requirements` 不檢查。新需求展開出的 `Lesson` 在已發布版本裡沒有對應的排課列,對已發布版本執行檢查會出現 H7 每週節數違規;已發布課表本身的內容不變。正確的流程是複製成新草稿,在課表檢視的編輯模式把「未排入課程」拖進課表(Task 93,決策 30),檢查通過後再發布。
-- **換人會改到整個學期共用的需求**:換人 API(Task 63,決策 17)會把需求的 `required_teacher_id` 改成新老師,而需求是同學期所有版本共用的。在同學期的某個 DRAFT 換人之後,同學期其他版本(包含已發布的版本)的 `Schedule` 列仍是舊老師,對它們執行 `GET .../check` 會出現 H6 指定教師違規。直接以 `PATCH /class-subject-requirements/{id}` 改指定教師,在需求已被已發布或已封存課表使用時會被擋下(決策 20),要換老師請一律使用換人 API。同樣的情況也發生在切換回舊版本時(決策 18):在同學期換人後,若把 ARCHIVED 的舊版本重新發布,舊版本課表上顯示的是 `Schedule` 裡的舊老師,但共用需求指定的已是新老師,對它執行檢查可能出現 H6 違規。根治方向(尚未實作,屬於資料模型的變更):讓指定教師隨版本保存(例如換人只改該版本的資料,需求只保留建立課表時的預設),而不是整個學期共用一份。開發資料庫中的示範資料目前以 `scripts/reset_demo_requirements.ps1`(Task 76)在每輪示範後把指定教師改回封存版本 v4 的教師,只是示範用的權宜做法,不是通用工具。
-- **手動調整沒有復原功能**:換人、移動、對調(決策 17、19)保存之後沒有「上一步」;要預覽結果請先用 `dry_run`(課表編輯模式與換教師面板在確認前一律先預覽),要保留原狀請先複製一份草稿(決策 16)。
-- **換教師面板不支援一次整批換人**:換教師面板(Task 70)一次只處理一門課;要把離職教師的所有課交給同一位新教師,也需要逐門預覽、確認。後端的 reassign-teacher 本身也是一次一筆需求。
-- **移動與對調不會改教室**:編輯模式(Task 69、71)支援點選與拖拉,選取或拖曳時會標出候選位置(Task 84,決策 25);移動與對調只改時段,教室維持原樣。要改教室請選取那堂課後用「已選取」列的「更改教室」(Task 95,決策 32),可選這堂課(連堂整組)或整門課。拖拉使用原生 HTML5 拖放,只支援滑鼠;部分瀏覽器(例如 Firefox)對拖曳 `<button>` 元素支援不完整,這時請改用點選流程。
-- **移動節次不會更新 `Lesson.fixed_time_slot_id`**:被固定時段的課移到別的節次之後,`Lesson` 上的固定時段仍是原本的值(刻意不自動改,避免手動調整默默改掉排課前的設定);檢查會回報 `FIXED_TIME_SLOT_MISMATCH`(Task 66),要讓新位置成為固定時段,需到排課控制台修改該課的固定時段。自動排課則一定把固定課排在固定時段(決策 23),所以這個檢查實際上只會抓到手動移動或對調造成的偏離。
-- **列表 API 的分頁上限**:所有 `GET` 列表端點的 `limit` 預設為 100,後端**沒有設定上限**(呼叫端可以傳任意值);前端課表檢視目前寫死 `limit=1000`,把 `schedules`、`lessons`、`class-subject-requirements` 整張表抓回來再自己篩選。若單一查詢的筆數超過前端傳的上限,資料會被靜默截斷、不會有任何錯誤。Task 66 讓這三個端點可以依版本(`schedule_version_id`)或學期(`semester_id`)篩選,結果依 id 穩定排序、可與 `skip`/`limit` 一起分頁;Task 67 起課表檢視已改用篩選,截斷門檻變成「單一版本的排課筆數,或單一學期的課程數超過 1000」。目前學校規模遠低於這個門檻。
-- **沒有導師教室的班級,原班上課的課仍沒有教室**:Task 92B(決策 29)起 `run-scheduler` 與放入未排入課程都會把原班上課的課排進班級的導師教室;班級沒有設定導師教室時照舊留空,「依教室」檢視看不到這些課,H3/H9 對沒有教室的列也直接略過。開發資料庫的示範資料在這之前以一次性腳本 `scripts/add_demo_rooms.ps1`(Task 79)補上導師教室與各版本的教室——那是刻意繞過「鎖定版本不可修改」的示範資料修正,不是應用程式的功能;唯讀檢查確認學期 13 的 v4、v11 原班上課的課都已在該班的導師教室,與 Task 92B 的規則一致。
-- **移動節次不能把教室清空**:`move-lesson` 的 `target_room_id` 省略或為 null 代表「教室不變」;要清空教室請改用 `change-room` 的「不指定教室」(Task 95,會先預覽並附完整檢查)。
-- **既有 migration `02850681b45e` 的 downgrade 無法執行**:它在 downgrade 時要刪除一個沒有名稱的外鍵,SQLAlchemy 無法產生對應的 `DROP CONSTRAINT`,所以無法一路 downgrade 到 base。不影響 upgrade 與 CI;最新的 migration `a64c0f1e2b7d`(ARCHIVED 狀態)的 `downgrade -1` 已在測試資料庫驗證可用。
-- **複製課表的寫入前檢查沒有加鎖**:跨學期複製時,「目標學期是否已有排課需求」的檢查與實際寫入之間有極小的競爭視窗;同時複製到同一個學期,或同時對同一學期產生新版本號,會由資料庫的唯一限制擋下並回 409(訊息依違反的限制說明，例如「排課紀錄編號重複，請重新整理頁面後再試」),整筆 rollback,不會留下重複資料。目前以單一管理員為主的使用情境下風險很低,未另外加鎖。
-- **刪除排課需求與發布草稿版本之間存在極小的競爭視窗**:`delete_class_subject_requirement()`(Task 56)先查詢需求底下的 `Lesson` 是否被已發布或已封存版本的 `Schedule` 引用,確認沒有之後才刪除這些 `Lesson` 在草稿版本裡的 `Schedule`、`Lesson` 與需求本身。若在檢查之後、commit 之前,另一位管理員剛好把引用這些 `Lesson` 的草稿版本發布,該版本(此時已是 PUBLISHED)的 `Schedule` 會被一併刪除。發生條件是兩人在同一瞬間操作,目前以單一管理員為主的使用情境下風險很低,暫不加鎖。
-- **前端只對純函式有單元測試,元件與頁面互動沒有**:Task 74 加入 Vitest(只測純函式,不使用 jsdom 或 Testing Library),涵蓋衝突句子合併、分組與前後比對(`utils/violationMerge.ts`,含各違規類型的「問題身分」鍵)、「在課表中查看」的定位規則(`utils/violationLocate.ts`)、拖放規則(`utils/lessonDrop.ts`)、換教師的目前教師判定與列表(`utils/teacherReassignment.ts`)、版本狀態標籤(`utils/scheduleVersionFormat.ts`)、API 錯誤訊息翻譯(`constants/errorMessages.ts` 的 `extractApiErrorMessage()`)、密碼規則(`utils/passwordRule.ts`)、節次顯示(`utils/periodDisplay.ts`、`utils/timeSlotFormat.ts`,Task 78)、版本刪除規則(`utils/versionDelete.ts`,Task 80)、固定時段預檢的失敗診斷句子(`utils/failureDiagnostics.ts`,Task 81)、候選格標示的判定與快取鍵(`utils/moveCandidates.ts`,Task 84)、對話框的鍵盤判斷(`utils/dialogKeyboard.ts`,Task 85)、預覽對話框的結論與問題行(`utils/previewSummary.ts`,Task 92A)、未排入課程的卡片與放入規則(`utils/placement.ts`,Task 93)、教室類型的建議清單與配對提示(`utils/roomTypes.ts`,Task 94)、更改教室的選項排序與預覽文字(`utils/roomChange.ts`,Task 95)、調整成功後的刷新規則(`utils/adjustmentRefresh.ts`,Task 96)、首頁儀表板的資料整理(`utils/dashboard.ts`,Task 97)。頁面與元件的互動——版本管理對話框、檢查衝突、編輯模式的點選與拖拉、換教師面板、鎖定需求的停用、逐列錯誤訊息的清除時機——仍以啟動真實前後端手動驗證為主(開發時另以 headless 瀏覽器重放部分情境),沒有納入自動化測試(見第 3.3 節末段)。
-- **刪除仍使用瀏覽器內建確認框**:版本管理已改用共用的 `ConfirmDialog`(Task 67),但基礎資料、排課需求、帳號的刪除仍使用 `window.confirm()`,外觀與版本管理的對話框不一致,錯誤也無法顯示在確認框內。
-- **行政區塊(午餐、課間活動、教師午會等)不呈現在課表檢視**:這些時段不對應任何 `ClassSubjectRequirement`,課表檢視只呈現排課引擎實際排定的課,空堂保持空白——是刻意的範圍決定,需要更大的資料模型調整才能支援,已記錄在 `docs/FRONTEND_REQUIREMENTS.md` 第 3、7 章。
-- **`TimeSlot.period` 編號的跨星期一致性,依賴人工維護紀律,資料庫層級沒有強制**:`TimeSlot` 沒有 `semester_id`/`school_id`,是全校共用的單一全域結構,課表檢視的節次(列)軸完全由 `period` 這個整數決定(畫面上的「第 N 節」是由它推算的教學節序號,決策 21)(第 8 節除錯歷程案例三的迭代正是從這裡的一個誤用衍生出來的)。但 schema 本身沒有任何約束保證「第 3 節」在週一到週五代表的是同一個實際時段——如果建資料的人把某天的 `period` 編號填錯位移一格,課表檢視會靜默地把錯的兩堂課對齊在同一列,不會有任何錯誤訊息,純粹依賴建立資料時的人工紀律。
-- **`TeacherClassAssignment` 未實作**:`AGENTS.md` 原始 domain 設計把「資格」(`TeacherSubject`)跟「這學期實際負責哪個班」(`TeacherClassAssignment`)分成兩張表,但目前系統排課時直接把「所有具備資格的老師」當候選池,沒有校方預先指派這一層篩選。
-- **`User` 帳號與 `Teacher` 網域實體沒有關聯**:登入系統的 `User`(`ADMIN`/`TEACHER` 角色)跟排課領域裡的 `Teacher` 是兩張完全獨立的表,一個 `TEACHER` 角色的帳號目前無法對應到某一位特定 `Teacher`,「老師只能看到自己的課表」這類功能還做不到。
-- **`STUDENT` 角色未實作**:`AGENTS.md` 列出三種角色,目前 `User.role` 的 CheckConstraint 只接受 `ADMIN`/`TEACHER`。
-- **`School` 沒有實際接進資料模型**:`School` 表存在,但沒有任何其他表的外鍵指向它——系統實質上是隱含的單一學校假設,`Grade.level` 全域唯一就是這個假設的直接後果(如果要支援多校,這條唯一約束必須改成 `(school_id, level)` 複合唯一)。
-- **`Teacher.min_weekly_periods` 只用於檢查(Task 88)**:低於最低節數時檢查結果列出 `TEACHER_MIN_WORKLOAD` 警告,但排課演算法不會試著讓教師達到最低節數,也不阻擋任何操作。這個欄位在資料庫是 NOT NULL,「不限」目前以 0 表示;引擎的 `TeacherMinimumWorkload` 已接受空值(不限),若要讓 API 也能設成空值,需要另行調整欄位與 migration。教師建立與修改時會檢查兩個值都不是負數、最低不大於最高(422,原本最低大於最高是資料庫 CHECK 回 409)。`ClassSubjectRequirement.consecutive_limit` 自 Task 87 起已停用(欄位與資料保留、API 標為 deprecated),由連堂樣式 `lesson_pattern` 取代(決策 26)。
-- **補排未排入課程的限制(Task 92、93,決策 28、30)**:不能把已排的課移出成未排入;原班上課而班級有導師教室時,放入一定使用導師教室,無法指定「不排教室」(place-lesson 不帶 `room_id` 即使用預設);需求有指定教室類型時若選「不指定教室」,H9 不會回報(只比對已有的教室),檢查改以 `ROOM_MISSING_FOR_TYPE` 警告提醒(Task 94)。
-- **教室類型仍是自由輸入的字串,必須完全相同才配得到(Task 94,決策 31)**:大小寫、前後空白都算不同,教室名稱不參與配對。現在教室與需求表單都有現有類型的建議清單與說明,需求的類型找不到在職教室時表單與需求總覽會提示,放入時也會提示,檢查以警告列出沒有教室的課;但系統不會自動修正或合併相近的類型。
-- **連堂組合的已知限制(Task 87–90 完成後)**:點選流程(先點一堂課再點「移到這裡」)沒有整組落點的虛線預覽,只有拖曳時有(點選流程的格子仍有可放/不可放標示,預覽對話框也會列出整組變動);`Teacher.min_weekly_periods` 仍只能是數字(0 表示不限),見上一條。
+**排課規則**
+- **H10 教室容量不實作**:教室容量欄位已刪除(使用者決定),一間教室能同時容納幾班改用 `max_classes` 表達;系統不知道班級人數。
+- **Soft Constraint 的科目以名稱判定**:S8/S9/S10 依科目名稱包含的關鍵字判斷(第 5.4 節);科目改名(例如「體能」)就不會被認出。根治需要為科目加上類別欄位。
+- **Soft Constraint 只有三條**:`AGENTS.md` 列出的 S1–S7(教師每日負擔平衡、減少空堂等)尚未實作;分數也沒有顯示在畫面上。
+- **最低每週節數只檢查、不保證**:自動排課不會為了讓老師達到最低節數而調整,只在檢查結果列出警告。
+- **年級沒設定可排節次時不受限制**:精靈的「下一步」一定會為每個年級存下設定(至少一節);直接用 API 跳過時,該年級視為全部節次都可排。
+- **`TimeSlot.period` 跨星期一致性依賴建立學校時自動產生的時段**:時段不能新增刪除,只改標籤與是否可排課;資料庫層級沒有強制每天的節次相同。
 
----
+**手動調整**
+- **衝突不阻擋、儲存後沒有上一步**:每次調整都先預覽並自動重新檢查,但衝突不會被擋下;未儲存的編輯可以離開頁面放棄(丟棄暫存副本),儲存之後沒有復原。
+- **換教師一次一門課**:要把離職教師的所有課交給同一位新教師,需要逐門處理。
+- **移動節次不會更新 `Lesson.fixed_time_slot_id`**:被固定時段的課移到別的節次後,檢查會列出「不在固定時段」;固定時段只能在尚未排課的紀錄(精靈的科目需求)設定,要改請「複製此次排課設定」重新排課。
+- **移出課表的限制**:共同排課(合併節)的課不能移出;移出後檢查會列出每週節數不足(H7),直到放回為止。
+
+**權限與帳號**
+- **一般老師看到的是全校已發布課表**:帳號已與教師一對一,但課表頁沒有「只看自己的課」的預設篩選。
+- **`TeacherClassAssignment` 未實作**:`AGENTS.md` 原始設計的「實際授課分配」由排課需求的指定教師與導師設定取代。
+- **刪除帳號後以同名重建,舊 token 會被視為新帳號**:token 只以帳號名稱(`sub`)辨識使用者;閒置 30 分鐘自動登出縮小了這個視窗,但沒有完全消除。
+- **「有未排入課程時不能發布」只在前端擋下**:後端的發布 API 沒有同樣的檢查。
+
+**工程**
+- **錯誤翻譯依賴後端英文原文字串比對**:前端 `constants/errorMessages.ts` 以後端 `detail` 字串對照中文,後端訊息改字就會退回顯示英文原文。
+- **前端只有純函式的單元測試**:元件與頁面互動(拖曳、搜尋選單、精靈)沒有自動化測試,以手動驗證為主。
+- **列表 API 的分頁上限**:`GET` 列表端點的 `limit` 沒有設定上限。
+- **既有 migration `02850681b45e` 的 downgrade 無法執行**:它在 downgrade 時要刪除一個沒有名稱的外鍵;只影響降版,不影響 `upgrade head`。
+- **複製與刪除的極小競爭視窗**:複製課表、刪除需求的「檢查」與「寫入」之間沒有加鎖,同時操作時由資料庫的唯一索引或外鍵擋下,回傳的是一般的衝突錯誤而非友善訊息。
+- **前端單一 bundle 超過 500 kB**:`npm run build` 會出現 Vite 的 chunk 大小警告,尚未做程式碼分割。
 
 ## 11. 電梯簡報草稿(30 秒版本)
 
-> 這是一個國小排課系統。核心是把老師的任教資格、可用時段、工作量上限,還有班級的每週需求、教室類型,建成一套完全獨立於 API 框架跟資料庫的 Constraint Engine,自己實作了 Greedy 跟 Backtracking 兩種排課演算法。系統的重點之一是「可解釋」——每次排不出課表,都能講出具體是哪個老師、哪個限制造成的,不會只回一句排不出來,前端的排課控制台跟失敗診斷畫面把這件事直接視覺化,不用查資料庫就能看懂。目前有 1117 個自動化測試(後端 822、前端純函式 295),排課引擎那部分完全不需要資料庫,秒級就能跑完。
+> 這是一個給學校教學組長用的排課系統。核心是一套完全獨立於 API 框架跟資料庫的排課引擎:把參與的老師、不可排時段、每週節數上下限、各年級可排節次、班級的科目需求、連堂和共同排課建成 15 條 Hard Constraint,用前向檢查搜尋出一份一定合法的課表,再依「國語數學排早上、體育避開剛吃飽、全日最後一節排活動課」這類偏好做最佳化。排不出來的時候,它不會只說失敗,而是指出哪一班、哪位老師、哪一條規則出了問題、要去哪一步修。排好之後教學組長可以直接拖曳微調,每一次調整系統都會自動重新檢查,確認沒問題再發布給全校老師。
 
-（可依實際口語習慣調整用詞與停頓,上面這版大約落在 30 秒中等語速。）
+（可依實際口語習慣調整用詞與停頓,上面這版大約落在 30–40 秒中等語速。）

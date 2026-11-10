@@ -170,6 +170,15 @@ class MoveLessonRequest(BaseModel):
     dry_run: bool = False
 
 
+class UnscheduleLessonRequest(BaseModel):
+    """移出課表: body of POST /schedule-versions/{id}/unschedule-lesson.
+    The lesson (with its whole 連堂 block) leaves the working copy's
+    timetable and becomes an unscheduled lesson again."""
+
+    schedule_id: int
+    dry_run: bool = False
+
+
 class SwapLessonsRequest(BaseModel):
     """Task 65: body of POST /schedule-versions/{id}/swap-lessons."""
 

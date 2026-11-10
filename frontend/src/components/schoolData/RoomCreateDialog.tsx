@@ -38,7 +38,7 @@ export default function RoomCreateDialog({
           onChange={(event) => setName(event.target.value)}
           disabled={busy}
           aria-label="教室名稱"
-          placeholder="這間教室自己的名字"
+          placeholder="這間教室的名稱"
           className={`${INPUT} w-full`}
         />
       </label>

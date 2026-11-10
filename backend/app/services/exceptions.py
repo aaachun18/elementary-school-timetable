@@ -74,7 +74,8 @@ class BlockAdjustmentRefusedError(Exception):
     """Task 89: a move or swap the lesson block (連堂) rules don't allow
     (-> 409). `reason` is the code from app/services/block_adjustment.py
     (BLOCK_OUT_OF_RANGE / BLOCK_DISPLACED_UNFIT),
-    the same one move-candidates reports for that target."""
+    the same one move-candidates reports for that target -- or, for 移出課表,
+    UNSCHEDULE_COMBINED (a lesson of a 合併節)."""
 
     def __init__(self, reason: str) -> None:
         self.reason = reason

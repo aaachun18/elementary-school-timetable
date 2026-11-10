@@ -25,6 +25,11 @@ refuse raises BlockAdjustmentRefusedError (-> 409), and otherwise every
 planned row is updated in the one transaction (all or nothing). A lesson of
 no block plans to exactly the one row (two for a swap) these endpoints
 always changed.
+
+移出課表 (unschedule_lesson): the lesson's row -- with every row of its
+block -- is deleted, so the lesson is unscheduled again
+(services/lesson_placement.py lists it and can place it back). Same flow:
+refuse first, delete -> flush -> check -> commit, or roll back for dry_run.
 """
 
 from collections.abc import Callable
@@ -234,6 +239,56 @@ def swap_lessons(
         changes = _apply_plan(db, plan, {})
         violations = _flush_check_and_finish(db, schedule_version_id, dry_run=dry_run)
     except Exception:
+        db.rollback()
+        raise
+    return AdjustmentOutcome(changes=changes, violations=violations)
+
+
+def unschedule_lesson(
+    db: Session,
+    schedule_version_id: int,
+    schedule_id: int,
+    *,
+    dry_run: bool,
+) -> AdjustmentOutcome | None:
+    """Returns None if the ScheduleVersion doesn't exist (caller -> 404).
+    移出課表: deletes the lesson's Schedule row, and every row of its lesson
+    block (連堂) -- a block always leaves and comes back as a whole. Each
+    deleted row is one change, its new time slot and room None. A lesson of
+    a combined lesson (共同排課) is refused (BlockAdjustmentRefusedError,
+    UNSCHEDULE_COMBINED): placing it back could not take the other classes'
+    lessons with it. The check afterwards reports the lessons now missing
+    (H7), as for any unscheduled lesson."""
+    schedule_version = _get_unlocked_version(db, schedule_version_id)
+    if schedule_version is None:
+        return None
+    _get_schedule_in_version(db, schedule_version_id, schedule_id)
+    layout = block_adjustment.Layout(
+        schedule_check.load_assignment_rows(db, schedule_version.id),
+        schedule_check.load_check_context(db, schedule_version.id),
+    )
+    if layout.partner_rows(schedule_id):
+        raise BlockAdjustmentRefusedError(block_adjustment.UNSCHEDULE_COMBINED)
+    removed_ids = sorted(member for _, member in layout.group(schedule_id).members)
+
+    try:
+        changes: list[ScheduleChange] = []
+        for removed_id in removed_ids:
+            schedule = db.get(Schedule, removed_id)
+            assert schedule is not None  # loaded from this version a moment ago
+            changes.append(
+                ScheduleChange(
+                    schedule_id=schedule.id,
+                    previous_time_slot_id=schedule.time_slot_id,
+                    new_time_slot_id=None,
+                    previous_room_id=schedule.room_id,
+                    new_room_id=None,
+                )
+            )
+            db.delete(schedule)
+        violations = _flush_check_and_finish(db, schedule_version_id, dry_run=dry_run)
+    except Exception:
+        # Not swallowed: re-raised after undoing every staged change.
         db.rollback()
         raise
     return AdjustmentOutcome(changes=changes, violations=violations)

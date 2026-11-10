@@ -65,11 +65,15 @@ BLOCK_DISPLACED_UNFIT = "BLOCK_DISPLACED_UNFIT"
 # for its own targets; services/move_candidates.py uses this constant).
 NON_TEACHING_SLOT = "NON_TEACHING_SLOT"
 BLOCK_PARTIAL_MISMATCH = "BLOCK_PARTIAL_MISMATCH"
+# 移出課表 only: a lesson of a 合併節 (共同排課) stays in the timetable --
+# placing it back could not bring the other classes' lessons with it.
+UNSCHEDULE_COMBINED = "UNSCHEDULE_COMBINED"
 
 REFUSAL_MESSAGES = {
     BLOCK_OUT_OF_RANGE: "連堂整組放不進這個位置，整組需要同一天相鄰的教學時段",
     BLOCK_TARGET_OCCUPIED: "要放入的時段已有本班的其他課",
     BLOCK_DISPLACED_UNFIT: "被換走的課放不進連堂空出來的時段",
+    UNSCHEDULE_COMBINED: "共同排課的課不能移出課表",
 }
 
 

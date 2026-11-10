@@ -24,12 +24,15 @@ import PageHeader from "../components/PageHeader";
 import CheckStatusTag from "../components/CheckStatusTag";
 import ConflictChecklist from "../components/ConflictChecklist";
 import PlacementPreviewDialog from "../components/PlacementPreviewDialog";
+import RoomChangeControls from "../components/RoomChangeControls";
+import RoomChangePreviewDialog from "../components/RoomChangePreviewDialog";
 import SearchableSelect from "../components/SearchableSelect";
 import StatusBadge, { RecordStatusBadge } from "../components/StatusBadge";
 import TeacherChangeControls from "../components/TeacherChangeControls";
 import TeacherReassignPanel from "../components/TeacherReassignPanel";
 import TeacherReassignPreviewDialog from "../components/TeacherReassignPreviewDialog";
 import TimetableGrid from "../components/TimetableGrid";
+import UnscheduleDropZone from "../components/UnscheduleDropZone";
 import UnscheduledLessonsPanel from "../components/UnscheduledLessonsPanel";
 import { useConfirm } from "../hooks/useConfirm";
 import { CANCEL_LABEL } from "../utils/confirmText";
@@ -43,6 +46,7 @@ import { useMoveCandidates } from "../hooks/useMoveCandidates";
 import { usePlaceCandidates } from "../hooks/usePlaceCandidates";
 import { usePlacement } from "../hooks/usePlacement";
 import { useResource } from "../hooks/useResource";
+import { useRoomChange, type SavedRoomChange } from "../hooks/useRoomChange";
 import { useScheduleCheck } from "../hooks/useScheduleCheck";
 import { useTeacherReassignment } from "../hooks/useTeacherReassignment";
 import { useTimetableData, type EnrichedSchedule } from "../hooks/useTimetableData";
@@ -81,7 +85,7 @@ import {
 } from "../utils/scheduleVersionFormat";
 import { mergeViolationsBySentence, splitBySeverity, violationIdentityKey } from "../utils/violationMerge";
 import { resolveLocateTarget, type TimetableViewMode } from "../utils/violationLocate";
-import type { ConstraintViolationDetail, TeacherReassignmentResult } from "../types/scheduler";
+import type { ConstraintViolationDetail, RoomChangeScope, TeacherReassignmentResult } from "../types/scheduler";
 import type { TimeSlot } from "../types/timeSlot";
 import {
   BUTTON_GHOST,
@@ -107,6 +111,7 @@ import {
   SECTION,
   SELECT,
   SELECTION_BAR,
+  SELECTION_DETAIL,
   SUCCESS_TEXT,
   TAB_BUTTON,
   TAB_BUTTON_ACTIVE,
@@ -302,11 +307,19 @@ export default function TimetableView(): ReactElement {
   // --- 「更換教師」 of the selected lesson's course (the whole course: a
   // course has one teacher). ---
   const teacherChange = useTeacherReassignment(activeVersionId);
-  const isBusy = adjustment.phase !== "idle" || placement.phase !== "idle" || teacherChange.phase !== "idle";
+  // 「更換教室」 of the selected lesson (this lesson -- its whole 連堂 -- or
+  // the whole course), previewed first.
+  const roomChange = useRoomChange(activeVersionId);
+  const isBusy =
+    adjustment.phase !== "idle" ||
+    placement.phase !== "idle" ||
+    teacherChange.phase !== "idle" ||
+    roomChange.phase !== "idle";
 
   function resetPlacement(): void {
     placement.reset();
     teacherChange.reset();
+    roomChange.reset();
     setSelectedCardKey(null);
     setDraggingCardKey(null);
   }
@@ -741,7 +754,9 @@ export default function TimetableView(): ReactElement {
   function handleAdjustmentSaved({ adjustment: saved }: SavedAdjustment): void {
     focusAfterReloadRef.current = saved.lesson.scheduleId;
     refreshAfterAdjustment();
-    adjustmentFlash.showFlash(saved.kind === "move" ? "已移動並儲存" : "已對調並儲存");
+    adjustmentFlash.showFlash(
+      saved.kind === "move" ? "已移動並儲存" : saved.kind === "unschedule" ? "已移出課表並儲存" : "已對調並儲存",
+    );
   }
 
   // Task 70: after a reassignment the grid shows the new teacher.
@@ -869,6 +884,47 @@ export default function TimetableView(): ReactElement {
     refreshAfterAdjustment();
     adjustmentFlash.showFlash(`已更換教師並儲存（${result.updated_schedule_row_count} 堂課）`);
     adjustment.clearSelection();
+  }
+
+  // --- 更換教室: the selected lesson (its whole 連堂) or its whole course ---
+
+  function handleRoomChangePreview(roomId: number | null, scope: RoomChangeScope): void {
+    if (selectedLesson === null) {
+      return;
+    }
+    previewedLessonIdRef.current = selectedLesson.scheduleId;
+    roomChange.requestPreview({ lesson: selectedLesson, roomId, scope });
+  }
+
+  function handleRoomChangeSaved({ request }: SavedRoomChange): void {
+    focusAfterReloadRef.current = request.lesson.scheduleId;
+    refreshAfterAdjustment();
+    adjustmentFlash.showFlash("已更換教室並儲存");
+    adjustment.clearSelection();
+  }
+
+  function handleConfirmRoomChange(): void {
+    void roomChange.confirm().then((saved) => {
+      if (saved !== null) {
+        handleRoomChangeSaved(saved);
+      }
+    });
+  }
+
+  // --- 移出課表: the dragged lesson (a drop on the box) or the selected one
+  // (a click on it), with its whole 連堂; previewed like a move. ---
+
+  function handleUnschedule(source: "drop" | "click"): void {
+    const lesson =
+      source === "drop"
+        ? schedules.find((schedule) => schedule.scheduleId === dragSourceId)
+        : (selectedLesson ?? undefined);
+    if (lesson === undefined) {
+      return;
+    }
+    setDragSourceId(null);
+    previewedLessonIdRef.current = lesson.scheduleId;
+    adjustment.requestPreview({ kind: "unschedule", lesson });
   }
 
   function handleConfirmTeacherChange(): void {
@@ -1107,7 +1163,7 @@ export default function TimetableView(): ReactElement {
               {selectedVersion.status === "MANUAL" && !selectedVersion.is_published
                 ? "手動編輯後按「儲存課表」會直接更新這筆手動排課紀錄。"
                 : "手動編輯後按「儲存課表」會另存成一筆新的「手動排課」紀錄，這份課表不會改變。"}
-              手動編輯時可以換教師（整門課一起換，並同步更新科目需求的指定教師）。
+              手動編輯時可以換教師（整門課一起換，並同步更新科目需求的指定教師）、更換教室，或把課移出課表再放回。
             </p>
           ) : undefined
         }
@@ -1125,16 +1181,6 @@ export default function TimetableView(): ReactElement {
           !isAdmin || selectedVersion === undefined ? undefined : isEditing ? (
             // 儲存課表 sits top right while editing.
             <>
-              {canReassign && (
-                <button
-                  type="button"
-                  onClick={() => setIsReassignPanelOpen((previous) => !previous)}
-                  aria-expanded={isReassignPanelOpen}
-                  className={BUTTON_SECONDARY}
-                >
-                  {isReassignPanelOpen ? "收合換教師" : "換教師"}
-                </button>
-              )}
               <button
                 type="button"
                 onClick={() => void handleCancelEditing()}
@@ -1338,10 +1384,20 @@ export default function TimetableView(): ReactElement {
               <div className="flex items-center gap-2">
                 <InfoPopover label="關於手動編輯">
                   <p>
-                    點一堂課選取它，再點空格的「移到這裡」移動，或點另一堂課與它對調；也可以直接把課拖到空格（移動）或有課的格子（對調）。連堂整組一起移動，擋在路上的課會換到連堂空出來的時段。選取一堂課後可以「更換教師」，整門課會一起換。每次異動都會先預覽。改完按右上角「儲存課表」。
+                    點一堂課選取它，再點課表上的節次移動或對調；也可以直接把課拖到空格（移動）或有課的格子（對調）。連堂整組一起移動，擋在路上的課會換到連堂空出來的時段。選取一堂課後可以「更換教師」（整門課一起換）與「更換教室」。把課拖到「移出課表」框，它會回到「未排入課程」，之後可再放回。每次異動都會先預覽。改完按右上角「儲存課表」。
                   </p>
                   <p className="mt-2">每次調整後都會自動依目前的課表檢查所有排課規則；標題下方的標籤是檢查結果，有錯誤或警告時清單會自動展開，點標籤可以展開或收起。</p>
                 </InfoPopover>
+                {canReassign && (
+                  <button
+                    type="button"
+                    onClick={() => setIsReassignPanelOpen((previous) => !previous)}
+                    aria-expanded={isReassignPanelOpen}
+                    className={BUTTON_PRIMARY}
+                  >
+                    {isReassignPanelOpen ? "收合換教師" : "換教師"}
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -1385,6 +1441,11 @@ export default function TimetableView(): ReactElement {
               {adjustment.phase === "loadingPreview" && (
                 <p className={TOAST_LOADING} aria-live="polite">
                   正在預覽異動結果…
+                </p>
+              )}
+              {roomChange.phase === "loadingPreview" && (
+                <p className={TOAST_LOADING} aria-live="polite">
+                  正在預覽更換教室的結果…
                 </p>
               )}
             </div>
@@ -1449,27 +1510,47 @@ export default function TimetableView(): ReactElement {
                   無法預覽這次異動，已取消：{adjustment.previewError}
                 </p>
               )}
+              {roomChange.previewError !== null && (
+                <p role="alert" className={ERROR_TEXT}>
+                  無法預覽這次更換教室，已取消：{roomChange.previewError}
+                </p>
+              )}
               {isEditing && selectedLesson !== null && adjustment.phase === "idle" && (
-                <div className={SELECTION_BAR} aria-live="polite">
-                  <span>
-                    已選取：{selectedLesson.className} {selectedLesson.subjectName}（
-                    {selectedLessonSlotLabel}）。點選「移到這裡」移動，或點選另一堂課與它對調
-                  </span>
-                  <TeacherChangeControls
-                    key={selectedLesson.scheduleId}
-                    lesson={selectedLesson}
-                    teachers={teacherChangeOptions(selectedLesson)}
-                    disabled={isBusy || timetable.isLoading}
-                    onPreview={handleTeacherChangePreview}
-                  />
-                  <button
-                    type="button"
-                    onClick={adjustment.clearSelection}
-                    className={BUTTON_SECONDARY_SM}
-                  >
-                    取消
-                  </button>
-                </div>
+                <>
+                  <div className={SELECTION_BAR} aria-live="polite">
+                    <span>
+                      已選取：{selectedLesson.className} {selectedLesson.subjectName}（{selectedLessonSlotLabel}
+                      ）。點選課表上節次以移動或對調課程。
+                    </span>
+                    <button
+                      type="button"
+                      onClick={adjustment.clearSelection}
+                      className={BUTTON_SECONDARY_SM}
+                    >
+                      取消
+                    </button>
+                  </div>
+                  <div className={SELECTION_DETAIL}>
+                    <TeacherChangeControls
+                      key={`teacher-${selectedLesson.scheduleId}`}
+                      lesson={selectedLesson}
+                      teachers={teacherChangeOptions(selectedLesson)}
+                      disabled={isBusy || timetable.isLoading}
+                      onPreview={handleTeacherChangePreview}
+                    />
+                    <RoomChangeControls
+                      key={`room-${selectedLesson.scheduleId}`}
+                      lesson={selectedLesson}
+                      rooms={roomsResource.data}
+                      requiredRoomId={
+                        timetable.data?.lookups.requirementById.get(selectedLesson.requirementId)?.required_room_id ??
+                        null
+                      }
+                      disabled={isBusy || timetable.isLoading}
+                      onPreview={handleRoomChangePreview}
+                    />
+                  </div>
+                </>
               )}
             </div>
           )}
@@ -1516,6 +1597,15 @@ export default function TimetableView(): ReactElement {
             <p role="alert" className={ERROR_TEXT}>
               {timetable.errorMessage}
             </p>
+          )}
+
+          {isEditing && timetable.data !== null && (
+            <UnscheduleDropZone
+              isDraggingLesson={dragSourceId !== null}
+              hasSelectedLesson={selectedLesson !== null && adjustment.phase === "idle"}
+              disabled={isBusy || timetable.isLoading}
+              onUnschedule={handleUnschedule}
+            />
           )}
 
           {/* Task 84: only while marks are shown. */}
@@ -1595,6 +1685,17 @@ export default function TimetableView(): ReactElement {
           onCancel={adjustment.closePreview}
           restoreFocusFallback={restoreFocusAfterPreview}
           schedules={schedules}
+        />
+      )}
+      {timetable.data !== null && (
+        <RoomChangePreviewDialog
+          preview={roomChange.preview}
+          lookups={timetable.data.lookups}
+          isSaving={roomChange.phase === "saving"}
+          saveError={roomChange.saveError}
+          onConfirm={handleConfirmRoomChange}
+          onCancel={roomChange.closePreview}
+          restoreFocusFallback={restoreFocusAfterPreview}
         />
       )}
       {timetable.data !== null && (

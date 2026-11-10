@@ -330,6 +330,14 @@ export interface PlaceLessonResult {
 
 // "lesson": the row and the rest of its lesson block (連堂) in the version;
 // "requirement": every row of its requirement in the version.
+// 移出課表: POST /schedule-versions/{id}/unschedule-lesson. The answer is a
+// ScheduleAdjustmentResult whose changes are the deleted rows (new time
+// slot and room null).
+export interface UnscheduleLessonRequest {
+  schedule_id: number;
+  dry_run?: boolean;
+}
+
 export type RoomChangeScope = "lesson" | "requirement";
 
 // Body of POST /schedule-versions/{id}/change-room. room_id null clears

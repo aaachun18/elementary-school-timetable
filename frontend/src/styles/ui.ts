@@ -477,6 +477,16 @@ export const MOVE_TARGET_STRIP =
 // The 「已選取：…」 status bar above the grid.
 export const SELECTION_BAR =
   "flex flex-wrap items-center gap-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900";
+// The selected lesson's 目前教師／目前教室 and their pickers, the block under
+// the selection line.
+export const SELECTION_DETAIL =
+  "flex flex-wrap items-center gap-x-6 gap-y-2 rounded-md border border-blue-200 bg-blue-100 px-3 py-2 text-sm text-blue-950";
+// 「移出課表」: a dashed box above the timetable; while a lesson is being
+// dragged it is outlined in blue (a drop there previews taking it out).
+const UNSCHEDULE_ZONE_BASE =
+  "mb-3 flex min-h-11 w-full items-center justify-center rounded-md border-2 border-dashed px-3 py-2 text-center text-sm aria-disabled:cursor-default";
+export const UNSCHEDULE_ZONE = `${UNSCHEDULE_ZONE_BASE} border-gray-300 bg-white text-gray-600 hover:border-blue-400 hover:text-blue-800 aria-disabled:hover:border-gray-300 aria-disabled:hover:text-gray-600`;
+export const UNSCHEDULE_ZONE_ACTIVE = `${UNSCHEDULE_ZONE_BASE} border-blue-500 bg-blue-50 font-medium text-blue-900`;
 
 // --- Task 92A: preview dialogs (move/swap/換教師) ---
 // A little wider than DIALOG so a typical problem line fits on one line.

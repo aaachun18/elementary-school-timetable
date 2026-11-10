@@ -277,3 +277,31 @@ def test_moving_one_member_by_hand_moves_the_other(client: TestClient) -> None:
     assert response.status_code == 200, response.json()
     changes = {change["schedule_id"]: change["new_time_slot_id"] for change in response.json()["changes"]}
     assert changes == {row_a["id"]: free, row_b["id"]: free}
+
+
+def test_a_member_of_a_combined_lesson_cannot_be_unscheduled(client: TestClient) -> None:
+    """移出課表: placing it back could not bring the other class's lesson
+    with it, so a lesson of a 合併節 stays in the timetable."""
+    world = _World(client)
+    assert world.combine().status_code == 201
+    assert client.post(f"{RECORDS}/{world.record}/run-scheduler").status_code == 200
+    copy_id = client.post(f"{RECORDS}/{world.record}/edit").json()["id"]
+    copy_requirements = _requirements(client, copy_id)
+    lesson_of_requirement = {
+        lesson["class_subject_requirement_id"]: lesson["id"]
+        for lesson in client.get(
+            "/api/v1/lessons/", params={"schedule_version_id": copy_id, "limit": 1000}
+        ).json()
+    }
+    row_of_lesson = {
+        row["lesson_id"]: row
+        for row in client.get("/api/v1/schedules/", params={"limit": 1000}).json()
+        if row["schedule_version_id"] == copy_id
+    }
+    row_a = row_of_lesson[lesson_of_requirement[copy_requirements[(world.class_a, world.local)]["id"]]]
+
+    response = client.post(f"{RECORDS}/{copy_id}/unschedule-lesson", json={"schedule_id": row_a["id"]})
+
+    assert response.status_code == 409, response.json()
+    assert response.json()["reason"] == "UNSCHEDULE_COMBINED"
+    assert response.json()["detail"] == "共同排課的課不能移出課表"

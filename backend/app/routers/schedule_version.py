@@ -48,6 +48,7 @@ from app.schemas.scheduler import (
     TeacherReassignmentResult,
     UnscheduledLessonDetail,
     UnscheduledLessonsResult,
+    UnscheduleLessonRequest,
     UnsupportedSwapDetail,
 )
 from app.services import schedule_adjustment as schedule_adjustment_service
@@ -558,6 +559,27 @@ def swap_lessons(
         dry_run=swap.dry_run,
     )
     return _build_adjustment_result(schedule_version_id, swap.dry_run, outcome)
+
+
+# 移出課表: the lesson (with its whole block) back to the unscheduled
+# lessons. The changes list every deleted row (new time slot / room null).
+@router.post(
+    "/{schedule_version_id}/unschedule-lesson",
+    response_model=ScheduleAdjustmentResult,
+    dependencies=[Depends(require_version_in_school)],
+)
+def unschedule_lesson(
+    schedule_version_id: int,
+    request: UnscheduleLessonRequest,
+    db: Session = Depends(get_db),
+) -> ScheduleAdjustmentResult:
+    outcome = schedule_adjustment_service.unschedule_lesson(
+        db,
+        schedule_version_id,
+        request.schedule_id,
+        dry_run=request.dry_run,
+    )
+    return _build_adjustment_result(schedule_version_id, request.dry_run, outcome)
 
 
 # --- move-candidates (Task 83): read-only "what if" for every time slot ---

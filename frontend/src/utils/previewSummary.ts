@@ -122,6 +122,12 @@ export function describeMoveLine(
   return `${lessonName}：${fromSlot} → ${toSlot}${block}`;
 }
 
+// 「四年甲班 國語：星期一第 2 節 → 移出課表」; a 連堂 leaves as a whole.
+export function describeUnscheduleLine(lessonName: string, slot: string, removedRowCount: number): string {
+  const block = removedRowCount > 1 ? `（整組 ${removedRowCount} 節一起移出）` : "";
+  return `${lessonName}：${slot} → 移出課表${block}`;
+}
+
 // 「四年甲班 國語：星期一第 2 節 ↔ 四年甲班 數學：星期二第 2 節」.
 export function describeSwapLine(
   lessonName: string,

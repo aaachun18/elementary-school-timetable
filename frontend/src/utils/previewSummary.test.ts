@@ -6,6 +6,7 @@ import {
   describeMoveLine,
   describeReassignLine,
   describeSwapLine,
+  describeUnscheduleLine,
   previewLine,
   previewVerdict,
   shortSentence,
@@ -211,6 +212,15 @@ describe("the 「這次會做什麼」 line", () => {
     expect(describeReassignLine("四年甲班 國語", "王老師", "李老師", 3)).toBe("四年甲班 國語：王老師 → 李老師（3 堂課）");
     expect(describeReassignLine("四年甲班 國語", null, "李老師", 0)).toBe(
       "四年甲班 國語：未指定教師 → 李老師（這個版本沒有要換的課，只更新指定教師）",
+    );
+  });
+});
+
+describe("describeUnscheduleLine", () => {
+  it("says the lesson leaves the timetable, a block as a whole", () => {
+    expect(describeUnscheduleLine("四年甲班 美勞", "星期一第 5 節", 1)).toBe("四年甲班 美勞：星期一第 5 節 → 移出課表");
+    expect(describeUnscheduleLine("四年甲班 自然", "星期一第 1 節", 2)).toBe(
+      "四年甲班 自然：星期一第 1 節 → 移出課表（整組 2 節一起移出）",
     );
   });
 });

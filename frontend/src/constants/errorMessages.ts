@@ -447,6 +447,7 @@ export const VIOLATION_TYPE_SUGGESTIONS: Record<string, string> = {
 export const BLOCK_REFUSAL_MESSAGES: Record<string, string> = {
   BLOCK_OUT_OF_RANGE: "整組放不下：會超出當天節次或跨過午休",
   BLOCK_DISPLACED_UNFIT: "被換走的課放不進連堂空出來的時段",
+  UNSCHEDULE_COMBINED: "共同排課的課不能移出課表",
 };
 
 // The BLOCK_* reason of a 409 from move-lesson / swap-lessons, or null for

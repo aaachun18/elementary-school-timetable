@@ -30,7 +30,7 @@ export function nextInfoPopoverState(state: InfoPopoverState, event: InfoPopover
   }
 }
 
-export const INFO_POPOVER_MAX_WIDTH_PX = 360;
+export const INFO_POPOVER_MAX_WIDTH_PX = 460;
 const VIEWPORT_MARGIN_PX = 8;
 const GAP_PX = 6;
 const MIN_HEIGHT_PX = 120;

@@ -186,14 +186,11 @@ function SemesterCard({ data }: { data: ReturnType<typeof useSemesterData> }): R
             <p className={NOTICE}>這個學期還沒有已發布的課表，請到排課紀錄檢視課表後發布。</p>
           )}
           <p className="text-sm text-gray-700">
-            這個學期另有 {versions.otherCount} 筆未發布的排課紀錄
             {versions.otherCount > 0 && (
               <>
-                （
                 <Link to="/records" className={LINK_TEXT}>
                   查看排課紀錄
                 </Link>
-                ）
               </>
             )}
           </p>

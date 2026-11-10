@@ -22,6 +22,7 @@ import type {
   TeacherReassignmentRequest,
   TeacherReassignmentResult,
   UnscheduledLessonsResult,
+  UnscheduleLessonRequest,
 } from "../types/scheduler";
 
 // Mirrors backend/app/routers/schedule_version.py -- v3: 排課紀錄 (newest
@@ -181,6 +182,19 @@ export async function moveLesson(
 ): Promise<ScheduleAdjustmentResult> {
   const response = await apiClient.post<ScheduleAdjustmentResult>(
     `/api/v1/schedule-versions/${versionId}/move-lesson`,
+    body,
+  );
+  return response.data;
+}
+
+// 移出課表 (v3: only in a manual edit's working copy): the lesson, with its
+// whole 連堂 block, becomes an unscheduled lesson again.
+export async function unscheduleLesson(
+  versionId: number,
+  body: UnscheduleLessonRequest,
+): Promise<ScheduleAdjustmentResult> {
+  const response = await apiClient.post<ScheduleAdjustmentResult>(
+    `/api/v1/schedule-versions/${versionId}/unschedule-lesson`,
     body,
   );
   return response.data;
