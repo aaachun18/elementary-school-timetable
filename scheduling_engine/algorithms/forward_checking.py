@@ -37,11 +37,21 @@ once more against the real constraints. A timetable those reject would
 mean the tracking above is wrong -- an engine bug, raised, never returned.
 After that, H7 (weekly periods) is checked as in Backtracking. A search that stops early (time or node limit) returns no
 timetable at all, never a partial one.
+
+導師 rule (algorithms/homeroom.py): when the record has 導師, the search
+first runs with the rule as a hard constraint (no other class's lesson
+without a required teacher for a 導師), using at most STRICT_TIME_SHARE of
+the time and nodes. If that finds no timetable, it runs again without the
+rule -- preferring candidates that keep it -- and then keeps lowering the
+allowed number of such periods (forward-checked like the workload limit)
+while time remains. The rule never makes an otherwise possible timetable
+fail: the relaxed search is exactly the search without the rule.
 """
 
 import random
 import time
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -51,6 +61,11 @@ from scheduling_engine.algorithms.blocks import (
     build_units,
     iter_unit_candidates,
     weekday_by_slot,
+)
+from scheduling_engine.algorithms.homeroom import (
+    HomeroomRule,
+    build_homeroom_rule,
+    reduce_cross_homeroom,
 )
 from scheduling_engine.algorithms.resources import (
     LessonFailure,
@@ -72,6 +87,9 @@ FailureType = Literal["DEFINITELY_INFEASIBLE", "SEARCH_LIMIT_EXCEEDED", "TIMEOUT
 RESTART_UNIT_BACKTRACKS = 30
 # Placements tried in all runs together before giving up.
 DEFAULT_MAX_NODES = 1_000_000
+# 導師 rule: the share of the time (and nodes) the search with the rule as
+# a hard constraint may use before the relaxed search takes over.
+STRICT_TIME_SHARE = 0.5
 
 # What a placement holds that no other unit may hold too:
 # ("teacher", teacher, slot), ("class", class, slot), ("block_day",
@@ -109,6 +127,11 @@ class ForwardCheckingResult:
     restart_count: int = 0
     seed: int = 0
     elapsed_seconds: float = 0.0
+    # 導師 rule: periods in which a 導師 teaches another class's lesson
+    # that names no required teacher (0 when the rule held, or on failure),
+    # and whether the rule had to be relaxed to find a timetable at all.
+    cross_homeroom_periods: int = 0
+    homeroom_rule_relaxed: bool = False
 
 
 @dataclass(frozen=True)
@@ -126,6 +149,8 @@ class _Candidate:
     # H15: (requirement, teacher) of its lessons -- every other lesson of
     # the requirement must get the same teacher.
     requirement_teachers: frozenset[tuple[int, int]] = frozenset()
+    # 導師 rule: cross-homeroom periods it holds (algorithms/homeroom.py).
+    cost: int = 0
 
 
 @dataclass
@@ -183,10 +208,23 @@ def schedule_forward_checking(
         *build_real_time_constraints(resources, include_teacher_workload=True),
         *block_constraints(resources),
     ]
-    units = _prepare_units(lessons, resources, constraints)
-    search = _Search(units, resources, random.Random(seed), start_time, timeout_seconds, max_nodes)
-    failure_type = search.run()
-    elapsed = time.monotonic() - start_time
+    rule = build_homeroom_rule(resources)
+    units = _prepare_units(lessons, resources, constraints, rule)
+    totals = _Totals()
+
+    def search(budget: int | None, time_limit: float | None, node_limit: int) -> "_Search":
+        found = _Search(
+            units,
+            resources,
+            random.Random(seed),
+            start_time,
+            time_limit,
+            node_limit,
+            budget=budget,
+        )
+        found.failure_type = found.run()
+        totals.add(found)
+        return found
 
     def failed(kind: FailureType | None, violations: list[ConstraintViolation]) -> ForwardCheckingResult:
         return ForwardCheckingResult(
@@ -195,18 +233,40 @@ def schedule_forward_checking(
             failure_type=kind,
             lesson_failures=[],
             post_hoc_violations=violations,
-            backtrack_count=search.backtrack_count,
-            node_count=search.node_count,
-            restart_count=search.restart_count,
+            backtrack_count=totals.backtrack_count,
+            node_count=totals.node_count,
+            restart_count=totals.restart_count,
             seed=seed,
-            elapsed_seconds=elapsed,
+            elapsed_seconds=time.monotonic() - start_time,
         )
 
-    if failure_type is not None:
-        return failed(failure_type, [])
+    relaxed = False
+    if not any(candidate.cost for unit in units for candidate in unit.candidates):
+        # No 導師 rule to keep (none, or nobody could break it): one search,
+        # exactly as before.
+        plain = search(None, timeout_seconds, max_nodes)
+        if plain.failure_type is not None:
+            return failed(plain.failure_type, [])
+        assignments = plain.placed_assignments()
+    else:
+        strict = search(
+            0,
+            None if timeout_seconds is None else timeout_seconds * STRICT_TIME_SHARE,
+            int(max_nodes * STRICT_TIME_SHARE),
+        )
+        if strict.failure_type is None:
+            assignments = strict.placed_assignments()
+        else:
+            relaxed = True
+            found = _minimize_cross_homeroom(
+                search, start_time, resources, rule, constraints, timeout_seconds, max_nodes, totals
+            )
+            if isinstance(found, str):
+                return failed(found, [])
+            assignments = found
 
     state = SchedulingState()
-    for assignment in search.placed_assignments():
+    for assignment in assignments:
         state.add_assignment(assignment)
     broken = [violation for c in constraints for violation in c.explain_violations(state.assignments)]
     if broken:
@@ -225,18 +285,67 @@ def schedule_forward_checking(
         failure_type=None,
         lesson_failures=[],
         post_hoc_violations=[],
-        backtrack_count=search.backtrack_count,
-        node_count=search.node_count,
-        restart_count=search.restart_count,
+        backtrack_count=totals.backtrack_count,
+        node_count=totals.node_count,
+        restart_count=totals.restart_count,
         seed=seed,
-        elapsed_seconds=elapsed,
+        elapsed_seconds=time.monotonic() - start_time,
+        cross_homeroom_periods=rule.count(state.assignments),
+        homeroom_rule_relaxed=relaxed,
     )
+
+
+@dataclass
+class _Totals:
+    """Search statistics of every search one call runs, added up."""
+
+    backtrack_count: int = 0
+    node_count: int = 0
+    restart_count: int = 0
+
+    def add(self, search: "_Search") -> None:
+        self.backtrack_count += search.backtrack_count
+        self.node_count += search.node_count
+        self.restart_count += search.restart_count
+
+
+def _minimize_cross_homeroom(
+    search: Callable[[int | None, float | None, int], "_Search"],
+    start_time: float,
+    resources: SchedulingResources,
+    rule: HomeroomRule,
+    constraints: list[BaseConstraint],
+    timeout_seconds: float | None,
+    max_nodes: int,
+    totals: _Totals,
+) -> list[LessonAssignment] | FailureType:
+    """The 導師 rule could not be kept (or not within its share of the
+    time): find any timetable, then as few cross-homeroom periods as the
+    remaining time and nodes allow. Returns the best timetable found, or
+    the failure of the search without the rule (then there is no timetable
+    within the limits, 導師 rule or not)."""
+    first = search(None, timeout_seconds, max_nodes - totals.node_count)
+    if first.failure_type is not None:
+        return first.failure_type
+    best = reduce_cross_homeroom(first.placed_assignments(), resources, rule, constraints)
+    best_cost = rule.count(best)
+    while best_cost > 0 and totals.node_count < max_nodes:
+        if timeout_seconds is not None and time.monotonic() - start_time >= timeout_seconds:
+            break
+        tighter = search(best_cost - 1, timeout_seconds, max_nodes - totals.node_count)
+        if tighter.failure_type is not None:
+            # Proven impossible, or out of time / nodes: keep the best.
+            break
+        best = reduce_cross_homeroom(tighter.placed_assignments(), resources, rule, constraints)
+        best_cost = rule.count(best)
+    return best
 
 
 def _prepare_units(
     lessons: list[LessonAssignment],
     resources: SchedulingResources,
     constraints: list[BaseConstraint],
+    rule: HomeroomRule,
 ) -> list[_Unit]:
     """Every unit with the candidates that pass every constraint on their
     own -- the only constraint check that is not about two units."""
@@ -250,7 +359,7 @@ def _prepare_units(
     prepared: list[_Unit] = []
     for unit in build_units(lessons, resources):
         candidates = [
-            _describe(candidate, weekday_of, requirement_of_block_lesson)
+            _describe(candidate, weekday_of, requirement_of_block_lesson, rule)
             for candidate in iter_unit_candidates(unit, resources, tables)
             if all(constraint.validate(list(candidate)) for constraint in constraints)
         ]
@@ -262,6 +371,7 @@ def _describe(
     assignments: tuple[LessonAssignment, ...],
     weekday_of: dict[int, int],
     requirement_of_block_lesson: dict[int, int],
+    rule: HomeroomRule,
 ) -> _Candidate:
     held: set[HeldKey] = set()
     room_slots: set[tuple[int, int]] = set()
@@ -294,6 +404,7 @@ def _describe(
         teacher_periods=tuple(sorted((teacher, len(slots)) for teacher, slots in teacher_slots.items())),
         covered_slots=frozenset(covered),
         requirement_teachers=frozenset(requirement_teachers),
+        cost=rule.count(assignments),
     )
 
 
@@ -345,6 +456,9 @@ class _Search:
     start_time: float
     timeout_seconds: float | None
     max_nodes: int
+    # 導師 rule: the most cross-homeroom periods allowed (None: no limit).
+    budget: int | None = None
+    failure_type: FailureType | None = None
     backtrack_count: int = 0
     node_count: int = 0
     restart_count: int = 0
@@ -376,6 +490,13 @@ class _Search:
                     self.by_teacher[teacher].append((unit_index, candidate_index, periods))
                 for requirement, teacher in candidate.requirement_teachers:
                     self.by_requirement[requirement].append((unit_index, candidate_index, teacher))
+        # 導師 rule: [(unit, candidate, cost)] of every candidate with a cost.
+        self.costly: list[tuple[int, int, int]] = [
+            (unit_index, candidate_index, candidate.cost)
+            for unit_index, unit in enumerate(self.units)
+            for candidate_index, candidate in enumerate(unit.candidates)
+            if candidate.cost > 0
+        ]
 
     # --- one run --------------------------------------------------------
 
@@ -385,6 +506,8 @@ class _Search:
             return "DEFINITELY_INFEASIBLE"
         while True:
             self._reset()
+            if any(count == 0 for count in self.alive_count):
+                return "DEFINITELY_INFEASIBLE"
             allowance = luby(self.restart_count + 1) * RESTART_UNIT_BACKTRACKS
             try:
                 return None if self._run_once(allowance) else "DEFINITELY_INFEASIBLE"
@@ -402,8 +525,13 @@ class _Search:
         ]
 
     def _reset(self) -> None:
-        self.alive = [[True] * len(unit.candidates) for unit in self.units]
-        self.alive_count = [len(unit.candidates) for unit in self.units]
+        # 導師 rule: a candidate over the budget on its own is never alive.
+        self.alive = [
+            [self.budget is None or candidate.cost <= self.budget for candidate in unit.candidates]
+            for unit in self.units
+        ]
+        self.alive_count = [sum(alive) for alive in self.alive]
+        self.cost = 0
         self.placed = [None] * len(self.units)
         self.trail = []
         self.waiting = set(range(len(self.units)))
@@ -414,10 +542,12 @@ class _Search:
         self.cover_count: dict[tuple[Owner, int], int] = defaultdict(int)
         self.coverable: dict[Owner, int] = defaultdict(int)
         self.need: dict[Owner, int] = defaultdict(int)
-        for unit in self.units:
+        for unit_index, unit in enumerate(self.units):
             for owner, count in unit.needs.items():
                 self.need[owner] += count
-            for candidate in unit.candidates:
+            for candidate_index, candidate in enumerate(unit.candidates):
+                if not self.alive[unit_index][candidate_index]:
+                    continue
                 for covered in candidate.covered_slots:
                     if self.cover_count[covered] == 0:
                         self.coverable[covered[0]] += 1
@@ -471,6 +601,10 @@ class _Search:
         alive = self.alive[unit_index]
         options = [index for index, is_alive in enumerate(alive) if is_alive]
         self.rng.shuffle(options)
+        # 導師 rule: candidates keeping it first (a stable sort: without
+        # costs the shuffled order is unchanged).
+        candidates = self.units[unit_index].candidates
+        options.sort(key=lambda index: candidates[index].cost)
         return _Frame(unit_index, options)
 
     # --- placing and taking back ----------------------------------------
@@ -510,6 +644,13 @@ class _Search:
             for other_unit, other_index, other_periods in self.by_teacher[teacher]:
                 if self.teacher_load[teacher] + other_periods > limit:
                     self._remove_if_waiting(other_unit, other_index)
+        # 導師 rule: like the workload limit, for the cross-homeroom budget.
+        self.cost += candidate.cost
+        if self.budget is not None and candidate.cost > 0:
+            remaining = self.budget - self.cost
+            for other_unit, other_index, other_cost in self.costly:
+                if other_cost > remaining:
+                    self._remove_if_waiting(other_unit, other_index)
 
         if any(self.alive_count[index] == 0 for index in self.waiting):
             return False
@@ -534,6 +675,7 @@ class _Search:
             self.room_use[room_slot] -= 1
         for teacher, periods in candidate.teacher_periods:
             self.teacher_load[teacher] -= periods
+        self.cost -= candidate.cost
 
     def _remove_if_waiting(self, unit_index: int, candidate_index: int) -> None:
         if unit_index in self.waiting and self.alive[unit_index][candidate_index]:

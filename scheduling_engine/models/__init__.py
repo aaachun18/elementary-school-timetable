@@ -3,6 +3,7 @@ from scheduling_engine.models.domain import (
     ClassAllowedTimeSlots,
     CombinedLesson,
     DefaultRoom,
+    HomeroomTeacher,
     LessonAssignment,
     LessonBlock,
     RequiredRoomRule,
@@ -32,4 +33,5 @@ __all__ = [
     "TeacherMinimumWorkload",
     "CombinedLesson",
     "RoomCapacity",
+    "HomeroomTeacher",
 ]

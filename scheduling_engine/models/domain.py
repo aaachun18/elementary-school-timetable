@@ -186,6 +186,20 @@ class TeacherWorkloadLimit:
 
 
 @dataclass(frozen=True)
+class HomeroomTeacher:
+    """導師: this teacher is the homeroom teacher of this class in the
+    record being scheduled (SemesterTeacher.homeroom_class_id). Sparse: a
+    teacher with no entry is no class's 導師.
+
+    The search keeps a 導師 off other classes' lessons that name no
+    required teacher whenever a timetable allows it, and otherwise gives
+    them as few such periods as it can (algorithms/homeroom.py)."""
+
+    teacher_id: int
+    class_id: int
+
+
+@dataclass(frozen=True)
 class TeacherMinimumWorkload:
     """Task 88: the minimum weekly periods one teacher should teach. Task
     98: mirrors SemesterTeacher.min_weekly_periods; None means no minimum. Only the schedule

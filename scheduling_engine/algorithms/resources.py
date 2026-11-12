@@ -46,6 +46,7 @@ from scheduling_engine.models.domain import (
     ClassAllowedTimeSlots,
     CombinedLesson,
     DefaultRoom,
+    HomeroomTeacher,
     LessonAssignment,
     LessonBlock,
     RequiredRoomRule,
@@ -101,6 +102,8 @@ class SchedulingResources:
     combined_lessons: list[CombinedLesson] = field(default_factory=list)
     # H3: how many classes each room holds at once (no entry = 1).
     room_capacities: list[RoomCapacity] = field(default_factory=list)
+    # 導師: optional -- empty means no 導師 rule at all (algorithms/homeroom.py).
+    homeroom_teachers: list[HomeroomTeacher] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

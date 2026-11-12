@@ -52,6 +52,7 @@ from scheduling_engine.models.domain import (  # noqa: E402
     ActiveStatusInfo,
     ClassAllowedTimeSlots,
     CombinedLesson as EngineCombinedLesson,
+    HomeroomTeacher,
     LessonAssignment,
     LessonBlock,
     RequiredRoomRule,
@@ -539,6 +540,16 @@ def build_scheduling_resources(
             RoomCapacity(room_id=room.id, max_classes=room.max_classes)
             for room in all_rooms
             if room.max_classes != 1
+        ],
+        # 導師: kept off other classes' lessons without a required teacher
+        # whenever possible (engine: algorithms/homeroom.py).
+        homeroom_teachers=[
+            HomeroomTeacher(
+                teacher_id=semester_teacher.teacher_id,
+                class_id=semester_teacher.homeroom_class_id,
+            )
+            for semester_teacher in semester_teachers
+            if semester_teacher.homeroom_class_id is not None
         ],
     )
 

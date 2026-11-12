@@ -740,3 +740,61 @@ def test_generate_lessons_called_twice_then_run_scheduler_reports_consistent_cou
     assert response.json()["scheduled_count"] == second_generate.json()[
         "total_lesson_count"
     ]
+
+
+def test_run_scheduler_keeps_homeroom_teachers_in_their_own_class(
+    client: TestClient,
+) -> None:
+    """導師 rule: two classes, each with three 1-period subjects and no
+    required teacher, and only their two 導師 taking part. A timetable
+    keeping every 導師 in their own class exists, so the scheduler must
+    find it (by chance it would happen once in 64 runs)."""
+    record_id = _create_record(client, 3012)
+    grade_id = _create_grade(client, 3012)
+    class_a = create_class(client, grade_id, "Class A")
+    class_b = create_class(client, grade_id, "Class B")
+    for index in range(3):
+        _create_requirement(client, record_id, class_a, _create_subject(client, f"A{index}"), 1)
+        _create_requirement(client, record_id, class_b, _create_subject(client, f"B{index}"), 1)
+    for period in range(1, 4):
+        _create_time_slot(client, weekday=1, period=period)
+    teacher_a = create_teacher(client, "導師 A")
+    teacher_b = create_teacher(client, "導師 B")
+    response = client.put(
+        f"/api/v1/schedule-versions/{record_id}/teachers",
+        json={
+            "teachers": [
+                {
+                    "teacher_id": teacher_id,
+                    "min_weekly_periods": 0,
+                    "max_weekly_periods": 20,
+                    "unavailable_time_slot_ids": [],
+                    "homeroom_class_id": class_id,
+                }
+                for teacher_id, class_id in ((teacher_a, class_a), (teacher_b, class_b))
+            ]
+        },
+    )
+    assert response.status_code == 200, response.json()
+    client.post(f"/api/v1/schedule-versions/{record_id}/generate-lessons")
+
+    response = client.post(f"/api/v1/schedule-versions/{record_id}/run-scheduler")
+
+    assert response.status_code == 200, response.json()
+    lessons = {lesson["id"]: lesson for lesson in client.get("/api/v1/lessons/").json()}
+    requirements = {
+        requirement["id"]: requirement
+        for requirement in client.get(
+            f"/api/v1/class-subject-requirements/?schedule_version_id={record_id}"
+        ).json()
+    }
+    schedules = [
+        schedule
+        for schedule in client.get("/api/v1/schedules/").json()
+        if schedule["schedule_version_id"] == record_id
+    ]
+    assert len(schedules) == 6
+    homeroom_of = {class_a: teacher_a, class_b: teacher_b}
+    for schedule in schedules:
+        requirement = requirements[lessons[schedule["lesson_id"]]["class_subject_requirement_id"]]
+        assert schedule["teacher_id"] == homeroom_of[requirement["class_id"]]
