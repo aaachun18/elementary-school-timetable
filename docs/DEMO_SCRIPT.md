@@ -88,7 +88,7 @@
 以下回答取自 `docs/SYSTEM_DESIGN.md`(括號內為章節或決策編號)。
 
 - **為什麼約束引擎要獨立於框架?**
-  `scheduling_engine/` 沒有任何一行 import SQLAlchemy 或 FastAPI,只吃、吐純 Python dataclass。213 個引擎測試不需要資料庫;開發演算法時一次都不用啟動 API(第 2 節)。
+  `scheduling_engine/` 沒有任何一行 import SQLAlchemy 或 FastAPI,只吃、吐純 Python dataclass。224 個引擎測試不需要資料庫;開發演算法時一次都不用啟動 API(第 2 節)。
 
 - **為什麼從 Backtracking 換成前向檢查?**
   每班時段全滿的學期,真正出錯的往往是很早以前的選擇,Backtracking 只撤回最近幾步修不到它;前向檢查提早刪除不能用的候選、每步挑最受限的單位,卡住就換順序重來(決策 45)。
