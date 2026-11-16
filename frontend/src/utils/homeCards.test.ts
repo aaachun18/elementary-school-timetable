@@ -24,18 +24,18 @@ describe("wizardCardText", () => {
 });
 
 describe("recordsCardText", () => {
-  it("counts the unpublished records and names the newest one's status", () => {
+  it("shows only the number of unpublished records", () => {
     expect(recordsCardText([record(2, "AUTO"), record(1, "MANUAL"), record(3, "AUTO", true)])).toBe(
-      "2 筆未發布紀錄 · 最近一筆：手動排課",
+      "2 筆未發布紀錄",
     );
   });
 
-  it("calls the published newest record 已發布", () => {
-    expect(recordsCardText([record(1, "AUTO", true)])).toBe("0 筆未發布紀錄 · 最近一筆：已發布");
+  it("counts zero when every record is published", () => {
+    expect(recordsCardText([record(1, "AUTO", true)])).toBe("0 筆未發布紀錄");
   });
 
   it("leaves out a working copy (no 編號) and handles no records", () => {
-    expect(recordsCardText([record(null, "EDITING"), record(1, "AUTO")])).toBe("1 筆未發布紀錄 · 最近一筆：自動排課");
+    expect(recordsCardText([record(null, "EDITING"), record(1, "AUTO")])).toBe("1 筆未發布紀錄");
     expect(recordsCardText([record(null, "EDITING")])).toBe("還沒有排課紀錄");
   });
 });

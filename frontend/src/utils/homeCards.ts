@@ -2,7 +2,6 @@
 // three Action Cards (開始排課 / 排課紀錄 / 學校資料). Pure, no React.
 
 import type { ScheduleVersion } from "../types/scheduleVersion";
-import { formatRecordStatus } from "./scheduleVersionFormat";
 
 type RecordSource = Pick<
   ScheduleVersion,
@@ -21,16 +20,13 @@ export function wizardCardText(records: readonly RecordSource[]): string {
   return notScheduled > 0 ? `${notScheduled} 筆尚未排課的紀錄` : "設定老師與科目需求，自動排出課表";
 }
 
-// 排課紀錄: 「3 筆未發布紀錄 · 最近一筆：手動排課」 (編號 1 is the newest).
+// 排課紀錄: 「3 筆未發布紀錄」 (only the count since 2026-11-10).
 export function recordsCardText(records: readonly RecordSource[]): string {
   const listed = listedRecords(records);
   if (listed.length === 0) {
     return "還沒有排課紀錄";
   }
   const unpublished = listed.filter((record) => !record.is_published).length;
-  const latest = listed.reduce((newest, record) =>
-    (record.display_number ?? Infinity) < (newest.display_number ?? Infinity) ? record : newest,
-  );
   return `${unpublished} 筆未發布紀錄`;
 }
 
