@@ -47,6 +47,8 @@ from app.models.semester_teacher import (  # noqa: E402
 )
 from app.models.teacher import Teacher  # noqa: E402
 from app.models.user import User  # noqa: E402
+from app.services import mailer  # noqa: E402
+from app.services.mailer import AccountMail  # noqa: E402
 
 # bcrypt is deliberately slow in production (that's the point). Nearly every
 # test creates an admin/teacher user via the fixtures below, so at
@@ -75,6 +77,21 @@ if DEV_DATABASE_URL and TEST_DATABASE_URL == DEV_DATABASE_URL:
 
 test_engine = create_engine(TEST_DATABASE_URL)
 TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+
+
+@pytest.fixture(autouse=True)
+def sent_mails(monkeypatch: pytest.MonkeyPatch) -> list[AccountMail]:
+    """帳號改版: creating an account mails its password. No test ever
+    reaches a real SMTP server: every mail lands in this list instead (a
+    test may replace mailer.deliver again to simulate a failure)."""
+    mails: list[AccountMail] = []
+
+    def fake_deliver(mail: AccountMail) -> bool:
+        mails.append(mail)
+        return True
+
+    monkeypatch.setattr(mailer, "deliver", fake_deliver)
+    return mails
 
 
 @pytest.fixture

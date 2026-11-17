@@ -10,13 +10,6 @@ from app.services.school_scope import is_in_school
 from app.services.user import get_user_by_username
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
-# Task 57: same Bearer-token parsing as oauth2_scheme, but a missing
-# Authorization header yields None instead of an automatic 401 -- for the
-# one endpoint (register) that must accept anonymous calls in one case
-# (empty users table) and require ADMIN in every other case.
-optional_oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl="/api/v1/auth/login", auto_error=False
-)
 
 
 def _credentials_exception() -> HTTPException:
@@ -92,13 +85,17 @@ def require_coordinator(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
+NO_SCHOOL_MESSAGE = "目前無所屬學校，請聯絡系統管理員"
+
+
 def _school_of(user: User) -> int:
-    # The users table's CHECK guarantees a school for every non-ADMIN
-    # account, and both callers below have already refused ADMIN.
+    # Both callers below have already refused ADMIN; a 教學組長 always has
+    # a school (users CHECK). An 一般老師 has none after 離校, until the
+    # 系統管理員 assigns one.
     if user.school_id is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="This action requires a school account",
+            detail=NO_SCHOOL_MESSAGE,
         )
     return user.school_id
 

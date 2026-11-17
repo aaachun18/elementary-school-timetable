@@ -26,12 +26,6 @@ from app.models.user import User
 # record), so the steps go from the oldest record to the newest -- deleting
 # an older one never changes the number of a newer one still to delete.
 
-TEACHER_ACCOUNT_STEP = (
-    "一般老師帳號已綁定教師資料，教師資料可能已用在排課紀錄中，"
-    "因此無法刪除；不再使用的帳號請改按「停用」"
-)
-
-
 def _semester_label(version: ScheduleVersion) -> str:
     semester = version.semester
     return f"{semester.academic_year.year} 學年度第 {semester.number} 學期"
@@ -127,12 +121,6 @@ def subject_delete_steps(db: Session, subject_id: int) -> list[str]:
     return steps + version_steps(db, version_ids)
 
 
-def user_delete_steps(db: Session, user_id: int) -> list[str]:
-    """An account is referenced by its Teacher (一般老師, one to one)."""
-    has_teacher = db.scalar(select(func.count()).select_from(Teacher).where(Teacher.user_id == user_id))
-    return [TEACHER_ACCOUNT_STEP] if has_teacher else []
-
-
 def school_delete_steps(db: Session, school_id: int) -> list[str]:
     """What still belongs to the school besides the grades, time slots,
     subjects and 科目需求 delete_school() removes along with it."""
@@ -159,16 +147,12 @@ def school_delete_steps(db: Session, school_id: int) -> list[str]:
     teacher_count = db.scalar(
         select(func.count()).select_from(Teacher).where(Teacher.school_id == school_id)
     )
-    other_account_count = db.scalar(
-        select(func.count())
-        .select_from(User)
-        .where(
-            User.school_id == school_id,
-            User.id.not_in(select(Teacher.user_id).where(Teacher.user_id.is_not(None))),
-        )
+    # 帳號改版: accounts are never deleted; they move to another school.
+    account_count = db.scalar(
+        select(func.count()).select_from(User).where(User.school_id == school_id)
     )
-    if other_account_count:
-        steps.append(f"到「帳號管理」刪除這所學校的 {other_account_count} 個教學組長帳號")
+    if account_count:
+        steps.append(f"到「帳號管理」把這所學校的 {account_count} 個帳號改到其他學校")
     if teacher_count:
         steps.append(
             f"這所學校已有 {teacher_count} 位教師資料，教師資料無法刪除，因此這所學校目前無法刪除；"

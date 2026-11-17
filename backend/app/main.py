@@ -14,6 +14,7 @@ from app.routers.grade_subject_requirement import (
     router as grade_subject_requirement_router,
 )
 from app.routers.lesson import router as lesson_router
+from app.routers.me import router as me_router
 from app.routers.room import router as room_router
 from app.routers.schedule import router as schedule_router
 from app.routers.schedule_version import router as schedule_version_router
@@ -28,7 +29,6 @@ from app.services.block_adjustment import REFUSAL_MESSAGES
 from app.services.lesson_placement import PLACEMENT_REFUSAL_MESSAGES
 from app.services.exceptions import (
     AccountPermissionError,
-    CannotDeleteSelfError,
     BlockAdjustmentRefusedError,
     CannotSwapWithSelfError,
     ClassInUseError,
@@ -37,7 +37,7 @@ from app.services.exceptions import (
     CopyAcrossAcademicYearsError,
     CopySourceInconsistentError,
     DependentRecordsExistError,
-    DuplicateTeacherNameError,
+    AccountStateError,
     DuplicateValueError,
     InactiveRoomAssignmentError,
     InactiveTeacherAssignmentError,
@@ -94,6 +94,7 @@ app.include_router(lesson_router)
 app.include_router(schedule_version_router)
 app.include_router(schedule_router)
 app.include_router(users_router)
+app.include_router(me_router)
 
 # Convention: every service-layer delete_xxx()/create_xxx()/update_xxx() that
 # can hit a SQLAlchemy IntegrityError raises one of the three exceptions
@@ -225,9 +226,9 @@ def handle_record_status(request: Request, exc: RecordStatusError) -> JSONRespon
     return JSONResponse(status_code=409, content={"detail": exc.message})
 
 
-@app.exception_handler(DuplicateTeacherNameError)
-def handle_duplicate_teacher_name(
-    request: Request, exc: DuplicateTeacherNameError
+@app.exception_handler(AccountStateError)
+def handle_account_state(
+    request: Request, exc: AccountStateError
 ) -> JSONResponse:
     return JSONResponse(status_code=422, content={"detail": str(exc)})
 
@@ -237,16 +238,6 @@ def handle_account_permission(
     request: Request, exc: AccountPermissionError
 ) -> JSONResponse:
     return JSONResponse(status_code=403, content={"detail": str(exc)})
-
-
-@app.exception_handler(CannotDeleteSelfError)
-def handle_cannot_delete_self(
-    request: Request, exc: CannotDeleteSelfError
-) -> JSONResponse:
-    return JSONResponse(
-        status_code=409,
-        content={"detail": "不能刪除目前登入中的帳號"},
-    )
 
 
 @app.exception_handler(ScheduleVersionAlreadyScheduledError)

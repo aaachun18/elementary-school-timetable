@@ -39,10 +39,11 @@ class AccountPermissionError(Exception):
     the user."""
 
 
-class DuplicateTeacherNameError(Exception):
-    """A new teacher account has the same name as a teacher already in the
-    school, but no 身分證字號 to tell them apart (-> 422). The message is
-    Chinese text for the user."""
+class AccountStateError(Exception):
+    """帳號改版: the request is allowed, but the account's current state
+    makes it impossible (-> 422), e.g. changing the name of an 一般老師
+    with no school, or a wrong current password. The message is Chinese
+    text for the user."""
 
 
 class InvalidReferenceError(Exception):
@@ -168,17 +169,6 @@ class RecordStatusError(Exception):
     def __init__(self, message: str) -> None:
         self.message = message
         super().__init__(message)
-
-
-class CannotDeleteSelfError(Exception):
-    """Raised by delete_user() when an ADMIN tries to delete the account
-    they are currently logged in as.
-
-    Task 59: this rule alone guarantees at least one ADMIN always remains
-    -- only an ADMIN can delete accounts, and never their own, so the one
-    doing the deleting always survives. Without that guarantee, an empty
-    users table would reopen anonymous first-ADMIN registration (Task 57).
-    """
 
 
 class ScheduleVersionAlreadyScheduledError(Exception):
@@ -323,7 +313,7 @@ def raise_for_integrity_error(exc: IntegrityError) -> None:
             "One or more referenced records do not exist."
         ) from exc
     if isinstance(orig, (UniqueViolation, CheckViolation, NotNullViolation)):
-        # The message names what is wrong (身分證字號重複, 帳號名稱已被使用
+        # The message names what is wrong (這個 Email 已經有帳號
         # ...), from the violated constraint's name.
         raise DuplicateValueError(integrity_violation_message(orig)) from exc
     raise exc

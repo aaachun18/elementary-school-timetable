@@ -53,6 +53,7 @@ import { useTimetableData, type EnrichedSchedule } from "../hooks/useTimetableDa
 import { useUnscheduledLessons } from "../hooks/useUnscheduledLessons";
 import { extractApiErrorMessage } from "../constants/errorMessages";
 import { isCurrentUserCoordinator } from "../utils/auth";
+import { PUBLISHED_VIEW } from "../utils/timetableLinks";
 import { getViolationSentence, resolveTimeSlotLabel } from "../utils/failureDiagnostics";
 import { combinedForDisplay } from "../utils/combinedLessons";
 import { blockGroupMemberIds } from "../utils/lessonBlocks";
@@ -155,8 +156,16 @@ export default function TimetableView(): ReactElement {
   const rawRequestedId = searchParams.get("scheduleVersionId");
   const parsedRequestedId = rawRequestedId !== null ? Number(rawRequestedId) : NaN;
   const requestedVersionId = Number.isInteger(parsedRequestedId) ? parsedRequestedId : null;
+  // 帳號改版: the 教學組長's 「課表」 link (?view=published) shows the
+  // published timetables read-only, the way a 一般老師 sees them; their
+  // 排課紀錄 still opens any record for editing.
+  const isPublishedView = searchParams.get("view") === PUBLISHED_VIEW;
   function setRequestedVersionId(versionId: number | null): void {
-    setSearchParams(versionId === null ? {} : { scheduleVersionId: String(versionId) });
+    const params: Record<string, string> = isPublishedView ? { view: PUBLISHED_VIEW } : {};
+    if (versionId !== null) {
+      params.scheduleVersionId = String(versionId);
+    }
+    setSearchParams(params);
   }
   // Task 80: versions can be deleted (ARCHIVED too), so a bookmarked or
   // back-button URL may name a version that no longer exists. Once the
@@ -166,7 +175,9 @@ export default function TimetableView(): ReactElement {
   const isRequestedVersionMissing =
     requestedVersionId !== null &&
     versionsResource.data !== null &&
-    !versionsResource.data.some((version) => version.id === requestedVersionId);
+    !versionsResource.data.some(
+      (version) => version.id === requestedVersionId && (!isPublishedView || version.is_published),
+    );
   const selectedVersionId = isRequestedVersionMissing ? null : requestedVersionId;
   const [viewMode, setViewMode] = useState<TimetableViewMode>("class");
   const [selectedTargetId, setSelectedTargetId] = useState<number | null>(null);
@@ -200,7 +211,7 @@ export default function TimetableView(): ReactElement {
   // TEACHER gets 403 for every record), so a teacher never calls it. ---
   // Task 98: "isAdmin" here means whoever may edit scheduling data -- a
   // 教學組長 (backend require_coordinator).
-  const isAdmin = isCurrentUserCoordinator();
+  const isAdmin = isCurrentUserCoordinator() && !isPublishedView;
   const canCheck = canSeeCheckTags(isAdmin);
   const scheduleCheck = useScheduleCheck(activeVersionId);
   // The cell 「在課表中查看」 marked (amber), with where it was made. Task
@@ -998,7 +1009,9 @@ export default function TimetableView(): ReactElement {
   const semesterById = new Map(
     (semesters.data ?? []).map((semester) => [semester.id, semester]),
   );
-  const versions = versionsResource.data ?? [];
+  // In the published view only published records (a 一般老師's list has
+  // nothing else to begin with).
+  const versions = (versionsResource.data ?? []).filter((version) => !isPublishedView || version.is_published);
   const selectedVersion = versions.find((version) => version.id === selectedVersionId);
   // The record's 導師 (its 教師設定): a tag under a class's grid, and their
   // name as a tag on the lessons they teach that class.

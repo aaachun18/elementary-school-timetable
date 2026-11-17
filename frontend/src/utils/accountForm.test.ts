@@ -1,104 +1,81 @@
 import { describe, expect, it } from "vitest";
 import {
-  creatableRoles,
+  EMAIL_FORMAT_MESSAGE,
   getMissingFieldMessage,
-  getNationalIdError,
-  NATIONAL_ID_FORMAT_MESSAGE,
+  isValidEmail,
   needsSchoolChoice,
-  toUserCreate,
+  needsTeacherName,
+  newAccountRole,
+  toAccountCreate,
   type NewAccountDraft,
 } from "./accountForm";
 
-const COMPLETE_TEACHER: NewAccountDraft = {
-  username: " wang ",
-  password: "s3cret-pass",
-  role: "TEACHER",
+const COMPLETE: NewAccountDraft = {
+  email: " Wang@Example.com ",
   schoolId: 3,
   teacherName: " 王老師 ",
-  nationalId: "",
 };
 
-describe("creatableRoles", () => {
-  it("lets the 系統管理員 create every role", () => {
-    expect(creatableRoles("ADMIN")).toEqual(["TEACHER", "COORDINATOR", "ADMIN"]);
+describe("newAccountRole", () => {
+  it("lets the 系統管理員 create only 教學組長 accounts", () => {
+    expect(newAccountRole("ADMIN")).toBe("COORDINATOR");
   });
 
-  it("limits a 教學組長 to 一般老師 accounts", () => {
-    expect(creatableRoles("COORDINATOR")).toEqual(["TEACHER"]);
+  it("lets a 教學組長 create only 一般老師 accounts", () => {
+    expect(newAccountRole("COORDINATOR")).toBe("TEACHER");
   });
 });
 
-describe("needsSchoolChoice", () => {
-  it("is only for the 系統管理員 creating a school-bound account", () => {
-    expect(needsSchoolChoice("ADMIN", "TEACHER")).toBe(true);
-    expect(needsSchoolChoice("ADMIN", "COORDINATOR")).toBe(true);
-    expect(needsSchoolChoice("ADMIN", "ADMIN")).toBe(false);
-    expect(needsSchoolChoice("COORDINATOR", "TEACHER")).toBe(false);
+describe("which fields the dialog asks for", () => {
+  it("asks the 系統管理員 for a school and no name", () => {
+    expect(needsSchoolChoice("ADMIN")).toBe(true);
+    expect(needsTeacherName("ADMIN")).toBe(false);
+  });
+
+  it("asks a 教學組長 for a name and no school", () => {
+    expect(needsSchoolChoice("COORDINATOR")).toBe(false);
+    expect(needsTeacherName("COORDINATOR")).toBe(true);
+  });
+});
+
+describe("isValidEmail", () => {
+  it("accepts an address and rejects anything else", () => {
+    expect(isValidEmail("a@b.tw")).toBe(true);
+    expect(isValidEmail("  A@B.TW ")).toBe(true);
+    expect(isValidEmail("ab.tw")).toBe(false);
+    expect(isValidEmail("a@b")).toBe(false);
+    expect(isValidEmail("a b@c.tw")).toBe(false);
   });
 });
 
 describe("getMissingFieldMessage", () => {
-  it("accepts a complete draft", () => {
-    expect(getMissingFieldMessage(COMPLETE_TEACHER, "ADMIN")).toBeNull();
+  it("is null for a complete draft", () => {
+    expect(getMissingFieldMessage(COMPLETE, "ADMIN")).toBeNull();
+    expect(getMissingFieldMessage(COMPLETE, "COORDINATOR")).toBeNull();
   });
 
-  it("requires a teacher name for an 一般老師", () => {
-    expect(getMissingFieldMessage({ ...COMPLETE_TEACHER, teacherName: "  " }, "ADMIN")).toBe(
-      "請輸入教師姓名",
-    );
+  it("names the missing field", () => {
+    expect(getMissingFieldMessage({ ...COMPLETE, schoolId: null }, "ADMIN")).toBe("請選擇所屬學校");
+    expect(getMissingFieldMessage({ ...COMPLETE, email: " " }, "ADMIN")).toBe("請輸入 Email");
+    expect(getMissingFieldMessage({ ...COMPLETE, email: "wang" }, "COORDINATOR")).toBe(EMAIL_FORMAT_MESSAGE);
+    expect(getMissingFieldMessage({ ...COMPLETE, teacherName: " " }, "COORDINATOR")).toBe("請輸入教師姓名");
   });
 
-  it("requires a school only when the 系統管理員 must choose one", () => {
-    const withoutSchool = { ...COMPLETE_TEACHER, schoolId: null };
-    expect(getMissingFieldMessage(withoutSchool, "ADMIN")).toBe("請選擇所屬學校");
-    expect(getMissingFieldMessage(withoutSchool, "COORDINATOR")).toBeNull();
+  it("does not need what the actor's dialog doesn't show", () => {
+    expect(getMissingFieldMessage({ ...COMPLETE, teacherName: "" }, "ADMIN")).toBeNull();
+    expect(getMissingFieldMessage({ ...COMPLETE, schoolId: null }, "COORDINATOR")).toBeNull();
   });
 });
 
-describe("toUserCreate", () => {
-  it("trims and includes school and teacher name for the 系統管理員", () => {
-    expect(toUserCreate(COMPLETE_TEACHER, "ADMIN")).toEqual({
-      username: "wang",
-      password: "s3cret-pass",
-      role: "TEACHER",
-      school_id: 3,
+describe("toAccountCreate", () => {
+  it("sends the 系統管理員's school and email", () => {
+    expect(toAccountCreate(COMPLETE, "ADMIN")).toEqual({ email: "wang@example.com", school_id: 3 });
+  });
+
+  it("sends the 教學組長's email and teacher name", () => {
+    expect(toAccountCreate(COMPLETE, "COORDINATOR")).toEqual({
+      email: "wang@example.com",
       teacher_name: "王老師",
     });
-  });
-
-  it("leaves the school out for a 教學組長 (their own school is used)", () => {
-    expect(toUserCreate(COMPLETE_TEACHER, "COORDINATOR").school_id).toBeUndefined();
-  });
-
-  it("sends neither school nor teacher name for a 系統管理員 account", () => {
-    const body = toUserCreate({ ...COMPLETE_TEACHER, role: "ADMIN" }, "ADMIN");
-    expect(body.school_id).toBeUndefined();
-    expect(body.teacher_name).toBeUndefined();
-  });
-});
-
-describe("身分證字號", () => {
-  it("is sent upper-cased only when filled in", () => {
-    expect(toUserCreate(COMPLETE_TEACHER, "ADMIN").teacher_national_id).toBeUndefined();
-    expect(toUserCreate({ ...COMPLETE_TEACHER, nationalId: " a123456789 " }, "ADMIN").teacher_national_id).toBe(
-      "A123456789",
-    );
-  });
-
-  it("is never sent for a non-teacher account", () => {
-    const body = toUserCreate({ ...COMPLETE_TEACHER, role: "COORDINATOR", nationalId: "A123456789" }, "ADMIN");
-    expect(body.teacher_national_id).toBeUndefined();
-  });
-
-  it("accepts an ID card or resident certificate number", () => {
-    expect(getNationalIdError("A123456789")).toBeNull();
-    expect(getNationalIdError("a823456789")).toBeNull();
-    expect(getNationalIdError("AB12345678")).toBeNull();
-  });
-
-  it("explains a missing or malformed number", () => {
-    expect(getNationalIdError("  ")).toBe("請輸入身分證字號");
-    expect(getNationalIdError("123456789")).toBe(NATIONAL_ID_FORMAT_MESSAGE);
-    expect(getNationalIdError("A12345678")).toBe(NATIONAL_ID_FORMAT_MESSAGE);
   });
 });

@@ -1,23 +1,19 @@
 import type { UserRole } from "../utils/auth";
 
 // Mirrors backend/app/schemas/user.py::UserListItem -- one row of
-// GET /api/v1/users/ (Task 59). Never includes hashed_password. Task 98
-// added is_active, school_id (null for a 系統管理員) and teacher_name
-// (an 一般老師 account's Teacher).
+// GET /api/v1/users/. Never includes hashed_password. 帳號改版: username
+// is the email for 教學組長 / 一般老師 accounts; school_id is null for an
+// 一般老師 after 離校 (無所屬學校).
 export interface User {
   id: number;
   username: string;
   role: UserRole;
   is_active: boolean;
   school_id: number | null;
+  // The account's teacher name (教學組長 / 一般老師).
   teacher_name: string | null;
-  // The account's Teacher (一般老師), for editing its 身分證字號.
+  // The account's current teacher row; null while it has no school.
   teacher_id: number | null;
-  // 身分證字號 masked (A12****789) -- the API never sends the number.
-  national_id_masked: string | null;
-  // Another teacher of the school has the same name and this one has no
-  // 身分證字號 yet: shown as a warning next to the name.
-  national_id_missing: boolean;
 }
 
 // Mirrors backend/app/schemas/user.py::UsernameAvailability.
@@ -25,33 +21,25 @@ export interface UsernameAvailability {
   available: boolean;
 }
 
-// Mirrors backend/app/schemas/user.py::UserCreate -- the body of
-// POST /api/v1/auth/register. Task 98: school_id is required when the
-// 系統管理員 creates a 教學組長 / 一般老師 (a 教學組長 leaves it out: their
-// own school is used); teacher_name is required for an 一般老師.
-export interface UserCreate {
-  username: string;
-  password: string;
-  role: UserRole;
+// Mirrors backend/app/schemas/user.py::AccountCreate -- the body of
+// POST /api/v1/users/. 系統管理員: email + school_id (creates a 教學組長);
+// 教學組長: email + teacher_name (creates an 一般老師 of their school).
+export interface AccountCreate {
+  email: string;
   school_id?: number;
   teacher_name?: string;
-  // 身分證字號: only when the school already has a teacher of this name.
-  teacher_national_id?: string;
 }
 
-// Mirrors backend/app/schemas/user.py::SameNameTeacher -- a teacher of the
-// school with the name being entered; whether their 身分證字號 is set,
-// never the number itself.
-export interface SameNameTeacher {
-  teacher_id: number;
-  teacher_name: string;
-  school_id: number;
-  username: string | null;
-  has_national_id: boolean;
+// Mirrors backend/app/schemas/user.py::AccountCreated. initial_password
+// is only set when the mail could not be sent.
+export interface AccountCreated {
+  user: User;
+  email_sent: boolean;
+  initial_password: string | null;
 }
 
 // Mirrors backend/app/schemas/user.py::UserUpdate -- the body of
-// PATCH /api/v1/users/{id} (Task 98). school_id: 系統管理員 only.
+// PATCH /api/v1/users/{id}, 系統管理員 only.
 export interface UserUpdate {
   is_active?: boolean;
   school_id?: number;

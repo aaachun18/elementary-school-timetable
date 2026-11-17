@@ -76,10 +76,14 @@ def test_teacher_account_reads_but_cannot_rename(
     assert response.status_code == 403
 
 
-def test_deactivating_the_account_deactivates_the_teacher(client: TestClient) -> None:
+def test_deactivating_the_account_deactivates_the_teacher(
+    client: TestClient, admin_client: TestClient
+) -> None:
     teacher_id = create_teacher(client, "王老師")
     user_id = client.get(f"{URL}{teacher_id}").json()["user_id"]
 
-    client.patch(f"/api/v1/users/{user_id}", json={"is_active": False})
+    # 帳號改版: 停用 is the 系統管理員's.
+    response = admin_client.patch(f"/api/v1/users/{user_id}", json={"is_active": False})
+    assert response.status_code == 200
 
     assert client.get(f"{URL}{teacher_id}").json()["is_active"] is False

@@ -4,12 +4,12 @@ import { isUsernameAvailable } from "../api/users";
 // Wait this long after the last keystroke before asking the backend.
 const CHECK_DELAY_MS = 300;
 
-export const USERNAME_TAKEN_MESSAGE = "帳號名稱已被使用，請更換";
+export const USERNAME_TAKEN_MESSAGE = "這個 Email 已經有帳號，請更換";
 
 // 新增帳號: whether the 帳號名稱 being typed is already taken, checked a
 // moment after typing stops. true = taken, false = free, null = not known
 // (empty, still checking, or the check itself failed -- then 儲存 is still
-// allowed and the backend's own 409 「帳號名稱已被使用，請更換」 reports it).
+// allowed and the backend's own 409 「這個 Email 已經有帳號，請更換」 reports it).
 export function useUsernameTaken(username: string): boolean | null {
   const [result, setResult] = useState<{ username: string; taken: boolean } | null>(null);
   const trimmed = username.trim();

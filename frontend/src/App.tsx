@@ -7,6 +7,7 @@ import DataBrowser from "./pages/DataBrowser";
 import Home from "./pages/Home";
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
+import Profile from "./pages/Profile";
 import RecordSettings from "./pages/RecordSettings";
 import ScheduleRecords from "./pages/ScheduleRecords";
 import SchedulingWizard from "./pages/SchedulingWizard";
@@ -20,6 +21,7 @@ const SCHOOL_MEMBERS: readonly UserRole[] = ["COORDINATOR", "TEACHER"];
 const COORDINATOR_ONLY: readonly UserRole[] = ["COORDINATOR"];
 const ACCOUNT_MANAGERS: readonly UserRole[] = ["ADMIN", "COORDINATOR"];
 const ADMIN_ONLY: readonly UserRole[] = ["ADMIN"];
+const EVERY_ROLE: readonly UserRole[] = ["ADMIN", "COORDINATOR", "TEACHER"];
 
 export default function App(): ReactElement {
   return (
@@ -115,6 +117,16 @@ export default function App(): ReactElement {
             element={
               <RoleRoute allow={SCHOOL_MEMBERS}>
                 <TimetableView />
+              </RoleRoute>
+            }
+          />
+          {/* 帳號改版: 個人資料維護, every role (and the only page an
+              一般老師 with no school can use, see Layout). */}
+          <Route
+            path="/profile"
+            element={
+              <RoleRoute allow={EVERY_ROLE}>
+                <Profile />
               </RoleRoute>
             }
           />

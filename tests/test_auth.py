@@ -19,34 +19,26 @@ def test_register_creates_user(unauthenticated_client: TestClient) -> None:
     assert "password" not in data
 
 
-def test_register_duplicate_username_conflict(
+def test_register_closed_for_admin_once_users_exist(
     admin_client: TestClient, account_school: School
 ) -> None:
-    # Task 57: once any user exists, register needs an ADMIN token -- the
-    # `admin_client` fixture's ADMIN, so the second call reaches the same
-    # duplicate-username 409 as before. (Task 98: a TEACHER account needs
-    # a school and a teacher name.)
-    payload = {
-        "username": "dupuser",
-        "password": "s3cret-pass",
-        "role": "TEACHER",
-        "school_id": account_school.id,
-        "teacher_name": "王老師",
-    }
-    first_response = admin_client.post("/api/v1/auth/register", json=payload)
-    assert first_response.status_code == 201
+    # 帳號改版: once any account exists, register is closed even for the
+    # 系統管理員 -- 教學組長 / 一般老師 accounts come from POST
+    # /api/v1/users/, and no second 系統管理員 can be created.
+    response = admin_client.post(
+        "/api/v1/auth/register",
+        json={"username": "dupuser", "password": "s3cret-pass"},
+    )
 
-    response = admin_client.post("/api/v1/auth/register", json=payload)
-
-    assert response.status_code == 409
+    assert response.status_code == 403
+    assert response.json()["detail"] == "系統已有帳號，新帳號請由「帳號管理」建立"
 
 
-def test_register_invalid_role_returns_422(
+def test_register_without_password_returns_422(
     unauthenticated_client: TestClient,
 ) -> None:
     response = unauthenticated_client.post(
-        "/api/v1/auth/register",
-        json={"username": "studentuser", "password": "s3cret-pass", "role": "STUDENT"},
+        "/api/v1/auth/register", json={"username": "nopassword"}
     )
 
     assert response.status_code == 422
@@ -141,7 +133,7 @@ def test_register_anonymous_rejected_when_users_exist(
         json={"username": "sneaky", "password": "s3cret-pass", "role": "ADMIN"},
     )
 
-    assert response.status_code == 401
+    assert response.status_code == 403
 
 
 def test_register_invalid_token_rejected_when_users_exist(
@@ -153,7 +145,7 @@ def test_register_invalid_token_rejected_when_users_exist(
         headers={"Authorization": "Bearer not-a-real-token"},
     )
 
-    assert response.status_code == 401
+    assert response.status_code == 403
 
 
 def test_register_teacher_token_forbidden(teacher_client: TestClient) -> None:
@@ -165,33 +157,13 @@ def test_register_teacher_token_forbidden(teacher_client: TestClient) -> None:
     assert response.status_code == 403
 
 
-def test_register_admin_creates_teacher(
-    admin_client: TestClient, account_school: School
-) -> None:
-    response = admin_client.post(
-        "/api/v1/auth/register",
-        json={
-            "username": "newteacher",
-            "password": "s3cret-pass",
-            "role": "TEACHER",
-            "school_id": account_school.id,
-            "teacher_name": "王老師",
-        },
-    )
-
-    assert response.status_code == 201
-    assert response.json()["role"] == "TEACHER"
-    assert response.json()["school_id"] == account_school.id
-
-
-def test_register_admin_creates_admin(admin_client: TestClient) -> None:
+def test_register_admin_cannot_create_admin(admin_client: TestClient) -> None:
     response = admin_client.post(
         "/api/v1/auth/register",
         json={"username": "secondadmin", "password": "s3cret-pass", "role": "ADMIN"},
     )
 
-    assert response.status_code == 201
-    assert response.json()["role"] == "ADMIN"
+    assert response.status_code == 403
 
 
 # --- Task 59: password rule (8 characters to 72 UTF-8 bytes) ---

@@ -1,10 +1,10 @@
 import { useState, type FormEvent, type ReactElement } from "react";
 import {
   list as listUsers,
-  create as createUser,
+  createAccount,
   update as updateUser,
   resetPassword,
-  remove as removeUser,
+  leaveSchool,
   deactivationImpact as userDeactivationImpact,
 } from "../api/users";
 import { list as listSchools } from "../api/schools";
@@ -13,29 +13,26 @@ import { useCrudList } from "../hooks/useCrudList";
 import { useConfirm } from "../hooks/useConfirm";
 import { usePagination } from "../hooks/usePagination";
 import Pagination from "../components/Pagination";
+import ConfirmDialog from "../components/ConfirmDialog";
 import DeactivateConfirmDialog from "../components/DeactivateConfirmDialog";
-import { CANCEL_LABEL, deleteButtonLabel, deleteConfirmText, editButtonLabel } from "../utils/confirmText";
+import { CANCEL_LABEL } from "../utils/confirmText";
 import type { School } from "../types/school";
-import type { PasswordReset, SameNameTeacher, User, UserCreate, UserUpdate } from "../types/user";
-import { getCurrentUserRole, getCurrentUsername, ROLE_LABELS } from "../utils/auth";
+import type { AccountCreate, AccountCreated, PasswordReset, User, UserUpdate } from "../types/user";
+import { getCurrentUserRole, ROLE_LABELS } from "../utils/auth";
 import { getPasswordRuleError } from "../utils/passwordRule";
 import AccountCreateDialog from "../components/accounts/AccountCreateDialog";
-import NationalIdEditDialog from "../components/accounts/NationalIdEditDialog";
-import NationalIdFollowUpDialog from "../components/accounts/NationalIdFollowUpDialog";
 import { RowErrorText } from "../components/DeleteStepsHint";
 import StatusBadge from "../components/StatusBadge";
 import PageHeader from "../components/PageHeader";
-import DeleteIconButton from "../components/DeleteIconButton";
-import EditIconButton from "../components/EditIconButton";
 import { SearchIcon, XIcon } from "../components/icons";
 import {
-  filterByRole,
-  ROLE_FILTER_OPTIONS,
-  roleFilterLabel,
+  ACCOUNT_FILTER_OPTIONS,
+  accountFilterLabel,
+  filterAccounts,
   searchResultText,
   serialNumber,
   sortAccounts,
-  type RoleFilter,
+  type AccountFilter,
 } from "../utils/accountList";
 import { PAGE_SIZE } from "../utils/pagination";
 import {
@@ -48,6 +45,7 @@ import {
   INPUT,
   LOADING_TEXT,
   MUTED_TEXT,
+  NOTICE,
   PAGE,
   SELECT,
   TABLE,
@@ -59,17 +57,17 @@ import {
   TR_HOVER,
 } from "../styles/ui";
 
-// Task 98: one row update is either a password reset (the row's "edit"
-// mode, as in Task 59) or an account change (停用 / 啟用, 綁定學校) --
-// both go through useCrudList's submitUpdate so they share its pending /
-// error state.
+// One row update: a password reset (the row's "edit" mode), an account
+// change by the 系統管理員 (停用 / 啟用, 所屬學校) or a 教學組長's 離校 --
+// all through useCrudList's submitUpdate so they share its pending / error
+// state.
 type UserRowUpdate =
   | { kind: "password"; data: PasswordReset }
-  | { kind: "account"; data: UserUpdate };
+  | { kind: "account"; data: UserUpdate }
+  | { kind: "leave" };
 
 // Rendered only while the row is in reset-password mode, so its draft
-// password is discarded (unmounted) every time the form closes, rather
-// than reappearing the next time it's opened.
+// password is discarded (unmounted) every time the form closes.
 function PasswordResetForm({
   isPending,
   onConfirm,
@@ -116,76 +114,80 @@ function PasswordResetForm({
   );
 }
 
+// 系統管理員's 所屬學校 cell: changing the selection asks first, then saves.
+// An 一般老師 with no school shows 「無所屬學校」 until one is picked.
+function SchoolSelect({
+  user,
+  schools,
+  isPending,
+  onChange,
+}: {
+  user: User;
+  schools: readonly School[];
+  isPending: boolean;
+  onChange: (schoolId: number) => void;
+}): ReactElement {
+  return (
+    <select
+      value={user.school_id ?? ""}
+      onChange={(event) => {
+        if (event.target.value !== "") {
+          onChange(Number(event.target.value));
+        }
+      }}
+      disabled={isPending}
+      aria-label={`${user.username} 的所屬學校`}
+      className={`${SELECT} w-full`}
+    >
+      {user.school_id === null && <option value="">無所屬學校（請選擇）</option>}
+      {schools.map((school) => (
+        <option key={school.id} value={school.id}>
+          {school.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 function UserRow({
   serial,
   user,
   isAdminActor,
   schools,
-  isSelf,
   isResettingPassword,
   isPending,
   errorMessage,
-  deleteSteps,
   onStartResetPassword,
   onCancelResetPassword,
   onConfirmResetPassword,
   onToggleActive,
   onChangeSchool,
-  onEditNationalId,
-  onDelete,
+  onLeaveSchool,
 }: {
   // 序號: the row's place in the (sorted, searched) list, across pages.
   serial: number;
   user: User;
   isAdminActor: boolean;
-  schools: School[];
-  isSelf: boolean;
+  schools: readonly School[];
   isResettingPassword: boolean;
   isPending: boolean;
   errorMessage: string | undefined;
-  deleteSteps: readonly string[] | undefined;
   onStartResetPassword: () => void;
   onCancelResetPassword: () => void;
   onConfirmResetPassword: (data: PasswordReset) => void;
   onToggleActive: () => void;
   onChangeSchool: (schoolId: number) => void;
-  // Only for an account with a teacher (一般老師).
-  onEditNationalId: (() => void) | null;
-  onDelete: () => void;
+  onLeaveSchool: () => void;
 }): ReactElement {
   return (
     <tr className={TR_HOVER}>
       <td className={`${TD_NOWRAP} text-right text-gray-500`}>{serial}</td>
-      <td className={TD}>
-        {user.username}
-        {isSelf && <span className="ml-2 text-xs text-gray-500">（目前登入中）</span>}
-      </td>
-      <td className={TD}>{ROLE_LABELS[user.role]}</td>
-      <td className={TD}>
-        {user.teacher_name ?? <span className={MUTED_TEXT}>—</span>}
-        {user.national_id_missing && <NationalIdMissingWarning />}
-      </td>
-      <td className={TD}>{user.national_id_masked ?? <span className={MUTED_TEXT}>—</span>}</td>
+      <td className={TD}>{user.username}</td>
+      {isAdminActor && <td className={TD}>{ROLE_LABELS[user.role]}</td>}
+      <td className={TD}>{user.teacher_name ?? <span className={MUTED_TEXT}>—</span>}</td>
       {isAdminActor && (
         <td className={TD}>
-          {user.role === "ADMIN" ? (
-            <span className={MUTED_TEXT}>不屬於任何學校</span>
-          ) : (
-            // 綁定學校: changing the selection saves right away.
-            <select
-              value={user.school_id ?? ""}
-              onChange={(event) => onChangeSchool(Number(event.target.value))}
-              disabled={isPending}
-              aria-label={`${user.username} 的所屬學校`}
-              className={`${SELECT} w-full`}
-            >
-              {schools.map((school) => (
-                <option key={school.id} value={school.id}>
-                  {school.name}
-                </option>
-              ))}
-            </select>
-          )}
+          <SchoolSelect user={user} schools={schools} isPending={isPending} onChange={onChangeSchool} />
         </td>
       )}
       <td className={TD_NOWRAP}>
@@ -200,72 +202,56 @@ function UserRow({
           />
         ) : (
           <div className={ROW_ACTIONS}>
-            {/* Task 103: 鉛筆 (編輯), 重設密碼, 停用 -- in that order. */}
-            {onEditNationalId !== null && (
-              <EditIconButton label={editButtonLabel(user.username)} onClick={onEditNationalId} disabled={isPending} />
-            )}
-            <button
-              type="button"
-              onClick={onStartResetPassword}
-              disabled={isPending}
-              className={BUTTON_SECONDARY_ROW}
-            >
+            <button type="button" onClick={onStartResetPassword} disabled={isPending} className={BUTTON_SECONDARY_ROW}>
               重設密碼
             </button>
-            {/* The backend refuses deactivating / deleting one's own
-                account regardless; these just don't offer a button that
-                can only ever fail. */}
-            <button
-              type="button"
-              onClick={onToggleActive}
-              disabled={isPending || isSelf}
-              title={isSelf ? "不能停用目前登入中的帳號" : undefined}
-              className={BUTTON_SECONDARY_ROW}
-            >
-              {user.is_active ? "停用" : "啟用"}
-            </button>
-            {isAdminActor && (
-              <DeleteIconButton
-                label={deleteButtonLabel("account", user.username)}
-                onClick={onDelete}
-                disabled={isPending}
-                disabledReason={isSelf ? "不能刪除目前登入中的帳號" : null}
-              />
+            {/* 帳號改版: 停用 / 啟用 is the 系統管理員's; a 教學組長 has 離校
+                instead. No account is ever deleted. */}
+            {isAdminActor ? (
+              <button type="button" onClick={onToggleActive} disabled={isPending} className={BUTTON_SECONDARY_ROW}>
+                {user.is_active ? "停用" : "啟用"}
+              </button>
+            ) : (
+              <button type="button" onClick={onLeaveSchool} disabled={isPending} className={BUTTON_SECONDARY_ROW}>
+                離校
+              </button>
             )}
           </div>
         )}
-        {errorMessage !== undefined && <RowErrorText message={errorMessage} deleteSteps={deleteSteps} />}
+        {errorMessage !== undefined && <RowErrorText message={errorMessage} />}
       </td>
     </tr>
   );
 }
 
-// Next to a teacher's name: the school has another teacher of this name
-// and this one's 身分證字號 is still missing.
-function NationalIdMissingWarning(): ReactElement {
+// After 新增帳號: the mail went out, or (mail failed) the password to pass on.
+function AccountCreatedDialog({ created, onClose }: { created: AccountCreated; onClose: () => void }): ReactElement {
   return (
-    <span
-      title="有同名同姓的教師，請按鉛筆圖示（編輯）填寫身分證字號以供識別"
-      className="ml-2 inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 align-middle text-xs font-medium text-amber-800"
+    <ConfirmDialog
+      open
+      title={created.email_sent ? "帳號已建立，已寄出通知信" : "帳號已建立，但通知信寄送失敗"}
+      showConfirm={false}
+      cancelLabel="完成"
+      onConfirm={onClose}
+      onCancel={onClose}
     >
-      <svg aria-hidden="true" viewBox="0 0 20 20" className="h-3.5 w-3.5 fill-amber-500">
-        <path d="M10 2 19 18H1L10 2Zm-1 6v4h2V8H9Zm0 6v2h2v-2H9Z" />
-      </svg>
-      同名同姓，未填身分證字號
-    </span>
+      <p>帳號：{created.user.username}</p>
+      {created.email_sent ? (
+        <p>帳號與系統產生的密碼已寄到這個 Email，對方可以登入後到「個人資料」修改密碼。</p>
+      ) : (
+        <>
+          <p>密碼：{created.initial_password}</p>
+          <p className={NOTICE}>這個密碼只會顯示這一次，請自行告知對方，並提醒登入後到「個人資料」修改密碼。</p>
+        </>
+      )}
+    </ConfirmDialog>
   );
 }
 
-function isEditableTeacher(
-  user: User,
-): user is User & { teacher_id: number; teacher_name: string; school_id: number } {
-  return user.teacher_id !== null && user.teacher_name !== null && user.school_id !== null;
-}
-
-// Task 59: account management, reusing useCrudList's state machine. Task
-// 98: open to the 系統管理員 (every account; picks / changes schools,
-// deletes) and the 教學組長 (their own school's 一般老師 accounts only --
-// the backend returns nothing else to them).
+// Account management, reusing useCrudList's state machine. Open to the
+// 系統管理員 (every 教學組長 / 一般老師 account, never 系統管理員 ones;
+// creates 教學組長, 停用 / 啟用, 所屬學校) and the 教學組長 (their own
+// school's 一般老師 accounts only; creates them, 離校). Both may 重設密碼.
 export default function UserManagement(): ReactElement {
   const actorRole = getCurrentUserRole();
   const isAdminActor = actorRole === "ADMIN";
@@ -275,22 +261,38 @@ export default function UserManagement(): ReactElement {
   const [searchText, setSearchText] = useState("");
   const [appliedSearch, setAppliedSearch] = useState<string | null>(null);
   const usersResource = useResource(() => listUsers(appliedSearch), [appliedSearch]);
-  // 系統管理員 only: one role's accounts, shown as soon as it is picked.
-  const [roleFilter, setRoleFilter] = useState<RoleFilter>("ALL");
+  // 系統管理員 only: one group's accounts, shown as soon as it is picked.
+  const [accountFilter, setAccountFilter] = useState<AccountFilter>("ALL");
   // Only the 系統管理員 sees / chooses schools.
   const schoolsResource = useResource(
     () => (isAdminActor ? listSchools() : Promise.resolve<School[]>([])),
     [isAdminActor],
   );
-  const currentUsername = getCurrentUsername();
+  // What the last 新增帳號 returned (mail sent, or the password to pass on).
+  const [created, setCreated] = useState<AccountCreated | null>(null);
 
-  const crud = useCrudList<User, UserCreate, UserRowUpdate>(usersResource.data, {
-    create: createUser,
+  const crud = useCrudList<User, AccountCreate, UserRowUpdate>(usersResource.data, {
+    create: async (data: AccountCreate): Promise<User> => {
+      const result = await createAccount(data);
+      setCreated(result);
+      return result.user;
+    },
     // Explicit types: this adapter reads `crud.items` (at click time, long
     // after `crud` exists), which TypeScript can't infer through on its own.
     update: async (id: number, change: UserRowUpdate): Promise<User> => {
       if (change.kind === "account") {
-        return updateUser(id, change.data);
+        const updated = await updateUser(id, change.data);
+        if (change.data.school_id !== undefined) {
+          // A move changes the account's teacher row (teacher_id).
+          usersResource.reload();
+        }
+        return updated;
+      }
+      if (change.kind === "leave") {
+        const left = await leaveSchool(id);
+        // The account is no longer this school's: it leaves the list.
+        usersResource.reload();
+        return left;
       }
       // The reset endpoint returns 204 with no body: a password reset
       // never changes anything this table displays.
@@ -301,25 +303,16 @@ export default function UserManagement(): ReactElement {
       }
       return user;
     },
-    remove: removeUser,
+    remove: () => Promise.reject(new Error("帳號不能刪除")),
   });
-  // Task 103: ten accounts to a page; 重設密碼 / 停用 keep the page, a
-  // delete that empties it shows the new last page.
-  // Teachers by the strokes of their name (utils/accountList.ts).
-  const shownRole: RoleFilter = isAdminActor ? roleFilter : "ALL";
-  const sortedUsers = sortAccounts(filterByRole(crud.items, shownRole));
-  const isFiltered = appliedSearch !== null || shownRole !== "ALL";
+  const shownFilter: AccountFilter = isAdminActor ? accountFilter : "ALL";
+  const sortedUsers = sortAccounts(filterAccounts(crud.items, shownFilter));
+  const isFiltered = appliedSearch !== null || shownFilter !== "ALL";
   const pagination = usePagination(sortedUsers);
   const { confirm, dialog: confirmDialog } = useConfirm();
   const [deactivating, setDeactivating] = useState<User | null>(null);
-  // After saving a teacher whose name was taken: the earlier same-name
-  // teachers still without a 身分證字號, asked for one at a time.
-  const [nationalIdQueue, setNationalIdQueue] = useState<SameNameTeacher[]>([]);
-  // 編輯: the account whose 身分證字號 is being edited.
-  const [nationalIdUser, setNationalIdUser] = useState<User | null>(null);
 
-  // Only the first load: a reload (after 新增 / 編輯) keeps the table and
-  // any open dialog on screen.
+  // Only the first load: a reload keeps the table and any open dialog.
   if ((usersResource.isLoading && usersResource.data === null) || schoolsResource.isLoading) {
     return (
       <div className={PAGE}>
@@ -355,34 +348,21 @@ export default function UserManagement(): ReactElement {
     applySearch(null);
   }
 
-  function handleRoleFilterChange(next: RoleFilter): void {
-    setRoleFilter(next);
+  function handleFilterChange(next: AccountFilter): void {
+    setAccountFilter(next);
     pagination.setPage(1);
   }
 
-  // 「顯示全部」: no search and every role.
+  // 「顯示全部」: no search and every account.
   function showAll(): void {
     clearSearch();
-    setRoleFilter("ALL");
+    setAccountFilter("ALL");
   }
 
-  async function handleCreate(data: UserCreate, sameNameTeachers: readonly SameNameTeacher[]): Promise<void> {
+  async function handleCreate(data: AccountCreate): Promise<void> {
     if (await crud.submitCreate(data)) {
-      setNationalIdQueue(sameNameTeachers.filter((teacher) => !teacher.has_national_id));
-      // The new row's 身分證字號 column and warnings come from the backend.
       usersResource.reload();
     }
-  }
-
-  // 儲存 and 取消 both move on; the list then shows who still lacks one.
-  function nextNationalId(): void {
-    setNationalIdQueue((queue) => queue.slice(1));
-    usersResource.reload();
-  }
-
-  function skipNationalIds(): void {
-    setNationalIdQueue([]);
-    usersResource.reload();
   }
 
   async function handleStartResetPassword(user: User): Promise<void> {
@@ -408,9 +388,37 @@ export default function UserManagement(): ReactElement {
     void crud.submitUpdate(user.id, { kind: "account", data: { is_active: true } });
   }
 
-  async function handleDelete(user: User): Promise<void> {
-    if (await confirm(deleteConfirmText("account", user.username))) {
-      void crud.submitDelete(user.id);
+  // Assigning an 一般老師 with no school just saves; moving an account
+  // that has a school asks first.
+  async function handleChangeSchool(user: User, schoolId: number): Promise<void> {
+    if (user.school_id !== null) {
+      const schoolName = schools.find((school) => school.id === schoolId)?.name ?? "";
+      const confirmed = await confirm({
+        title: `把「${user.username}」改到「${schoolName}」？`,
+        message: "原學校的教師資料會保留在舊課表中，但不會再出現在原學校的新排課名單。",
+        confirmLabel: "變更學校",
+        cancelLabel: CANCEL_LABEL,
+        tone: "primary",
+      });
+      if (!confirmed) {
+        return;
+      }
+    }
+    await crud.submitUpdate(user.id, { kind: "account", data: { school_id: schoolId } });
+  }
+
+  // 離校: the 一般老師 becomes 無所屬學校 and leaves this list.
+  async function handleLeaveSchool(user: User): Promise<void> {
+    const confirmed = await confirm({
+      title: `「${user.teacher_name ?? user.username}」要離校嗎？`,
+      message:
+        "離校後，已排好的課表仍會保留這位老師，但不會再出現在本校的新排課名單中。",
+      confirmLabel: "離校",
+      cancelLabel: CANCEL_LABEL,
+      tone: "danger",
+    });
+    if (confirmed) {
+      await crud.submitUpdate(user.id, { kind: "leave" });
     }
   }
 
@@ -430,15 +438,21 @@ export default function UserManagement(): ReactElement {
           onCancel={() => setDeactivating(null)}
         />
       )}
+      {created !== null && <AccountCreatedDialog created={created} onClose={() => setCreated(null)} />}
       <PageHeader
         title="帳號管理"
         info={
-          <p>
-            {isAdminActor
-              ? "系統管理員可以建立教學組長與一般老師帳號，並指定所屬學校。"
-              : "教學組長可以建立與停用自己學校的一般老師帳號。"}
-            建立一般老師帳號時會一併建立教師資料；停用帳號後，該帳號無法登入，教師也不會出現在新的排課名單中。重設密碼後，該帳號原本已登入的連線在登入效期到期前仍然有效。
-          </p>
+          isAdminActor ? (
+            <p>
+              系統管理員可以建立教學組長帳號（填寫所屬學校與 Email），系統會產生 8
+              碼密碼並寄送通知信。也可以停用或啟用帳號、重設密碼，以及變更所屬學校——「無所屬學校」的老師是被教學組長設為離校、等待分配的老師。
+            </p>
+          ) : (
+            <p>
+              教學組長可以建立自己學校的一般老師帳號（填寫 Email 與教師姓名），系統會產生 8
+              碼密碼並寄送通知信。老師離開本校時請按「離校」，該老師會交由系統管理員分配；已排好的課表不受影響。重設密碼後，該帳號原本已登入的連線在登入效期到期前仍然有效。
+            </p>
+          )
         }
         actions={
           <button
@@ -454,12 +468,12 @@ export default function UserManagement(): ReactElement {
       <form role="search" onSubmit={handleSearchSubmit} className="mb-2 flex flex-wrap items-center gap-2">
         {isAdminActor && (
           <select
-            value={roleFilter}
-            onChange={(event) => handleRoleFilterChange(event.target.value as RoleFilter)}
-            aria-label="篩選角色"
+            value={accountFilter}
+            onChange={(event) => handleFilterChange(event.target.value as AccountFilter)}
+            aria-label="篩選帳號"
             className={SELECT}
           >
-            {ROLE_FILTER_OPTIONS.map((option) => (
+            {ACCOUNT_FILTER_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
@@ -472,7 +486,7 @@ export default function UserManagement(): ReactElement {
             value={searchText}
             onChange={(event) => setSearchText(event.target.value)}
             aria-label="搜尋帳號"
-            placeholder="搜尋帳號、姓名或身分證字號"
+            placeholder="搜尋 Email 或姓名"
             className={`${INPUT} w-full pr-16 [&::-webkit-search-cancel-button]:hidden`}
           />
           {(searchText !== "" || appliedSearch !== null) && (
@@ -501,7 +515,7 @@ export default function UserManagement(): ReactElement {
         <p className="mb-3 flex flex-wrap items-center gap-2 text-sm text-gray-700" role="status">
           {searchResultText(
             appliedSearch,
-            shownRole === "ALL" ? null : roleFilterLabel(shownRole),
+            shownFilter === "ALL" ? null : accountFilterLabel(shownFilter),
             sortedUsers.length,
           )}
           <button type="button" onClick={showAll} className={BUTTON_GHOST_SM}>
@@ -514,10 +528,9 @@ export default function UserManagement(): ReactElement {
           <thead>
             <tr className={TABLE_HEAD_ROW}>
               <th className={`${TH} w-14 text-right`}>序號</th>
-              <th className={TH}>帳號名稱</th>
-              <th className={TH}>角色</th>
-              <th className={TH}>教師姓名</th>
-              <th className={TH}>身分證字號</th>
+              <th className={TH}>帳號（Email）</th>
+              {isAdminActor && <th className={TH}>角色</th>}
+              <th className={TH}>姓名</th>
               {isAdminActor && <th className={TH}>所屬學校</th>}
               <th className={TH}>狀態</th>
               <th className={TH}>操作</th>
@@ -531,22 +544,15 @@ export default function UserManagement(): ReactElement {
                 user={user}
                 isAdminActor={isAdminActor}
                 schools={schools}
-                isSelf={user.username === currentUsername}
                 isResettingPassword={crud.editingId === user.id}
                 isPending={crud.pendingKey === user.id}
                 errorMessage={crud.rowErrors.get(user.id)}
-                deleteSteps={crud.rowDeleteSteps.get(user.id)}
                 onStartResetPassword={() => void handleStartResetPassword(user)}
                 onCancelResetPassword={crud.cancelEditing}
-                onConfirmResetPassword={(data) =>
-                  void crud.submitUpdate(user.id, { kind: "password", data })
-                }
+                onConfirmResetPassword={(data) => void crud.submitUpdate(user.id, { kind: "password", data })}
                 onToggleActive={() => handleToggleActive(user)}
-                onChangeSchool={(schoolId) =>
-                  void crud.submitUpdate(user.id, { kind: "account", data: { school_id: schoolId } })
-                }
-                onEditNationalId={user.teacher_id !== null ? () => setNationalIdUser(user) : null}
-                onDelete={() => void handleDelete(user)}
+                onChangeSchool={(schoolId) => void handleChangeSchool(user, schoolId)}
+                onLeaveSchool={() => void handleLeaveSchool(user)}
               />
             ))}
           </tbody>
@@ -559,29 +565,8 @@ export default function UserManagement(): ReactElement {
           schools={schools}
           busy={crud.pendingKey === "new"}
           errorMessage={crud.rowErrors.get("new") ?? null}
-          onSave={(data, sameNameTeachers) => void handleCreate(data, sameNameTeachers)}
+          onSave={(data) => void handleCreate(data)}
           onCancel={crud.cancelAdding}
-        />
-      )}
-      {nationalIdQueue[0] !== undefined && (
-        <NationalIdFollowUpDialog
-          key={nationalIdQueue[0].teacher_id}
-          teacher={nationalIdQueue[0]}
-          schools={schools}
-          remainingCount={nationalIdQueue.length - 1}
-          onDone={nextNationalId}
-          onSkip={skipNationalIds}
-        />
-      )}
-      {nationalIdUser !== null && isEditableTeacher(nationalIdUser) && (
-        <NationalIdEditDialog
-          key={nationalIdUser.id}
-          user={nationalIdUser}
-          onSaved={() => {
-            setNationalIdUser(null);
-            usersResource.reload();
-          }}
-          onCancel={() => setNationalIdUser(null)}
         />
       )}
     </div>

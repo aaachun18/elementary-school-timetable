@@ -1,10 +1,15 @@
 import type { ReactElement } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { getProfile } from "../api/me";
 import { TOKEN_KEY } from "../api/client";
 import { useConfirm } from "../hooks/useConfirm";
 import { useIdleSession } from "../hooks/useIdleSession";
+import { useResource } from "../hooks/useResource";
 import { CANCEL_LABEL } from "../utils/confirmText";
 import { getCurrentUserRole, isCurrentUserManager } from "../utils/auth";
+import { isUnassignedTeacher } from "../utils/profile";
+import { PUBLISHED_TIMETABLE_PATH } from "../utils/timetableLinks";
+import NoSchoolNotice from "./NoSchoolNotice";
 import { BUTTON_SECONDARY_SM, NAV_BAR, NAV_LINK, NAV_LINK_ACTIVE } from "../styles/ui";
 
 // Shared shell for every protected page (see App.tsx: this is combined
@@ -18,13 +23,23 @@ export default function Layout(): ReactElement {
   // -- left out of the nav entirely rather than shown disabled:
   // - 系統管理員: 學校管理, 帳號管理;
   // - 一般老師: 首頁 (a simplified dashboard, Task 97), 課表;
-  // - 教學組長: 首頁, 學校資料, 開始排課, 排課紀錄, 帳號管理. An unknown
-  //   role (null) sees this nav too, same "only block a CONFIRMED role"
-  //   stance RoleRoute takes.
+  // - 教學組長: 首頁, 學校資料, 開始排課, 排課紀錄, 帳號管理, 課表 (the
+  //   published timetables, read-only -- 帳號改版: they teach too). An
+  //   unknown role (null) sees this nav too, same "only block a CONFIRMED
+  //   role" stance RoleRoute takes.
+  // Every role also has 個人資料 (帳號改版).
   const role = getCurrentUserRole();
   const isAdmin = role === "ADMIN";
   const isTeacher = role === "TEACHER";
   const canManageAccounts = isCurrentUserManager();
+  const location = useLocation();
+  // 帳號改版: an 一般老師 after 離校 has no school -- only 個人資料 (and
+  // 登出); every other page shows NoSchoolNotice instead.
+  const profileResource = useResource(
+    () => (isTeacher ? getProfile() : Promise.resolve(null)),
+    [isTeacher],
+  );
+  const hasNoSchool = isUnassignedTeacher(profileResource.data);
   const { confirm, dialog: confirmDialog } = useConfirm();
   // Logged out only after IDLE_TIMEOUT_MINUTES without any activity -- never
   // in the middle of working (utils/session.ts).
@@ -57,7 +72,7 @@ export default function Layout(): ReactElement {
   return (
     <div className="min-h-screen bg-gray-50">
       <nav className={NAV_BAR}>
-        {isAdmin ? (
+        {hasNoSchool ? null : isAdmin ? (
           <NavLink to="/schools" className={navLinkClassName}>
             學校管理
           </NavLink>
@@ -88,20 +103,34 @@ export default function Layout(): ReactElement {
             帳號管理
           </NavLink>
         )}
-        {/* Task 98: a 教學組長 opens timetables from 排課紀錄; a 一般老師
-            goes straight to the published one. */}
-        {isTeacher && (
+        {/* A 一般老師 goes straight to the published timetable; 帳號改版:
+            the 教學組長 teaches too, so they get the same read-only view
+            (their 排課紀錄 still opens any record for editing). */}
+        {isTeacher && !hasNoSchool && (
           <NavLink to="/timetable" className={navLinkClassName}>
             課表
           </NavLink>
         )}
+        {role === "COORDINATOR" && (
+          <NavLink
+            to={PUBLISHED_TIMETABLE_PATH}
+            className={() =>
+              navLinkClassName({
+                isActive: location.pathname === "/timetable" && location.search.includes("view=published"),
+              })
+            }
+          >
+            課表
+          </NavLink>
+        )}
+        <NavLink to="/profile" className={navLinkClassName}>
+          個人資料
+        </NavLink>
         <button type="button" onClick={() => void handleLogout()} className={`${BUTTON_SECONDARY_SM} ml-auto`}>
           登出
         </button>
       </nav>
-      <main>
-        <Outlet />
-      </main>
+      <main>{hasNoSchool && location.pathname !== "/profile" ? <NoSchoolNotice /> : <Outlet />}</main>
       {confirmDialog}
     </div>
   );

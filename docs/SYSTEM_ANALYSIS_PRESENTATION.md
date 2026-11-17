@@ -119,7 +119,7 @@
 | **經濟可行性** | 全部使用免費開源軟體；開發環境為個人電腦；CI 使用 GitHub Actions 免費額度；部署只需一台可跑 Docker 的主機 | 成本極低，可行 |
 | **操作可行性** | 以「精靈」引導教學組長逐步設定，每步自動儲存、可中斷續做；中文介面、錯誤訊息全部中文化並附建議做法；老師只需登入看課表 | 可行 |
 | **時程可行性** | 採迭代增量開發，2026-09-10 開始，每個 Task 都是可驗證的小步驟；核心排課引擎在前兩天就完成並獨立測試 | 可行 |
-| **法規 / 隱私** | 同名老師以身分證字號區分，API 只回 `has_national_id` 不回號碼、畫面遮罩顯示；密碼 bcrypt 雜湊 | 已考量 |
+| **法規 / 隱私** | 不蒐集身分證字號（同名老師以帳號 Email 區分）；初始密碼由系統亂數產生並寄到本人 Email；密碼 bcrypt 雜湊 | 已考量 |
 
 **為什麼不直接用 OR-Tools 等現成求解器？**（決策 5）這是學習與作品集專案，核心價值在展示「如何為真實問題建立 CSP 模型、設計約束、實作可解釋的演算法」；若是正式商用產品，會優先考慮 CP-SAT 這類成熟求解器。
 
@@ -208,6 +208,7 @@ gantt
     前向檢查演算法、H15、S9/S10、公開首頁    :done, r5, 2026-10-30, 2d
     移出課表、更換教室、文件改版             :done, r6, 2026-11-10, 1d
     導師排課規則                            :done, r7, 2026-11-12, 1d
+    帳號改版（Email 帳號、寄信、離校、個人資料） :done, r8, 2026-11-17, 1d
 ```
 
 ### 3.4 迭代里程碑摘要
@@ -240,7 +241,7 @@ gantt
 |---|---|---|---|
 | FR-01 | 登入 / 登出 | 帳號密碼登入取得 JWT；閒置 30 分鐘自動登出，操作中自動換發 token | 全部 |
 | FR-02 | 學校管理 | 建立學校（國小/國中/高中），自動產生年級、時段、國小預設科目與節數 | ADMIN |
-| FR-03 | 帳號管理 | 建立/停用/刪除帳號、重設密碼、搜尋、角色篩選；一般老師帳號與教師一對一 | ADMIN、COORDINATOR |
+| FR-03 | 帳號管理 | 以 Email 建立帳號（系統產生密碼並寄信）、停用/啟用、重設密碼、離校、分配學校、搜尋與篩選；帳號不能刪除；教學組長與一般老師都有教師資料 | ADMIN、COORDINATOR |
 | FR-04 | 學校資料管理 | 班級（含批次新增）、科目、年級科目需求、教室（一次可容納班數）、時段標籤與可排課；停用/啟用並提示影響範圍 | COORDINATOR |
 | FR-05 | 排課精靈 | 6 步驟：學期 → 教師設定 → 年級可排節次 → 科目需求 → 共同排課 → 確認並排課；每步自動儲存、可續做 | COORDINATOR |
 | FR-06 | 排課前檢查（Preflight） | 不跑搜尋就能找出必定排不出來的問題（9 類靜態可行性檢查） | COORDINATOR |
@@ -604,7 +605,7 @@ classDiagram
     class Teacher {
         +int id
         +str name
-        +str national_id
+        +bool has_left
         +bool is_active
     }
     class AcademicYear {
@@ -1216,7 +1217,7 @@ erDiagram
 |---|---|---|---|
 | `schools` | 學校 | id, name, school_type | school_type ∈ 國小/國中/高中 |
 | `users` | 帳號 | id, username, hashed_password, role, is_active, school_id | role ∈ ADMIN/COORDINATOR/TEACHER；username 唯一 |
-| `teachers` | 教師 | id, school_id, name, user_id, national_id, is_active | 同校 national_id 唯一 |
+| `teachers` | 教師 | id, school_id, name, user_id, has_left, is_active | 每個帳號只有一筆 has_left = false（部分唯一索引） |
 | `academic_years` / `semesters` | 學年度 / 學期 | year；number | — |
 | `grades` | 年級 | id, school_id, level | 國小 1–6、國中 7–9、高中 10–12 |
 | `classes` | 班級 | id, grade_id, name, is_active | — |
@@ -1405,7 +1406,7 @@ flowchart TB
 
 - 實作：`backend/app/core/dependencies.py` 的 `require_admin`、`require_coordinator`、`require_school_member`、`require_version_in_school` 等依賴。
 - **後端強制**：前端隱藏按鈕只是 UX，後端每個端點都檢查角色與學校（跨校資料一律 404/422，不洩漏存在與否）。
-- 身分證字號：API 只回 `has_national_id`，畫面遮罩。
+- 個人資料：每個角色都有 `/api/v1/me`；離校後無所屬學校的一般老師讀取學校資料一律 403「目前無所屬學校，請聯絡系統管理員」。
 
 ---
 

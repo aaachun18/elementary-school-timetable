@@ -25,15 +25,20 @@ class User(TimestampMixin, Base):
         CheckConstraint(
             "role IN ('ADMIN', 'COORDINATOR', 'TEACHER')", name="ck_users_role_valid"
         ),
-        # Task 98: a 系統管理員 belongs to no school; every other account
-        # belongs to exactly one.
+        # Task 98: a 系統管理員 belongs to no school, a 教學組長 to exactly
+        # one. 帳號改版: an 一般老師 has none after 離校 (無所屬學校) until
+        # the 系統管理員 assigns one.
         CheckConstraint(
-            "(role = 'ADMIN') = (school_id IS NULL)",
+            "(role = 'ADMIN' AND school_id IS NULL)"
+            " OR (role = 'COORDINATOR' AND school_id IS NOT NULL)"
+            " OR role = 'TEACHER'",
             name="ck_users_school_matches_role",
         ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # 帳號: the email for 教學組長 / 一般老師 accounts (帳號改版); the
+    # 系統管理員 keeps the name it was created with.
     username: Mapped[str] = mapped_column(String(100), unique=True)
     hashed_password: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(20))

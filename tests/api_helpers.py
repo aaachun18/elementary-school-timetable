@@ -26,18 +26,13 @@ _usernames = count(1)
 def create_teacher(client: TestClient, name: str) -> int:
     """A new 一般老師 account named `name` in the client's school; returns
     its Teacher's id."""
-    username = f"teacher-{next(_usernames)}"
+    email = f"teacher-{next(_usernames)}@example.com"
     response = client.post(
-        "/api/v1/auth/register",
-        json={
-            "username": username,
-            "password": "teacher-pass-123",
-            "role": "TEACHER",
-            "teacher_name": name,
-        },
+        "/api/v1/users/",
+        json={"email": email, "teacher_name": name},
     )
     assert response.status_code == 201, response.json()
-    user_id = response.json()["id"]
+    user_id = response.json()["user"]["id"]
     teachers = client.get("/api/v1/teachers/", params={"limit": 1000}).json()
     return next(teacher["id"] for teacher in teachers if teacher["user_id"] == user_id)
 

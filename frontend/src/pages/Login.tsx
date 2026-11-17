@@ -4,7 +4,6 @@ import { login } from "../api/auth";
 import { TOKEN_KEY } from "../api/client";
 import { extractApiErrorMessage } from "../constants/errorMessages";
 import { EyeIcon, EyeOffIcon } from "../components/icons";
-import LoginBrandPanel from "../components/LoginBrandPanel";
 import { SYSTEM_NAME } from "../constants/systemName";
 import { LOGOUT_REASON_MESSAGES, clearLogoutReason, readLogoutReason } from "../utils/session";
 import { BUTTON_PRIMARY, ERROR_TEXT, ICON_BUTTON, INPUT, LABEL, LINK_TEXT, NOTICE, PAGE_TITLE } from "../styles/ui";
@@ -67,17 +66,12 @@ export default function Login(): ReactElement {
   }
 
   return (
-    // Split: the brand panel (components/LoginBrandPanel) on the left from
-    // 768px up, the form on the right. Narrower, only the form, with the
-    // system's name above it.
+    // 帳號改版: no brand panel on the left any more -- the system's name
+    // and the card sit centered on the page, a little above the middle
+    // (pb-[10vh]), on every screen width.
     <div className="flex min-h-screen bg-gray-50">
-      <LoginBrandPanel />
-      {/* Task 101: the name (narrow screens) and the card sit centered, a
-          little above the middle (pb-[10vh]). */}
       <div className="flex flex-1 flex-col items-center justify-center px-4 pb-[10vh]">
-        {/* Task 99: the system's name above the card -- here only when the
-            brand panel (which shows it) is hidden. */}
-        <p className="mb-6 text-center text-3xl font-bold text-gray-900 md:hidden">{SYSTEM_NAME}</p>
+        <p className="mb-6 text-center text-3xl font-bold text-gray-900">{SYSTEM_NAME}</p>
         <div className="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-8 shadow-sm">
           <h1 className={`${PAGE_TITLE} text-center`}>歡迎回來</h1>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -95,6 +89,7 @@ export default function Login(): ReactElement {
                 name="username"
                 type="text"
                 autoComplete="username"
+                placeholder="Email"
                 value={username}
                 onChange={handleUsernameChange}
                 required
@@ -140,7 +135,7 @@ export default function Login(): ReactElement {
             </button>
           </form>
         </div>
-        <Link to="/" className={`${LINK_TEXT} mt-6 text-sm md:hidden`}>
+        <Link to="/" className={`${LINK_TEXT} mt-6 text-sm`}>
           返回首頁
         </Link>
       </div>

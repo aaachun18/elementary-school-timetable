@@ -62,7 +62,8 @@ from app.schemas.schedule_version import ScheduleVersionCreate  # noqa: E402
 from app.schemas.school import SchoolCreate  # noqa: E402
 from app.schemas.semester import SemesterCreate  # noqa: E402
 from app.schemas.semester_settings import SemesterTeacherEntry, SemesterTeachersUpdate  # noqa: E402
-from app.schemas.user import UserCreate  # noqa: E402
+from app.core.security import hash_password  # noqa: E402
+from app.schemas.user import AccountCreate  # noqa: E402
 from app.services import academic_year as academic_year_service  # noqa: E402
 from app.services import class_ as class_service  # noqa: E402
 from app.services import class_subject_requirement as requirement_service  # noqa: E402
@@ -83,12 +84,17 @@ from app.services.school_structure import (  # noqa: E402
     SchoolType,
     class_name_options,
 )
+from app.services import profile as profile_service  # noqa: E402
 from app.services import user as user_service  # noqa: E402
 
 SCHOOL_NAME = "示範國小"
 PASSWORD = "demo-pass-123"
 ADMIN_USERNAME = "admin"
-COORDINATOR_USERNAME = "coordinator"
+# 帳號改版: 教學組長 / 一般老師 accounts are emails (example.com is
+# reserved for examples, so no real mailbox is ever written to).
+COORDINATOR_USERNAME = "coordinator@example.com"
+COORDINATOR_NAME = "林組長"
+TEACHER_EMAIL_DOMAIN = "example.com"
 ACADEMIC_YEAR = 115
 SEMESTER_NUMBER = 1
 # The class's own teacher (導師) teaches its 國語文: teacher index per class.
@@ -130,35 +136,44 @@ def _redacted_url() -> str:
     return f"{scheme}://{user}:***@{host}"
 
 
+def _set_demo_password(db: Session, user_id: int) -> None:
+    """New accounts get a random password (mailed -- here: written to the
+    log); the demo accounts all share PASSWORD instead."""
+    user = db.get(User, user_id)
+    assert user is not None
+    user.hashed_password = hash_password(PASSWORD)
+    db.commit()
+
+
 def _accounts(db: Session, school_id: int) -> tuple[User, list[Teacher]]:
     admin = db.scalars(select(User).where(User.role == ADMIN)).first()
     if admin is None:
-        admin = user_service.create_user(
-            db, UserCreate(username=ADMIN_USERNAME, password=PASSWORD, role="ADMIN")
-        )
+        admin = user_service.create_bootstrap_admin(db, ADMIN_USERNAME, PASSWORD)
         print(f"系統管理員：{ADMIN_USERNAME} / {PASSWORD}")
-    coordinator = user_service.create_user(
-        db,
-        UserCreate(
-            username=COORDINATOR_USERNAME, password=PASSWORD, role="COORDINATOR", school_id=school_id
-        ),
-        admin,
+    created = user_service.create_account(
+        db, AccountCreate(email=COORDINATOR_USERNAME, school_id=school_id), admin
     )
+    _set_demo_password(db, created.user.id)
+    coordinator = db.get(User, created.user.id)
+    assert coordinator is not None
+    profile_service.update_name(db, coordinator, COORDINATOR_NAME)
+
     teachers: list[Teacher] = []
     for index, name in enumerate(TEACHER_NAMES, start=1):
-        account = user_service.create_user(
+        created = user_service.create_account(
             db,
-            UserCreate(
-                username=f"teacher{index:02d}",
-                password=PASSWORD,
-                role="TEACHER",
-                teacher_name=name,
-            ),
+            AccountCreate(email=f"teacher{index:02d}@{TEACHER_EMAIL_DOMAIN}", teacher_name=name),
             coordinator,
         )
-        teacher = db.scalars(select(Teacher).where(Teacher.user_id == account.id)).one()
+        _set_demo_password(db, created.user.id)
+        teacher = user_service.current_teacher_of(db, created.user.id)
+        assert teacher is not None
         teachers.append(teacher)
-    print(f"教學組長：{COORDINATOR_USERNAME} / {PASSWORD}；一般老師：teacher01-teacher{len(TEACHER_NAMES):02d} / {PASSWORD}")
+    print(
+        f"教學組長：{COORDINATOR_USERNAME} / {PASSWORD}；一般老師："
+        f"teacher01@{TEACHER_EMAIL_DOMAIN}-teacher{len(TEACHER_NAMES):02d}@{TEACHER_EMAIL_DOMAIN}"
+        f" / {PASSWORD}"
+    )
     return coordinator, teachers
 
 

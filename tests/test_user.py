@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 
 from app.models.user import User
 
-# Task 59: account management endpoints (ADMIN only). The `admin_client` fixture
+# Task 59: account management endpoints. The `admin_client` fixture
 # is the ADMIN (admin_user); `teacher_user` / `teacher_client` is a second,
 # TEACHER account in the same database.
 
@@ -22,11 +22,10 @@ def test_list_users_as_admin(admin_client: TestClient, teacher_user: User) -> No
 
     assert response.status_code == 200
     data = response.json()
-    assert [item["username"] for item in data] == ["admin_test", "teacher_test"]
-    assert [item["role"] for item in data] == ["ADMIN", "TEACHER"]
+    # 帳號改版: the 系統管理員 never sees 系統管理員 accounts, not even its own.
+    assert [item["username"] for item in data] == ["teacher_test"]
+    assert [item["role"] for item in data] == ["TEACHER"]
     for item in data:
-        # Task 98 added is_active, school_id and teacher_name; 帳號管理's
-        # 身分證字號 column the teacher_id / masked number / missing flag.
         assert set(item.keys()) == {
             "id",
             "username",
@@ -35,8 +34,6 @@ def test_list_users_as_admin(admin_client: TestClient, teacher_user: User) -> No
             "school_id",
             "teacher_name",
             "teacher_id",
-            "national_id_masked",
-            "national_id_missing",
         }
         assert "hashed_password" not in item
 
@@ -105,52 +102,27 @@ def test_reset_password_invalid_body_returns_422(
     assert _login(admin_client, "teacher_test", "teacher-test-password") == 200
 
 
-# --- DELETE /api/v1/users/{id} ---
+# --- 帳號改版: accounts are not deleted, they are 停用 ---
 
 
-def test_delete_user_as_admin(admin_client: TestClient, teacher_user: User) -> None:
+def test_delete_user_is_not_available(admin_client: TestClient, teacher_user: User) -> None:
     response = admin_client.delete(f"/api/v1/users/{teacher_user.id}")
 
-    assert response.status_code == 204
-    assert _login(admin_client, "teacher_test", "teacher-test-password") == 401
-    usernames = [item["username"] for item in admin_client.get("/api/v1/users/").json()]
-    assert "teacher_test" not in usernames
+    assert response.status_code == 405
+    assert _login(admin_client, "teacher_test", "teacher-test-password") == 200
 
 
-def test_delete_user_not_found(admin_client: TestClient) -> None:
-    response = admin_client.delete("/api/v1/users/999999")
-
-    assert response.status_code == 404
-
-
-def test_delete_self_returns_409(admin_client: TestClient, admin_user: User) -> None:
-    response = admin_client.delete(f"/api/v1/users/{admin_user.id}")
-
-    assert response.status_code == 409
-    assert response.json()["detail"] == "不能刪除目前登入中的帳號"
-    usernames = [item["username"] for item in admin_client.get("/api/v1/users/").json()]
-    assert "admin_test" in usernames
-
-
-def test_delete_user_as_teacher_returns_403(
-    teacher_client: TestClient, admin_user: User
-) -> None:
-    response = teacher_client.delete(f"/api/v1/users/{admin_user.id}")
-
-    assert response.status_code == 403
-
-
-def test_deleted_users_token_is_rejected(
+def test_deactivated_users_token_is_rejected(
     admin_client: TestClient, teacher_client: TestClient, teacher_user: User
 ) -> None:
-    # The teacher's token works before the account is deleted...
+    # The teacher's token works before the account is deactivated...
     assert teacher_client.get("/api/v1/schools/").status_code == 200
 
-    delete_response = admin_client.delete(f"/api/v1/users/{teacher_user.id}")
-    assert delete_response.status_code == 204
+    response = admin_client.patch(f"/api/v1/users/{teacher_user.id}", json={"is_active": False})
+    assert response.status_code == 200
 
     # ...and is rejected immediately afterwards, well before it expires:
-    # get_current_user() looks the token's username up on every request.
+    # get_current_user() looks the account up on every request.
     assert teacher_client.get("/api/v1/schools/").status_code == 401
 
 

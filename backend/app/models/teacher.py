@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, ForeignKey, String, UniqueConstraint
+from sqlalchemy import CheckConstraint, ForeignKey, Index, String, UniqueConstraint, false, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -18,10 +18,14 @@ class Teacher(TimestampMixin, Base):
             "min_weekly_periods <= max_weekly_periods",
             name="ck_teachers_weekly_periods_range",
         ),
-        UniqueConstraint("user_id", name="uq_teachers_user_id"),
-        # Several NULLs are allowed: only teachers sharing a name with
-        # another teacher of the school need one.
-        UniqueConstraint("school_id", "national_id", name="uq_teachers_school_national_id"),
+        # An account has at most one teacher row that has not left (rows
+        # of schools it left stay, linked, for old timetables).
+        Index(
+            "uq_teachers_user_id_current",
+            "user_id",
+            unique=True,
+            postgresql_where=text("has_left = false"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -32,14 +36,14 @@ class Teacher(TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(default=True)
     min_weekly_periods: Mapped[int] = mapped_column()
     max_weekly_periods: Mapped[int] = mapped_column()
-    # Task 98: the TEACHER account this teacher logs in with -- one to one,
-    # created together by the account service. Nullable for now: teachers
-    # created through the older /teachers CRUD have no account yet.
+    # Task 98: the account this teacher logs in with, created together by
+    # the account service (一般老師, and since 帳號改版 also 教學組長).
+    # Nullable: teachers created through the older /teachers CRUD have no
+    # account.
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
-    # 身分證字號: tells apart teachers of one school with the same name
-    # (帳號管理 asks for it then). Never returned by the API, only whether
-    # it is set.
-    national_id: Mapped[str | None] = mapped_column(String(10))
+    # 帳號改版 離校: the account left this school. The row stays so old
+    # timetables keep the name, but it is inactive and out of scheduling.
+    has_left: Mapped[bool] = mapped_column(default=False, server_default=false())
 
     # Read-only convenience views onto the association tables below. Writes
     # go through TeacherSubject / TeacherAvailability directly (they are the

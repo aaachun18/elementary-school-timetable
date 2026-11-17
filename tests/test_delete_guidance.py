@@ -3,9 +3,7 @@ first, in order, so the delete succeeds (services/delete_guidance.py)."""
 
 from fastapi.testclient import TestClient
 
-from app.models.school import School
 from tests.api_helpers import create_class, create_grade, create_record, mark_status
-from tests.test_account_roles import REGISTER_URL, _teacher_body
 
 CSR = "/api/v1/class-subject-requirements/"
 
@@ -66,21 +64,6 @@ def test_published_record_must_stop_being_published_first(client: TestClient) ->
         "排課紀錄編號 1（115 學年度第 1 學期）是目前發布中的課表，請先在排課紀錄發布同學期的另一筆紀錄",
         "到「排課紀錄」刪除排課紀錄編號 1（115 學年度第 1 學期）",
     ]
-
-
-def test_teacher_account_steps_say_to_deactivate(
-    admin_client: TestClient, account_school: School
-) -> None:
-    user_id = admin_client.post(
-        REGISTER_URL, json=_teacher_body("wang1", account_school.id)
-    ).json()["id"]
-
-    response = admin_client.delete(f"/api/v1/users/{user_id}")
-
-    assert response.status_code == 409
-    steps = response.json()["delete_steps"]
-    assert len(steps) == 1
-    assert "停用" in steps[0]
 
 
 def test_unreferenced_delete_still_succeeds(client: TestClient) -> None:

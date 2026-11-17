@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { filterByRole, ROLE_FILTER_OPTIONS, searchResultText, serialNumber, sortAccounts } from "./accountList";
+import {
+  ACCOUNT_FILTER_OPTIONS,
+  filterAccounts,
+  searchResultText,
+  serialNumber,
+  sortAccounts,
+} from "./accountList";
 
-const teacher = (username: string, name: string) => ({ username, role: "TEACHER" as const, teacher_name: name });
+const teacher = (username: string, name: string | null) => ({
+  username,
+  role: "TEACHER" as const,
+  teacher_name: name,
+});
 
 describe("sortAccounts", () => {
   it("orders teachers by the strokes of their name, surname first", () => {
@@ -16,15 +26,15 @@ describe("sortAccounts", () => {
     expect(sorted.map((account) => account.teacher_name)).toEqual(["丁一", "王小明", "李大同", "林志明", "陳美玲"]);
   });
 
-  it("puts accounts without a teacher first, and same names by account", () => {
+  it("puts 教學組長 first, then same names by account, then no name", () => {
     const sorted = sortAccounts([
       teacher("wang2", "王小明"),
-      { username: "coordinator", role: "COORDINATOR" as const, teacher_name: null },
+      teacher("noname", null),
+      { username: "coordinator", role: "COORDINATOR" as const, teacher_name: "陳組長" },
       teacher("wang1", "王小明"),
-      { username: "admin", role: "ADMIN" as const, teacher_name: null },
     ]);
 
-    expect(sorted.map((account) => account.username)).toEqual(["admin", "coordinator", "wang1", "wang2"]);
+    expect(sorted.map((account) => account.username)).toEqual(["coordinator", "wang1", "wang2", "noname"]);
   });
 });
 
@@ -35,25 +45,33 @@ describe("serialNumber", () => {
   });
 });
 
-describe("filterByRole", () => {
+describe("filterAccounts", () => {
   const accounts = [
-    { username: "admin", role: "ADMIN" as const },
-    { username: "coordinator", role: "COORDINATOR" as const },
-    { username: "t1", role: "TEACHER" as const },
-    { username: "t2", role: "TEACHER" as const },
+    { username: "coordinator", role: "COORDINATOR" as const, school_id: 1 },
+    { username: "t1", role: "TEACHER" as const, school_id: 1 },
+    { username: "t2", role: "TEACHER" as const, school_id: null },
   ];
 
-  it("keeps every account for 所有角色", () => {
-    expect(filterByRole(accounts, "ALL")).toEqual(accounts);
+  it("keeps every account for 所有帳號", () => {
+    expect(filterAccounts(accounts, "ALL")).toEqual(accounts);
   });
 
   it("keeps only the chosen role", () => {
-    expect(filterByRole(accounts, "TEACHER").map((account) => account.username)).toEqual(["t1", "t2"]);
-    expect(filterByRole(accounts, "COORDINATOR").map((account) => account.username)).toEqual(["coordinator"]);
+    expect(filterAccounts(accounts, "TEACHER").map((account) => account.username)).toEqual(["t1", "t2"]);
+    expect(filterAccounts(accounts, "COORDINATOR").map((account) => account.username)).toEqual(["coordinator"]);
   });
 
-  it("offers the roles in the asked order", () => {
-    expect(ROLE_FILTER_OPTIONS.map((option) => option.label)).toEqual(["所有角色", "教師", "系統管理員", "教學組長"]);
+  it("keeps the 無所屬學校 teachers", () => {
+    expect(filterAccounts(accounts, "NO_SCHOOL").map((account) => account.username)).toEqual(["t2"]);
+  });
+
+  it("offers no 系統管理員 filter", () => {
+    expect(ACCOUNT_FILTER_OPTIONS.map((option) => option.label)).toEqual([
+      "所有帳號",
+      "教學組長",
+      "一般老師",
+      "無所屬學校",
+    ]);
   });
 });
 
@@ -63,10 +81,10 @@ describe("searchResultText", () => {
     expect(searchResultText("李", null, 0)).toBe("找不到包含「李」的帳號");
   });
 
-  it("names the chosen role", () => {
-    expect(searchResultText(null, "教師", 5)).toBe("教師：共 5 個帳號");
-    expect(searchResultText(null, "教學組長", 0)).toBe("沒有教學組長帳號");
-    expect(searchResultText("王", "教師", 1)).toBe("教師中搜尋「王」：共 1 個帳號");
-    expect(searchResultText("王", "教師", 0)).toBe("找不到包含「王」的教師帳號");
+  it("names the chosen group", () => {
+    expect(searchResultText(null, "一般老師", 5)).toBe("一般老師：共 5 個帳號");
+    expect(searchResultText(null, "無所屬學校", 0)).toBe("沒有無所屬學校帳號");
+    expect(searchResultText("王", "一般老師", 1)).toBe("一般老師中搜尋「王」：共 1 個帳號");
+    expect(searchResultText("王", "一般老師", 0)).toBe("找不到包含「王」的一般老師帳號");
   });
 });

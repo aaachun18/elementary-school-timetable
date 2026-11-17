@@ -15,7 +15,7 @@ from app.models.grade_subject_requirement import (
 
 CONSTRAINT_MESSAGES: dict[str, str] = {
     # users.username has no explicit name: PostgreSQL's default.
-    "users_username_key": "帳號名稱已被使用，請更換",
+    "users_username_key": "這個 Email 已經有帳號，請更換",
     "ck_users_role_valid": "帳號角色不正確，請確認輸入內容",
     "ck_users_school_matches_role": "系統管理員帳號不屬於任何學校，其他帳號必須指定所屬學校",
     "ck_schools_school_type_valid": "學校類型不正確，請確認輸入內容",
@@ -29,8 +29,7 @@ CONSTRAINT_MESSAGES: dict[str, str] = {
     "ck_rooms_max_classes_range": "教室同時容納班數必須在 1 到 10 之間",
     "ck_time_slots_weekday_valid": "星期只能是星期一到星期五",
     "uq_time_slots_school_weekday_period": "這個時段已經存在，請確認輸入內容",
-    "uq_teachers_user_id": "這個帳號已經綁定其他教師資料",
-    "uq_teachers_school_national_id": "身分證字號重複，這所學校已有教師使用此身分證字號，請確認輸入內容",
+    "uq_teachers_user_id_current": "這個帳號已經綁定其他教師資料",
     "ck_teachers_weekly_periods_range": "每週最低節數不能大於最高節數",
     "uq_teacher_subject": "這位教師已經有此科目的任教資格",
     "uq_teacher_timeslot": "這位教師的這個時段已經設定過了",
