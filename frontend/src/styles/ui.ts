@@ -230,22 +230,37 @@ export const TABLE_WRAPPER = "overflow-x-auto rounded-lg border border-gray-200"
 export const DATA_TABLE_WRAPPER = "w-full overflow-x-auto rounded-lg border border-gray-200";
 export const DATA_TABLE = "w-full table-fixed border-collapse text-sm";
 export const TH_DATA = "border-b border-gray-200 px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap";
-// 操作's header in such a table: at the column's left edge like every other
-// header (第十九輪; the buttons stay at the right), its width from the <col>.
-export const TH_DATA_ACTIONS = "border-b border-gray-200 px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap";
+// 第二十輪: 學校資料's 操作 column (班級 / 科目 / 科目需求 / 教室; 時段 has
+// none). The column is exactly as wide as its buttons plus the cell's 12px
+// padding on both sides, so the buttons (ROW_ACTIONS_END) sit against the
+// table's right edge AND 「操作」 starts right above the leftmost one.
+// Widths are fixed so this holds at every window width: a row button of
+// two characters is 48px (DATA_ROW_BUTTON_*, min-w-12), the trash 32px,
+// the gap 8px.
+//   停用/啟用 + trash = 48 + 8 + 32 = 88px; an editing row's 確認 + 取消 =
+//   48 + 8 + 48 = 104px -> the column fits 104 (w-32 = 12 + 104 + 12) and
+//   「操作」 is indented the 16px difference (pl-7 = 12 + 16), so it lines up
+//   with 停用 / 啟用 (or the trash) on every ordinary row.
+//   科目需求 has only the trash -> w-14 = 12 + 32 + 12, 「操作」 at pl-3.
+export const DATA_ACTIONS_COL = "w-32";
+export const DATA_ACTIONS_COL_DELETE_ONLY = "w-14";
+export const TH_DATA_ACTIONS = "border-b border-gray-200 py-2 pl-7 pr-3 text-left font-semibold text-gray-700 whitespace-nowrap";
+export const TH_DATA_ACTIONS_DELETE_ONLY = "border-b border-gray-200 px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap";
 export const TD_DATA_ACTIONS = "border-b border-gray-100 px-3 py-2 text-gray-700";
-// 第十九輪, 學校資料's lists only: the row's buttons start at the column's
-// left edge, so 「操作」 (TH_DATA_ACTIONS) sits right above the first one
-// (停用 / 啟用, or the trash).
-export const ROW_ACTIONS_START = "flex items-center justify-start gap-2 whitespace-nowrap";
-// Column shares, in column order (the last one is 操作, only for whoever
-// may edit; without it the browser scales the others up).
-// 班級: 年級 | 名稱類型 | 班級名稱 | 狀態 | 操作 (停用/啟用 + trash, or the new
-// row's 確認 / 取消).
-export const CLASS_COLS = ["w-[18%]", "w-[20%]", "w-[26%]", "w-[14%]", "w-[22%]"] as const;
-export const SUBJECT_COLS = ["w-[55%]", "w-[25%]", "w-[20%]"] as const;
-export const GRADE_REQUIREMENT_COLS = ["w-[45%]", "w-[40%]", "w-[15%]"] as const;
-export const ROOM_COLS = ["w-[28%]", "w-[34%]", "w-[20%]", "w-[18%]"] as const;
+export const DATA_ROW_BUTTON_PRIMARY = `${BUTTON_PRIMARY_ROW} min-w-12`;
+export const DATA_ROW_BUTTON_SECONDARY = `${BUTTON_SECONDARY_ROW} min-w-12`;
+// The other columns, in column order: a share of the table, and one column
+// left without a width ("") takes whatever is left -- so the table still
+// fills its 880px and only 操作 has a fixed width (appended by each tab
+// when the viewer may edit).
+// 班級: 年級 | 名稱類型 | 班級名稱 | 狀態.
+export const CLASS_COLS = ["w-[20%]", "w-[22%]", "w-[30%]", ""] as const;
+// 科目: 名稱 | 狀態.
+export const SUBJECT_COLS = ["w-[60%]", ""] as const;
+// 科目需求: 科目 | 每週節數.
+export const GRADE_REQUIREMENT_COLS = ["w-[45%]", ""] as const;
+// 教室: 名稱 | 一次最多幾班同時使用 | 狀態.
+export const ROOM_COLS = ["w-[30%]", "w-[38%]", ""] as const;
 // 科目需求's 每週節數 dropdown (~140px).
 export const WEEKLY_PERIODS_SELECT_WIDTH = "w-35";
 // Task 101: 學校資料's 時段 -- the same full width, the five days equally

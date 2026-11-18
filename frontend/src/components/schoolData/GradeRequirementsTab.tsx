@@ -31,10 +31,11 @@ import {
   LABEL,
   LINK_TEXT,
   LOADING_TEXT,
-  ROW_ACTIONS_START,
+  ROW_ACTIONS_END,
   SELECT,
   DATA_TABLE,
   DATA_TABLE_WRAPPER,
+  DATA_ACTIONS_COL_DELETE_ONLY,
   GRADE_REQUIREMENT_COLS,
   TH_DATA,
   WEEKLY_PERIODS_SELECT_WIDTH,
@@ -42,7 +43,7 @@ import {
   TD,
   TD_DATA_ACTIONS,
   TD_LOCKED,
-  TH_DATA_ACTIONS,
+  TH_DATA_ACTIONS_DELETE_ONLY,
   TR_HOVER,
 } from "../../styles/ui";
 
@@ -179,15 +180,16 @@ function GradeRequirementsEditor({
       <div className={DATA_TABLE_WRAPPER}>
         <table className={DATA_TABLE}>
           <colgroup>
-            {GRADE_REQUIREMENT_COLS.slice(0, isAdmin ? 3 : 2).map((width) => (
+            {GRADE_REQUIREMENT_COLS.map((width) => (
               <col key={width} className={width} />
             ))}
+            {isAdmin && <col className={DATA_ACTIONS_COL_DELETE_ONLY} />}
           </colgroup>
           <thead>
             <tr className={TABLE_HEAD_ROW}>
               <th className={TH_DATA}>科目</th>
               <th className={TH_DATA}>每週節數</th>
-              {isAdmin && <th className={TH_DATA_ACTIONS}>操作</th>}
+              {isAdmin && <th className={TH_DATA_ACTIONS_DELETE_ONLY}>操作</th>}
             </tr>
           </thead>
           <tbody>
@@ -219,7 +221,7 @@ function GradeRequirementsEditor({
                 </td>
                 {isAdmin && (
                   <td className={TD_DATA_ACTIONS}>
-                    <div className={ROW_ACTIONS_START}>
+                    <div className={ROW_ACTIONS_END}>
                       <DeleteIconButton
                         label={deleteButtonLabel("gradeRequirement", requirementName(requirement))}
                         onClick={() => void handleDelete(requirement)}
@@ -243,7 +245,7 @@ function GradeRequirementsEditor({
                   <td className={TD_LOCKED}>{requirement.weekly_periods} 節</td>
                   {isAdmin && (
                     <td className={TD_DATA_ACTIONS}>
-                      <div className={ROW_ACTIONS_START}>
+                      <div className={ROW_ACTIONS_END}>
                         <DeleteIconButton
                           label={deleteButtonLabel("gradeRequirement", requirementName(requirement))}
                           onClick={() => void handleDelete(requirement)}

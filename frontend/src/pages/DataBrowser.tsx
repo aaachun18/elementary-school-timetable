@@ -57,10 +57,12 @@ import {
   PAGE_DATA,
   ROW_ACTIONS,
   ROW_ACTIONS_END,
-  ROW_ACTIONS_START,
   ROW_ERROR_TEXT,
   ROW_ERROR_TEXT_FIXED,
   ROOM_COLS,
+  DATA_ACTIONS_COL,
+  DATA_ROW_BUTTON_PRIMARY,
+  DATA_ROW_BUTTON_SECONDARY,
   SELECT,
   SUBJECT_COLS,
   TAB_BUTTON,
@@ -329,8 +331,8 @@ function ActiveRowActions({
   onDelete: () => void;
 }): ReactElement {
   return (
-    <div className={ROW_ACTIONS_START}>
-      <button type="button" onClick={onToggleActive} disabled={disabled} className={BUTTON_SECONDARY_ROW}>
+    <div className={ROW_ACTIONS_END}>
+      <button type="button" onClick={onToggleActive} disabled={disabled} className={DATA_ROW_BUTTON_SECONDARY}>
         {isActive ? "停用" : "啟用"}
       </button>
       <DeleteIconButton label={deleteLabel} onClick={onDelete} disabled={disabled} />
@@ -354,11 +356,11 @@ function InlineEditActions({
 }): ReactElement {
   return (
     <td className={TD_DATA_ACTIONS}>
-      <div className={ROW_ACTIONS_START}>
-        <button type="button" onClick={onSave} disabled={isPending || !canSave} className={BUTTON_PRIMARY_ROW}>
+      <div className={ROW_ACTIONS_END}>
+        <button type="button" onClick={onSave} disabled={isPending || !canSave} className={DATA_ROW_BUTTON_PRIMARY}>
           {isPending ? "送出中…" : "確認"}
         </button>
-        <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_ROW}>
+        <button type="button" onClick={onCancel} disabled={isPending} className={DATA_ROW_BUTTON_SECONDARY}>
           取消
         </button>
       </div>
@@ -561,9 +563,10 @@ function SubjectsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
           <div className={DATA_TABLE_WRAPPER}>
             <table className={DATA_TABLE}>
               <colgroup>
-                {SUBJECT_COLS.slice(0, columnCount).map((width) => (
+                {SUBJECT_COLS.map((width) => (
                   <col key={width} className={width} />
                 ))}
+                {isAdmin && <col className={DATA_ACTIONS_COL} />}
               </colgroup>
               <thead>
                 <tr className={TABLE_HEAD_ROW}>
@@ -817,9 +820,10 @@ function RoomsTab({ isAdmin }: { isAdmin: boolean }): ReactElement {
           <div className={DATA_TABLE_WRAPPER}>
             <table className={DATA_TABLE}>
               <colgroup>
-                {ROOM_COLS.slice(0, columnCount).map((width) => (
+                {ROOM_COLS.map((width) => (
                   <col key={width} className={width} />
                 ))}
+                {isAdmin && <col className={DATA_ACTIONS_COL} />}
               </colgroup>
               <thead>
                 <tr className={TABLE_HEAD_ROW}>

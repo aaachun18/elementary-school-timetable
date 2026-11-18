@@ -34,19 +34,20 @@ import {
 } from "../../utils/schoolStructure";
 import {
   BUTTON_PRIMARY,
-  BUTTON_PRIMARY_ROW,
   BUTTON_SECONDARY,
-  BUTTON_SECONDARY_ROW,
   ERROR_TEXT,
   FIELD_PAGE,
   HELP_TEXT,
   LABEL,
   LOADING_TEXT,
   ROW_ACTIONS,
-  ROW_ACTIONS_START,
+  ROW_ACTIONS_END,
   ROW_ERROR_TEXT_FIXED,
   SELECT,
   CLASS_COLS,
+  DATA_ACTIONS_COL,
+  DATA_ROW_BUTTON_PRIMARY,
+  DATA_ROW_BUTTON_SECONDARY,
   DATA_TABLE,
   DATA_TABLE_WRAPPER,
   TH_DATA,
@@ -220,9 +221,10 @@ function ClassesTable({
       <div className={DATA_TABLE_WRAPPER}>
         <table className={DATA_TABLE}>
           <colgroup>
-            {CLASS_COLS.slice(0, columnCount).map((width) => (
+            {CLASS_COLS.map((width) => (
               <col key={width} className={width} />
             ))}
+            {isAdmin && <col className={DATA_ACTIONS_COL} />}
           </colgroup>
           <thead>
             <tr className={TABLE_HEAD_ROW}>
@@ -259,7 +261,7 @@ function ClassesTable({
                 </td>
                 {isAdmin && (
                   <td className={TD_DATA_ACTIONS}>
-                    <div className={ROW_ACTIONS_START}>
+                    <div className={ROW_ACTIONS_END}>
                       {/* 停用 asks first (DeactivateConfirmDialog); 啟用 doesn't. */}
                       <button
                         type="button"
@@ -269,7 +271,7 @@ function ClassesTable({
                             : void run(classItem, () => activateClass(classItem.id))
                         }
                         disabled={pendingId !== null}
-                        className={BUTTON_SECONDARY_ROW}
+                        className={DATA_ROW_BUTTON_SECONDARY}
                       >
                         {classItem.is_active ? "停用" : "啟用"}
                       </button>
@@ -435,16 +437,16 @@ function ClassNewRow({
       </td>
       <td className={TD} />
       <td className={TD_DATA_ACTIONS}>
-        <div className={ROW_ACTIONS_START}>
+        <div className={ROW_ACTIONS_END}>
           <button
             type="button"
             onClick={() => void handleConfirm()}
             disabled={isPending || name === ""}
-            className={BUTTON_PRIMARY_ROW}
+            className={DATA_ROW_BUTTON_PRIMARY}
           >
             {isPending ? "送出中…" : "確認"}
           </button>
-          <button type="button" onClick={onCancel} disabled={isPending} className={BUTTON_SECONDARY_ROW}>
+          <button type="button" onClick={onCancel} disabled={isPending} className={DATA_ROW_BUTTON_SECONDARY}>
             取消
           </button>
         </div>
