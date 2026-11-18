@@ -41,7 +41,7 @@ import {
   BUTTON_SECONDARY_ROW,
   BUTTON_GHOST_SM,
   ERROR_TEXT,
-  ROW_ACTIONS,
+  ROW_ACTIONS_END,
   INPUT,
   LOADING_TEXT,
   MUTED_TEXT,
@@ -52,8 +52,10 @@ import {
   TABLE_HEAD_ROW,
   TABLE_WRAPPER,
   TD,
+  TD_ACTIONS,
   TD_NOWRAP,
   TH,
+  TH_ACTIONS,
   TR_HOVER,
 } from "../styles/ui";
 
@@ -82,7 +84,7 @@ function PasswordResetForm({
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className={ROW_ACTIONS_END}>
         <input
           type="password"
           value={newPassword}
@@ -193,7 +195,7 @@ function UserRow({
       <td className={TD_NOWRAP}>
         <StatusBadge tone={user.is_active ? "success" : "neutral"}>{user.is_active ? "啟用" : "停用"}</StatusBadge>
       </td>
-      <td className={TD}>
+      <td className={TD_ACTIONS}>
         {isResettingPassword ? (
           <PasswordResetForm
             isPending={isPending}
@@ -201,7 +203,7 @@ function UserRow({
             onCancel={onCancelResetPassword}
           />
         ) : (
-          <div className={ROW_ACTIONS}>
+          <div className={ROW_ACTIONS_END}>
             <button type="button" onClick={onStartResetPassword} disabled={isPending} className={BUTTON_SECONDARY_ROW}>
               重設密碼
             </button>
@@ -533,7 +535,7 @@ export default function UserManagement(): ReactElement {
               <th className={TH}>姓名</th>
               {isAdminActor && <th className={TH}>所屬學校</th>}
               <th className={TH}>狀態</th>
-              <th className={TH}>操作</th>
+              <th className={TH_ACTIONS}>操作</th>
             </tr>
           </thead>
           <tbody>

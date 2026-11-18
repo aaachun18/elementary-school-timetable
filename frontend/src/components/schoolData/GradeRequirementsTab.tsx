@@ -31,7 +31,7 @@ import {
   LABEL,
   LINK_TEXT,
   LOADING_TEXT,
-  ROW_ACTIONS_END,
+  ROW_ACTIONS_START,
   SELECT,
   DATA_TABLE,
   DATA_TABLE_WRAPPER,
@@ -219,7 +219,7 @@ function GradeRequirementsEditor({
                 </td>
                 {isAdmin && (
                   <td className={TD_DATA_ACTIONS}>
-                    <div className={ROW_ACTIONS_END}>
+                    <div className={ROW_ACTIONS_START}>
                       <DeleteIconButton
                         label={deleteButtonLabel("gradeRequirement", requirementName(requirement))}
                         onClick={() => void handleDelete(requirement)}
@@ -243,7 +243,7 @@ function GradeRequirementsEditor({
                   <td className={TD_LOCKED}>{requirement.weekly_periods} 節</td>
                   {isAdmin && (
                     <td className={TD_DATA_ACTIONS}>
-                      <div className={ROW_ACTIONS_END}>
+                      <div className={ROW_ACTIONS_START}>
                         <DeleteIconButton
                           label={deleteButtonLabel("gradeRequirement", requirementName(requirement))}
                           onClick={() => void handleDelete(requirement)}

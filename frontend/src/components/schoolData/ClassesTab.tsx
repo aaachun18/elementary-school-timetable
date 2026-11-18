@@ -43,7 +43,7 @@ import {
   LABEL,
   LOADING_TEXT,
   ROW_ACTIONS,
-  ROW_ACTIONS_END,
+  ROW_ACTIONS_START,
   ROW_ERROR_TEXT_FIXED,
   SELECT,
   CLASS_COLS,
@@ -259,7 +259,7 @@ function ClassesTable({
                 </td>
                 {isAdmin && (
                   <td className={TD_DATA_ACTIONS}>
-                    <div className={ROW_ACTIONS_END}>
+                    <div className={ROW_ACTIONS_START}>
                       {/* 停用 asks first (DeactivateConfirmDialog); 啟用 doesn't. */}
                       <button
                         type="button"
@@ -435,7 +435,7 @@ function ClassNewRow({
       </td>
       <td className={TD} />
       <td className={TD_DATA_ACTIONS}>
-        <div className={ROW_ACTIONS_END}>
+        <div className={ROW_ACTIONS_START}>
           <button
             type="button"
             onClick={() => void handleConfirm()}

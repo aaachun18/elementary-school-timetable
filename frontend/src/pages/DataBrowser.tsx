@@ -57,6 +57,7 @@ import {
   PAGE_DATA,
   ROW_ACTIONS,
   ROW_ACTIONS_END,
+  ROW_ACTIONS_START,
   ROW_ERROR_TEXT,
   ROW_ERROR_TEXT_FIXED,
   ROOM_COLS,
@@ -328,7 +329,7 @@ function ActiveRowActions({
   onDelete: () => void;
 }): ReactElement {
   return (
-    <div className={ROW_ACTIONS_END}>
+    <div className={ROW_ACTIONS_START}>
       <button type="button" onClick={onToggleActive} disabled={disabled} className={BUTTON_SECONDARY_ROW}>
         {isActive ? "停用" : "啟用"}
       </button>
@@ -353,7 +354,7 @@ function InlineEditActions({
 }): ReactElement {
   return (
     <td className={TD_DATA_ACTIONS}>
-      <div className={ROW_ACTIONS_END}>
+      <div className={ROW_ACTIONS_START}>
         <button type="button" onClick={onSave} disabled={isPending || !canSave} className={BUTTON_PRIMARY_ROW}>
           {isPending ? "送出中…" : "確認"}
         </button>

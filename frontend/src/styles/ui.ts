@@ -28,6 +28,9 @@ export const LOADING_TEXT = "text-sm text-gray-500";
 
 // --- Layout ---
 export const PAGE = "p-6 max-w-6xl mx-auto";
+// 第十九輪: a page whose one card sits in the middle of the screen, both
+// ways (個人資料): the height below the nav bar (about 3.6rem).
+export const PAGE_CENTERED = "flex min-h-[calc(100vh-3.6rem)] items-center justify-center px-4 py-6";
 // Task 100: 學校資料 -- title, tabs, toolbar and table in one centered
 // column of at most 880px (+ the page padding), the same for all five tabs,
 // so switching tabs never moves the title or the tab row.
@@ -120,8 +123,9 @@ export const DISABLED_REASON = "text-xs text-text-muted";
 // other -- every group of buttons sits in this or another gap-* container.
 export const ROW_ACTIONS = "flex flex-wrap items-center gap-2";
 // Task 98 Phase B: a table's 操作 column -- as narrow as its buttons, at the
-// right edge; the buttons stay on one line.
-export const TH_ACTIONS = "border-b border-gray-200 px-3 py-2 text-right font-semibold text-gray-700 whitespace-nowrap w-px";
+// right edge; the buttons stay on one line. Its header 「操作」 starts at
+// the column's left edge, like every other header (第十九輪).
+export const TH_ACTIONS = "border-b border-gray-200 px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap w-px";
 export const TD_ACTIONS = "border-b border-gray-100 px-3 py-2 text-gray-700 w-px";
 export const ROW_ACTIONS_END = "flex items-center justify-end gap-2 whitespace-nowrap";
 // Task 99 / Task 100: 排課紀錄's 操作 -- the last column, as narrow as its
@@ -157,8 +161,9 @@ export const TD_NOTE = "border-b border-gray-100 py-2 pl-[3px] pr-3 text-gray-70
 // A row's error line inside that narrow column: wide enough to read.
 export const ROW_ERROR_TEXT = "mt-1 min-w-56 text-left text-sm text-red-600";
 // Task 101: the same line in a fixed-layout table's 操作 column (DATA_TABLE),
-// whose width is set: it wraps inside the column, aligned with the buttons.
-export const ROW_ERROR_TEXT_FIXED = "mt-1 text-right text-sm text-red-600";
+// whose width is set: it wraps inside the column, aligned with the buttons
+// (第十九輪: at the column's left edge, like them).
+export const ROW_ERROR_TEXT_FIXED = "mt-1 text-left text-sm text-red-600";
 
 // --- Form controls ---
 // The focus ring comes from index.css (2px primary); the border turns
@@ -225,9 +230,14 @@ export const TABLE_WRAPPER = "overflow-x-auto rounded-lg border border-gray-200"
 export const DATA_TABLE_WRAPPER = "w-full overflow-x-auto rounded-lg border border-gray-200";
 export const DATA_TABLE = "w-full table-fixed border-collapse text-sm";
 export const TH_DATA = "border-b border-gray-200 px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap";
-// 操作's header in such a table: right-aligned, its width from the <col>.
-export const TH_DATA_ACTIONS = "border-b border-gray-200 px-3 py-2 text-right font-semibold text-gray-700 whitespace-nowrap";
+// 操作's header in such a table: at the column's left edge like every other
+// header (第十九輪; the buttons stay at the right), its width from the <col>.
+export const TH_DATA_ACTIONS = "border-b border-gray-200 px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap";
 export const TD_DATA_ACTIONS = "border-b border-gray-100 px-3 py-2 text-gray-700";
+// 第十九輪, 學校資料's lists only: the row's buttons start at the column's
+// left edge, so 「操作」 (TH_DATA_ACTIONS) sits right above the first one
+// (停用 / 啟用, or the trash).
+export const ROW_ACTIONS_START = "flex items-center justify-start gap-2 whitespace-nowrap";
 // Column shares, in column order (the last one is 操作, only for whoever
 // may edit; without it the browser scales the others up).
 // 班級: 年級 | 名稱類型 | 班級名稱 | 狀態 | 操作 (停用/啟用 + trash, or the new

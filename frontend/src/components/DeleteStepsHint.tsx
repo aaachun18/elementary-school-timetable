@@ -24,7 +24,8 @@ export function DeleteStepsHint({ steps }: { steps: readonly string[] }): ReactE
 // A row's error line: the message, plus the (i) hint when a refused delete
 // came with steps. A <div>, not a <p>: the hint's panel is a <div>.
 // `inFixedColumn` (Task 101): the row's 操作 column has a set width (a
-// fixed-layout DATA_TABLE) -- the line wraps inside it, at the right.
+// fixed-layout DATA_TABLE) -- the line wraps inside it, at the left like
+// the buttons.
 export function RowErrorText({
   message,
   deleteSteps = [],
@@ -39,7 +40,7 @@ export function RowErrorText({
       role="alert"
       className={
         inFixedColumn
-          ? `${ROW_ERROR_TEXT_FIXED} flex items-center justify-end gap-1`
+          ? `${ROW_ERROR_TEXT_FIXED} flex items-center justify-start gap-1`
           : `${ROW_ERROR_TEXT} flex items-center gap-1`
       }
     >

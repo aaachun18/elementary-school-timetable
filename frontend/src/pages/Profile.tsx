@@ -1,7 +1,6 @@
 import { useState, type FormEvent, type ReactElement } from "react";
 import { changePassword, getProfile, updateName } from "../api/me";
 import ConfirmDialog from "../components/ConfirmDialog";
-import PageHeader from "../components/PageHeader";
 import { extractApiErrorMessage } from "../constants/errorMessages";
 import { useFlashMessage } from "../hooks/useFlashMessage";
 import { useResource } from "../hooks/useResource";
@@ -17,7 +16,8 @@ import {
   LABEL,
   LOADING_TEXT,
   NOTICE,
-  PAGE,
+  PAGE_CENTERED,
+  PAGE_HEADER_TITLE,
   SUCCESS_TEXT,
 } from "../styles/ui";
 
@@ -182,14 +182,14 @@ export default function Profile(): ReactElement {
 
   if (profileResource.isLoading && shown === null) {
     return (
-      <div className={PAGE}>
+      <div className={PAGE_CENTERED}>
         <p className={LOADING_TEXT}>載入中…</p>
       </div>
     );
   }
   if (profileResource.errorMessage !== null || shown === null) {
     return (
-      <div className={PAGE}>
+      <div className={PAGE_CENTERED}>
         <p role="alert" className={ERROR_TEXT}>
           {profileResource.errorMessage ?? "無法載入個人資料"}
         </p>
@@ -200,31 +200,34 @@ export default function Profile(): ReactElement {
   const isAdmin = shown.role === "ADMIN";
 
   return (
-    <div className={PAGE}>
-      <PageHeader title="個人資料" />
-      <div className={`${CARD} flex max-w-xl flex-col gap-4`}>
-        {isAdmin ? (
-          <InfoRow label="帳號名稱" value={shown.username} />
-        ) : (
-          <>
-            {hasEditableName(shown) ? (
-              <NameForm profile={shown} onSaved={setProfile} />
-            ) : (
-              <InfoRow label="名字" value={shown.name ?? "—"} />
-            )}
-            <InfoRow label="Email（登入帳號）" value={shown.username} />
-          </>
-        )}
-        {isUnassignedTeacher(shown) && <p className={NOTICE}>目前無所屬學校，請聯絡系統管理員。</p>}
-        <div>
-          <button type="button" onClick={() => setIsChangingPassword(true)} className={BUTTON_SECONDARY}>
-            重設密碼
-          </button>
-          {passwordSaved.message !== null && (
-            <p role="status" className={`${SUCCESS_TEXT} mt-2`}>
-              {passwordSaved.message}
-            </p>
+    // 第十九輪: the title and the card in the middle of the screen.
+    <div className={PAGE_CENTERED}>
+      <div className="w-full max-w-md pb-[10vh]">
+        <h1 className={`${PAGE_HEADER_TITLE} mb-4 text-center`}>個人資料</h1>
+        <div className={`${CARD} flex flex-col gap-4`}>
+          {isAdmin ? (
+            <InfoRow label="帳號名稱" value={shown.username} />
+          ) : (
+            <>
+              {hasEditableName(shown) ? (
+                <NameForm profile={shown} onSaved={setProfile} />
+              ) : (
+                <InfoRow label="名字" value={shown.name ?? "—"} />
+              )}
+              <InfoRow label="Email（登入帳號）" value={shown.username} />
+            </>
           )}
+          {isUnassignedTeacher(shown) && <p className={NOTICE}>目前無所屬學校，請聯絡系統管理員。</p>}
+          <div>
+            <button type="button" onClick={() => setIsChangingPassword(true)} className={BUTTON_SECONDARY}>
+              重設密碼
+            </button>
+            {passwordSaved.message !== null && (
+              <p role="status" className={`${SUCCESS_TEXT} mt-2`}>
+                {passwordSaved.message}
+              </p>
+            )}
+          </div>
         </div>
       </div>
       {isChangingPassword && (
