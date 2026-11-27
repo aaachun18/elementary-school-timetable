@@ -11,26 +11,24 @@ export interface AdjustmentRefreshPlan {
   reloadTimetable: boolean;
   // The 「未排入課程」 panel (only shown in edit mode).
   reloadUnscheduled: boolean;
-  // Run 檢查衝突 again, exactly like pressing 「重新檢查」: only when a
-  // result (or its error) is on screen -- a check nobody asked for is
-  // never started, so nothing new appears and nothing shifts.
+  // Run 檢查衝突 again: while editing the check is always on screen and
+  // always reflects the saved working copy.
   rerunCheck: boolean;
 }
 
 const NOTHING: AdjustmentRefreshPlan = { reloadTimetable: false, reloadUnscheduled: false, rerunCheck: false };
 
-// Adjustments only exist for an ADMIN on a DRAFT; anything else refreshes
-// nothing.
+// Adjustments only exist for a 教學組長 in a manual edit's working copy
+// (EDITING); anything else refreshes nothing.
 export function planAdjustmentRefresh(state: {
   isAdmin: boolean;
   versionStatus: string | null;
   isEditModeOn: boolean;
-  isCheckShown: boolean;
 }): AdjustmentRefreshPlan {
-  if (!state.isAdmin || state.versionStatus !== "DRAFT") {
+  if (!state.isAdmin || state.versionStatus !== "EDITING") {
     return NOTHING;
   }
-  return { reloadTimetable: true, reloadUnscheduled: state.isEditModeOn, rerunCheck: state.isCheckShown };
+  return { reloadTimetable: true, reloadUnscheduled: state.isEditModeOn, rerunCheck: true };
 }
 
 // The 「在課表中查看」 cell (amber) points at one problem; once a newer

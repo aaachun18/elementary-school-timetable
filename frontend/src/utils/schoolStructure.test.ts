@@ -1,0 +1,95 @@
+import { describe, expect, it } from "vitest";
+import {
+  chineseNumber,
+  classNameOptions,
+  defaultOpenPeriodsText,
+  gradeName,
+  unusedClassNames,
+} from "./schoolStructure";
+
+describe("chineseNumber", () => {
+  it("writes 1-30 the way class names use them", () => {
+    expect([1, 9, 10, 11, 20, 21, 30].map(chineseNumber)).toEqual([
+      "一",
+      "九",
+      "十",
+      "十一",
+      "二十",
+      "二十一",
+      "三十",
+    ]);
+  });
+});
+
+describe("gradeName", () => {
+  it("names 國小 and 國中 grades by their level", () => {
+    expect([1, 6, 7, 9].map(gradeName)).toEqual(["一年級", "六年級", "七年級", "九年級"]);
+  });
+
+  it("names 高中 levels 10-12 as 一到三年級", () => {
+    expect([10, 11, 12].map(gradeName)).toEqual(["一年級", "二年級", "三年級"]);
+  });
+});
+
+describe("classNameOptions", () => {
+  it("expands 一二三… to 三十 from the grade", () => {
+    const names = classNameOptions(1, "NUMBER");
+    expect(names).toHaveLength(30);
+    expect(names[0]).toBe("一年一班");
+    expect(names[29]).toBe("一年三十班");
+  });
+
+  it("expands 甲乙丙… to 癸", () => {
+    const names = classNameOptions(2, "HEAVENLY_STEM");
+    expect(names).toHaveLength(10);
+    expect(names[0]).toBe("二年甲班");
+    expect(names[9]).toBe("二年癸班");
+  });
+
+  it("expands 忠孝仁愛… to 平", () => {
+    const names = classNameOptions(7, "VIRTUE");
+    expect(names).toEqual([
+      "七年忠班",
+      "七年孝班",
+      "七年仁班",
+      "七年愛班",
+      "七年信班",
+      "七年義班",
+      "七年和班",
+      "七年平班",
+    ]);
+  });
+
+  it("uses 一到三年 for 高中", () => {
+    expect(classNameOptions(10, "HEAVENLY_STEM")[0]).toBe("一年甲班");
+  });
+});
+
+describe("unusedClassNames", () => {
+  it("continues after the classes the grade already has", () => {
+    const names = unusedClassNames(2, "HEAVENLY_STEM", new Set(["二年甲班", "二年乙班"]));
+    expect(names).toHaveLength(8);
+    expect(names.slice(0, 2)).toEqual(["二年丙班", "二年丁班"]);
+  });
+
+  it("allows 10 甲乙丙, 8 忠孝仁 and 30 一二三 names", () => {
+    const none = new Set<string>();
+    expect(unusedClassNames(1, "HEAVENLY_STEM", none)).toHaveLength(10);
+    expect(unusedClassNames(1, "VIRTUE", none)).toHaveLength(8);
+    expect(unusedClassNames(1, "NUMBER", none)).toHaveLength(30);
+  });
+
+  it("fills a gap first", () => {
+    expect(unusedClassNames(1, "VIRTUE", new Set(["一年孝班"]))[0]).toBe("一年忠班");
+  });
+});
+
+describe("defaultOpenPeriodsText", () => {
+  it("describes each band's default open periods", () => {
+    expect(defaultOpenPeriodsText(1)).toBe("星期二全天，其餘半天");
+    expect(defaultOpenPeriodsText(4)).toBe("星期三、五半天，其餘全天");
+    expect(defaultOpenPeriodsText(6)).toBe("星期三半天，其餘全天");
+    expect(defaultOpenPeriodsText(8)).toBe("每天全天");
+    expect(defaultOpenPeriodsText(11)).toBe("每天全天");
+  });
+});

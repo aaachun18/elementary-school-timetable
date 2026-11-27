@@ -1,5 +1,5 @@
-"""Task 95: change the room of lessons already in a DRAFT ScheduleVersion,
-then report the version's full schedule check (decision 32).
+"""Task 95: change the room of lessons already in a manual edit's working
+copy (v3: EDITING), then report its full schedule check (decision 32).
 
 Rooms are otherwise decided only when a lesson is scheduled or placed; a
 room created (or retyped) afterwards could never be used, so the
@@ -16,6 +16,8 @@ Which rows change (`scope`):
   (services/block_adjustment.py's Layout.group(), the grouping moves use).
 - "requirement": every row of this version for the chosen row's
   requirement.
+共同排課: either way the rows of the other members' lessons of the same
+合併節 change too -- a combined lesson has one room.
 
 Only Schedule.room_id changes; teacher and time slot never do. room_id None
 clears the room. A missing row or room is refused (404), as is an inactive
@@ -33,12 +35,13 @@ from app.models.room import Room
 from app.models.schedule import Schedule
 from app.models.schedule_version import ScheduleVersion
 from app.services import block_adjustment, schedule_check
+from app.services.school_scope import get_in_school, school_id_of_version
 from app.services.exceptions import (
     AdjustmentTargetNotFoundError,
     InactiveRoomAssignmentError,
     ScheduleNotInVersionError,
 )
-from app.services.schedule_version import raise_if_version_locked
+from app.services.schedule_version import raise_if_timetable_locked
 
 ConstraintViolation = schedule_check.ConstraintViolation
 
@@ -71,14 +74,16 @@ def _rows_in_scope(
 ) -> list[int]:
     """The Schedule ids the change applies to, in id order."""
     rows = schedule_check.load_assignment_rows(db, schedule_version.id)
-    if scope == "requirement":
-        requirement_id = next(a.class_subject_requirement_id for sid, a in rows if sid == schedule_id)
-        return [sid for sid, a in rows if a.class_subject_requirement_id == requirement_id]
     layout = block_adjustment.Layout(
         rows,
-        schedule_check.load_check_context(db, schedule_version.semester_id, schedule_version.id),
+        schedule_check.load_check_context(db, schedule_version.id),
     )
-    return sorted(member for _, member in layout.group(schedule_id).members)
+    if scope == "requirement":
+        requirement_id = next(a.class_subject_requirement_id for sid, a in rows if sid == schedule_id)
+        chosen = [sid for sid, a in rows if a.class_subject_requirement_id == requirement_id]
+    else:
+        chosen = [member for _, member in layout.group(schedule_id).members]
+    return layout.with_partner_rows(chosen)
 
 
 def _apply_room(schedule: Schedule, room_id: int | None) -> RoomChange | None:
@@ -114,7 +119,7 @@ def change_room(
     schedule_version = db.get(ScheduleVersion, schedule_version_id)
     if schedule_version is None:
         return None
-    raise_if_version_locked(schedule_version)
+    raise_if_timetable_locked(schedule_version)
     schedule = db.get(Schedule, schedule_id)
     if schedule is None:
         raise AdjustmentTargetNotFoundError("Schedule not found")
@@ -124,7 +129,7 @@ def change_room(
             f"{schedule.schedule_version_id}, not {schedule_version_id}."
         )
     if room_id is not None:
-        room = db.get(Room, room_id)
+        room = get_in_school(db, Room, room_id, school_id_of_version(db, schedule_version))
         if room is None:
             raise AdjustmentTargetNotFoundError("Room not found")
         if not room.is_active:

@@ -16,9 +16,7 @@ from scheduling_engine.models.domain import (
     LessonAssignment,
     RequiredTeacherRule,
     RequirementPeriods,
-    RoomInfo,
-    RoomTypeRequirement,
-    TeacherQualification,
+    RequiredRoomRule,
     TimeSlotInfo,
 )
 
@@ -44,11 +42,10 @@ def _lesson(
 def _empty_resources(**overrides: object) -> SchedulingResources:
     base = dict(
         time_slot_ids=[],
-        teacher_qualifications=[],
+        teacher_ids=[],
         teacher_unavailability=[],
         required_teacher_rules=[],
-        room_type_requirements=[],
-        rooms=[],
+        required_room_rules=[],
         time_slots=[],
         active_statuses=[],
         requirement_periods=[],
@@ -68,7 +65,7 @@ def test_greedy_fixed_time_slot_is_locked_and_not_searched() -> None:
     lesson = _lesson(1, class_subject_requirement_id=1, class_id=1, subject_id=10, fixed_time_slot_id=200)
     resources = _empty_resources(
         time_slot_ids=[100, 200],
-        teacher_qualifications=[TeacherQualification(teacher_id=1, subject_id=10)],
+        teacher_ids=[1],
         time_slots=[
             TimeSlotInfo(time_slot_id=100, is_teaching_period=True),
             TimeSlotInfo(time_slot_id=200, is_teaching_period=True),
@@ -89,7 +86,7 @@ def test_backtracking_fixed_time_slot_is_locked_and_not_searched() -> None:
     lesson = _lesson(1, class_subject_requirement_id=1, class_id=1, subject_id=10, fixed_time_slot_id=200)
     resources = _empty_resources(
         time_slot_ids=[100, 200],
-        teacher_qualifications=[TeacherQualification(teacher_id=1, subject_id=10)],
+        teacher_ids=[1],
         time_slots=[
             TimeSlotInfo(time_slot_id=100, is_teaching_period=True),
             TimeSlotInfo(time_slot_id=200, is_teaching_period=True),
@@ -131,15 +128,11 @@ def test_greedy_mrv_prioritizes_fixed_time_slot_lesson() -> None:
 
     resources = _empty_resources(
         time_slot_ids=[100, 200],
-        teacher_qualifications=[
-            TeacherQualification(teacher_id=10, subject_id=10),
-            TeacherQualification(teacher_id=20, subject_id=20),
-        ],
-        room_type_requirements=[
-            RoomTypeRequirement(class_subject_requirement_id=1, required_room_type="特別教室"),
-            RoomTypeRequirement(class_subject_requirement_id=2, required_room_type="特別教室"),
-        ],
-        rooms=[RoomInfo(room_id=500, room_type="特別教室")],  # only one such room
+        teacher_ids=[10, 20],
+        required_room_rules=[
+            RequiredRoomRule(class_subject_requirement_id=1, room_id=500),
+            RequiredRoomRule(class_subject_requirement_id=2, room_id=500),
+        ],  # both require the one room 500
         time_slots=[
             TimeSlotInfo(time_slot_id=100, is_teaching_period=True),
             TimeSlotInfo(time_slot_id=200, is_teaching_period=True),
@@ -183,16 +176,11 @@ def test_backtracking_succeeds_via_retraction_when_fixed_time_slot_forces_move()
         required_teacher_rules=[
             RequiredTeacherRule(class_subject_requirement_id=1, required_teacher_id=10),
         ],
-        teacher_qualifications=[
-            TeacherQualification(teacher_id=10, subject_id=10),
-            TeacherQualification(teacher_id=11, subject_id=20),
-            TeacherQualification(teacher_id=12, subject_id=20),
+        teacher_ids=[10, 11, 12],
+        required_room_rules=[
+            RequiredRoomRule(class_subject_requirement_id=1, room_id=500),
+            RequiredRoomRule(class_subject_requirement_id=2, room_id=500),
         ],
-        room_type_requirements=[
-            RoomTypeRequirement(class_subject_requirement_id=1, required_room_type="特別教室"),
-            RoomTypeRequirement(class_subject_requirement_id=2, required_room_type="特別教室"),
-        ],
-        rooms=[RoomInfo(room_id=500, room_type="特別教室")],
         time_slots=[
             TimeSlotInfo(time_slot_id=100, is_teaching_period=True),
             TimeSlotInfo(time_slot_id=200, is_teaching_period=True),
@@ -234,9 +222,14 @@ def test_greedy_reports_clear_failure_when_fixed_time_slots_collide() -> None:
 
     resources = _empty_resources(
         time_slot_ids=[100, 200],
-        teacher_qualifications=[
-            TeacherQualification(teacher_id=10, subject_id=10),
-            TeacherQualification(teacher_id=20, subject_id=20),
+        teacher_ids=[10, 20],
+        # Task 98: each requirement pinned to its own teacher, so the only
+        # thing the two lessons share is the class (any teacher may teach
+        # any subject now; without this, teacher 10 would also be tried
+        # for lesson B and add an H1 reason).
+        required_teacher_rules=[
+            RequiredTeacherRule(class_subject_requirement_id=1, required_teacher_id=10),
+            RequiredTeacherRule(class_subject_requirement_id=2, required_teacher_id=20),
         ],
         time_slots=[
             TimeSlotInfo(time_slot_id=100, is_teaching_period=True),
@@ -276,10 +269,7 @@ def test_backtracking_reports_infeasible_when_fixed_time_slots_collide() -> None
 
     resources = _empty_resources(
         time_slot_ids=[100, 200],
-        teacher_qualifications=[
-            TeacherQualification(teacher_id=10, subject_id=10),
-            TeacherQualification(teacher_id=20, subject_id=20),
-        ],
+        teacher_ids=[10, 20],
         time_slots=[
             TimeSlotInfo(time_slot_id=100, is_teaching_period=True),
             TimeSlotInfo(time_slot_id=200, is_teaching_period=True),

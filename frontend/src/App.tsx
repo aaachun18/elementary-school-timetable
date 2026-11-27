@@ -1,20 +1,35 @@
 import type { ReactElement } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import AdminOnlyRoute from "./components/AdminOnlyRoute";
 import Layout from "./components/Layout";
 import ProtectedRoute from "./components/ProtectedRoute";
+import RoleRoute from "./components/RoleRoute";
 import DataBrowser from "./pages/DataBrowser";
 import Home from "./pages/Home";
+import Landing from "./pages/Landing";
 import Login from "./pages/Login";
-import RequirementsOverview from "./pages/RequirementsOverview";
-import SchedulerConsole from "./pages/SchedulerConsole";
+import Profile from "./pages/Profile";
+import RecordSettings from "./pages/RecordSettings";
+import ScheduleRecords from "./pages/ScheduleRecords";
+import SchedulingWizard from "./pages/SchedulingWizard";
+import SchoolManagement from "./pages/SchoolManagement";
 import TimetableView from "./pages/TimetableView";
 import UserManagement from "./pages/UserManagement";
+import type { UserRole } from "./utils/auth";
+
+// Task 98: who may open which page (RoleRoute redirects everyone else).
+const SCHOOL_MEMBERS: readonly UserRole[] = ["COORDINATOR", "TEACHER"];
+const COORDINATOR_ONLY: readonly UserRole[] = ["COORDINATOR"];
+const ACCOUNT_MANAGERS: readonly UserRole[] = ["ADMIN", "COORDINATOR"];
+const ADMIN_ONLY: readonly UserRole[] = ["ADMIN"];
+const EVERY_ROLE: readonly UserRole[] = ["ADMIN", "COORDINATOR", "TEACHER"];
 
 export default function App(): ReactElement {
   return (
     <BrowserRouter>
       <Routes>
+        {/* The public home page; a logged-in visit goes on to the
+            role's own landing page (homePathFor). */}
+        <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
         {/* ProtectedRoute + Layout combined as one parent layout route --
             every nested route below renders inside Layout's <Outlet />,
@@ -27,48 +42,94 @@ export default function App(): ReactElement {
             </ProtectedRoute>
           }
         >
-          {/* Task 43: everything except / and /timetable is additionally
-              wrapped in AdminOnlyRoute -- a TEACHER hitting any of these
-              URLs directly (not just missing the nav link) bounces to
-              /timetable instead of rendering. Task 97: the home page is a
-              dashboard by role, so a TEACHER gets its simplified version
-              (decision 33). */}
-          <Route path="/" element={<Home />} />
+          {/* Task 43 / 98: each page is wrapped in RoleRoute -- a role
+              hitting a URL it may not open (not just missing the nav
+              link) is redirected instead of rendering. The 系統管理員
+              only has 學校管理 and 帳號管理; a TEACHER only 首頁 (a
+              simplified dashboard, Task 97) and 課表. 首頁 is /home:
+              / is the public page. */}
+          <Route
+            path="/home"
+            element={
+              <RoleRoute allow={SCHOOL_MEMBERS}>
+                <Home />
+              </RoleRoute>
+            }
+          />
           <Route
             path="/data"
             element={
-              <AdminOnlyRoute>
+              <RoleRoute allow={COORDINATOR_ONLY}>
                 <DataBrowser />
-              </AdminOnlyRoute>
+              </RoleRoute>
+            }
+          />
+          {/* Task 98: 開始排課 and 排課紀錄 replace 排課需求總覽 /
+              排課控制台 (their old addresses still lead to them). */}
+          <Route
+            path="/wizard"
+            element={
+              <RoleRoute allow={COORDINATOR_ONLY}>
+                <SchedulingWizard />
+              </RoleRoute>
             }
           />
           <Route
-            path="/requirements"
+            path="/records"
             element={
-              <AdminOnlyRoute>
-                <RequirementsOverview />
-              </AdminOnlyRoute>
+              <RoleRoute allow={COORDINATOR_ONLY}>
+                <ScheduleRecords />
+              </RoleRoute>
             }
           />
+          {/* v3: 檢視排課設定 of one record (its own page, back to 排課紀錄). */}
           <Route
-            path="/scheduler"
+            path="/records/:recordId/settings"
             element={
-              <AdminOnlyRoute>
-                <SchedulerConsole />
-              </AdminOnlyRoute>
+              <RoleRoute allow={COORDINATOR_ONLY}>
+                <RecordSettings />
+              </RoleRoute>
             }
           />
-          {/* Task 59: account management -- ADMIN only, same wrapper as the
-              pages above; the backend's require_admin is the real lock. */}
+          <Route path="/requirements" element={<Navigate to="/wizard?step=requirements" replace />} />
+          <Route path="/scheduler" element={<Navigate to="/records" replace />} />
+          {/* Task 59 / 98: account management -- the 系統管理員 and the
+              教學組長; the backend's require_manager and per-school scope
+              are the real lock. */}
           <Route
             path="/users"
             element={
-              <AdminOnlyRoute>
+              <RoleRoute allow={ACCOUNT_MANAGERS}>
                 <UserManagement />
-              </AdminOnlyRoute>
+              </RoleRoute>
             }
           />
-          <Route path="/timetable" element={<TimetableView />} />
+          <Route
+            path="/schools"
+            element={
+              <RoleRoute allow={ADMIN_ONLY}>
+                <SchoolManagement />
+              </RoleRoute>
+            }
+          />
+          <Route
+            path="/timetable"
+            element={
+              <RoleRoute allow={SCHOOL_MEMBERS}>
+                <TimetableView />
+              </RoleRoute>
+            }
+          />
+          {/* 帳號改版: 個人資料維護, every role (and the only page an
+              一般老師 with no school can use, see Layout). */}
+          <Route
+            path="/profile"
+            element={
+              <RoleRoute allow={EVERY_ROLE}>
+                <Profile />
+              </RoleRoute>
+            }
+          />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

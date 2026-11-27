@@ -2,15 +2,28 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.academic_year import Semester
+from app.models.academic_year import AcademicYear, Semester
 from app.schemas.semester import SemesterCreate, SemesterUpdate
 from app.services.exceptions import (
     DependentRecordsExistError,
     raise_for_integrity_error,
 )
+from app.services.school_scope import (
+    ensure_references_in_school,
+    get_in_school,
+    in_school,
+)
 
 
-def create_semester(db: Session, semester_data: SemesterCreate) -> Semester:
+def create_semester(
+    db: Session,
+    semester_data: SemesterCreate,
+    *,
+    school_id: int,
+) -> Semester:
+    ensure_references_in_school(
+        db, school_id, [(AcademicYear, semester_data.academic_year_id)]
+    )
     semester = Semester(
         academic_year_id=semester_data.academic_year_id,
         number=semester_data.number,
@@ -26,23 +39,31 @@ def create_semester(db: Session, semester_data: SemesterCreate) -> Semester:
     return semester
 
 
-def get_semester(db: Session, semester_id: int) -> Semester | None:
-    return db.get(Semester, semester_id)
+def get_semester(db: Session, semester_id: int, *, school_id: int) -> Semester | None:
+    return get_in_school(db, Semester, semester_id, school_id)
 
 
-def get_semesters(db: Session, skip: int = 0, limit: int = 100) -> list[Semester]:
-    stmt = select(Semester).offset(skip).limit(limit)
+def get_semesters(
+    db: Session, skip: int = 0, limit: int = 100, *, school_id: int
+) -> list[Semester]:
+    stmt = select(
+        Semester
+    ).where(in_school(Semester, school_id)).offset(skip).limit(limit)
     return list(db.scalars(stmt).all())
 
 
 def update_semester(
-    db: Session, semester_id: int, semester_data: SemesterUpdate
+    db: Session, semester_id: int, semester_data: SemesterUpdate, *, school_id: int
 ) -> Semester | None:
-    semester = db.get(Semester, semester_id)
+    semester = get_in_school(db, Semester, semester_id, school_id)
     if semester is None:
         return None
 
-    for field, value in semester_data.model_dump(exclude_unset=True).items():
+    changes = semester_data.model_dump(exclude_unset=True)
+    ensure_references_in_school(
+        db, school_id, [(AcademicYear, changes.get("academic_year_id"))]
+    )
+    for field, value in changes.items():
         setattr(semester, field, value)
 
     try:
@@ -54,12 +75,14 @@ def update_semester(
     return semester
 
 
-def delete_semester(db: Session, semester_id: int) -> bool:
-    semester = db.get(Semester, semester_id)
+def delete_semester(db: Session, semester_id: int, *, school_id: int) -> bool:
+    semester = get_in_school(db, Semester, semester_id, school_id)
     if semester is None:
         return False
 
     try:
+        # v3: the scheduling settings belong to its 排課紀錄, so a semester
+        # with any record is refused by their foreign key.
         db.delete(semester)
         db.commit()
     except IntegrityError as exc:

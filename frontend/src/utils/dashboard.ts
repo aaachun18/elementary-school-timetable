@@ -1,7 +1,7 @@
 // Task 97: the home page dashboard (decision 33) -- turning the existing
 // list / check / unscheduled-lessons responses into card data. Pure
 // functions, no React, no API (dashboard.test.ts). Every function copes
-// with empty input: no semester, no version, nothing at all.
+// with empty input: no semester, no record, nothing at all.
 
 import { violationIdentityKey } from "./violationMerge";
 import type { Class } from "../types/class";
@@ -11,12 +11,14 @@ import type { ScheduleVersion } from "../types/scheduleVersion";
 import type { Semester } from "../types/semester";
 import type { Subject } from "../types/subject";
 import type { Teacher } from "../types/teacher";
+import { hasTimetable } from "./scheduleVersionFormat";
+import type { BadgeTone } from "./badgeTone";
 
-// --- The current semester and its versions ---
+// --- The current semester and its 排課紀錄 ---
 
 // The current semester -- the one whose timetable is in use: the latest
-// ACTIVE semester (by academic year, then number) that has a PUBLISHED
-// version; else the latest active one; else the latest one at all; with no
+// ACTIVE semester (by academic year, then number) that has a published
+// record; else the latest active one; else the latest one at all; with no
 // semester, null. (The data model has no single "current" flag, and the
 // next semester is often active and being prepared while this one runs.)
 export function pickCurrentSemester(
@@ -29,7 +31,7 @@ export function pickCurrentSemester(
     (a, b) => yearOf(b) - yearOf(a) || b.number - a.number || b.id - a.id,
   );
   const published = new Set(
-    versions.filter((version) => version.status === "PUBLISHED").map((version) => version.semester_id),
+    versions.filter((version) => version.is_published).map((version) => version.semester_id),
   );
   return (
     latestFirst.find((semester) => semester.is_active && published.has(semester.id)) ??
@@ -39,25 +41,30 @@ export function pickCurrentSemester(
   );
 }
 
-// The draft being worked on: the most recently created DRAFT of any
-// semester (the next semester's timetable is usually prepared while the
-// current one is in use), or null.
-export function pickLatestDraft(versions: readonly ScheduleVersion[]): ScheduleVersion | null {
+// The timetable being worked on: the newest (highest 編號) unpublished
+// record of any semester that has a timetable (the next semester's is
+// usually prepared while the current one is in use), or null.
+export function pickLatestUnpublished(versions: readonly ScheduleVersion[]): ScheduleVersion | null {
   return versions
-    .filter((version) => version.status === "DRAFT")
-    .reduce<ScheduleVersion | null>((latest, version) => (latest === null || version.id > latest.id ? version : latest), null);
+    .filter((version) => !version.is_published && hasTimetable(version.status))
+    .reduce<ScheduleVersion | null>(
+      (latest, version) =>
+        latest === null || (version.version_number ?? 0) > (latest.version_number ?? 0) ? version : latest,
+      null,
+    );
 }
 
 export interface SemesterVersions {
   published: ScheduleVersion | null;
-  draftCount: number;
+  // Every other record of the semester.
+  otherCount: number;
 }
 
 export function summarizeVersions(versions: readonly ScheduleVersion[], semesterId: number | null): SemesterVersions {
   const mine = semesterId === null ? [] : versions.filter((version) => version.semester_id === semesterId);
   return {
-    published: mine.find((version) => version.status === "PUBLISHED") ?? null,
-    draftCount: mine.filter((version) => version.status === "DRAFT").length,
+    published: mine.find((version) => version.is_published) ?? null,
+    otherCount: mine.filter((version) => !version.is_published).length,
   };
 }
 
@@ -78,7 +85,7 @@ export function formatDateTime(iso: string | null | undefined): string {
   return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-// --- The latest draft's health ---
+// --- The latest unpublished timetable's health ---
 
 export interface DraftHealth {
   // Distinct problems, as the checklist counts them: one problem reported
@@ -109,11 +116,40 @@ export function summarizeDraftHealth(
   };
 }
 
+// Task 99: the badge right of the card's title -- errors first, then
+// warnings, else 可發布.
+export interface HealthBadge {
+  tone: BadgeTone;
+  label: string;
+}
+
+export function draftHealthBadge(health: Pick<DraftHealth, "errorCount" | "warningCount">): HealthBadge {
+  if (health.errorCount > 0) {
+    return { tone: "danger", label: `${health.errorCount} 個錯誤` };
+  }
+  if (health.warningCount > 0) {
+    return { tone: "warning", label: `${health.warningCount} 個警告` };
+  }
+  return { tone: "success", label: "可發布" };
+}
+
+// The card's one button: fix the errors first, else go and publish.
+export function draftHealthAction(health: Pick<DraftHealth, "errorCount">): string {
+  return health.errorCount > 0 ? "前往修正" : "檢視並發布";
+}
+
+// A count's color: gray when 0, its own color only when there is something.
+export type StatTone = "zero" | "problem" | "warning";
+
+export function statTone(count: number, nonZeroTone: Exclude<StatTone, "zero">): StatTone {
+  return count === 0 ? "zero" : nonZeroTone;
+}
+
 // --- Data health ---
 
 export interface DataIssue {
   message: string;
-  // Where to fix it (a 基礎資料 tab).
+  // Where to fix it (a 學校資料 tab, or 帳號管理 for teachers).
   path: string;
 }
 
@@ -125,8 +161,8 @@ export interface DataHealth {
   issues: DataIssue[];
 }
 
-// Counts are of active records. Issues: nothing of a kind yet, and active
-// classes without a homeroom (原班上課 then gets no room, decision 29).
+// Counts are of active records (停用 classes too are left out). Issues:
+// nothing of a kind yet.
 export function summarizeDataHealth(data: {
   teachers: readonly Teacher[];
   classes: readonly Class[];
@@ -139,25 +175,18 @@ export function summarizeDataHealth(data: {
   const subjects = active(data.subjects);
   const rooms = active(data.rooms);
   const issues: DataIssue[] = [];
+  // Task 98: teachers are 一般老師 accounts (帳號管理); the rest are
+  // 學校資料 tabs.
   const none: [number, string, string][] = [
-    [teachers.length, "老師", "teachers"],
-    [classes.length, "班級", "classes"],
-    [subjects.length, "科目", "subjects"],
-    [rooms.length, "教室", "rooms"],
+    [teachers.length, "老師", "/users"],
+    [classes.length, "班級", "/data?tab=classes"],
+    [subjects.length, "科目", "/data?tab=subjects"],
+    [rooms.length, "教室", "/data?tab=rooms"],
   ];
-  for (const [count, label, tab] of none) {
+  for (const [count, label, path] of none) {
     if (count === 0) {
-      issues.push({ message: `還沒有任何啟用中的${label}`, path: `/data?tab=${tab}` });
+      issues.push({ message: `還沒有任何啟用中的${label}`, path });
     }
-  }
-  const withoutHomeroom = classes.filter((item) => item.homeroom_room_id === null);
-  if (withoutHomeroom.length > 0) {
-    const names = withoutHomeroom.slice(0, 3).map((item) => item.name).join("、");
-    const more = withoutHomeroom.length > 3 ? ` 等 ${withoutHomeroom.length} 班` : "";
-    issues.push({
-      message: `${withoutHomeroom.length} 個班級沒有設定導師班教室（${names}${more}），原班上課的課會沒有教室`,
-      path: "/data?tab=classes",
-    });
   }
   return {
     teacherCount: teachers.length,

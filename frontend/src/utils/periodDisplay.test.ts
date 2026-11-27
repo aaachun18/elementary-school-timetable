@@ -88,7 +88,7 @@ describe("buildPeriodDisplay", () => {
     expect(buildPeriodDisplay([]).size).toBe(0);
   });
 
-  it("numbers by ascending period even when the raw numbers have gaps", () => {
+  it("counts teaching rows only, whatever the raw period numbers", () => {
     const display = buildPeriodDisplay([
       slot(1, 10, true),
       slot(1, 3, true),
@@ -108,7 +108,7 @@ describe("buildPeriodDisplay", () => {
 describe("formatPeriodHeader", () => {
   const display = buildPeriodDisplay(demoSlots());
 
-  it("shows the teaching number, not the raw period", () => {
+  it("shows the afternoon after 午休 as 第 5-7 節", () => {
     expect(formatPeriodHeader(1, display)).toBe("第 1 節");
     expect(formatPeriodHeader(6, display)).toBe("第 5 節");
     expect(formatPeriodHeader(8, display)).toBe("第 7 節");

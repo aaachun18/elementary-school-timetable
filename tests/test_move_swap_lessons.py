@@ -13,18 +13,24 @@ from app.models.room import Room
 from app.models.schedule import Schedule
 from app.models.schedule_version import ScheduleVersion
 from app.models.subject import Subject
-from app.models.teacher import Teacher, TeacherAvailability
+from app.models.teacher import Teacher
 from app.services import schedule_adjustment, schedule_check
 from tests.test_reassign_teacher import Builder
+from tests.conftest import get_test_school_id, mark_status_in_db
 
 # Task 65: POST /api/v1/schedule-versions/{id}/move-lesson and
 # /swap-lessons. Test data is written straight to the database through
-# db_session (the same session the client fixtures' requests use).
+# db_session (the same session the client fixtures' requests use). v3: a
+# timetable changes only in a manual edit's working copy (EDITING) -- the
+# Builder's record is one.
+
+TIMETABLE_LOCKED_MESSAGE = "課表不能直接修改，請先按「手動編輯課表」"
+NOT_EDITING_STATUSES = ["NOT_SCHEDULED", "AUTO", "MANUAL", "COPIED"]
 
 
 @dataclass
 class Timetable:
-    """One DRAFT version, valid as built (slots 0..5 on one weekday):
+    """One working copy (EDITING), valid as built (slots 0..5 on one weekday):
     - c1 English: 2 periods by t1, slots 0 and 1 (the first in room r1)
     - c1 Science: 1 period by t2, slot 2
     - c2 English: 1 period by t1, slot 3
@@ -66,12 +72,12 @@ def _build_timetable(db: Session) -> Timetable:
     builder = Builder(db)
     english = builder.subject("英文")
     science = builder.subject("自然")
-    t1 = builder.teacher("一號老師", [english, science])
-    t2 = builder.teacher("二號老師", [english, science])
+    t1 = builder.teacher("一號老師")
+    t2 = builder.teacher("二號老師")
     c1 = builder.class_("四年甲班")
     c2 = builder.class_("四年乙班")
-    r1 = Room(name="Room 1", room_type="一般教室", is_active=True)
-    r2 = Room(name="Room 2", room_type="一般教室", is_active=True)
+    r1 = Room(school_id=get_test_school_id(db), name="Room 1", is_active=True)
+    r2 = Room(school_id=get_test_school_id(db), name="Room 2", is_active=True)
     db.add_all([r1, r2])
     db.commit()
     version = builder.version()
@@ -159,6 +165,27 @@ def _get(db: Session, schedule_id: int) -> Schedule:
     return row
 
 
+def _copy_of(
+    client: TestClient,
+    db: Session,
+    version_id: int,
+    body: dict[str, Any] | None = None,
+    *,
+    editable: bool = False,
+) -> int:
+    """Another record with a copy of this working copy's timetable (複製此課表
+    copies only a saved record, so the working copy is briefly marked one).
+    editable: the copy is made a working copy too, so it can be adjusted."""
+    mark_status_in_db(db, version_id, "COPIED")
+    response = client.post(f"/api/v1/schedule-versions/{version_id}/copy", json=body)
+    assert response.status_code == 201, response.json()
+    mark_status_in_db(db, version_id, "EDITING", source_status="COPIED")
+    copy_id: int = response.json()["id"]
+    if editable:
+        mark_status_in_db(db, copy_id, "EDITING", source_status="COPIED")
+    return copy_id
+
+
 # --- Move ---
 
 
@@ -244,8 +271,7 @@ def test_move_into_unavailable_slot_is_reported(
     client: TestClient, db_session: Session
 ) -> None:
     tt = _build_timetable(db_session)
-    db_session.add(TeacherAvailability(teacher_id=tt.t2.id, time_slot_id=tt.slot(4)))
-    db_session.commit()
+    tt.builder.make_unavailable(tt.t2, tt.slot(4))
 
     data = _ok(_move(client, tt.version.id, tt.c1_science.id, tt.slot(4)))
 
@@ -362,14 +388,14 @@ def test_swap_with_row_of_other_version_returns_409(
     client: TestClient, db_session: Session
 ) -> None:
     tt = _build_timetable(db_session)
-    other_id = client.post(f"/api/v1/schedule-versions/{tt.version.id}/copy").json()["id"]
+    other_id = _copy_of(client, db_session, tt.version.id)
     other_row = _schedule_snapshot(db_session, other_id)[0]
     before = _schedule_snapshot(db_session)
 
     response = _swap(client, tt.version.id, tt.c1_science.id, other_row[0])
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "此排課紀錄不屬於該課表"
+    assert response.json()["detail"] == "此堂課不屬於這份課表"
     assert _schedule_snapshot(db_session) == before
 
 
@@ -451,32 +477,23 @@ def test_move_row_of_other_version_returns_409(
     client: TestClient, db_session: Session
 ) -> None:
     tt = _build_timetable(db_session)
-    other_id = client.post(f"/api/v1/schedule-versions/{tt.version.id}/copy").json()["id"]
+    other_id = _copy_of(client, db_session, tt.version.id)
     other_row_id = _schedule_snapshot(db_session, other_id)[0][0]
     before = _schedule_snapshot(db_session)
 
     response = _move(client, tt.version.id, other_row_id, tt.slot(5))
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "此排課紀錄不屬於該課表"
+    assert response.json()["detail"] == "此堂課不屬於這份課表"
     assert _schedule_snapshot(db_session) == before
 
 
-@pytest.mark.parametrize(
-    ("status", "expected_detail"),
-    [
-        ("PUBLISHED", "已發布版本不可修改，請建立新草稿版本"),
-        ("ARCHIVED", "已封存的課表無法修改，請先複製成新草稿"),
-    ],
-)
-def test_move_and_swap_in_locked_version_return_409(
-    client: TestClient, db_session: Session, status: str, expected_detail: str
+@pytest.mark.parametrize("status", NOT_EDITING_STATUSES)
+def test_move_and_swap_outside_a_manual_edit_return_409(
+    client: TestClient, db_session: Session, status: str
 ) -> None:
     tt = _build_timetable(db_session)
-    version = db_session.get(ScheduleVersion, tt.version.id)
-    assert version is not None
-    version.status = status
-    db_session.commit()
+    mark_status_in_db(db_session, tt.version.id, status)
     before = _schedule_snapshot(db_session)
 
     move = _move(client, tt.version.id, tt.c1_science.id, tt.slot(5))
@@ -484,7 +501,7 @@ def test_move_and_swap_in_locked_version_return_409(
 
     for response in (move, swap):
         assert response.status_code == 409
-        assert response.json()["detail"] == expected_detail
+        assert response.json()["detail"] == TIMETABLE_LOCKED_MESSAGE
     assert _schedule_snapshot(db_session) == before
 
 
@@ -495,7 +512,7 @@ def test_move_leaves_other_version_of_same_semester_alone(
     client: TestClient, db_session: Session
 ) -> None:
     tt = _build_timetable(db_session)
-    other_id = client.post(f"/api/v1/schedule-versions/{tt.version.id}/copy").json()["id"]
+    other_id = _copy_of(client, db_session, tt.version.id)
     other_before = _schedule_snapshot(db_session, other_id)
 
     _ok(_move(client, tt.version.id, tt.c1_science.id, tt.slot(5)))
@@ -509,10 +526,13 @@ def test_move_in_cross_semester_copy_leaves_source_alone(
 ) -> None:
     tt = _build_timetable(db_session)
     target_semester = tt.builder.semester_in_year(number=2)
-    copy_id = client.post(
-        f"/api/v1/schedule-versions/{tt.version.id}/copy",
-        json={"target_semester_id": target_semester.id},
-    ).json()["id"]
+    copy_id = _copy_of(
+        client,
+        db_session,
+        tt.version.id,
+        {"target_semester_id": target_semester.id},
+        editable=True,
+    )
     source_before = _schedule_snapshot(db_session, tt.version.id)
     copied_row_id = _schedule_snapshot(db_session, copy_id)[0][0]
 
@@ -596,14 +616,15 @@ def test_copy_reassign_then_move_resolves_conflict(
 ) -> None:
     tt = _build_timetable(db_session)
     # t3 teaches c3 English in slot 3 -- the same slot as c2 English.
-    t3 = tt.builder.teacher("三號老師", [tt.english])
+    t3 = tt.builder.teacher("三號老師")
     c3 = tt.builder.class_("四年丙班")
     tt.builder.course(tt.version, c3, tt.english, t3, [3])
     assert client.get(f"/api/v1/schedule-versions/{tt.version.id}/check").json()["is_valid"]
 
-    copy_id = client.post(f"/api/v1/schedule-versions/{tt.version.id}/copy").json()["id"]
+    copy_id = _copy_of(client, db_session, tt.version.id, editable=True)
     c2_english_requirement = db_session.scalars(
         select(ClassSubjectRequirement).where(
+            ClassSubjectRequirement.schedule_version_id == copy_id,
             ClassSubjectRequirement.class_id == tt.c2.id,
             ClassSubjectRequirement.subject_id == tt.english.id,
         )

@@ -11,39 +11,54 @@ import {
 import { list as listSemesters } from "../api/semesters";
 import { list as listSubjects } from "../api/subjects";
 import { list as listTeachers } from "../api/teachers";
+import { CalendarPlusIcon, ClipboardListIcon, SchoolIcon } from "../components/icons";
+import PageHeader from "../components/PageHeader";
+import StatusBadge, { RecordStatusBadge } from "../components/StatusBadge";
+import { recordsCardText, schoolDataCardText, wizardCardText } from "../utils/homeCards";
 import { useResource } from "../hooks/useResource";
-import { getCurrentUsername, isCurrentUserAdmin } from "../utils/auth";
+import { getCurrentUserRole, getCurrentUsername, isCurrentUserCoordinator, ROLE_LABELS } from "../utils/auth";
 import {
+  draftHealthAction,
+  draftHealthBadge,
   formatDateTime,
   pickCurrentSemester,
-  pickLatestDraft,
+  pickLatestUnpublished,
   summarizeDataHealth,
   summarizeDraftHealth,
   summarizeVersions,
+  statTone,
   type SemesterVersions,
+  type StatTone,
 } from "../utils/dashboard";
 import { formatSemesterLabel } from "../utils/scheduleVersionFormat";
 import type { ScheduleVersion } from "../types/scheduleVersion";
 import type { Semester } from "../types/semester";
 import {
+  ACTION_CARD,
+  ACTION_CARD_GRID,
+  ACTION_CARD_ICON,
+  ACTION_CARD_TEXT,
+  ACTION_CARD_TITLE,
+  BUTTON_PRIMARY,
   BUTTON_SECONDARY_SM,
   CARD,
+  DASHBOARD_CARD_HEADER,
   DASHBOARD_CARD_TITLE,
   DASHBOARD_GRID,
+  DASHBOARD_REMINDER_CARD,
+  DASHBOARD_REMINDER_TITLE,
   ERROR_TEXT,
-  LINK_BUTTON,
   LINK_TEXT,
   LOADING_TEXT,
+  META_TAG,
   MUTED_TEXT,
   NOTICE,
   PAGE,
-  PAGE_TITLE,
   STAT_LABEL,
   STAT_ROW,
-  STAT_VALUE,
   STAT_VALUE_PROBLEM,
   STAT_VALUE_WARNING,
-  SUCCESS_TEXT,
+  STAT_VALUE_ZERO,
 } from "../styles/ui";
 
 // Every list the dashboard reads is small (one school); fetched whole.
@@ -53,12 +68,15 @@ const ALL = 1000;
 // content. A card that fails never takes the rest of the page with it.
 function DashboardCard({
   title,
+  badge,
   isLoading,
   errorMessage,
   onRetry,
   children,
 }: {
   title: string;
+  // Task 99: a StatusBadge right of the title (健康度).
+  badge?: ReactNode;
   isLoading: boolean;
   errorMessage: string | null;
   onRetry: () => void;
@@ -66,7 +84,10 @@ function DashboardCard({
 }): ReactElement {
   return (
     <section className={CARD} aria-label={title}>
-      <h2 className={DASHBOARD_CARD_TITLE}>{title}</h2>
+      <div className={DASHBOARD_CARD_HEADER}>
+        <h2 className={DASHBOARD_CARD_TITLE}>{title}</h2>
+        {badge}
+      </div>
       {errorMessage !== null ? (
         <div className="flex flex-wrap items-center gap-2">
           <p role="alert" className={ERROR_TEXT}>
@@ -85,8 +106,14 @@ function DashboardCard({
   );
 }
 
-function Stat({ value, label, tone = "normal" }: { value: number; label: string; tone?: "normal" | "problem" | "warning" }): ReactElement {
-  const valueClass = tone === "problem" ? STAT_VALUE_PROBLEM : tone === "warning" ? STAT_VALUE_WARNING : STAT_VALUE;
+const STAT_VALUE_CLASSES: Record<StatTone, string> = {
+  zero: STAT_VALUE_ZERO,
+  problem: STAT_VALUE_PROBLEM,
+  warning: STAT_VALUE_WARNING,
+};
+
+function Stat({ value, label, tone }: { value: number; label: string; tone: StatTone }): ReactElement {
+  const valueClass = STAT_VALUE_CLASSES[tone];
   return (
     <div>
       <p className={valueClass}>{value}</p>
@@ -103,7 +130,9 @@ function useSemesterData(): {
   semester: Semester | null;
   semesterLabel: string;
   versions: SemesterVersions;
-  latestDraft: ScheduleVersion | null;
+  latestUnpublished: ScheduleVersion | null;
+  // Every record of the school (the Action Cards' lines).
+  records: readonly ScheduleVersion[];
   // 「1 學年度第 2 學期」 for any semester id ("" if unknown).
   labelOf: (semesterId: number) => string;
 } {
@@ -126,7 +155,8 @@ function useSemesterData(): {
     semester,
     semesterLabel: semester === null ? "" : labelOf(semester.id),
     versions: summarizeVersions(versions, semester?.id ?? null),
-    latestDraft: pickLatestDraft(versions),
+    latestUnpublished: pickLatestUnpublished(versions),
+    records: versions,
     labelOf,
   };
 }
@@ -140,23 +170,30 @@ function SemesterCard({ data }: { data: ReturnType<typeof useSemesterData> }): R
       {semester === null ? (
         <p className={MUTED_TEXT}>
           還沒有任何學期。
-          <Link to="/data?tab=semesters" className={LINK_TEXT}>
-            到基礎資料新增學年度與學期
+          <Link to="/wizard" className={LINK_TEXT}>
+            到開始排課設定學年度與學期
           </Link>
         </p>
       ) : (
         <div className="flex flex-col gap-3">
           <p className="text-sm text-gray-700">目前學期：{semesterLabel}</p>
           {versions.published !== null ? (
-            <p className="text-sm text-gray-700">
-              已發布：v{versions.published.version_number}（發布時間 {formatDateTime(versions.published.updated_at)}）
+            <p className="flex flex-wrap items-center gap-2 text-sm text-gray-700">
+              <RecordStatusBadge record={versions.published} />
+              編號 {versions.published.display_number}（最後更新 {formatDateTime(versions.published.updated_at)}）
             </p>
           ) : (
-            <p className={NOTICE}>這個學期還沒有已發布的課表，請到排課控制台發布一個草稿。</p>
+            <p className={NOTICE}>這個學期還沒有已發布的課表，請到排課紀錄檢視課表後發布。</p>
           )}
-          <div className={STAT_ROW}>
-            <Stat value={versions.draftCount} label="草稿版本" />
-          </div>
+          <p className="text-sm text-gray-700">
+            {versions.otherCount > 0 && (
+              <>
+                <Link to="/records" className={LINK_TEXT}>
+                  查看排課紀錄
+                </Link>
+              </>
+            )}
+          </p>
         </div>
       )}
     </DashboardCard>
@@ -164,7 +201,7 @@ function SemesterCard({ data }: { data: ReturnType<typeof useSemesterData> }): R
 }
 
 function DraftHealthCard({ data }: { data: ReturnType<typeof useSemesterData> }): ReactElement {
-  const draft = data.latestDraft;
+  const draft = data.latestUnpublished;
   const draftId = draft?.id ?? null;
   const health = useResource(
     () =>
@@ -176,127 +213,161 @@ function DraftHealthCard({ data }: { data: ReturnType<typeof useSemesterData> })
   const timetablePath = draftId === null ? "/timetable" : `/timetable?scheduleVersionId=${draftId}`;
   const summary =
     health.data === null ? null : summarizeDraftHealth(health.data[0].violations, health.data[1].lessons.length);
+  const badge = draft === null || summary === null ? null : draftHealthBadge(summary);
   return (
     <DashboardCard
-      title="最新草稿健康度"
+      title="最新未發布課表健康度"
+      badge={badge !== null && <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>}
       isLoading={data.isLoading || (draftId !== null && health.isLoading && health.data === null)}
       errorMessage={data.errorMessage ?? health.errorMessage}
       onRetry={data.errorMessage !== null ? data.reload : health.reload}
     >
       {draft === null ? (
         <p className={MUTED_TEXT}>
-          {data.semester === null ? "還沒有任何學期。" : "目前沒有任何草稿版本。"}
-          <Link to="/scheduler" className={LINK_TEXT}>
-            到排課控制台建立草稿
+          {data.semester === null ? "還沒有任何學期。" : "目前沒有尚未發布的課表。"}
+          <Link to="/wizard" className={LINK_TEXT}>
+            到開始排課排出一份課表
           </Link>
         </p>
       ) : summary === null ? (
         <p className={LOADING_TEXT}>載入中…</p>
       ) : (
         <div className="flex flex-col gap-3">
-          <p className="text-sm text-gray-700">
-            {data.labelOf(draft.semester_id)} 草稿 v{draft.version_number}
+          <p className="flex flex-wrap items-center gap-2 text-sm text-gray-700">
+            {data.labelOf(draft.semester_id)} 編號 {draft.display_number}
+            <RecordStatusBadge record={draft} />
           </p>
           <div className={STAT_ROW}>
-            <Stat value={summary.errorCount} label="錯誤" tone={summary.errorCount > 0 ? "problem" : "normal"} />
-            <Stat value={summary.warningCount} label="警告" tone={summary.warningCount > 0 ? "warning" : "normal"} />
-            <Stat value={summary.unscheduledCount} label="未排入課程" tone={summary.unscheduledCount > 0 ? "warning" : "normal"} />
+            <Stat value={summary.errorCount} label="錯誤" tone={statTone(summary.errorCount, "problem")} />
+            <Stat value={summary.warningCount} label="警告" tone={statTone(summary.warningCount, "warning")} />
+            <Stat value={summary.unscheduledCount} label="未排入課程" tone={statTone(summary.unscheduledCount, "warning")} />
           </div>
-          {summary.isHealthy ? (
-            <p className={SUCCESS_TEXT}>✓ 沒有問題，可以發布</p>
-          ) : (
-            <div className="flex flex-wrap gap-4">
-              <Link to={timetablePath} className={LINK_TEXT}>
-                到課表檢視查看與修正
-              </Link>
-              <Link to="/scheduler" className={LINK_TEXT}>
-                到排課控制台
-              </Link>
-            </div>
-          )}
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <Link to="/records" className={LINK_TEXT}>
+              到排課紀錄
+            </Link>
+            <Link to={timetablePath} className={BUTTON_PRIMARY}>
+              {draftHealthAction(summary)}
+            </Link>
+          </div>
         </div>
       )}
     </DashboardCard>
   );
 }
 
-function DataHealthCard(): ReactElement {
-  const data = useResource(
+// The school's data, read once for 資料健康度 and the 學校資料 Action Card.
+function useSchoolData() {
+  return useResource(
     () => Promise.all([listTeachers(0, ALL), listClasses(0, ALL), listSubjects(0, ALL), listRooms(0, ALL)]),
     [],
   );
-  const summary =
-    data.data === null
-      ? null
-      : summarizeDataHealth({ teachers: data.data[0], classes: data.data[1], subjects: data.data[2], rooms: data.data[3] });
+}
+
+// Task 99: shown only when something is missing (the counts are already
+// on the 學校資料 card) -- an amber reminder listing what, each with a
+// link to where it is added. Nothing at all while loading or when the
+// data is complete; a failed load still says so (with 重試).
+function DataHealthCard({ data }: { data: ReturnType<typeof useSchoolData> }): ReactElement | null {
+  if (data.errorMessage !== null) {
+    return (
+      <DashboardCard title="資料健康度" isLoading={false} errorMessage={data.errorMessage} onRetry={data.reload}>
+        {null}
+      </DashboardCard>
+    );
+  }
+  if (data.data === null) {
+    return null;
+  }
+  const summary = summarizeDataHealth({
+    teachers: data.data[0],
+    classes: data.data[1],
+    subjects: data.data[2],
+    rooms: data.data[3],
+  });
+  if (summary.issues.length === 0) {
+    return null;
+  }
   return (
-    <DashboardCard
-      title="資料健康度"
-      isLoading={data.isLoading && data.data === null}
-      errorMessage={data.errorMessage}
-      onRetry={data.reload}
-    >
-      {summary !== null && (
-        <div className="flex flex-col gap-3">
-          <div className={STAT_ROW}>
-            <Stat value={summary.teacherCount} label="老師" />
-            <Stat value={summary.classCount} label="班級" />
-            <Stat value={summary.subjectCount} label="科目" />
-            <Stat value={summary.roomCount} label="教室" />
-          </div>
-          {summary.issues.length === 0 ? (
-            <p className={SUCCESS_TEXT}>✓ 基礎資料齊全</p>
-          ) : (
-            <ul className="m-0 flex list-none flex-col gap-1 p-0">
-              {summary.issues.map((issue) => (
-                <li key={issue.message} className="text-sm text-amber-800">
-                  {issue.message}（
-                  <Link to={issue.path} className={LINK_TEXT}>
-                    到基礎資料補齊
-                  </Link>
-                  ）
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-    </DashboardCard>
+    <section className={DASHBOARD_REMINDER_CARD} aria-label="學校資料尚未齊全">
+      <h2 className={DASHBOARD_REMINDER_TITLE}>學校資料尚未齊全</h2>
+      <ul className="m-0 flex list-none flex-col gap-1 p-0">
+        {summary.issues.map((issue) => (
+          <li key={issue.message} className="text-sm text-amber-800">
+            {issue.message}（
+            <Link to={issue.path} className={LINK_TEXT}>
+              前往補齊
+            </Link>
+            ）
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
-function QuickLinksCard(): ReactElement {
+// Task 98 Phase D: the three ways in -- each card one link, with a line
+// saying where things stand (utils/homeCards.ts). Replaces 快速入口.
+function ActionCards({
+  semesterData,
+  schoolData,
+}: {
+  semesterData: ReturnType<typeof useSemesterData>;
+  schoolData: ReturnType<typeof useSchoolData>;
+}): ReactElement {
+  const records = semesterData.isLoading ? null : semesterData.records;
+  const school = schoolData.data;
+  const cards = [
+    {
+      to: "/wizard",
+      title: "開始排課",
+      icon: <CalendarPlusIcon size={22} />,
+      text: records === null ? "…" : wizardCardText(records),
+    },
+    {
+      to: "/records",
+      title: "排課紀錄",
+      icon: <ClipboardListIcon size={22} />,
+      text: records === null ? "…" : recordsCardText(records),
+    },
+    {
+      to: "/data",
+      title: "學校資料",
+      icon: <SchoolIcon size={22} />,
+      text: school === null ? "…" : schoolDataCardText(school[0].length, school[1].length),
+    },
+  ];
   return (
-    <section className={CARD} aria-label="快速入口">
-      <h2 className={DASHBOARD_CARD_TITLE}>快速入口</h2>
-      <div className="flex flex-wrap gap-2">
-        <Link to="/scheduler" className={LINK_BUTTON}>
-          排課控制台
+    <nav aria-label="快速入口" className={ACTION_CARD_GRID}>
+      {cards.map((card) => (
+        <Link key={card.to} to={card.to} className={ACTION_CARD}>
+          <span className={ACTION_CARD_ICON}>{card.icon}</span>
+          <span className="min-w-0">
+            <span className={`${ACTION_CARD_TITLE} block`}>{card.title}</span>
+            <span className={`${ACTION_CARD_TEXT} block`}>{card.text}</span>
+          </span>
         </Link>
-        <Link to="/timetable" className={LINK_BUTTON}>
-          課表檢視
-        </Link>
-        <Link to="/requirements" className={LINK_BUTTON}>
-          排課需求總覽
-        </Link>
-      </div>
-    </section>
+      ))}
+    </nav>
   );
 }
 
 function AdminHome(): ReactElement {
   const semesterData = useSemesterData();
+  const schoolData = useSchoolData();
   return (
-    <div className={DASHBOARD_GRID}>
-      <SemesterCard data={semesterData} />
-      <DraftHealthCard data={semesterData} />
-      <DataHealthCard />
-      <QuickLinksCard />
-    </div>
+    <>
+      <ActionCards semesterData={semesterData} schoolData={schoolData} />
+      <div className={DASHBOARD_GRID}>
+        <SemesterCard data={semesterData} />
+        <DraftHealthCard data={semesterData} />
+        <DataHealthCard data={schoolData} />
+      </div>
+    </>
   );
 }
 
-// --- TEACHER: published timetable only, no drafts / checks / admin links ---
+// --- TEACHER: published timetable only, no other records / checks / admin links ---
 
 function TeacherHome(): ReactElement {
   const data = useSemesterData();
@@ -307,18 +378,19 @@ function TeacherHome(): ReactElement {
         <div className="flex flex-col gap-3">
           {data.semester !== null && <p className="text-sm text-gray-700">目前學期：{data.semesterLabel}</p>}
           {published !== null ? (
-            <p className="text-sm text-gray-700">
-              已發布：v{published.version_number}（發布時間 {formatDateTime(published.updated_at)}）
+            <p className="flex flex-wrap items-center gap-2 text-sm text-gray-700">
+              <RecordStatusBadge record={published} />
+              編號 {published.display_number}（最後更新 {formatDateTime(published.updated_at)}）
             </p>
           ) : (
-            <p className={NOTICE}>目前學期還沒有已發布的課表，發布後就能在課表檢視查看。</p>
+            <p className={NOTICE}>目前學期還沒有已發布的課表，發布後就能在課表查看。</p>
           )}
           <div>
             <Link
               to={published === null ? "/timetable" : `/timetable?scheduleVersionId=${published.id}`}
-              className={LINK_BUTTON}
+              className={BUTTON_PRIMARY}
             >
-              前往課表檢視
+              前往課表
             </Link>
           </div>
         </div>
@@ -328,18 +400,26 @@ function TeacherHome(): ReactElement {
 }
 
 // Task 97: the home page is a dashboard by role (decision 33) -- an ADMIN
-// sees the semester's versions, the latest draft's health, the basic
+// sees the semester's 排課紀錄, the latest unpublished timetable's health, the basic
 // data's health and quick links; anyone else (a TEACHER) only the
 // published timetable and the way to it. Every card loads on its own.
+// Task 98: the full dashboard is for the 教學組長 (the 系統管理員 has no
+// home page -- RoleRoute sends it to 學校管理).
 export default function Home(): ReactElement {
-  const isAdmin = isCurrentUserAdmin();
+  const isAdmin = isCurrentUserCoordinator();
+  const role = getCurrentUserRole();
   const username = getCurrentUsername();
   return (
     <div className={PAGE}>
-      <h1 className={PAGE_TITLE}>首頁</h1>
-      <p className={`${MUTED_TEXT} mb-4`}>
-        歡迎回來{username === null ? "" : `，${username}`}（{isAdmin ? "管理員" : "教師"}）
-      </p>
+      <PageHeader
+        title="首頁"
+        meta={
+          <span className={META_TAG}>
+            歡迎回來{username === null ? "" : `，${username}`}
+            {role === null ? "" : `（${ROLE_LABELS[role]}）`}
+          </span>
+        }
+      />
       {isAdmin ? <AdminHome /> : <TeacherHome />}
     </div>
   );

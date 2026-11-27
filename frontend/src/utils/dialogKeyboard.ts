@@ -31,7 +31,7 @@ export interface DialogKeyInput {
   // -1 when focus is outside the dialog (e.g. <body>).
   focusIndex: number;
   focusableCount: number;
-  // Index of the 取消/返回 button among the focusable elements.
+  // Index of the 取消 button among the focusable elements.
   cancelIndex: number;
   // The focused element is a <button> (only buttons are activated by Enter).
   focusIsButton: boolean;
@@ -41,7 +41,7 @@ export interface DialogKeyInput {
 
 export type DialogKeyEffect =
   | { type: "none" }
-  // Same as pressing 取消/返回.
+  // Same as pressing 取消.
   | { type: "cancel" }
   // Move focus to this focusable element.
   | { type: "focus"; index: number };

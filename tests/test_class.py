@@ -1,67 +1,103 @@
 from fastapi.testclient import TestClient
 
+from tests.api_helpers import create_grade
 
-def _create_grade(client: TestClient, level: int) -> int:
-    response = client.post(
-        "/api/v1/grades/", json={"name": f"Grade {level}", "level": level}
+
+def _post_class(client: TestClient, grade_id: int, name: str, name_style: str = "HEAVENLY_STEM"):  # type: ignore[no-untyped-def]
+    return client.post(
+        "/api/v1/classes/",
+        json={"grade_id": grade_id, "name_style": name_style, "name": name},
     )
-    grade_id: int = response.json()["id"]
-    return grade_id
 
 
 def test_create_class(client: TestClient) -> None:
-    grade_id = _create_grade(client, level=1)
+    grade_id = create_grade(client, "一年級", level=1)
 
-    response = client.post(
-        "/api/v1/classes/", json={"grade_id": grade_id, "name": "一年一班"}
-    )
+    response = _post_class(client, grade_id, "一年甲班")
 
     assert response.status_code == 201
     data = response.json()
     assert data["grade_id"] == grade_id
-    assert data["name"] == "一年一班"
+    assert data["name"] == "一年甲班"
+    assert data["name_style"] == "HEAVENLY_STEM"
+    # 停用 came back (classes in use are deactivated, not deleted).
     assert data["is_active"] is True
+    assert "homeroom_room_id" not in data
     assert "id" in data
     assert "created_at" in data
     assert "updated_at" in data
 
 
-def test_create_class_cannot_set_is_active(client: TestClient) -> None:
-    grade_id = _create_grade(client, level=2)
+def test_create_class_with_each_name_style(client: TestClient) -> None:
+    grade_id = create_grade(client, "三年級", level=3)
 
-    response = client.post(
-        "/api/v1/classes/",
-        json={"grade_id": grade_id, "name": "二年一班", "is_active": False},
-    )
-
-    assert response.status_code == 201
-    assert response.json()["is_active"] is True
+    assert _post_class(client, grade_id, "三年三十班", "NUMBER").status_code == 201
+    assert _post_class(client, grade_id, "三年癸班", "HEAVENLY_STEM").status_code == 201
+    assert _post_class(client, grade_id, "三年平班", "VIRTUE").status_code == 201
 
 
-def test_get_class_list(client: TestClient) -> None:
-    grade_id = _create_grade(client, level=3)
-    client.post(
-        "/api/v1/classes/", json={"grade_id": grade_id, "name": "List Class"}
-    )
+def test_create_class_names_senior_high_grades_from_one(client: TestClient) -> None:
+    """高中 levels 10-12 are 一到三年級: level 10's classes are 一年…班."""
+    grade_id = create_grade(client, "一年級", level=10)
 
-    response = client.get("/api/v1/classes/")
+    assert _post_class(client, grade_id, "一年甲班").status_code == 201
+    assert _post_class(client, grade_id, "十年甲班").status_code == 422
 
-    assert response.status_code == 200
-    names = [item["name"] for item in response.json()]
-    assert "List Class" in names
+
+def test_create_class_name_must_be_an_option_of_its_grade_and_style(
+    client: TestClient,
+) -> None:
+    grade_id = create_grade(client, "二年級", level=2)
+
+    for name, style in (
+        ("一年甲班", "HEAVENLY_STEM"),  # another grade's name
+        ("二年一班", "HEAVENLY_STEM"),  # another style's name
+        ("二年子班", "HEAVENLY_STEM"),  # beyond 癸
+        ("二年三十一班", "NUMBER"),  # beyond 三十
+        ("二年甲", "HEAVENLY_STEM"),
+    ):
+        response = _post_class(client, grade_id, name, style)
+        assert response.status_code == 422, name
+        assert response.json()["detail"] == "班級名稱必須是該年級與名稱類型提供的選項"
+
+
+def test_create_class_unknown_name_style_is_422(client: TestClient) -> None:
+    grade_id = create_grade(client, level=1)
+
+    assert _post_class(client, grade_id, "一年甲班", "LETTER").status_code == 422
+
+
+def test_create_class_duplicate_name_in_grade_is_409(client: TestClient) -> None:
+    grade_id = create_grade(client, "四年級", level=4)
+    assert _post_class(client, grade_id, "四年甲班").status_code == 201
+
+    response = _post_class(client, grade_id, "四年甲班")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "班級名稱重複，這個年級已經有同名的班級"
+
+
+def test_get_class_list_filters_by_grade(client: TestClient) -> None:
+    first = create_grade(client, "五年級", level=5)
+    second = create_grade(client, "六年級", level=6)
+    _post_class(client, first, "五年甲班")
+    _post_class(client, second, "六年甲班")
+
+    everything = client.get("/api/v1/classes/").json()
+    only_second = client.get("/api/v1/classes/", params={"grade_id": second}).json()
+
+    assert {item["name"] for item in everything} == {"五年甲班", "六年甲班"}
+    assert [item["name"] for item in only_second] == ["六年甲班"]
 
 
 def test_get_class_by_id(client: TestClient) -> None:
-    grade_id = _create_grade(client, level=4)
-    create_response = client.post(
-        "/api/v1/classes/", json={"grade_id": grade_id, "name": "Get Class"}
-    )
-    class_id = create_response.json()["id"]
+    grade_id = create_grade(client, level=1)
+    class_id = _post_class(client, grade_id, "一年乙班").json()["id"]
 
     response = client.get(f"/api/v1/classes/{class_id}")
 
     assert response.status_code == 200
-    assert response.json()["name"] == "Get Class"
+    assert response.json()["name"] == "一年乙班"
 
 
 def test_get_class_not_found(client: TestClient) -> None:
@@ -70,37 +106,24 @@ def test_get_class_not_found(client: TestClient) -> None:
     assert response.status_code == 404
 
 
-def test_update_class(client: TestClient) -> None:
-    grade_id = _create_grade(client, level=5)
-    create_response = client.post(
-        "/api/v1/classes/", json={"grade_id": grade_id, "name": "Old Class"}
-    )
-    class_id = create_response.json()["id"]
+def test_class_cannot_be_edited(client: TestClient) -> None:
+    """A class is only created and deleted."""
+    grade_id = create_grade(client, level=1)
+    class_id = _post_class(client, grade_id, "一年丙班").json()["id"]
 
-    response = client.patch(
-        f"/api/v1/classes/{class_id}", json={"name": "New Class"}
-    )
+    response = client.patch(f"/api/v1/classes/{class_id}", json={"name": "一年丁班"})
 
-    assert response.status_code == 200
-    assert response.json()["name"] == "New Class"
-
-
-def test_update_class_not_found(client: TestClient) -> None:
-    response = client.patch("/api/v1/classes/999999", json={"name": "Nope"})
-
-    assert response.status_code == 404
+    assert response.status_code == 405
 
 
 def test_delete_class(client: TestClient) -> None:
-    grade_id = _create_grade(client, level=6)
-    create_response = client.post(
-        "/api/v1/classes/", json={"grade_id": grade_id, "name": "Delete Class"}
-    )
-    class_id = create_response.json()["id"]
+    grade_id = create_grade(client, level=6)
+    class_id = _post_class(client, grade_id, "六年乙班").json()["id"]
 
     response = client.delete(f"/api/v1/classes/{class_id}")
 
     assert response.status_code == 204
+    assert client.get(f"/api/v1/classes/{class_id}").status_code == 404
 
 
 def test_delete_class_not_found(client: TestClient) -> None:
@@ -110,50 +133,64 @@ def test_delete_class_not_found(client: TestClient) -> None:
 
 
 def test_create_class_invalid_grade_id(client: TestClient) -> None:
-    response = client.post(
-        "/api/v1/classes/", json={"grade_id": 999999, "name": "Invalid FK Class"}
-    )
+    response = _post_class(client, 999999, "一年甲班")
 
     assert response.status_code == 422
 
 
-def test_create_class_with_homeroom_room(client: TestClient) -> None:
-    grade_id = _create_grade(client, level=8)
-    room_response = client.post(
-        "/api/v1/rooms/", json={"name": "Homeroom Room", "room_type": "普通教室"}
-    )
-    room_id = room_response.json()["id"]
+# --- 批次新增 ---
 
-    response = client.post(
-        "/api/v1/classes/",
-        json={
-            "grade_id": grade_id,
-            "name": "八年一班",
-            "homeroom_room_id": room_id,
-        },
+BATCH_URL = "/api/v1/classes/batch"
+
+
+def _batch(client: TestClient, grade_id: int, count: int, name_style: str = "HEAVENLY_STEM"):  # type: ignore[no-untyped-def]
+    return client.post(
+        BATCH_URL, json={"grade_id": grade_id, "name_style": name_style, "count": count}
     )
+
+
+def test_batch_creates_the_next_names_after_existing_ones(client: TestClient) -> None:
+    grade_id = create_grade(client, "二年級", level=2)
+    assert _post_class(client, grade_id, "二年甲班").status_code == 201
+    assert _post_class(client, grade_id, "二年乙班").status_code == 201
+
+    response = _batch(client, grade_id, 3)
 
     assert response.status_code == 201
-    assert response.json()["homeroom_room_id"] == room_id
+    assert [item["name"] for item in response.json()] == ["二年丙班", "二年丁班", "二年戊班"]
 
 
-def test_create_class_without_homeroom_room(client: TestClient) -> None:
-    grade_id = _create_grade(client, level=9)
+def test_batch_fills_a_gap_first(client: TestClient) -> None:
+    grade_id = create_grade(client, "二年級", level=2)
+    assert _post_class(client, grade_id, "二年乙班").status_code == 201
 
-    response = client.post(
-        "/api/v1/classes/", json={"grade_id": grade_id, "name": "九年一班"}
-    )
+    response = _batch(client, grade_id, 2)
 
-    assert response.status_code == 201
-    assert response.json()["homeroom_room_id"] is None
+    assert [item["name"] for item in response.json()] == ["二年甲班", "二年丙班"]
 
 
-def test_delete_grade_blocked_by_dependent_class(client: TestClient) -> None:
-    grade_id = _create_grade(client, level=7)
-    client.post(
-        "/api/v1/classes/", json={"grade_id": grade_id, "name": "Dependent Class"}
-    )
+def test_batch_limits_per_name_style(client: TestClient) -> None:
+    grade_id = create_grade(client, "一年級", level=1)
 
-    response = client.delete(f"/api/v1/grades/{grade_id}")
+    assert _batch(client, grade_id, 9, "VIRTUE").status_code == 422
+    assert _batch(client, grade_id, 8, "VIRTUE").status_code == 201
+    assert _batch(client, grade_id, 30, "NUMBER").status_code == 201
+    assert _batch(client, grade_id, 10, "HEAVENLY_STEM").status_code == 201
 
-    assert response.status_code == 409
+
+def test_batch_more_than_left_creates_nothing(client: TestClient) -> None:
+    grade_id = create_grade(client, "一年級", level=1)
+    assert _batch(client, grade_id, 8).status_code == 201
+
+    response = _batch(client, grade_id, 3)
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "這個年級的此名稱類型最多只能再新增 2 班"
+    names = [item["name"] for item in client.get("/api/v1/classes/").json()]
+    assert len(names) == 8
+
+
+def test_batch_count_must_be_positive(client: TestClient) -> None:
+    grade_id = create_grade(client, "一年級", level=1)
+
+    assert _batch(client, grade_id, 0).status_code == 422

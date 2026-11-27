@@ -22,6 +22,16 @@ export interface GenerateLessonsResponse {
 export interface RunSchedulerSuccessResponse {
   scheduled_count: number;
   backtrack_count: number;
+  // The soft constraint: 國語文 / 數學 lessons placed in 第 1–2 節, out of
+  // how many there are.
+  preferred_period_score: number;
+  preferred_period_lesson_count: number;
+  // Task 104: the search's statistics. seed: the same data with the same
+  // seed gives the same timetable (every run picks a new one).
+  node_count: number;
+  restart_count: number;
+  elapsed_seconds: number;
+  seed: number | null;
 }
 
 // Mirrors scheduling_engine.constraints.base.ConstraintViolation via
@@ -75,6 +85,11 @@ export interface RunSchedulerFailureResponse {
   lesson_failures: LessonFailureDetail[];
   post_hoc_violations: ConstraintViolationDetail[];
   backtrack_count: number;
+  // Task 104: as RunSchedulerSuccessResponse (zero / null when no search ran).
+  node_count: number;
+  restart_count: number;
+  elapsed_seconds: number;
+  seed: number | null;
 }
 
 // Task 68: GET /schedule-versions/{id}/check (Task 61) -- a read-only Hard
@@ -222,7 +237,7 @@ export interface EligibleTeacher {
 // A lesson of the version's semester with no Schedule row in the version.
 // suggested_room_id: the class's homeroom for a requirement with no room
 // type, else the first active room of its type; null when there is none.
-// eligible_teachers: active teachers qualified for the subject, by name.
+// eligible_teachers: the active teachers taking part in the semester, by name.
 export interface UnscheduledLesson {
   lesson_id: number;
   class_subject_requirement_id: number;
@@ -238,12 +253,10 @@ export interface UnscheduledLesson {
   fixed_time_slot_id: number | null;
   suggested_room_id: number | null;
   eligible_teachers: EligibleTeacher[];
-  // Task 94 (backend, additive): the requirement's room type; the room
-  // place-lesson uses when no room_id is sent; and, with a room type,
-  // whether an active room of exactly that type exists (null without one).
-  room_type?: string | null;
+  // Task 98: the requirement's special room (null: 原班教室); Task 94: the
+  // room place-lesson uses when no room_id is sent.
+  required_room_id?: number | null;
   default_room_id?: number | null;
-  has_matching_room?: boolean | null;
 }
 
 // GET /schedule-versions/{id}/unscheduled-lessons -- ordered by class,
@@ -317,6 +330,14 @@ export interface PlaceLessonResult {
 
 // "lesson": the row and the rest of its lesson block (連堂) in the version;
 // "requirement": every row of its requirement in the version.
+// 移出課表: POST /schedule-versions/{id}/unschedule-lesson. The answer is a
+// ScheduleAdjustmentResult whose changes are the deleted rows (new time
+// slot and room null).
+export interface UnscheduleLessonRequest {
+  schedule_id: number;
+  dry_run?: boolean;
+}
+
 export type RoomChangeScope = "lesson" | "requirement";
 
 // Body of POST /schedule-versions/{id}/change-room. room_id null clears
@@ -346,4 +367,20 @@ export interface ChangeRoomResult {
   scope: RoomChangeScope;
   changes: RoomChangeDetail[];
   check: ScheduleCheckResult;
+}
+
+// GET /schedule-versions/{id}/preflight (排課前檢查, read only): what would
+// stop 自動排課 before its search. lesson_id is null for a lesson not
+// generated yet. INACTIVE_CLASS_IN_RECORD: a 停用 class still in the
+// record's requirements.
+export interface PreflightLessonFailure {
+  lesson_id: number | null;
+  class_subject_requirement_id: number;
+  reasons: ConstraintViolationDetail[];
+}
+
+export interface PreflightResult {
+  can_schedule: boolean;
+  violations: ConstraintViolationDetail[];
+  lesson_failures: PreflightLessonFailure[];
 }

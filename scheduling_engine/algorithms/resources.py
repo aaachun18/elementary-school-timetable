@@ -6,7 +6,7 @@ candidate-generation helpers that turn a pending Lesson into the set of
 Factored out here -- rather than duplicated in greedy.py and
 backtracking.py, or having one module import internals from the other --
 because both algorithms need EXACTLY the same logic for this part: MRV
-candidate-counting and the H5/H6/H9 candidate-narrowing rules don't change
+candidate-counting and the H6/H9/H13 candidate-narrowing rules don't change
 between them. What differs is only how the search itself proceeds once
 candidates exist (Greedy: commit to the first valid one and never look
 back; Backtracking: same, but retract and try the next one if a later
@@ -22,34 +22,42 @@ from scheduling_engine.constraints.base import (
     Severity,
 )
 from scheduling_engine.constraints.class_conflict import ClassConflictConstraint
+from scheduling_engine.constraints.class_time_slot import ClassTimeSlotConstraint
 from scheduling_engine.constraints.non_teaching_period import (
     NonTeachingPeriodConstraint,
 )
+from scheduling_engine.constraints.required_room import RequiredRoomConstraint
 from scheduling_engine.constraints.required_teacher import RequiredTeacherConstraint
+from scheduling_engine.constraints.requirement_teacher import (
+    RequirementSingleTeacherConstraint,
+)
 from scheduling_engine.constraints.room_conflict import RoomConflictConstraint
-from scheduling_engine.constraints.room_type import RoomTypeConstraint
 from scheduling_engine.constraints.teacher_availability import (
     TeacherAvailabilityConstraint,
 )
 from scheduling_engine.constraints.teacher_conflict import TeacherConflictConstraint
-from scheduling_engine.constraints.teacher_qualification import (
-    TeacherQualificationConstraint,
+from scheduling_engine.constraints.teacher_participation import (
+    TeacherParticipationConstraint,
 )
 from scheduling_engine.constraints.teacher_workload import TeacherWorkloadConstraint
+from scheduling_engine.constraints.combined_lesson import CombinedLessonConstraint
 from scheduling_engine.models.domain import (
     ActiveStatusInfo,
+    ClassAllowedTimeSlots,
+    CombinedLesson,
     DefaultRoom,
+    HomeroomTeacher,
     LessonAssignment,
     LessonBlock,
+    RequiredRoomRule,
     RequiredTeacherRule,
     RequirementPeriods,
-    RoomInfo,
-    RoomTypeRequirement,
-    TeacherQualification,
+    RoomCapacity,
     TeacherUnavailability,
     TeacherWorkloadLimit,
     TimeSlotInfo,
     TimeSlotPosition,
+    joint_keys,
 )
 
 
@@ -63,11 +71,17 @@ class SchedulingResources:
     """
 
     time_slot_ids: list[int]
-    teacher_qualifications: list[TeacherQualification]
+    # Task 98 (replaces the H5 teacher qualifications): the teachers taking
+    # part in this semester's scheduling, in the order they are tried. Any
+    # of them may teach any lesson -- there is no qualification any more --
+    # unless the requirement names a required teacher (H6).
+    teacher_ids: list[int]
     teacher_unavailability: list[TeacherUnavailability]
     required_teacher_rules: list[RequiredTeacherRule]
-    room_type_requirements: list[RoomTypeRequirement]
-    rooms: list[RoomInfo]
+    # Task 98 (replaces the H9 room types): requirement -> its one special
+    # room. Its lessons are given this room (it wins over default_rooms),
+    # and H9 checks every placement against it.
+    required_room_rules: list[RequiredRoomRule]
     time_slots: list[TimeSlotInfo]
     active_statuses: list[ActiveStatusInfo]
     requirement_periods: list[RequirementPeriods]
@@ -77,9 +91,19 @@ class SchedulingResources:
     # for blocks (consecutive periods of one day).
     lesson_blocks: list[LessonBlock] = field(default_factory=list)
     time_slot_positions: list[TimeSlotPosition] = field(default_factory=list)
-    # Task 92B: optional -- empty means no homeroom anywhere, and every
-    # lesson of no room type gets room None exactly as before.
+    # Task 92B: optional -- the homeroom of each requirement held in its
+    # class's own room (原班上課). Empty means no homeroom anywhere: a
+    # lesson with no required room then gets room None.
     default_rooms: list[DefaultRoom] = field(default_factory=list)
+    # Task 98 (H13): optional -- empty means no class is restricted.
+    class_allowed_time_slots: list[ClassAllowedTimeSlots] = field(default_factory=list)
+    # 共同排課: optional -- every 合併節 (lessons of several classes taught
+    # together). Empty means none, and nothing behaves differently.
+    combined_lessons: list[CombinedLesson] = field(default_factory=list)
+    # H3: how many classes each room holds at once (no entry = 1).
+    room_capacities: list[RoomCapacity] = field(default_factory=list)
+    # 導師: optional -- empty means no 導師 rule at all (algorithms/homeroom.py).
+    homeroom_teachers: list[HomeroomTeacher] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -89,11 +113,27 @@ class LookupTables:
     computation, not a performance micro-optimization worth debating)."""
 
     required_teacher_by_requirement: dict[int, int]
-    qualified_teachers_by_subject: dict[int, list[int]]
-    required_room_type_by_requirement: dict[int, str]
-    room_ids_by_type: dict[str, list[int]]
-    # Task 92B: requirement -> the homeroom its lessons are held in.
+    teacher_ids: list[int]
+    # Task 92B / 98: requirement -> the one room its lessons are held in
+    # (its required room, else the class's homeroom).
     default_room_by_requirement: dict[int, int] = field(default_factory=dict)
+    # Task 98 (H13): class -> the time slots it may use (absent = any).
+    allowed_slots_by_class: dict[int, frozenset[int]] = field(default_factory=dict)
+    # 共同排課: lesson -> the room of its combined lesson (lessons of no
+    # combined lesson are absent; a combined lesson in a class's own room
+    # maps to None).
+    combined_room_by_lesson: dict[int, int | None] = field(default_factory=dict)
+
+
+def room_by_requirement(resources: SchedulingResources) -> dict[int, int]:
+    """Task 98: the one room each requirement's lessons are held in -- its
+    required room (RequiredRoomRule) where it has one, else its homeroom
+    (DefaultRoom). A requirement with neither is absent (room None)."""
+    rooms = {item.class_subject_requirement_id: item.room_id for item in resources.default_rooms}
+    rooms.update(
+        {rule.class_subject_requirement_id: rule.room_id for rule in resources.required_room_rules}
+    )
+    return rooms
 
 
 def build_lookup_tables(resources: SchedulingResources) -> LookupTables:
@@ -102,28 +142,18 @@ def build_lookup_tables(resources: SchedulingResources) -> LookupTables:
         for rule in resources.required_teacher_rules
     }
 
-    qualified_teachers_by_subject: dict[int, list[int]] = {}
-    for qualification in resources.teacher_qualifications:
-        qualified_teachers_by_subject.setdefault(qualification.subject_id, []).append(
-            qualification.teacher_id
-        )
-
-    required_room_type_by_requirement = {
-        requirement.class_subject_requirement_id: requirement.required_room_type
-        for requirement in resources.room_type_requirements
-    }
-
-    room_ids_by_type: dict[str, list[int]] = {}
-    for room in resources.rooms:
-        room_ids_by_type.setdefault(room.room_type, []).append(room.room_id)
-
     return LookupTables(
         required_teacher_by_requirement=required_teacher_by_requirement,
-        qualified_teachers_by_subject=qualified_teachers_by_subject,
-        required_room_type_by_requirement=required_room_type_by_requirement,
-        room_ids_by_type=room_ids_by_type,
-        default_room_by_requirement={
-            item.class_subject_requirement_id: item.room_id for item in resources.default_rooms
+        teacher_ids=list(resources.teacher_ids),
+        default_room_by_requirement=room_by_requirement(resources),
+        allowed_slots_by_class={
+            item.class_id: item.time_slot_ids for item in resources.class_allowed_time_slots
+        },
+        combined_room_by_lesson={
+            lesson_id: combined.room_id
+            for combined in resources.combined_lessons
+            for lesson_ids in combined.member_lesson_ids
+            for lesson_id in lesson_ids
         },
     )
 
@@ -131,38 +161,34 @@ def build_lookup_tables(resources: SchedulingResources) -> LookupTables:
 def candidate_teacher_ids(
     lesson: LessonAssignment, tables: LookupTables
 ) -> list[int]:
-    """H5 (qualification) + H6 (required teacher) combined into the MRV
-    candidate count: if a required teacher is pinned for this Lesson's
-    requirement, that teacher is the only candidate (count = 1) -- PROVIDED
-    they also hold the H5 qualification for this Lesson's subject.
-    Otherwise every teacher qualified for the subject is a candidate.
-
-    Task 22: a required teacher who lacks the qualification is not a
-    candidate at all (empty list), not a doomed one. H5 is always enforced
-    in real time regardless of H6 (see build_real_time_constraints), so a
-    required-but-unqualified teacher can never actually be placed -- that
-    is a certain, per-Lesson fact, not something that depends on the rest
-    of the search. Returning it here as a "candidate" anyway used to let
-    such a Lesson slip past the zero-candidate checks that both algorithms
-    already rely on (the pre-flight check in backtracking.py, and the
-    `if not candidate_teachers` branch in greedy.py's
-    _explain_no_valid_candidate), so it could only fail deep inside the
-    search where neither algorithm can attribute the failure back to this
-    specific Lesson. Filtering it out here instead makes this case
-    indistinguishable, everywhere downstream, from "no qualified teacher at
-    all" -- the already-correctly-explained case.
-    """
+    """H6 (required teacher) as the MRV candidate count. Task 98: there is
+    no teaching qualification any more -- every teacher taking part in the
+    semester's scheduling (resources.teacher_ids) may teach any lesson. A
+    required teacher is then the only candidate, PROVIDED they take part in
+    the semester; a required teacher who doesn't is no candidate at all
+    (empty list): that is a certain, per-Lesson fact, so the zero-candidate
+    checks in both algorithms and in static_feasibility.py report it up
+    front instead of letting the Lesson fail deep inside the search (the
+    Task 22 reasoning, unchanged)."""
     required_teacher_id = tables.required_teacher_by_requirement.get(
         lesson.class_subject_requirement_id
     )
     if required_teacher_id is not None:
-        qualified_teachers = tables.qualified_teachers_by_subject.get(
-            lesson.subject_id, []
-        )
-        if required_teacher_id not in qualified_teachers:
+        if required_teacher_id not in tables.teacher_ids:
             return []
         return [required_teacher_id]
-    return list(tables.qualified_teachers_by_subject.get(lesson.subject_id, []))
+    return list(tables.teacher_ids)
+
+
+def allowed_time_slots_of_class(
+    class_id: int, resources: SchedulingResources
+) -> frozenset[int] | None:
+    """H13 (Task 98): the time slots this class may use, or None when it is
+    not restricted."""
+    for item in resources.class_allowed_time_slots:
+        if item.class_id == class_id:
+            return item.time_slot_ids
+    return None
 
 
 def candidate_time_slot_ids(
@@ -183,7 +209,11 @@ def candidate_time_slot_ids(
     """
     if lesson.time_slot_id is not None:
         return [lesson.time_slot_id]
-    return list(resources.time_slot_ids)
+    # Task 98 (H13): only the slots the class's grade is open for.
+    allowed = allowed_time_slots_of_class(lesson.class_id, resources)
+    if allowed is None:
+        return list(resources.time_slot_ids)
+    return [slot_id for slot_id in resources.time_slot_ids if slot_id in allowed]
 
 
 def lessons_moved_off_fixed_slot(
@@ -211,25 +241,27 @@ def lessons_moved_off_fixed_slot(
 def candidate_room_ids(
     lesson: LessonAssignment, tables: LookupTables
 ) -> list[int | None]:
-    """H9: if this Lesson's requirement needs a specific room type, only
-    rooms of that type are candidates. Otherwise ("原班上課" -- no
-    room-type restriction) the only candidate tried is the class's
-    homeroom (Task 92B, resources.default_rooms), or room_id=None when the
-    class has none. Either way one candidate: the homeroom is fixed, not a
-    search variable -- H3 then keeps two classes sharing it apart."""
-    required_room_type = tables.required_room_type_by_requirement.get(
-        lesson.class_subject_requirement_id
-    )
-    if required_room_type is None:
-        return [tables.default_room_by_requirement.get(lesson.class_subject_requirement_id)]
-    return list(tables.room_ids_by_type.get(required_room_type, []))
+    """H9: the one room this Lesson's requirement is held in -- its required
+    room (Task 98), else the class's homeroom (Task 92B), else room_id=None
+    when the class has none. Always one candidate: the room is fixed, not a
+    search variable -- H3 then keeps two lessons sharing it apart.
+    共同排課: a lesson of a combined lesson is held in that one's room."""
+    return [room_of_lesson(lesson, tables)]
+
+
+def room_of_lesson(lesson: LessonAssignment, tables: LookupTables) -> int | None:
+    """The one room `lesson` is held in -- see candidate_room_ids()."""
+    if lesson.lesson_id in tables.combined_room_by_lesson:
+        return tables.combined_room_by_lesson[lesson.lesson_id]
+    return tables.default_room_by_requirement.get(lesson.class_subject_requirement_id)
 
 
 def build_real_time_constraints(
     resources: SchedulingResources, *, include_teacher_workload: bool = False
 ) -> list[BaseConstraint]:
-    """H1-H6, H9, H11, H12 -- the constraints checked against every
-    candidate before it's committed.
+    """H1-H6, H9, H11-H15 -- the constraints checked against every
+    candidate before it's committed (Task 98: H5 is now teacher
+    participation, not qualification).
 
     H8 (`TeacherWorkloadConstraint`) is opt-in via `include_teacher_workload`
     rather than always included: Task 19's Greedy deliberately leaves it out
@@ -242,20 +274,26 @@ def build_real_time_constraints(
     (see weekly_periods.py's docstring) and is always a separate,
     whole-batch, post-hoc step in both algorithms.
     """
+    keys = joint_keys(resources.combined_lessons)
     constraints: list[BaseConstraint] = [
-        TeacherConflictConstraint(),
+        TeacherConflictConstraint(keys),
         ClassConflictConstraint(),
-        RoomConflictConstraint(),
+        RoomConflictConstraint(resources.room_capacities, keys),
         TeacherAvailabilityConstraint(resources.teacher_unavailability),
-        TeacherQualificationConstraint(resources.teacher_qualifications),
+        TeacherParticipationConstraint(resources.teacher_ids),
         RequiredTeacherConstraint(resources.required_teacher_rules),
-        RoomTypeConstraint(resources.room_type_requirements, resources.rooms),
+        # H15: one teacher for all lessons of a requirement.
+        RequirementSingleTeacherConstraint(),
+        RequiredRoomConstraint(resources.required_room_rules, frozenset(keys)),
         NonTeachingPeriodConstraint(resources.time_slots),
         ActiveStatusConstraint(resources.active_statuses),
+        ClassTimeSlotConstraint(resources.class_allowed_time_slots),
     ]
+    if resources.combined_lessons:
+        constraints.append(CombinedLessonConstraint(resources.combined_lessons))
     if include_teacher_workload:
         constraints.append(
-            TeacherWorkloadConstraint(resources.teacher_workload_limits)
+            TeacherWorkloadConstraint(resources.teacher_workload_limits, keys)
         )
     return constraints
 
@@ -276,21 +314,18 @@ def no_candidate_teacher_violation(
     teachers at all -- there's nothing to run explain_violations() against,
     since no candidate could even be constructed.
 
-    Two distinct root causes share this "zero candidates" shape, so this
-    distinguishes them (Task 22) rather than reporting one generic message
-    for both:
-    - a required-teacher rule (H6) names a teacher who lacks the H5
-      qualification for this subject -- the teacher exists, but can never
-      be assigned here;
-    - no rule pins a teacher at all, and no teacher holds the H5
-      qualification for this subject in the first place.
+    Task 98: two root causes share this "zero candidates" shape, so this
+    distinguishes them (the Task 22 split, with qualifications gone):
+    - a required-teacher rule (H6) names a teacher who doesn't take part in
+      the semester's scheduling;
+    - no rule pins a teacher, and no teacher takes part at all.
     """
     required_teacher_id = tables.required_teacher_by_requirement.get(
         lesson.class_subject_requirement_id
     )
     if required_teacher_id is not None:
         return ConstraintViolation(
-            type="H6_REQUIRED_TEACHER_NOT_QUALIFIED",
+            type="H6_REQUIRED_TEACHER_NOT_PARTICIPATING",
             severity=Severity.ERROR,
             lesson_id=lesson.lesson_id,
             teacher_id=required_teacher_id,
@@ -301,15 +336,13 @@ def no_candidate_teacher_violation(
             class_subject_requirement_id=lesson.class_subject_requirement_id,
             message=(
                 f"Lesson {lesson.lesson_id} requires teacher "
-                f"{required_teacher_id}, but that teacher does not hold a "
-                f"TeacherSubject qualification for subject "
-                f"{lesson.subject_id}."
+                f"{required_teacher_id}, but that teacher does not take part "
+                "in this semester's scheduling."
             ),
             suggested_action=(
-                f"Add a TeacherSubject qualification linking teacher "
-                f"{required_teacher_id} to subject {lesson.subject_id}, or "
-                "change/remove the required-teacher rule on this "
-                "requirement."
+                f"Add teacher {required_teacher_id} to this semester's "
+                "teachers, or change/remove the required-teacher rule on "
+                "this requirement."
             ),
         )
     return ConstraintViolation(
@@ -323,8 +356,8 @@ def no_candidate_teacher_violation(
         room_id=None,
         class_subject_requirement_id=lesson.class_subject_requirement_id,
         message=(
-            f"No teacher is qualified/assignable for lesson "
-            f"{lesson.lesson_id} (subject {lesson.subject_id})."
+            f"No teacher takes part in this semester's scheduling, so lesson "
+            f"{lesson.lesson_id} (subject {lesson.subject_id}) has no teacher."
         ),
-        suggested_action=("Add a TeacherSubject qualification for this subject."),
+        suggested_action="Add teachers to this semester's scheduling.",
     )

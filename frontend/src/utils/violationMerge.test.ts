@@ -31,7 +31,7 @@ function violation(fields: Partial<ConstraintViolationDetail>): ConstraintViolat
 
 // Task 78: the demo data's period layout -- raw period 0 早自習, 1-4
 // teaching, 5 午餐/午休, 6-8 teaching, 9 放學 (Monday only) -- so labels
-// use the teaching-period numbering (raw period 8 is "第 7 節").
+// use the period's own number (period 8 is "第 8 節").
 const NON_TEACHING_LABELS: Record<number, string> = { 0: "早自習", 5: "午餐/午休", 9: "放學" };
 
 function slotId(weekday: number, period: number): number {
@@ -85,7 +85,7 @@ const lookups: NameLookups = {
   roomById: new Map(),
   timeSlotById: new Map(demoTimeSlots().map((slot) => [slot.id, slot])),
   requirementById: new Map(),
-  // 901班A 國語 (lesson 50) is pinned to Friday raw period 8 (第 7 節).
+  // 901班A 國語 (lesson 50) is pinned to Friday period 8 (第 8 節).
   lessonById: new Map([[50, { id: 50, fixed_time_slot_id: FRIDAY_8 }]] as never),
 };
 
@@ -185,11 +185,11 @@ describe("violationIdentityKey", () => {
   );
 
   it.each([
-    "H5_TEACHER_QUALIFICATION",
+    "H5_TEACHER_NOT_PARTICIPATING",
     "H6_REQUIRED_TEACHER",
     "H7_WEEKLY_PERIODS",
     "H8_TEACHER_MAX_WORKLOAD",
-    "H9_ROOM_TYPE",
+    "H9_REQUIRED_ROOM",
     "H12_ACTIVE_STATUS",
   ])("%s ignores the time slot", (type) => {
     expect(keyAt(type, MONDAY_1)).toBe(keyAt(type, WEDNESDAY_1));

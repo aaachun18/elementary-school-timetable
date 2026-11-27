@@ -24,10 +24,10 @@ class LessonAssignment:
 
     class_subject_requirement_id/class_id/subject_id come from the Lesson's
     ClassSubjectRequirement (not columns on Schedule itself), but
-    constraints need them directly -- H2 checks class_id, H5 checks
-    subject_id, H6/H9 (Task 18) look up rules keyed by
-    class_subject_requirement_id -- without walking relationships, so
-    they're included here rather than left for a join.
+    constraints need them directly -- H2 and H13 check class_id, H6/H9
+    (Task 18) look up rules keyed by class_subject_requirement_id --
+    without walking relationships, so they're included here rather than
+    left for a join.
 
     teacher_id/time_slot_id/room_id are Optional because a Schedule row can
     exist before every part of the assignment is filled in (see
@@ -48,21 +48,12 @@ class LessonAssignment:
 @dataclass(frozen=True)
 class TeacherUnavailability:
     """One (teacher_id, time_slot_id) pair the teacher is NOT available
-    for. Mirrors the DB's TeacherAvailability table one row at a time:
-    existence = unavailable, no row = available (the "精簡設計" decision
-    from Task 4 -- there is no is_available column to read instead)."""
+    for. Task 98: mirrors the DB's SemesterTeacherUnavailability table (the
+    semester being scheduled) one row at a time: existence = unavailable,
+    no row = available."""
 
     teacher_id: int
     time_slot_id: int
-
-
-@dataclass(frozen=True)
-class TeacherQualification:
-    """One (teacher_id, subject_id) pair the teacher IS qualified to
-    teach. Mirrors the DB's TeacherSubject table one row at a time."""
-
-    teacher_id: int
-    subject_id: int
 
 
 @dataclass(frozen=True)
@@ -78,34 +69,38 @@ class RequiredTeacherRule:
 
 
 @dataclass(frozen=True)
-class RoomTypeRequirement:
-    """H9 (half 1): this requirement's lessons must be held in a room of
-    this type. Sparse list for the same reason as RequiredTeacherRule --
-    no entry means "no room-type restriction" (原班上課)."""
+class RequiredRoomRule:
+    """H9 Required Room (Task 98, replaces the room-type rule): this
+    requirement's lessons must be held in exactly this room -- the special
+    room ClassSubjectRequirement.required_room_id names. Sparse: no entry
+    means no special room (原班上課)."""
 
     class_subject_requirement_id: int
-    required_room_type: str
+    room_id: int
 
 
 @dataclass(frozen=True)
 class DefaultRoom:
     """Task 92B: this requirement's lessons are held in this room -- the
-    class's homeroom, for a requirement with no room type (原班上課). Not
-    searched: it is the only room candidate (candidate_room_ids()), so a
-    whole lesson block and a fixed lesson get it too. Sparse: no entry
-    means "no room" (room_id None), exactly as before."""
+    class's homeroom (原班上課). Not searched: it is the only room candidate
+    (candidate_room_ids()), so a whole lesson block and a fixed lesson get
+    it too. Task 98: a RequiredRoomRule for the same requirement wins over
+    it. Sparse: no entry (and no required room) means "no room" (room_id
+    None)."""
 
     class_subject_requirement_id: int
     room_id: int
 
 
 @dataclass(frozen=True)
-class RoomInfo:
-    """H9 (half 2): what type of room an actual Room is -- the other side
-    of the comparison RoomTypeConstraint makes. Mirrors Room.room_type."""
+class ClassAllowedTimeSlots:
+    """H13 Grade Time Slots (Task 98): the only time slots this class may
+    be scheduled in -- the slots its grade is open for in the semester
+    (SemesterGradeTimeSlot). Sparse: a class with no entry is not
+    restricted at all."""
 
-    room_id: int
-    room_type: str
+    class_id: int
+    time_slot_ids: frozenset[int]
 
 
 @dataclass(frozen=True)
@@ -155,7 +150,7 @@ class ActiveStatusInfo:
     structurally-duplicate dataclasses that would all need the exact same
     constraint-side handling anyway.
 
-    Unlike TeacherUnavailability/RequiredTeacherRule/RoomTypeRequirement
+    Unlike TeacherUnavailability/RequiredTeacherRule/RequiredRoomRule
     (genuine sparse/exception lists -- existence itself carries meaning),
     is_active is a plain boolean column that already exists directly on
     each entity's own table, so this carries the real True/False value
@@ -184,17 +179,82 @@ class RequirementPeriods:
 @dataclass(frozen=True)
 class TeacherWorkloadLimit:
     """H8: the maximum weekly periods one teacher may be scheduled for.
-    Mirrors Teacher.max_weekly_periods."""
+    Task 98: mirrors SemesterTeacher.max_weekly_periods."""
 
     teacher_id: int
     max_weekly_periods: int
 
 
 @dataclass(frozen=True)
+class HomeroomTeacher:
+    """導師: this teacher is the homeroom teacher of this class in the
+    record being scheduled (SemesterTeacher.homeroom_class_id). Sparse: a
+    teacher with no entry is no class's 導師.
+
+    The search keeps a 導師 off other classes' lessons that name no
+    required teacher whenever a timetable allows it, and otherwise gives
+    them as few such periods as it can (algorithms/homeroom.py)."""
+
+    teacher_id: int
+    class_id: int
+
+
+@dataclass(frozen=True)
 class TeacherMinimumWorkload:
-    """Task 88: the minimum weekly periods one teacher should teach. Mirrors
-    Teacher.min_weekly_periods; None means no minimum. Only the schedule
+    """Task 88: the minimum weekly periods one teacher should teach. Task
+    98: mirrors SemesterTeacher.min_weekly_periods; None means no minimum. Only the schedule
     check reads it (as a WARNING) -- it never limits the search."""
 
     teacher_id: int
     min_weekly_periods: int | None
+
+
+@dataclass(frozen=True)
+class CombinedLesson:
+    """共同排課: one 合併節 -- the lessons of several classes taught together.
+    member_lesson_ids has one tuple per member requirement (the class that
+    started the merge first), each the member's lessons of this 合併節 in
+    period order: one lesson, or a whole block (連堂). Lesson i of every
+    member goes to the same time slot, all of them in room_id (None = a
+    class's own room, not a school room).
+
+    teacher_ids: the members' required teachers, in member order without
+    repeats -- they teach the 合併節 together (each member's lessons keep
+    their own required teacher; a member without one gets the first of
+    them). Empty: the scheduler picks one teacher for every member.
+
+    Whoever shares a 合併節 is not in conflict with each other: one teacher
+    on two members' lessons at that slot is one lesson, and the room is used
+    once (constraints read joint_keys())."""
+
+    key: str
+    member_lesson_ids: tuple[tuple[int, ...], ...]
+    room_id: int | None
+    teacher_ids: tuple[int, ...]
+
+
+def joint_keys(combined_lessons: "list[CombinedLesson]") -> dict[int, str]:
+    """lesson_id -> the key it shares with the other members' lessons that
+    must sit in the same time slot ("<合併節 key>:<position>"). A lesson in
+    no combined lesson is absent."""
+    keys: dict[int, str] = {}
+    for combined in combined_lessons:
+        for lesson_ids in combined.member_lesson_ids:
+            for index, lesson_id in enumerate(lesson_ids):
+                keys[lesson_id] = f"{combined.key}:{index}"
+    return keys
+
+
+def occupancy_key(assignment: LessonAssignment, keys: dict[int, str]) -> str:
+    """What one lesson occupies: its 合併節 position, shared with the other
+    members' lessons there, or the lesson itself."""
+    return keys.get(assignment.lesson_id, f"lesson:{assignment.lesson_id}")
+
+
+@dataclass(frozen=True)
+class RoomCapacity:
+    """H3: how many classes may use the room at the same time (a combined
+    lesson counts once). Sparse: a room with no entry holds one."""
+
+    room_id: int
+    max_classes: int

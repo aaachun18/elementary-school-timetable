@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models.lesson import Lesson
 from app.services.lesson_pattern import (
+    BLOCK_COUNT_MESSAGE,
     BLOCK_SIZE_MESSAGE,
     FORMAT_MESSAGE,
     TOTAL_MESSAGE,
@@ -18,13 +19,11 @@ from app.services.lesson_pattern import (
     normalize_lesson_pattern,
 )
 from tests.test_requirement_edit_lock import _build_world, _set_status
+from tests.api_helpers import create_enrolled_teacher
 from tests.test_scheduler import (
-    _add_teacher_subject,
     _create_class,
-    _create_schedule_version,
-    _create_semester,
+    _create_record,
     _create_subject,
-    _create_teacher,
     _create_time_slot,
 )
 
@@ -33,7 +32,9 @@ from tests.test_scheduler import (
 # and run-scheduler end to end.
 
 URL = "/api/v1/class-subject-requirements"
-LOCKED_MESSAGE = "此排課需求已被已發布或已封存的課表使用，無法修改"
+LOCKED_MESSAGE = (
+    "只有「尚未排課」的排課紀錄可以修改排課設定，請先在排課紀錄「複製此次排課設定」再修改"
+)
 
 
 # --- Pure helpers ---
@@ -57,6 +58,14 @@ def test_normalize_rejects_bad_format(bad: str) -> None:
 def test_normalize_rejects_blocks_outside_1_to_3(bad: str) -> None:
     with pytest.raises(ValueError, match=re.escape(BLOCK_SIZE_MESSAGE)):
         normalize_lesson_pattern(bad)
+
+
+def test_normalize_allows_at_most_five_blocks() -> None:
+    """A week has 5 school days and every block goes on its own day."""
+    assert normalize_lesson_pattern("2+1+1+1+1") == "2+1+1+1+1"
+    assert normalize_lesson_pattern("1+1+1+1+1") == "1+1+1+1+1"
+    with pytest.raises(ValueError, match=re.escape(BLOCK_COUNT_MESSAGE)):
+        normalize_lesson_pattern("1+1+1+1+1+1")
 
 
 def test_check_pattern_total() -> None:
@@ -99,24 +108,23 @@ def test_assign_block_fields_follows_sequence_number_and_reports_changes() -> No
 
 @dataclass
 class Setup:
-    semester_id: int
+    record_id: int
     class_id: int
     subject_id: int
     teacher_id: int
 
 
 def _setup(client: TestClient, year: int) -> Setup:
-    semester_id = _create_semester(client, year)
+    record_id = _create_record(client, year)
     class_id = _create_class(client, level=year)
     subject_id = _create_subject(client, name=f"Subject {year}")
-    teacher_id = _create_teacher(client, name=f"Teacher {year}")
-    _add_teacher_subject(client, teacher_id, subject_id)
-    return Setup(semester_id, class_id, subject_id, teacher_id)
+    teacher_id = create_enrolled_teacher(client, record_id, f"Teacher {year}")
+    return Setup(record_id, class_id, subject_id, teacher_id)
 
 
 def _create(client: TestClient, setup: Setup, weekly_periods: int, pattern: str | None) -> Any:
     body: dict[str, Any] = {
-        "semester_id": setup.semester_id,
+        "schedule_version_id": setup.record_id,
         "class_id": setup.class_id,
         "subject_id": setup.subject_id,
         "weekly_periods": weekly_periods,
@@ -190,30 +198,30 @@ def test_update_keeps_weekly_periods_and_pattern_consistent(client: TestClient) 
     assert cleared.json()["lesson_pattern"] is None
 
 
-def test_pattern_is_a_locked_field(client: TestClient, db_session: Session) -> None:
-    world = _build_world(db_session)  # 2 lessons placed in a version
-    _set_status(db_session, world.version, "PUBLISHED")
+def test_pattern_is_locked_once_the_record_is_scheduled(
+    client: TestClient, db_session: Session
+) -> None:
+    world = _build_world(db_session)  # 2 lessons placed in a record
+    _set_status(db_session, world.version, "AUTO")
 
     changed = client.patch(f"{URL}/{world.requirement.id}", json={"lesson_pattern": "2"})
-    same = client.patch(f"{URL}/{world.requirement.id}", json={"lesson_pattern": None})
 
     assert changed.status_code == 409
     assert changed.json()["detail"] == LOCKED_MESSAGE
-    assert same.status_code == 200  # sending the current value is not a change
 
 
 # --- generate-lessons and Lesson fields ---
 
 
 def _lessons(client: TestClient, setup: Setup) -> list[tuple[int, int | None, int | None]]:
-    rows = client.get("/api/v1/lessons/", params={"semester_id": setup.semester_id}).json()
+    rows = client.get("/api/v1/lessons/", params={"schedule_version_id": setup.record_id}).json()
     return sorted((row["sequence_number"], row["block_no"], row["block_seq"]) for row in rows)
 
 
 def test_generate_lessons_fills_block_fields_from_the_pattern(client: TestClient) -> None:
     setup = _setup(client, 8705)
     _create(client, setup, 5, "2+2+1")
-    version_id = _create_schedule_version(client, setup.semester_id)
+    version_id = setup.record_id
 
     response = client.post(f"/api/v1/schedule-versions/{version_id}/generate-lessons")
 
@@ -224,7 +232,7 @@ def test_generate_lessons_fills_block_fields_from_the_pattern(client: TestClient
 def test_generate_lessons_without_pattern_leaves_block_fields_empty(client: TestClient) -> None:
     setup = _setup(client, 8706)
     _create(client, setup, 3, None)
-    version_id = _create_schedule_version(client, setup.semester_id)
+    version_id = setup.record_id
 
     client.post(f"/api/v1/schedule-versions/{version_id}/generate-lessons")
 
@@ -234,7 +242,7 @@ def test_generate_lessons_without_pattern_leaves_block_fields_empty(client: Test
 def test_changing_the_pattern_regroups_existing_lessons(client: TestClient) -> None:
     setup = _setup(client, 8707)
     requirement_id = _create(client, setup, 5, "2+2+1").json()["id"]
-    version_id = _create_schedule_version(client, setup.semester_id)
+    version_id = setup.record_id
     client.post(f"/api/v1/schedule-versions/{version_id}/generate-lessons")
 
     client.patch(f"{URL}/{requirement_id}", json={"lesson_pattern": "3+2"})
@@ -250,7 +258,7 @@ def test_generate_lessons_brings_stale_block_fields_back_in_line(
 ) -> None:
     setup = _setup(client, 8708)
     _create(client, setup, 3, "2+1")
-    version_id = _create_schedule_version(client, setup.semester_id)
+    version_id = setup.record_id
     client.post(f"/api/v1/schedule-versions/{version_id}/generate-lessons")
     for lesson in db_session.scalars(select(Lesson)).all():
         lesson.block_no = None
@@ -276,14 +284,14 @@ def test_run_scheduler_places_a_double_period_and_a_single_on_another_day(client
         for period in (1, 2, 3):
             _create_time_slot(client, weekday=weekday, period=period)
     _create(client, setup, 3, "2+1")
-    version_id = _create_schedule_version(client, setup.semester_id)
+    version_id = setup.record_id
     client.post(f"/api/v1/schedule-versions/{version_id}/generate-lessons")
 
     response = client.post(f"/api/v1/schedule-versions/{version_id}/run-scheduler")
 
     assert response.status_code == 200, response.json()
     positions = _slot_positions(client)
-    lessons = {row["id"]: row for row in client.get("/api/v1/lessons/", params={"semester_id": setup.semester_id}).json()}
+    lessons = {row["id"]: row for row in client.get("/api/v1/lessons/", params={"schedule_version_id": setup.record_id}).json()}
     rows = client.get("/api/v1/schedules/", params={"schedule_version_id": version_id}).json()
     by_block: dict[int, list[tuple[int, tuple[int, int], int]]] = {}
     for row in rows:
@@ -305,7 +313,7 @@ def test_run_scheduler_reports_a_block_too_long_before_searching(client: TestCli
         for period in (1, 2):
             _create_time_slot(client, weekday=weekday, period=period)
     requirement_id = _create(client, setup, 3, "3").json()["id"]
-    version_id = _create_schedule_version(client, setup.semester_id)
+    version_id = setup.record_id
     client.post(f"/api/v1/schedule-versions/{version_id}/generate-lessons")
 
     response = client.post(f"/api/v1/schedule-versions/{version_id}/run-scheduler")

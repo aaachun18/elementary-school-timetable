@@ -10,90 +10,78 @@ from app.models.class_subject_requirement import ClassSubjectRequirement
 from app.models.lesson import Lesson
 from app.models.schedule import Schedule
 from app.models.schedule_version import ScheduleVersion
+from tests.conftest import get_test_school_id, mark_status_in_db
 from tests.test_reassign_teacher import Builder
 
-# Task 72: what a TEACHER may read. Lessons and class-subject-requirements
-# are only visible for semesters that currently have a PUBLISHED version
-# (list = silent filter, single record = the usual 404); Schedule rows only
-# for PUBLISHED versions; the check endpoint is ADMIN-only. ADMIN is
-# unaffected. Test data is written straight to the database.
+# Task 72 / v3: what a TEACHER may read -- only the published record and
+# everything it owns: its lessons, class-subject requirements, Schedule
+# rows and settings (list = silent filter, single record = the usual 404);
+# the check endpoint is 教學組長-only. The 教學組長 is unaffected. Test data
+# is written straight to the database.
 
 
 @dataclass
 class ScopeWorld:
-    """Three semesters, one course each:
-    - published_semester: its version is PUBLISHED (plus a DRAFT copy of
-      the same course's rows in a second version);
-    - archived_semester: its only version is ARCHIVED;
-    - draft_semester (another academic year): its only version is DRAFT."""
+    """Four records, one course each:
+    - published: 自動排課, published;
+    - unpublished_same_semester: 手動排課 of the same semester;
+    - other_semester: 自動排課 of semester 2, not published;
+    - not_scheduled (another academic year): 尚未排課."""
 
     published_semester: Semester
-    archived_semester: Semester
-    draft_semester: Semester
-    published_version: ScheduleVersion
-    draft_version_same_semester: ScheduleVersion
-    archived_version: ScheduleVersion
-    draft_version: ScheduleVersion
+    published: ScheduleVersion
+    unpublished_same_semester: ScheduleVersion
+    other_semester: ScheduleVersion
+    not_scheduled: ScheduleVersion
     published_requirement: ClassSubjectRequirement
-    archived_requirement: ClassSubjectRequirement
-    draft_requirement: ClassSubjectRequirement
+    unpublished_requirement: ClassSubjectRequirement
+    other_semester_requirement: ClassSubjectRequirement
+    not_scheduled_requirement: ClassSubjectRequirement
 
-
-def _set_status(db: Session, version: ScheduleVersion, status: str) -> None:
-    version.status = status
-    db.commit()
+    def hidden(self) -> list[tuple[ScheduleVersion, ClassSubjectRequirement]]:
+        return [
+            (self.unpublished_same_semester, self.unpublished_requirement),
+            (self.other_semester, self.other_semester_requirement),
+            (self.not_scheduled, self.not_scheduled_requirement),
+        ]
 
 
 def _build_world(db: Session) -> ScopeWorld:
     builder = Builder(db)
-    archived_semester = builder.semester_in_year(number=2)
-    other_year = AcademicYear(year=6002, is_active=True)
+    semester_2 = builder.semester_in_year(number=2)
+    other_year = AcademicYear(school_id=get_test_school_id(db), year=6002, is_active=True)
     db.add(other_year)
     db.flush()
-    draft_semester = Semester(academic_year_id=other_year.id, number=1, is_active=True)
-    db.add(draft_semester)
+    other_year_semester = Semester(academic_year_id=other_year.id, number=1, is_active=True)
+    db.add(other_year_semester)
     db.commit()
 
     english = builder.subject("英文")
-    teacher = builder.teacher("老師", [english])
+    teacher = builder.teacher("老師")
     class_ = builder.class_("一班")
 
-    published_version = builder.version()
-    published_requirement = builder.course(published_version, class_, english, teacher, [0, 1])
-    draft_version_same_semester = builder.version(number=2)
-    for schedule in db.scalars(
-        select(Schedule).where(Schedule.schedule_version_id == published_version.id)
-    ).all():
-        db.add(
-            Schedule(
-                schedule_version_id=draft_version_same_semester.id,
-                lesson_id=schedule.lesson_id,
-                teacher_id=schedule.teacher_id,
-                time_slot_id=schedule.time_slot_id,
-                room_id=None,
-            )
-        )
-    db.commit()
-    _set_status(db, published_version, "PUBLISHED")
-
-    archived_version = builder.version(semester=archived_semester)
-    archived_requirement = builder.course(archived_version, class_, english, teacher, [2])
-    _set_status(db, archived_version, "ARCHIVED")
-
-    draft_version = builder.version(semester=draft_semester)
-    draft_requirement = builder.course(draft_version, class_, english, teacher, [3])
+    published = builder.version(status="AUTO")
+    published_requirement = builder.course(published, class_, english, teacher, [0, 1])
+    mark_status_in_db(db, published.id, "AUTO", is_published=True)
+    unpublished_same_semester = builder.version(status="MANUAL")
+    unpublished_requirement = builder.course(
+        unpublished_same_semester, class_, english, teacher, [0, 1]
+    )
+    other_semester = builder.version(semester=semester_2, status="AUTO")
+    other_semester_requirement = builder.course(other_semester, class_, english, teacher, [2])
+    not_scheduled = builder.version(semester=other_year_semester, status="NOT_SCHEDULED")
+    not_scheduled_requirement = builder.course(not_scheduled, class_, english, teacher, [3])
 
     return ScopeWorld(
         published_semester=builder.semester,
-        archived_semester=archived_semester,
-        draft_semester=draft_semester,
-        published_version=published_version,
-        draft_version_same_semester=draft_version_same_semester,
-        archived_version=archived_version,
-        draft_version=draft_version,
+        published=published,
+        unpublished_same_semester=unpublished_same_semester,
+        other_semester=other_semester,
+        not_scheduled=not_scheduled,
         published_requirement=published_requirement,
-        archived_requirement=archived_requirement,
-        draft_requirement=draft_requirement,
+        unpublished_requirement=unpublished_requirement,
+        other_semester_requirement=other_semester_requirement,
+        not_scheduled_requirement=not_scheduled_requirement,
     )
 
 
@@ -125,7 +113,7 @@ def _schedule_ids(db: Session, version: ScheduleVersion) -> list[int]:
 # --- Lessons ---
 
 
-def test_teacher_lists_only_lessons_of_semesters_with_published_version(
+def test_teacher_lists_only_lessons_of_the_published_record(
     client: TestClient, teacher_client: TestClient, db_session: Session
 ) -> None:
     world = _build_world(db_session)
@@ -136,22 +124,27 @@ def test_teacher_lists_only_lessons_of_semesters_with_published_version(
     assert teacher_ids == _lesson_ids(db_session, world.published_requirement)
     assert admin_ids == sorted(
         _lesson_ids(db_session, world.published_requirement)
-        + _lesson_ids(db_session, world.archived_requirement)
-        + _lesson_ids(db_session, world.draft_requirement)
+        + [
+            lesson_id
+            for _, requirement in world.hidden()
+            for lesson_id in _lesson_ids(db_session, requirement)
+        ]
     )
 
 
-def test_teacher_lesson_semester_filter_respects_visibility(
+def test_teacher_lesson_record_filter_respects_visibility(
     teacher_client: TestClient, db_session: Session
 ) -> None:
     world = _build_world(db_session)
 
-    def listed(semester: Semester) -> list[int]:
-        return _ids(teacher_client.get("/api/v1/lessons/", params={"semester_id": semester.id}))
+    def listed(version: ScheduleVersion) -> list[int]:
+        return _ids(
+            teacher_client.get("/api/v1/lessons/", params={"schedule_version_id": version.id})
+        )
 
-    assert listed(world.published_semester) == _lesson_ids(db_session, world.published_requirement)
-    assert listed(world.archived_semester) == []
-    assert listed(world.draft_semester) == []
+    assert listed(world.published) == _lesson_ids(db_session, world.published_requirement)
+    for version, _ in world.hidden():
+        assert listed(version) == []
 
 
 def test_teacher_lesson_pages_join_up(teacher_client: TestClient, db_session: Session) -> None:
@@ -165,26 +158,26 @@ def test_teacher_lesson_pages_join_up(teacher_client: TestClient, db_session: Se
     assert rest == []
 
 
-def test_teacher_get_lesson_hidden_semester_is_404(
+def test_teacher_get_lesson_of_a_hidden_record_is_404(
     client: TestClient, teacher_client: TestClient, db_session: Session
 ) -> None:
     world = _build_world(db_session)
     visible_id = _lesson_ids(db_session, world.published_requirement)[0]
 
     assert teacher_client.get(f"/api/v1/lessons/{visible_id}").status_code == 200
-    for requirement in (world.archived_requirement, world.draft_requirement):
+    for _, requirement in world.hidden():
         lesson_id = _lesson_ids(db_session, requirement)[0]
         response = teacher_client.get(f"/api/v1/lessons/{lesson_id}")
         assert response.status_code == 404
         assert response.json()["detail"] == "Lesson not found"
-        # ADMIN unaffected.
+        # The 教學組長 is unaffected.
         assert client.get(f"/api/v1/lessons/{lesson_id}").status_code == 200
 
 
 # --- Class-subject requirements ---
 
 
-def test_teacher_lists_only_requirements_of_semesters_with_published_version(
+def test_teacher_lists_only_requirements_of_the_published_record(
     client: TestClient, teacher_client: TestClient, db_session: Session
 ) -> None:
     world = _build_world(db_session)
@@ -192,42 +185,43 @@ def test_teacher_lists_only_requirements_of_semesters_with_published_version(
 
     assert _ids(teacher_client.get(url)) == [world.published_requirement.id]
     assert _ids(client.get(url)) == sorted(
-        [
-            world.published_requirement.id,
-            world.archived_requirement.id,
-            world.draft_requirement.id,
-        ]
+        [world.published_requirement.id] + [requirement.id for _, requirement in world.hidden()]
     )
-    assert _ids(teacher_client.get(url, params={"semester_id": world.archived_semester.id})) == []
     assert _ids(
-        teacher_client.get(url, params={"semester_id": world.published_semester.id})
+        teacher_client.get(url, params={"schedule_version_id": world.other_semester.id})
+    ) == []
+    assert _ids(
+        teacher_client.get(url, params={"schedule_version_id": world.published.id})
     ) == [world.published_requirement.id]
 
 
-def test_teacher_get_requirement_hidden_semester_is_404(
+def test_teacher_get_requirement_of_a_hidden_record_is_404(
     client: TestClient, teacher_client: TestClient, db_session: Session
 ) -> None:
     world = _build_world(db_session)
     url = "/api/v1/class-subject-requirements"
 
     assert teacher_client.get(f"{url}/{world.published_requirement.id}").status_code == 200
-    for requirement in (world.archived_requirement, world.draft_requirement):
+    for _, requirement in world.hidden():
         response = teacher_client.get(f"{url}/{requirement.id}")
         assert response.status_code == 404
         assert response.json()["detail"] == "ClassSubjectRequirement not found"
         assert client.get(f"{url}/{requirement.id}").status_code == 200
 
 
-def test_unpublishing_hides_the_semester_from_teacher(
-    teacher_client: TestClient, db_session: Session
+def test_publishing_another_record_hides_the_old_one_from_teacher(
+    client: TestClient, teacher_client: TestClient, db_session: Session
 ) -> None:
-    # The rule follows the CURRENT state: no PUBLISHED version left in the
-    # semester -> nothing of it is visible any more.
+    # The rule follows the CURRENT state: once another record of the
+    # semester is published, nothing of the old one is visible any more.
     world = _build_world(db_session)
-    _set_status(db_session, world.published_version, "ARCHIVED")
+    assert client.post(
+        f"/api/v1/schedule-versions/{world.unpublished_same_semester.id}/publish"
+    ).status_code == 200
 
-    assert _ids(teacher_client.get("/api/v1/lessons/")) == []
-    assert _ids(teacher_client.get("/api/v1/class-subject-requirements/")) == []
+    assert _ids(teacher_client.get("/api/v1/class-subject-requirements/")) == [
+        world.unpublished_requirement.id
+    ]
     assert (
         teacher_client.get(
             f"/api/v1/class-subject-requirements/{world.published_requirement.id}"
@@ -246,10 +240,8 @@ def test_teacher_sees_only_published_schedule_rows(
 
     teacher_ids = _ids(teacher_client.get("/api/v1/schedules/"))
 
-    assert teacher_ids == _schedule_ids(db_session, world.published_version)
-    # The DRAFT of the same semester stays hidden even though its lessons
-    # are visible.
-    for version in (world.draft_version_same_semester, world.archived_version, world.draft_version):
+    assert teacher_ids == _schedule_ids(db_session, world.published)
+    for version, _ in world.hidden():
         assert _ids(
             teacher_client.get("/api/v1/schedules/", params={"schedule_version_id": version.id})
         ) == []
@@ -258,17 +250,16 @@ def test_teacher_sees_only_published_schedule_rows(
         assert client.get(f"/api/v1/schedules/{hidden_id}").status_code == 200
 
 
-# --- What the frontend's 課表檢視 calls for a TEACHER ---
+# --- What the frontend's 檢視課表 calls for a TEACHER ---
 
 
 def test_teacher_timetable_view_requests_all_succeed(
     teacher_client: TestClient, db_session: Session
 ) -> None:
-    # Mirrors frontend/src/pages/TimetableView.tsx + hooks/useTimetableData.ts
-    # for a TEACHER opening the PUBLISHED version.
+    # Mirrors frontend/src/hooks/useTimetableData.ts for a TEACHER opening
+    # the published record.
     world = _build_world(db_session)
-    version_id = world.published_version.id
-    semester_id = world.published_semester.id
+    version_id = world.published.id
 
     versions = teacher_client.get("/api/v1/schedule-versions/")
     assert [v["id"] for v in versions.json()] == [version_id]
@@ -277,10 +268,11 @@ def test_teacher_timetable_view_requests_all_succeed(
         "/api/v1/schedules/", params={"schedule_version_id": version_id, "limit": 1000}
     )
     lessons = teacher_client.get(
-        "/api/v1/lessons/", params={"semester_id": semester_id, "limit": 1000}
+        "/api/v1/lessons/", params={"schedule_version_id": version_id, "limit": 1000}
     )
     requirements = teacher_client.get(
-        "/api/v1/class-subject-requirements/", params={"semester_id": semester_id, "limit": 1000}
+        "/api/v1/class-subject-requirements/",
+        params={"schedule_version_id": version_id, "limit": 1000},
     )
     assert len(_ids(schedules)) == 2
     assert len(_ids(lessons)) == 2
@@ -309,7 +301,7 @@ def test_teacher_cannot_check_any_version(
 ) -> None:
     world = _build_world(db_session)
 
-    for version in (world.published_version, world.draft_version, world.archived_version):
+    for version in (world.published, world.other_semester, world.not_scheduled):
         response = teacher_client.get(f"/api/v1/schedule-versions/{version.id}/check")
         assert response.status_code == 403
 
@@ -317,6 +309,6 @@ def test_teacher_cannot_check_any_version(
 def test_admin_can_still_check(client: TestClient, db_session: Session) -> None:
     world = _build_world(db_session)
 
-    response = client.get(f"/api/v1/schedule-versions/{world.published_version.id}/check")
+    response = client.get(f"/api/v1/schedule-versions/{world.published.id}/check")
 
     assert response.status_code == 200

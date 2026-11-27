@@ -1,38 +1,13 @@
-import { useState, type ChangeEvent, type FormEvent, type ReactElement } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState, type ChangeEvent, type FormEvent, type ReactElement } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { login } from "../api/auth";
 import { TOKEN_KEY } from "../api/client";
 import { extractApiErrorMessage } from "../constants/errorMessages";
-import { BUTTON_PRIMARY, ERROR_TEXT, INPUT, LABEL } from "../styles/ui";
+import { EyeIcon, EyeOffIcon } from "../components/icons";
+import { SYSTEM_NAME } from "../constants/systemName";
+import { LOGOUT_REASON_MESSAGES, clearLogoutReason, readLogoutReason } from "../utils/session";
+import { BUTTON_PRIMARY, ERROR_TEXT, ICON_BUTTON, INPUT, LABEL, LINK_TEXT, NOTICE, PAGE_TITLE } from "../styles/ui";
 
-// Minimal inline SVGs -- no icon library added just for two static shapes
-// (see Task 29.5's explicit "smallest sufficient dependency" instruction).
-function EyeIcon(): ReactElement {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"
-        stroke="currentColor"
-        strokeWidth="2"
-      />
-      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2" />
-    </svg>
-  );
-}
-
-function EyeOffIcon(): ReactElement {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"
-        stroke="currentColor"
-        strokeWidth="2"
-      />
-      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2" />
-      <line x1="2" y1="22" x2="22" y2="2" stroke="currentColor" strokeWidth="2" />
-    </svg>
-  );
-}
 
 export default function Login(): ReactElement {
   const [username, setUsername] = useState("");
@@ -41,6 +16,12 @@ export default function Login(): ReactElement {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
+  // Why this page opened by itself (idle logout, or the login ran out) --
+  // shown on this visit only.
+  const [logoutReason] = useState(readLogoutReason);
+  useEffect(() => {
+    clearLogoutReason();
+  }, []);
 
   // Task 29.5: clearing on every keystroke (rather than only at the next
   // submit) means the stale error disappears the moment the user starts
@@ -85,60 +66,78 @@ export default function Login(): ReactElement {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
-      <div className="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-8 shadow-sm">
-        <h1 className="mb-6 text-2xl font-semibold text-gray-900">登入</h1>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1">
-            <label htmlFor="username" className={LABEL}>
-              帳號
-            </label>
-            <input
-              id="username"
-              name="username"
-              type="text"
-              autoComplete="username"
-              value={username}
-              onChange={handleUsernameChange}
-              required
-              className={INPUT}
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label htmlFor="password" className={LABEL}>
-              密碼
-            </label>
-            <div className="flex items-center gap-2">
+    // 帳號改版: no brand panel on the left any more -- the system's name
+    // and the card sit centered on the page, a little above the middle
+    // (pb-[10vh]), on every screen width.
+    <div className="flex min-h-screen bg-gray-50">
+      <div className="flex flex-1 flex-col items-center justify-center px-4 pb-[10vh]">
+        <p className="mb-6 text-center text-3xl font-bold text-gray-900">{SYSTEM_NAME}</p>
+        <div className="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-8 shadow-sm">
+          <h1 className={`${PAGE_TITLE} text-center`}>歡迎回來</h1>
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            {logoutReason !== null && (
+              <p role="status" className={NOTICE}>
+                {LOGOUT_REASON_MESSAGES[logoutReason]}
+              </p>
+            )}
+            <div className="flex flex-col gap-1">
+              <label htmlFor="username" className={LABEL}>
+                帳號
+              </label>
               <input
-                id="password"
-                name="password"
-                type={isPasswordVisible ? "text" : "password"}
-                autoComplete="current-password"
-                value={password}
-                onChange={handlePasswordChange}
+                id="username"
+                name="username"
+                type="text"
+                autoComplete="username"
+                placeholder="Email"
+                value={username}
+                onChange={handleUsernameChange}
                 required
-                className={`${INPUT} flex-1`}
+                className={`${INPUT} min-h-9 w-full`}
               />
-              <button
-                type="button"
-                onClick={() => setIsPasswordVisible((visible) => !visible)}
-                aria-label={isPasswordVisible ? "隱藏密碼" : "顯示密碼"}
-                aria-pressed={isPasswordVisible}
-                className="shrink-0 rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
-              >
-                {isPasswordVisible ? <EyeOffIcon /> : <EyeIcon />}
-              </button>
             </div>
-          </div>
-          {errorMessage !== null && (
-            <p role="alert" className={ERROR_TEXT}>
-              {errorMessage}
-            </p>
-          )}
-          <button type="submit" disabled={isSubmitting} className={`${BUTTON_PRIMARY} mt-2`}>
-            {isSubmitting ? "登入中…" : "登入"}
-          </button>
-        </form>
+            <div className="flex flex-col gap-1">
+              <label htmlFor="password" className={LABEL}>
+                密碼
+              </label>
+              {/* Task 99: the eye sits inside the field, at its right end, so
+                  both fields are equally wide. */}
+              <div className="relative">
+                <input
+                  id="password"
+                  name="password"
+                  type={isPasswordVisible ? "text" : "password"}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={handlePasswordChange}
+                  required
+                  className={`${INPUT} min-h-9 w-full pr-10`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setIsPasswordVisible((visible) => !visible)}
+                  aria-label={isPasswordVisible ? "隱藏密碼" : "顯示密碼"}
+                  aria-pressed={isPasswordVisible}
+                  title={isPasswordVisible ? "隱藏密碼" : "顯示密碼"}
+                  className={`${ICON_BUTTON} absolute inset-y-0 right-0.5 my-auto`}
+                >
+                  {isPasswordVisible ? <EyeOffIcon /> : <EyeIcon />}
+                </button>
+              </div>
+            </div>
+            {errorMessage !== null && (
+              <p role="alert" className={ERROR_TEXT}>
+                {errorMessage}
+              </p>
+            )}
+            <button type="submit" disabled={isSubmitting} className={`${BUTTON_PRIMARY} mt-2`}>
+              {isSubmitting ? "登入中…" : "登入"}
+            </button>
+          </form>
+        </div>
+        <Link to="/" className={`${LINK_TEXT} mt-6 text-sm`}>
+          返回首頁
+        </Link>
       </div>
     </div>
   );

@@ -20,11 +20,19 @@ from app.models.lesson import Lesson
 from app.models.schedule import Schedule
 from app.models.schedule_version import ScheduleVersion
 from app.models.subject import Subject
-from app.models.teacher import Teacher, TeacherSubject
+from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
 from app.services import schedule_adjustment
 from tests.test_move_candidates import _by_slot, _candidates
 from tests.test_move_swap_lessons import _move, _ok, _swap
+from tests.conftest import (
+    enroll_in_semester,
+    get_test_school_id,
+    make_record,
+    mark_status_in_db,
+    next_free_grade_level,
+    time_slot_at,
+)
 
 URL = "/api/v1/schedule-versions"
 LUNCH = 4
@@ -32,7 +40,7 @@ LUNCH = 4
 
 @dataclass
 class World:
-    """One DRAFT version, class c1; weekdays 1-3, periods 1-3 and 5-6
+    """One working copy (EDITING), class c1; weekdays 1-3, periods 1-3 and 5-6
     teaching, 4 is lunch. As built (valid, no violations):
     - science 2+1: S1 Mon 1, S2 Mon 2 (block 1); S3 Tue 1 (block 2)
     - math 2: M1 Tue 5, M2 Tue 6 (one block of 2)
@@ -71,38 +79,39 @@ PLACEMENT = {
 
 
 def _world(db: Session, *, skip_rows: tuple[str, ...] = ()) -> World:
-    year = AcademicYear(year=8901, is_active=True)
+    year = AcademicYear(school_id=get_test_school_id(db), year=8901, is_active=True)
     db.add(year)
     db.flush()
     semester = Semester(academic_year_id=year.id, number=1, is_active=True)
-    grade = Grade(name="Grade 8901", level=8901)
+    grade = Grade(school_id=get_test_school_id(db), name="Grade 8901", level=next_free_grade_level(db))
     db.add_all([semester, grade])
     db.flush()
     slots = {
-        (weekday, period): TimeSlot(weekday=weekday, period=period, is_teaching_period=period != LUNCH)
+        (weekday, period): time_slot_at(db, weekday, period, is_teaching_period=period != LUNCH)
         for weekday in (1, 2, 3)
         for period in (1, 2, 3, 4, 5, 6)
     }
     db.add_all(slots.values())
-    subjects = {name: Subject(name=name, is_active=True) for name in ("自然", "數學", "英文", "美勞")}
-    c1 = Class(grade_id=grade.id, name="四年甲班", is_active=True)
+    subjects = {name: Subject(school_id=get_test_school_id(db), name=name, is_active=True) for name in ("自然", "數學", "英文", "美勞")}
+    c1 = Class(grade_id=grade.id, name="四年甲班")
     teachers = [
-        Teacher(name=name, is_active=True, min_weekly_periods=0, max_weekly_periods=20)
+        Teacher(school_id=get_test_school_id(db), name=name, is_active=True, min_weekly_periods=0, max_weekly_periods=20)
         for name in ("一號老師", "二號老師", "三號老師")
     ]
     t1, t2, t3 = teachers
     db.add_all([*subjects.values(), c1, *teachers])
     db.flush()
-    db.add_all(
-        [TeacherSubject(teacher_id=t1.id, subject_id=subjects[name].id) for name in ("自然", "數學")]
-        + [TeacherSubject(teacher_id=t2.id, subject_id=subjects[name].id) for name in ("英文", "美勞")]
-        + [TeacherSubject(teacher_id=t3.id, subject_id=subjects["自然"].id)]
-    )
+    # A working copy of a copied timetable: every manual adjustment,
+    # 換教師 included, is allowed.
+    version = make_record(db, semester.id, status="EDITING", source_status="COPIED")
+    # Task 98: all three teachers take part.
+    for teacher in teachers:
+        enroll_in_semester(db, version.id, teacher)
     requirements = {
-        "S": ClassSubjectRequirement(semester_id=semester.id, class_id=c1.id, subject_id=subjects["自然"].id, weekly_periods=3, lesson_pattern="2+1"),
-        "M": ClassSubjectRequirement(semester_id=semester.id, class_id=c1.id, subject_id=subjects["數學"].id, weekly_periods=2, lesson_pattern="2"),
-        "E": ClassSubjectRequirement(semester_id=semester.id, class_id=c1.id, subject_id=subjects["英文"].id, weekly_periods=2),
-        "A": ClassSubjectRequirement(semester_id=semester.id, class_id=c1.id, subject_id=subjects["美勞"].id, weekly_periods=1),
+        "S": ClassSubjectRequirement(schedule_version_id=version.id, class_id=c1.id, subject_id=subjects["自然"].id, weekly_periods=3, lesson_pattern="2+1"),
+        "M": ClassSubjectRequirement(schedule_version_id=version.id, class_id=c1.id, subject_id=subjects["數學"].id, weekly_periods=2, lesson_pattern="2"),
+        "E": ClassSubjectRequirement(schedule_version_id=version.id, class_id=c1.id, subject_id=subjects["英文"].id, weekly_periods=2),
+        "A": ClassSubjectRequirement(schedule_version_id=version.id, class_id=c1.id, subject_id=subjects["美勞"].id, weekly_periods=1),
     }
     db.add_all(requirements.values())
     db.flush()
@@ -117,8 +126,6 @@ def _world(db: Session, *, skip_rows: tuple[str, ...] = ()) -> World:
             block_seq=block_seq,
         )
     db.add_all(lessons.values())
-    version = ScheduleVersion(semester_id=semester.id, version_number=1, status="DRAFT")
-    db.add(version)
     db.flush()
     rows = {
         name: Schedule(
@@ -182,7 +189,7 @@ def test_move_with_target_room_puts_the_whole_block_there(
     from app.models.room import Room
 
     world = _world(db_session)
-    room = Room(name="自然教室", room_type="自然教室", is_active=True)
+    room = Room(school_id=get_test_school_id(db_session), name="自然教室", is_active=True)
     db_session.add(room)
     db_session.commit()
 
@@ -217,23 +224,54 @@ def test_move_out_of_range_is_refused_and_not_a_candidate(
     assert world.where() == before
 
 
-def test_move_onto_other_lessons_of_the_class_is_refused(
+def test_move_onto_other_lessons_of_the_class_makes_room(
     client: TestClient, db_session: Session
 ) -> None:
-    """Wed 1-2 hold E1 and E2: not a move but a swap -- and a block of two
-    can't swap with one single lesson, so nothing is offered there."""
+    """Wed 1-2 hold E1 and E2: the block goes there anyway, and E1 / E2 go
+    to the periods it leaves (Mon 1-2), in order."""
     world = _world(db_session)
+
+    candidate = _by_slot(_ok(_candidates(client, world.version.id, world.row("S1"))))[world.slot(3, 1)]
+    data = _ok(_move(client, world.version.id, world.row("S1"), world.slot(3, 1)))
+
+    assert candidate["available"] is True
+    assert _moved(data) == {
+        world.row("S1"): world.slot(3, 1),
+        world.row("S2"): world.slot(3, 2),
+        world.row("E1"): world.slot(1, 1),
+        world.row("E2"): world.slot(1, 2),
+    }
+    assert data["check"]["violations"] == []
+
+
+def test_shifting_a_block_by_one_period_moves_the_lesson_in_its_way(
+    client: TestClient, db_session: Session
+) -> None:
+    """Science block 1 (Mon 1-2) dragged by S1 onto Mon 2: it shifts to
+    Mon 2-3, and nothing was in Mon 3 -- only the block moves."""
+    world = _world(db_session)
+
+    data = _ok(_move(client, world.version.id, world.row("S1"), world.slot(1, 2)))
+
+    assert _moved(data) == {world.row("S1"): world.slot(1, 2), world.row("S2"): world.slot(1, 3)}
+
+
+def test_move_whose_displaced_lessons_dont_fit_is_refused(
+    client: TestClient, db_session: Session
+) -> None:
+    """Science block 1 (Mon 1-2) shifted onto Mon 2-3 leaves only Mon 1,
+    but Mon 3 holds two lessons (E1 and A1 were moved there): they can't
+    both go to Mon 1."""
+    world = _world(db_session)
+    _ok(_move(client, world.version.id, world.row("E1"), world.slot(1, 3)))
+    _ok(_move(client, world.version.id, world.row("A1"), world.slot(1, 3)))
     before = world.where()
 
-    response = _move(client, world.version.id, world.row("S1"), world.slot(3, 1))
-    candidate = _by_slot(_ok(_candidates(client, world.version.id, world.row("S1"))))[world.slot(3, 1)]
+    response = _move(client, world.version.id, world.row("S1"), world.slot(1, 2))
+    candidate = _by_slot(_ok(_candidates(client, world.version.id, world.row("S1"))))[world.slot(1, 2)]
 
-    _refused(response, "BLOCK_TARGET_OCCUPIED")
-    assert candidate["unavailable_reason"] == "BLOCK_TARGET_OCCUPIED"
-    assert candidate["swaps"] == []
-    assert candidate["unsupported_swaps"] == [
-        {"swap_with_schedule_id": world.row("E1"), "reason": "BLOCK_SWAP_UNSUPPORTED"}
-    ]
+    _refused(response, "BLOCK_DISPLACED_UNFIT")
+    assert candidate["unavailable_reason"] == "BLOCK_DISPLACED_UNFIT"
     assert world.where() == before
 
 
@@ -283,45 +321,82 @@ def test_single_lessons_swap_as_before(
     }
 
 
-@pytest.mark.parametrize(
-    ("first", "second", "why"),
-    [
-        ("S1", "A1", "a block of two with a single lesson"),
-        ("E1", "M2", "a single lesson with a block of two"),
-        ("S1", "S2", "two lessons of the same block"),
-    ],
-)
-def test_unsupported_swaps_are_refused(
-    client: TestClient, db_session: Session, first: str, second: str, why: str
-) -> None:
-    world = _world(db_session)
-    before = world.where()
-
-    _refused(_swap(client, world.version.id, world.row(first), world.row(second)), "BLOCK_SWAP_UNSUPPORTED")
-    assert world.where() == before, why
-
-
-def test_swap_with_a_partly_placed_block_is_refused(
+def test_a_block_swapped_with_a_single_lesson_takes_its_place(
     client: TestClient, db_session: Session
 ) -> None:
+    """S1 (science block 1, Mon 1-2) dropped on A1 (Mon 5): the block goes
+    to Mon 5-6, A1 to Mon 1."""
+    world = _world(db_session)
+
+    data = _ok(_swap(client, world.version.id, world.row("S1"), world.row("A1")))
+
+    assert _moved(data) == {
+        world.row("S1"): world.slot(1, 5),
+        world.row("S2"): world.slot(1, 6),
+        world.row("A1"): world.slot(1, 1),
+    }
+
+
+def test_a_single_lesson_dropped_on_a_block_brings_the_block_to_it(
+    client: TestClient, db_session: Session
+) -> None:
+    """E1 (Wed 1) dropped on M2 (math's second lesson, Tue 6): M2 can't land
+    on Wed 1 (no period before it), so the block comes with M1 there --
+    Wed 1-2 -- and E1 / E2 go to Tue 5-6."""
+    world = _world(db_session)
+
+    data = _ok(_swap(client, world.version.id, world.row("E1"), world.row("M2")))
+
+    assert _moved(data) == {
+        world.row("E1"): world.slot(2, 5),
+        world.row("M1"): world.slot(3, 1),
+        world.row("M2"): world.slot(3, 2),
+        world.row("E2"): world.slot(2, 6),
+    }
+
+
+def test_two_lessons_of_one_block_shift_the_block(client: TestClient, db_session: Session) -> None:
+    world = _world(db_session)
+
+    data = _ok(_swap(client, world.version.id, world.row("S1"), world.row("S2")))
+
+    assert _moved(data) == {world.row("S1"): world.slot(1, 2), world.row("S2"): world.slot(1, 3)}
+
+
+def test_swap_with_a_partly_placed_block_moves_what_it_has(
+    client: TestClient, db_session: Session
+) -> None:
+    """M2 has no row: science block 1 onto M1 (Tue 5) takes Tue 5-6 and M1
+    goes to Mon 1."""
     world = _world(db_session, skip_rows=("M2",))
 
-    _refused(_swap(client, world.version.id, world.row("S1"), world.row("M1")), "BLOCK_SWAP_UNSUPPORTED")
+    data = _ok(_swap(client, world.version.id, world.row("S1"), world.row("M1")))
+
+    assert _moved(data) == {
+        world.row("S1"): world.slot(2, 5),
+        world.row("S2"): world.slot(2, 6),
+        world.row("M1"): world.slot(1, 1),
+    }
 
 
-def test_swap_with_a_block_and_several_single_lessons_is_not_offered(
+def test_a_block_dropped_on_several_single_lessons_moves_them_all(
     client: TestClient, db_session: Session
 ) -> None:
-    """Dropping science block 1 on Wed 2 (E2, with E1 before it): the move
-    lands on two other lessons and neither is a block of two."""
+    """Science block 1 dragged by S2 onto Wed 2 (E2, with E1 before it):
+    the block takes Wed 1-2, E1 and E2 take Mon 1-2."""
     world = _world(db_session)
 
     candidate = _by_slot(_ok(_candidates(client, world.version.id, world.row("S2"))))[world.slot(3, 2)]
 
-    assert candidate["available"] is False
-    assert candidate["unavailable_reason"] == "BLOCK_TARGET_OCCUPIED"
-    assert candidate["swaps"] == []
-    assert [item["swap_with_schedule_id"] for item in candidate["unsupported_swaps"]] == [world.row("E2")]
+    assert candidate["available"] is True
+    assert {m["schedule_id"]: m["to_time_slot_id"] for m in candidate["block_members"]} == {
+        world.row("S1"): world.slot(3, 1),
+        world.row("S2"): world.slot(3, 2),
+        world.row("E1"): world.slot(1, 1),
+        world.row("E2"): world.slot(1, 2),
+    }
+    assert [item["swap_with_schedule_id"] for item in candidate["swaps"]] == [world.row("E2")]
+    assert candidate["unsupported_swaps"] is None
 
 
 # --- Fixed lessons: not blocked, reported (decision 15) ---
@@ -439,13 +514,17 @@ def test_candidates_of_a_lesson_without_block_have_no_block_fields(
 
     for candidate in data["candidates"]:
         assert candidate["block_members"] is None
-        assert all(swap["block_members"] is None for swap in candidate["swaps"])
-    # Mon 1 holds S1 (block of two): offered as unsupported, not as a swap.
+    # Mon 1 holds S1 (block of two): swapping with it moves the block, so
+    # that swap lists where every row goes.
     monday_1 = _by_slot(data)[world.slot(1, 1)]
-    assert monday_1["swaps"] == []
-    assert monday_1["unsupported_swaps"] == [
-        {"swap_with_schedule_id": world.row("S1"), "reason": "BLOCK_SWAP_UNSUPPORTED"}
-    ]
+    [swap] = monday_1["swaps"]
+    assert swap["swap_with_schedule_id"] == world.row("S1")
+    assert {m["schedule_id"]: m["to_time_slot_id"] for m in swap["block_members"]} == {
+        world.row("A1"): world.slot(1, 1),
+        world.row("S1"): world.slot(1, 5),
+        world.row("S2"): world.slot(1, 6),
+    }
+    assert monday_1["unsupported_swaps"] is None
     # A move onto it is still allowed for a single lesson (H2 reported).
     assert monday_1["available"] is True
     assert "H2_CLASS_CONFLICT" in {v["type"] for v in monday_1["move"]["violations"]}
@@ -511,13 +590,12 @@ def test_teacher_gets_403_for_block_moves(
     assert _candidates(teacher_client, world.version.id, world.row("S1")).status_code == 403
 
 
-@pytest.mark.parametrize("status", ["PUBLISHED", "ARCHIVED"])
+@pytest.mark.parametrize("status", ["AUTO", "MANUAL", "COPIED"])
 def test_locked_version_returns_409_before_block_rules(
     client: TestClient, db_session: Session, status: str
 ) -> None:
     world = _world(db_session)
-    world.version.status = status
-    db_session.commit()
+    mark_status_in_db(db_session, world.version.id, status)
     before = world.where()
 
     # Out of range for the block, but the lock is reported first.
@@ -531,9 +609,7 @@ def test_locked_version_returns_409_before_block_rules(
 
 def test_rows_of_other_versions_are_untouched(client: TestClient, db_session: Session) -> None:
     world = _world(db_session)
-    other = ScheduleVersion(semester_id=world.version.semester_id, version_number=2, status="DRAFT")
-    db_session.add(other)
-    db_session.flush()
+    other = make_record(db_session, world.version.semester_id, status="EDITING")
     copy = Schedule(
         schedule_version_id=other.id,
         lesson_id=world.lessons["S2"].id,

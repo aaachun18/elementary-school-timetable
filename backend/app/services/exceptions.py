@@ -6,11 +6,44 @@ from psycopg.errors import (
 )
 from sqlalchemy.exc import IntegrityError
 
+from app.services.integrity_messages import integrity_violation_message
+
 
 class DependentRecordsExistError(Exception):
     """Raised by a delete_xxx() service function when the row cannot be
     deleted because other tables still hold a foreign key reference to it.
+
+    `steps` (optional) is what to do first, in order, so the delete can
+    succeed -- Chinese sentences from services/delete_guidance.py, shown
+    behind the error's ? icon.
     """
+
+    def __init__(self, message: str, steps: list[str] | None = None) -> None:
+        self.steps = steps or []
+        super().__init__(message)
+
+
+class ClassInUseError(DependentRecordsExistError):
+    """A class used by 排課紀錄 can't be deleted (-> 409, code
+    CLASS_IN_USE, with how many records use it): deactivate it instead."""
+
+    def __init__(self, message: str, record_count: int, steps: list[str] | None = None) -> None:
+        self.record_count = record_count
+        super().__init__(message, steps)
+
+
+class AccountPermissionError(Exception):
+    """Task 98: the logged-in account may not create / change this account
+    the way it asked (-> 403), e.g. a 教學組長 creating a 教學組長, or
+    binding a teacher to another school. The message is Chinese text for
+    the user."""
+
+
+class AccountStateError(Exception):
+    """帳號改版: the request is allowed, but the account's current state
+    makes it impossible (-> 422), e.g. changing the name of an 一般老師
+    with no school, or a wrong current password. The message is Chinese
+    text for the user."""
 
 
 class InvalidReferenceError(Exception):
@@ -25,6 +58,13 @@ class InvalidLessonPatternError(Exception):
     text from app/services/lesson_pattern.py."""
 
 
+class SchoolStructureViolationError(Exception):
+    """A value the school's fixed structure doesn't allow (-> 422): a class
+    name that isn't one of its grade's options, a non-schedulable time slot
+    opened for a grade, a grade or subject of the requirement's own school
+    rules ... The message is Chinese text for the user."""
+
+
 class InvalidTeacherPeriodsError(Exception):
     """Task 88: a teacher update would leave min_weekly_periods above
     max_weekly_periods (-> 422). The message is the Chinese text from
@@ -34,8 +74,9 @@ class InvalidTeacherPeriodsError(Exception):
 class BlockAdjustmentRefusedError(Exception):
     """Task 89: a move or swap the lesson block (連堂) rules don't allow
     (-> 409). `reason` is the code from app/services/block_adjustment.py
-    (BLOCK_OUT_OF_RANGE / BLOCK_TARGET_OCCUPIED / BLOCK_SWAP_UNSUPPORTED),
-    the same one move-candidates reports for that target."""
+    (BLOCK_OUT_OF_RANGE / BLOCK_DISPLACED_UNFIT),
+    the same one move-candidates reports for that target -- or, for 移出課表,
+    UNSCHEDULE_COMBINED (a lesson of a 合併節)."""
 
     def __init__(self, reason: str) -> None:
         self.reason = reason
@@ -54,9 +95,9 @@ class PlacementRefusedError(Exception):
         super().__init__(reason)
 
 
-class LessonNotInSemesterError(Exception):
-    """Task 92: the lesson to place belongs to a requirement of another
-    semester than the version's (-> 409)."""
+class LessonNotInVersionError(Exception):
+    """Task 92: the lesson to place belongs to another record's
+    requirements (-> 409)."""
 
 
 class LessonAlreadyScheduledError(Exception):
@@ -67,7 +108,8 @@ class LessonAlreadyScheduledError(Exception):
 class DuplicateValueError(Exception):
     """Raised by a create/update service function when a value violates a
     UNIQUE constraint (e.g. duplicate Subject.name) or a CHECK constraint
-    (e.g. Teacher.min_weekly_periods > max_weekly_periods).
+    (e.g. Teacher.min_weekly_periods > max_weekly_periods). The message is
+    the Chinese sentence for the user (services/integrity_messages.py).
     """
 
 
@@ -97,109 +139,55 @@ class LessonOverProvisionedError(Exception):
         )
 
 
-class PublishedVersionImmutableError(Exception):
-    """Raised when a call would modify a PUBLISHED ScheduleVersion, or a
-    Schedule row belonging to one: updating the version itself (including
-    changing its status away from PUBLISHED), generate-lessons, run-
-    scheduler, or updating/deleting one of its Schedule rows.
-
-    A PUBLISHED version is the authoritative, in-use timetable -- the spec
-    requires it to be fully locked; the only sanctioned way to change
-    anything is to create a new DRAFT version first (Task 62:
-    POST /schedule-versions/{id}/copy).
-    """
+class SettingsLockedError(Exception):
+    """v3: a call would change the settings (teachers, grade slots,
+    requirements, lessons) of a 排課紀錄 that is no longer 尚未排課 -- only a
+    NOT_SCHEDULED record's settings change; any other record keeps the
+    settings its timetable was made under. To change them, copy the
+    settings into a new record (-> 409)."""
 
 
-class ArchivedVersionImmutableError(Exception):
-    """Task 64: the ARCHIVED counterpart of PublishedVersionImmutableError --
-    same lock (no field change, no Schedule change, no
-    generate-lessons/run-scheduler/reassign; deleting the whole version is
-    allowed since Task 80), separate exception only so
-    the user is told the version is archived, not "published". Republishing
-    it (status -> PUBLISHED) is the one change still allowed, and goes
-    through the status-transition rules, not this exception.
-    """
+class TimetableLockedError(Exception):
+    """v3: a call would change the timetable (Schedule rows) of a record
+    that is not a manual edit's working copy (EDITING). A saved timetable
+    never changes in place: 手動編輯課表 starts a working copy, and 儲存課表
+    turns it into a record (-> 409)."""
 
 
 class PublishedVersionDeleteError(Exception):
-    """Task 80: raised by delete_schedule_version() for the semester's
-    PUBLISHED version -- the live timetable cannot simply disappear. The
-    user has to unpublish it first (PUBLISHED -> ARCHIVED), after which it
-    can be deleted like any ARCHIVED version. A separate exception from
-    PublishedVersionImmutableError so the message can say exactly that."""
+    """Task 80 / v3: raised by delete_schedule_version() for the
+    semester's published record -- the live timetable cannot simply
+    disappear (-> 409)."""
 
 
-class InvalidStatusTransitionError(Exception):
-    """Task 64: raised by update_schedule_version() for a status change that
-    isn't allowed. Only DRAFT -> PUBLISHED and ARCHIVED -> PUBLISHED
-    (publishing archives the semester's current PUBLISHED version) and,
-    since Task 65, PUBLISHED -> ARCHIVED (unpublish) are; an unchanged
-    status is a no-op. Everything else -- PUBLISHED -> DRAFT,
-    ARCHIVED -> DRAFT, DRAFT -> ARCHIVED -- is refused before anything
-    changes.
-    """
+class RecordStatusError(Exception):
+    """v3: an action the record's status doesn't allow (-> 409) --
+    publishing or editing a record with no timetable, saving something that
+    is not a working copy, reassigning a teacher outside a copied
+    timetable. `message` is the Chinese sentence the user reads."""
 
-
-class RequirementUsedByPublishedScheduleError(Exception):
-    """Raised by delete_class_subject_requirement() when one or more of the
-    requirement's Lesson rows are referenced by a Schedule row under a
-    PUBLISHED or (Task 64) ARCHIVED ScheduleVersion.
-
-    Task 56: deleting a requirement normally takes its Lesson rows (and
-    their DRAFT Schedule rows) with it, but a PUBLISHED or ARCHIVED
-    timetable is fully locked -- removing a lesson it actually uses would silently alter it.
-    Kept separate from DependentRecordsExistError so the caller gets a
-    specific reason instead of the generic "still referenced" message.
-    """
-
-
-class RequirementEditBlockedByPublishedScheduleError(Exception):
-    """Raised by update_class_subject_requirement() (Task 72) when a request
-    would change a field of a requirement whose Lesson rows are referenced
-    by a Schedule row under a PUBLISHED or ARCHIVED ScheduleVersion -- the
-    edit counterpart of RequirementUsedByPublishedScheduleError, decided by
-    the same is_used_by_locked_schedule() check.
-
-    The requirement is shared by every version of its semester, so editing
-    it would leave the locked timetable inconsistent with it (e.g. an H6 or
-    H7 violation appearing in an already-published version).
-    """
-
-
-class CannotDeleteSelfError(Exception):
-    """Raised by delete_user() when an ADMIN tries to delete the account
-    they are currently logged in as.
-
-    Task 59: this rule alone guarantees at least one ADMIN always remains
-    -- only an ADMIN can delete accounts, and never their own, so the one
-    doing the deleting always survives. Without that guarantee, an empty
-    users table would reopen anonymous first-ADMIN registration (Task 57).
-    """
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
 
 
 class ScheduleVersionAlreadyScheduledError(Exception):
-    """Raised by run_scheduler() when the target ScheduleVersion already has
-    one or more Schedule rows.
-
-    Consistent with LessonOverProvisionedError's "never auto-discard data"
-    philosophy: re-running the scheduler must not silently overwrite an
-    existing result (which might be a manually-tweaked or already-published
-    schedule). The caller must explicitly delete the existing Schedule rows
-    first (via the existing DELETE /api/v1/schedules/{id} endpoint) before
-    running the scheduler again.
-    """
+    """Raised by run_scheduler() when the record is not 尚未排課 (or somehow
+    already has Schedule rows): 自動排課 only ever fills an empty record,
+    never overwrites a timetable (-> 409). To schedule again, copy the
+    record's settings into a new one."""
 
 
 class TargetSemesterNotFoundError(Exception):
-    """Raised by copy_schedule_version() (Task 62) when target_semester_id
+    """Raised by copy_timetable() (Task 62 / v3) when target_semester_id
     points at a Semester that does not exist. Its own exception (-> 404)
     rather than the router's usual "service returned None" 404, because
-    None already means "the SOURCE version doesn't exist" for that call.
+    None already means "the SOURCE record doesn't exist" for that call.
     """
 
 
 class CopyAcrossAcademicYearsError(Exception):
-    """Raised by copy_schedule_version() (Task 62) when the target semester
+    """Raised by copy_timetable() (Task 62 / v3) when the target semester
     belongs to a different AcademicYear than the source version's semester.
 
     Class has no semester column, so a class is the same row in every
@@ -209,25 +197,12 @@ class CopyAcrossAcademicYearsError(Exception):
     """
 
 
-class TargetSemesterHasRequirementsError(Exception):
-    """Raised by copy_schedule_version() (Task 62) when a cross-semester
-    copy targets a semester that already has ClassSubjectRequirement rows.
-
-    Requirements and Lessons are per-semester and shared by every version
-    in that semester; merging a copied set into an existing one would
-    either duplicate (class, subject) pairs or silently change what the
-    target semester's existing versions point at. Refused instead, before
-    anything is written.
-    """
-
-
 class CopySourceInconsistentError(Exception):
-    """Raised by copy_schedule_version() (Task 62) when a Schedule row of
-    the source version points at a Lesson that is not under the source
-    semester's requirements -- the database doesn't enforce that a
-    version's Schedule rows belong to its own semester, and such a row has
-    no new Lesson to be remapped to. The whole copy is aborted rather than
-    silently dropping the row.
+    """Raised when copying a record (Task 62 / v3) finds a Schedule row of
+    the source pointing at a Lesson that is not under the source's own
+    requirements -- the database doesn't enforce that, and such a row has
+    no copied Lesson to be remapped to. The whole copy is aborted rather
+    than silently dropping the row.
     """
 
 
@@ -269,11 +244,11 @@ class CannotSwapWithSelfError(Exception):
     Schedule row."""
 
 
-class RequirementSemesterMismatchError(Exception):
+class RequirementNotInVersionError(Exception):
     """Raised by reassign_teacher() (Task 63) when the requirement belongs to
-    a different semester than the ScheduleVersion being edited -- none of
-    its Lessons can be in that version's timetable, and setting its
-    required_teacher_id would silently change another semester's data.
+    another record than the one being edited -- none of its Lessons can be
+    in this timetable, and setting its required_teacher_id would silently
+    change another record's settings (-> 409).
     """
 
 
@@ -291,6 +266,16 @@ class InactiveTeacherAssignmentError(Exception):
     blocking; assigning someone already deactivated is never a sensible
     manual adjustment, so this one is refused up front.
     """
+
+
+class CombinedLessonRuleError(Exception):
+    """共同排課: a combined lesson that breaks one of its rules
+    (services/combined_lesson.py) -> 422 with the Chinese message."""
+
+
+class CombinedLessonInUseError(Exception):
+    """共同排課: a change to a requirement that is in a combined lesson and
+    would break it (its lesson pattern) -> 409 with the Chinese message."""
 
 
 def raise_for_integrity_error(exc: IntegrityError) -> None:
@@ -328,8 +313,7 @@ def raise_for_integrity_error(exc: IntegrityError) -> None:
             "One or more referenced records do not exist."
         ) from exc
     if isinstance(orig, (UniqueViolation, CheckViolation, NotNullViolation)):
-        raise DuplicateValueError(
-            "This value conflicts with an existing record or violates a "
-            "data rule."
-        ) from exc
+        # The message names what is wrong (這個 Email 已經有帳號
+        # ...), from the violated constraint's name.
+        raise DuplicateValueError(integrity_violation_message(orig)) from exc
     raise exc

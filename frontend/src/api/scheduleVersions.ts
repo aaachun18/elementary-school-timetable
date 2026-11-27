@@ -14,6 +14,7 @@ import type {
   PlaceCandidatesResult,
   PlaceLessonRequest,
   PlaceLessonResult,
+  PreflightResult,
   RunSchedulerSuccessResponse,
   ScheduleAdjustmentResult,
   ScheduleCheckResult,
@@ -21,11 +22,11 @@ import type {
   TeacherReassignmentRequest,
   TeacherReassignmentResult,
   UnscheduledLessonsResult,
+  UnscheduleLessonRequest,
 } from "../types/scheduler";
 
-// Mirrors backend/app/routers/schedule_version.py's 5 CRUD endpoints -- see
-// teachers.ts for why create()/update()/remove() exist even though this
-// page only calls list()/create() so far.
+// Mirrors backend/app/routers/schedule_version.py -- v3: 排課紀錄 (newest
+// first; manual edits' working copies are never listed).
 
 export async function list(skip = 0, limit = 100): Promise<ScheduleVersion[]> {
   const response = await apiClient.get<ScheduleVersion[]>(
@@ -52,6 +53,7 @@ export async function create(
   return response.data;
 }
 
+// Only the 備註 changes this way.
 export async function update(
   versionId: number,
   data: ScheduleVersionUpdate,
@@ -78,11 +80,18 @@ export async function generateLessons(
   return response.data;
 }
 
-// Success (200) resolves with RunSchedulerSuccessResponse. Failure (422)
-// rejects with an AxiosError whose response.data is a
-// RunSchedulerFailureResponse -- the caller (SchedulerConsole.tsx)
-// distinguishes the two via the promise's resolve/reject, not a return
-// value, matching how every other API module here surfaces errors.
+// Success (200) resolves with RunSchedulerSuccessResponse -- the record is
+// then 自動排課. Failure (422) rejects with an AxiosError whose
+// response.data is a RunSchedulerFailureResponse (the record stays
+// 尚未排課) -- the caller distinguishes the two via the promise's
+// resolve/reject, not a return value, matching how every other API module
+// here surfaces errors.
+// 排課前檢查: read only, nothing written (wizard step 6).
+export async function preflight(versionId: number): Promise<PreflightResult> {
+  const response = await apiClient.get<PreflightResult>(`/api/v1/schedule-versions/${versionId}/preflight`);
+  return response.data;
+}
+
 export async function runScheduler(
   versionId: number,
 ): Promise<RunSchedulerSuccessResponse> {
@@ -92,22 +101,29 @@ export async function runScheduler(
   return response.data;
 }
 
-// --- Task 67: version management (Task 62/64 backend rules) ---
+// --- v3: publishing, copying and manual editing a record ---
 
-// DRAFT or ARCHIVED -> PUBLISHED. The backend archives the semester's
-// previously PUBLISHED version in the same transaction, so callers should
-// reload the whole version list afterwards, not just this one version.
+// 發布此課表: the semester's one published record from now on (the one
+// published before goes back to an ordinary record) -- reload the whole
+// list afterwards, not just this record.
 export async function publish(versionId: number): Promise<ScheduleVersion> {
-  return update(versionId, { status: "PUBLISHED" });
+  const response = await apiClient.post<ScheduleVersion>(
+    `/api/v1/schedule-versions/${versionId}/publish`,
+  );
+  return response.data;
 }
 
-// PUBLISHED -> ARCHIVED. Leaves the semester with no PUBLISHED version.
+// 取消發布: the semester has no published record until another one is
+// published (the record and its timetable stay).
 export async function unpublish(versionId: number): Promise<ScheduleVersion> {
-  return update(versionId, { status: "ARCHIVED" });
+  const response = await apiClient.post<ScheduleVersion>(
+    `/api/v1/schedule-versions/${versionId}/unpublish`,
+  );
+  return response.data;
 }
 
-// Omitted/null targetSemesterId = same-semester copy. Resolves with the new
-// DRAFT version (201).
+// 複製此課表: settings and timetable into a new 複製自編號 x record of any
+// semester of the same academic year (null: the source's own).
 export async function copy(
   versionId: number,
   targetSemesterId: number | null = null,
@@ -116,6 +132,32 @@ export async function copy(
   const response = await apiClient.post<ScheduleVersion>(
     `/api/v1/schedule-versions/${versionId}/copy`,
     body,
+  );
+  return response.data;
+}
+
+// 複製此次排課設定: a new 尚未排課 record with the same settings.
+export async function copySettings(versionId: number): Promise<ScheduleVersion> {
+  const response = await apiClient.post<ScheduleVersion>(
+    `/api/v1/schedule-versions/${versionId}/copy-settings`,
+  );
+  return response.data;
+}
+
+// 手動編輯課表: a fresh working copy (EDITING) every adjustment then
+// changes. Leaving without saving: remove() the working copy.
+export async function startEditing(versionId: number): Promise<ScheduleVersion> {
+  const response = await apiClient.post<ScheduleVersion>(
+    `/api/v1/schedule-versions/${versionId}/edit`,
+  );
+  return response.data;
+}
+
+// 儲存課表 (on the working copy): resolves with the record the edit was
+// saved as -- the 手動排課 record itself, or a new 手動排課 record.
+export async function saveEditing(workingCopyId: number): Promise<ScheduleVersion> {
+  const response = await apiClient.post<ScheduleVersion>(
+    `/api/v1/schedule-versions/${workingCopyId}/save`,
   );
   return response.data;
 }
@@ -130,9 +172,9 @@ export async function check(versionId: number): Promise<ScheduleCheckResult> {
   return response.data;
 }
 
-// --- Task 69: manual adjustment of a DRAFT's timetable (ADMIN only). Both
-// save unless dry_run is true; conflicts never block, they're reported in
-// the response's `check`. ---
+// --- Task 69: manual adjustment of a working copy's timetable (教學組長
+// only). Both save unless dry_run is true; conflicts never block, they're
+// reported in the response's `check`. ---
 
 export async function moveLesson(
   versionId: number,
@@ -140,6 +182,19 @@ export async function moveLesson(
 ): Promise<ScheduleAdjustmentResult> {
   const response = await apiClient.post<ScheduleAdjustmentResult>(
     `/api/v1/schedule-versions/${versionId}/move-lesson`,
+    body,
+  );
+  return response.data;
+}
+
+// 移出課表 (v3: only in a manual edit's working copy): the lesson, with its
+// whole 連堂 block, becomes an unscheduled lesson again.
+export async function unscheduleLesson(
+  versionId: number,
+  body: UnscheduleLessonRequest,
+): Promise<ScheduleAdjustmentResult> {
+  const response = await apiClient.post<ScheduleAdjustmentResult>(
+    `/api/v1/schedule-versions/${versionId}/unschedule-lesson`,
     body,
   );
   return response.data;
@@ -157,9 +212,10 @@ export async function swapLessons(
 }
 
 // --- Task 70: reassign one course (ClassSubjectRequirement) to a new
-// teacher in a DRAFT (ADMIN only). Only refused for a missing record, a
-// locked version, a requirement of another semester, or an inactive new
-// teacher; conflicts are reported in `check`, never blocked. ---
+// teacher -- v3: only in the working copy of a copied timetable. Only
+// refused for a missing record, any other timetable, a requirement of
+// another record, or an inactive new teacher; conflicts are reported in
+// `check`, never blocked. ---
 
 export interface ReassignTeacherParams {
   requirementId: number;
@@ -200,8 +256,8 @@ export async function moveCandidates(
 
 // --- Task 93: unscheduled lessons (backend Task 92; ADMIN only). ---
 
-// Lessons of the version's semester with no Schedule row in it (any
-// version status).
+// Lessons of the record with no Schedule row in its timetable (any
+// record).
 export async function unscheduledLessons(versionId: number): Promise<UnscheduledLessonsResult> {
   const response = await apiClient.get<UnscheduledLessonsResult>(
     `/api/v1/schedule-versions/${versionId}/unscheduled-lessons`,
@@ -210,7 +266,8 @@ export async function unscheduledLessons(versionId: number): Promise<Unscheduled
 }
 
 // Read-only "what if" of placing one lesson (and the unplaced rest of its
-// block) into every time slot, with this teacher and room (DRAFT only).
+// block) into every time slot, with this teacher and room (working copy
+// only).
 // teacherId null: the requirement's required teacher (none -> 409
 // TEACHER_REQUIRED); roomId null: the backend's default room.
 export async function placeCandidates(
@@ -246,8 +303,9 @@ export async function placeLesson(
   return response.data;
 }
 
-// --- Task 95: change the room of scheduled lessons in a DRAFT (ADMIN
-// only). Saves unless dry_run is true; conflicts are reported in `check`.
+// --- Task 95: change the room of scheduled lessons in a working copy
+// (教學組長 only). Saves unless dry_run is true; conflicts are reported in
+// `check`.
 export async function changeRoom(versionId: number, body: ChangeRoomRequest): Promise<ChangeRoomResult> {
   const response = await apiClient.post<ChangeRoomResult>(
     `/api/v1/schedule-versions/${versionId}/change-room`,

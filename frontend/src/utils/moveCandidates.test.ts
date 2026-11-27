@@ -24,7 +24,7 @@ import {
 // Task 84: the candidate marks follow the preview dialog's rule exactly --
 // diffViolations() by problem identity, "conflict" = it adds a problem.
 
-// Demo period layout, so sentences show teaching numbers (raw 8 = 第 7 節).
+// Demo period layout; sentences show the period's own number (8 = 第 8 節).
 const LABELS: Record<number, string> = { 0: "早自習", 5: "午餐/午休" };
 function slotId(weekday: number, period: number): number {
   return 900 + (weekday - 1) * 15 + period;
@@ -38,8 +38,6 @@ function timeSlots(): TimeSlot[] {
         id: slotId(weekday, period),
         weekday,
         period,
-        start_time: null,
-        end_time: null,
         is_teaching_period: label === null,
         label,
         created_at: "",
@@ -322,7 +320,7 @@ const blockResponse: MoveCandidatesResult = {
     {
       time_slot_id: TUE_1,
       available: false,
-      unavailable_reason: "BLOCK_TARGET_OCCUPIED",
+      unavailable_reason: "BLOCK_DISPLACED_UNFIT",
       move: null,
       swaps: [
         {
@@ -345,7 +343,7 @@ const blockResponse: MoveCandidatesResult = {
       unavailable_reason: "BLOCK_OUT_OF_RANGE",
       move: null,
       swaps: [],
-      unsupported_swaps: [{ swap_with_schedule_id: 72, reason: "BLOCK_SWAP_UNSUPPORTED" }],
+      unsupported_swaps: [{ swap_with_schedule_id: 72, reason: "BLOCK_DISPLACED_UNFIT" }],
     },
     {
       time_slot_id: slotId(3, 6),
@@ -371,7 +369,7 @@ describe("Task 90: lesson block targets", () => {
     });
     expect(markForCell(blockResponse, TUE_1, sentenceOf)).toEqual({
       status: "blocked",
-      reason: "整組會壓到本班其他課，請改拖到要對調的那堂課上",
+      reason: "被換走的課放不進連堂空出來的時段",
     });
     // Existing reasons keep their meaning.
     expect(markForCell(blockResponse, LUNCH, sentenceOf)).toEqual({ status: "unavailable" });
@@ -380,7 +378,7 @@ describe("Task 90: lesson block targets", () => {
   it("marks an unsupported swap as blocked and a supported one by its check", () => {
     expect(markForSwap(blockResponse, MON_3, 72, sentenceOf)).toEqual({
       status: "blocked",
-      reason: "連堂只能與節數相同、已全部排課的另一組對調",
+      reason: "被換走的課放不進連堂空出來的時段",
     });
     expect(markForSwap(blockResponse, TUE_1, 73, sentenceOf)).toEqual({ status: "safe" });
   });

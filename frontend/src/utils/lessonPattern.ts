@@ -7,6 +7,10 @@
 // Mirrors the backend's block size range.
 export const MIN_BLOCK_SIZE = 1;
 export const MAX_BLOCK_SIZE = 3;
+// Every block goes on its own day and a week has 5 school days, so a
+// pattern has at most 5 blocks (6 periods: at most 2+1+1+1+1). Mirrors the
+// backend's MAX_BLOCK_COUNT.
+export const MAX_BLOCK_COUNT = 5;
 
 // The form's 「不指定連堂」 choice -- a <select> value can't be null.
 export const NO_PATTERN = "";
@@ -95,8 +99,8 @@ export function countTeachingDays(
 }
 
 // The form's choices for a requirement of `weeklyPeriods` lessons a week:
-// 「不指定連堂」 plus every pattern with at most `teachingDays` blocks, most
-// blocks first. Empty -- the form hides the choice -- when there is
+// 「不指定連堂」 plus every pattern with at most `teachingDays` blocks (and
+// never more than MAX_BLOCK_COUNT), most blocks first. Empty -- the form hides the choice -- when there is
 // nothing to choose: one lesson a week, or no valid weekly periods yet.
 export function lessonPatternOptions(
   weeklyPeriods: number | null,
@@ -106,7 +110,7 @@ export function lessonPatternOptions(
     return [];
   }
   const patterns = partitions(weeklyPeriods, MAX_BLOCK_SIZE)
-    .filter((blocks) => teachingDays === null || blocks.length <= teachingDays)
+    .filter((blocks) => blocks.length <= Math.min(teachingDays ?? MAX_BLOCK_COUNT, MAX_BLOCK_COUNT))
     .reverse();
   return [
     { value: NO_PATTERN, label: NO_PATTERN_LABEL },

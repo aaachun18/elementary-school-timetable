@@ -1,4 +1,5 @@
 import { apiClient } from "./client";
+import type { DeactivationImpact } from "../utils/deactivation";
 import type { Subject, SubjectCreate, SubjectUpdate } from "../types/subject";
 
 // Mirrors backend/app/routers/subject.py's 5 endpoints -- see teachers.ts
@@ -35,4 +36,10 @@ export async function update(
 
 export async function remove(subjectId: number): Promise<void> {
   await apiClient.delete(`/api/v1/subjects/${subjectId}`);
+}
+
+// What 停用 would touch (counts for DeactivateConfirmDialog).
+export async function deactivationImpact(id: number): Promise<DeactivationImpact> {
+  const response = await apiClient.get<DeactivationImpact>(`/api/v1/subjects/${id}/deactivation-impact`);
+  return response.data;
 }

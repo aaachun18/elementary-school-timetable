@@ -1,4 +1,5 @@
 import type { DragEvent, ReactElement } from "react";
+import SearchableSelect from "./SearchableSelect";
 import {
   groupCardsByClass,
   needsTeacherChoice,
@@ -6,6 +7,7 @@ import {
   type PlacementCard,
 } from "../utils/placement";
 import {
+  BUTTON_GHOST_SM,
   ERROR_TEXT,
   PLACE_CARD,
   PLACE_CARD_BUTTON,
@@ -17,7 +19,6 @@ import {
   PLACE_PANEL,
   PLACE_PANEL_TITLE,
   PLACE_TEACHER_SELECT,
-  PLACE_TOGGLE,
 } from "../styles/ui";
 
 interface UnscheduledLessonsPanelProps {
@@ -28,6 +29,8 @@ interface UnscheduledLessonsPanelProps {
   // 「顯示全部班級」 -- only offered in the class view with a class chosen.
   showAllToggle: { showAll: boolean; onToggle: () => void } | null;
   chosenTeacherByCard: ReadonlyMap<string, number>;
+  // Task 99: 「王老師(teacher11)」 when two teachers share a name.
+  teacherLabel: (teacherId: number, name: string) => string;
   onChooseTeacher: (card: PlacementCard, teacherId: number | null) => void;
   selectedCardKey: string | null;
   draggingCardKey: string | null;
@@ -56,6 +59,7 @@ export default function UnscheduledLessonsPanel({
   totalLessonCount,
   showAllToggle,
   chosenTeacherByCard,
+  teacherLabel,
   onChooseTeacher,
   selectedCardKey,
   draggingCardKey,
@@ -73,7 +77,7 @@ export default function UnscheduledLessonsPanel({
         {showAllToggle !== null && (
           <button
             type="button"
-            className={PLACE_TOGGLE}
+            className={BUTTON_GHOST_SM}
             aria-pressed={showAllToggle.showAll}
             onClick={showAllToggle.onToggle}
           >
@@ -125,22 +129,19 @@ export default function UnscheduledLessonsPanel({
                       {card.label}
                     </button>
                     {needsTeacherChoice(card) && (
-                      <select
-                        aria-label={`${group.className} ${card.subjectName}的教師`}
-                        className={PLACE_TEACHER_SELECT}
-                        value={teacherId ?? ""}
+                      <SearchableSelect
+                        ariaLabel={`${group.className} ${card.subjectName}的教師`}
+                        inputClassName={PLACE_TEACHER_SELECT}
+                        className="w-32"
+                        value={teacherId}
+                        options={card.eligibleTeachers.map((teacher) => ({
+                          value: teacher.teacher_id,
+                          label: teacherLabel(teacher.teacher_id, teacher.name),
+                        }))}
+                        placeholder="選教師…"
                         disabled={disabled}
-                        onChange={(event) =>
-                          onChooseTeacher(card, event.target.value === "" ? null : Number(event.target.value))
-                        }
-                      >
-                        <option value="">選教師…</option>
-                        {card.eligibleTeachers.map((teacher) => (
-                          <option key={teacher.teacher_id} value={teacher.teacher_id}>
-                            {teacher.name}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(id) => onChooseTeacher(card, id)}
+                      />
                     )}
                   </div>
                 );

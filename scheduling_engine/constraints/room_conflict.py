@@ -5,16 +5,26 @@ from scheduling_engine.constraints.base import (
     ConstraintViolation,
     Severity,
 )
-from scheduling_engine.models.domain import LessonAssignment
+from scheduling_engine.models.domain import LessonAssignment, RoomCapacity, occupancy_key
 
 
 class RoomConflictConstraint(BaseConstraint):
-    """H3 Room Conflict: the same room cannot host two lessons at the same
-    time_slot. room_id is Optional on LessonAssignment (not every lesson
-    needs a specific room); assignments with room_id=None don't participate
-    in this check at all -- there is nothing to conflict over."""
+    """H3 Room Conflict: a room cannot host more lessons at the same
+    time_slot than the classes it holds at once (RoomCapacity, 1 by
+    default). The lessons of one 合併節 (共同排課) count once. room_id is
+    Optional on LessonAssignment (not every lesson needs a specific room);
+    assignments with room_id=None don't participate in this check at all --
+    there is nothing to conflict over."""
 
     VIOLATION_TYPE = "H3_ROOM_CONFLICT"
+
+    def __init__(
+        self,
+        capacities: list[RoomCapacity] | None = None,
+        joint_keys: dict[int, str] | None = None,
+    ) -> None:
+        self._capacity = {item.room_id: item.max_classes for item in capacities or []}
+        self._joint_keys = joint_keys or {}
 
     def explain_violations(
         self, assignments: list[LessonAssignment]
@@ -31,7 +41,8 @@ class RoomConflictConstraint(BaseConstraint):
 
         violations: list[ConstraintViolation] = []
         for (room_id, time_slot_id), group in by_room_slot.items():
-            if len(group) <= 1:
+            uses = len({occupancy_key(assignment, self._joint_keys) for assignment in group})
+            if uses <= self._capacity.get(room_id, 1):
                 continue
             for assignment in group:
                 violations.append(
@@ -45,8 +56,9 @@ class RoomConflictConstraint(BaseConstraint):
                         time_slot_id=time_slot_id,
                         room_id=room_id,
                         message=(
-                            f"Room {room_id} has {len(group)} lessons "
-                            f"scheduled at time slot {time_slot_id}."
+                            f"Room {room_id} has {uses} lessons "
+                            f"scheduled at time slot {time_slot_id}, more than "
+                            f"the {self._capacity.get(room_id, 1)} it holds."
                         ),
                         suggested_action=(
                             "Move one of these lessons to a different room "

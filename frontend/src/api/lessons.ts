@@ -10,8 +10,8 @@ import type { Lesson, LessonFixTimeSlot, LessonListFilters } from "../types/less
 // see teachers.ts for that convention's normal shape, where the backend
 // genuinely does have all 5.
 
-// Task 67: `filters.semester_id` (Task 66) narrows to one semester's
-// Lessons; omitted -> every Lesson, as before.
+// `filters.schedule_version_id` narrows to one 排課紀錄's Lessons;
+// omitted -> every Lesson.
 export async function list(
   skip = 0,
   limit = 100,

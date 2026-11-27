@@ -15,6 +15,7 @@ from tests.test_schedule_check import (
     _violations_of_type,
 )
 from tests.test_schedule_copy import _build_copy_setup, _copy_cross
+from tests.conftest import get_test_school_id, mark_status_in_db, time_slot_at
 
 # Task 66: GET /api/v1/schedule-versions/{id}/check reports a Schedule row
 # whose Lesson is pinned (Lesson.fixed_time_slot_id) but sits in another
@@ -24,7 +25,7 @@ FIXED = "FIXED_TIME_SLOT_MISMATCH"
 
 
 def _add_extra_slot(db: Session) -> int:
-    slot = TimeSlot(weekday=2, period=1, is_teaching_period=True)
+    slot = time_slot_at(db, 2, 1, is_teaching_period=True)
     db.add(slot)
     db.commit()
     return slot.id
@@ -166,8 +167,8 @@ def test_row_without_time_slot_reports_only_incomplete_row(
     assert _violations_of_type(data, FIXED) == []
 
 
-@pytest.mark.parametrize("status", ["PUBLISHED", "ARCHIVED"])
-def test_locked_version_reports_mismatch(
+@pytest.mark.parametrize("status", ["AUTO", "MANUAL", "COPIED"])
+def test_saved_record_reports_mismatch(
     client: TestClient, db_session: Session, status: str
 ) -> None:
     setup = _build_setup(db_session)
@@ -176,10 +177,7 @@ def test_locked_version_reports_mismatch(
     _fix(db_session, setup.lesson_ids[0], setup.time_slot_ids[1])
     _add_schedule(db_session, setup, setup.lesson_ids[0], setup.time_slot_ids[0])
     _add_schedule(db_session, setup, setup.lesson_ids[1], setup.time_slot_ids[1])
-    version = db_session.get(ScheduleVersion, setup.version_id)
-    assert version is not None
-    version.status = status
-    db_session.commit()
+    mark_status_in_db(db_session, setup.version_id, status, is_published=True)
 
     data = _check(client, setup.version_id)
 

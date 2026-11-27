@@ -7,7 +7,16 @@ from passlib.context import CryptContext
 from app.config import get_settings
 
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
+# Idle logout (閒置自動登出): someone who does nothing for this long is logged
+# out; someone working never is -- the frontend renews the token while they
+# are active (POST /auth/refresh). Mirrored by the frontend's
+# IDLE_TIMEOUT_MINUTES (utils/session.ts).
+IDLE_TIMEOUT_MINUTES = 30
+# A token outlives the idle limit a little, so it is the idle timer that logs
+# an idle person out on time, and a token never runs out under someone still
+# working; past this, an unrenewed token (e.g. a computer left asleep) is
+# refused by the backend itself.
+ACCESS_TOKEN_EXPIRE_MINUTES = IDLE_TIMEOUT_MINUTES + 5
 
 _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 

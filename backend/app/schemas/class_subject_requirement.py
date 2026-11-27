@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.services.lesson_pattern import check_pattern_total, normalize_lesson_pattern
+from app.services.requirement_rules import check_weekly_periods
 
 CONSECUTIVE_LIMIT_DESCRIPTION = "已停用：不再被任何排課規則使用，請改用 lesson_pattern（連堂樣式）"
 LESSON_PATTERN_DESCRIPTION = (
@@ -13,12 +14,16 @@ LESSON_PATTERN_DESCRIPTION = (
 
 
 class ClassSubjectRequirementBase(BaseModel):
-    semester_id: int
+    # v3: the 排課紀錄 whose settings this requirement is part of.
+    schedule_version_id: int
     class_id: int
     subject_id: int
     weekly_periods: int
     required_teacher_id: int | None = None
-    required_room_type: str | None = None
+    # Task 98: the one special room (None: 原班教室). Replaces
+    # required_room_type, which the API no longer takes -- rooms have no
+    # types any more.
+    required_room_id: int | None = None
     # Deprecated since Task 87 (kept for compatibility; nothing reads it).
     consecutive_limit: int | None = Field(
         default=None, deprecated=True, description=CONSECUTIVE_LIMIT_DESCRIPTION
@@ -31,8 +36,14 @@ def _normalize(value: str | None) -> str | None:
     return normalize_lesson_pattern(value)
 
 
+def _weekly_periods(value: int | None) -> int | None:
+    # Task 98: 1-6 periods a week (ValueError -> 422, Chinese message).
+    return check_weekly_periods(value)
+
+
 class ClassSubjectRequirementCreate(ClassSubjectRequirementBase):
     _normalize_pattern = field_validator("lesson_pattern")(_normalize)
+    _check_weekly_periods = field_validator("weekly_periods")(_weekly_periods)
 
     @model_validator(mode="after")
     def _pattern_matches_weekly_periods(self) -> "ClassSubjectRequirementCreate":
@@ -44,22 +55,25 @@ class ClassSubjectRequirementRead(ClassSubjectRequirementBase):
     id: int
     created_at: datetime
     updated_at: datetime
-    # Task 73: computed per request, not a column -- whether a PUBLISHED or
-    # ARCHIVED version uses this requirement's lessons (then PATCH/DELETE
-    # are refused with 409). Response-only: it is not in Create/Update, so a
-    # request carrying it is simply ignored (pydantic drops unknown fields).
+    # Task 73 / v3: computed per request, not a column -- whether the
+    # requirement's record is no longer 尚未排課 (then PATCH/DELETE are
+    # refused with 409). Response-only: a request carrying it is simply
+    # ignored (pydantic drops unknown fields).
     is_locked: bool
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class ClassSubjectRequirementUpdate(BaseModel):
-    semester_id: int | None = None
+    # The record is fixed: a requirement never moves to another record.
     class_id: int | None = None
     subject_id: int | None = None
     weekly_periods: int | None = None
     required_teacher_id: int | None = None
-    required_room_type: str | None = None
+    # Task 98: the one special room (None: 原班教室). Replaces
+    # required_room_type, which the API no longer takes -- rooms have no
+    # types any more.
+    required_room_id: int | None = None
     consecutive_limit: int | None = Field(
         default=None, deprecated=True, description=CONSECUTIVE_LIMIT_DESCRIPTION
     )
@@ -68,3 +82,58 @@ class ClassSubjectRequirementUpdate(BaseModel):
     lesson_pattern: str | None = Field(default=None, description=LESSON_PATTERN_DESCRIPTION)
 
     _normalize_pattern = field_validator("lesson_pattern")(_normalize)
+    _check_weekly_periods = field_validator("weekly_periods")(_weekly_periods)
+
+
+class RequirementSyncRequest(BaseModel):
+    schedule_version_id: int
+
+
+class SkippedSubject(BaseModel):
+    id: int
+    name: str
+
+
+class RequirementSyncResult(BaseModel):
+    """POST /class-subject-requirements/sync: what copying the school's
+    科目需求 into the (尚未排課) record changed."""
+
+    created: int
+    updated: int
+    removed: int
+    # 停用的科目 with a 年級科目需求 that applies to a class: left out of
+    # the record (the school's rule itself stays; 啟用 brings it back on the
+    # next sync). Sorted by name.
+    skipped_subjects: list[SkippedSubject] = []
+
+
+class LessonPatternItem(BaseModel):
+    """Task 103: one requirement's new 連堂樣式 in a batch."""
+
+    id: int
+    lesson_pattern: str | None = Field(default=None, description=LESSON_PATTERN_DESCRIPTION)
+
+    _normalize_pattern = field_validator("lesson_pattern")(_normalize)
+
+
+class RequiredRoomItem(BaseModel):
+    """One requirement's new 特殊教室 in a batch (None = 原班教室)."""
+
+    id: int
+    required_room_id: int | None = None
+
+
+class RequiredRoomBatch(BaseModel):
+    """PATCH /class-subject-requirements/required-rooms: 「複製此教室設定至
+    所有同年級班級」 -- every item is checked like a single PATCH, and all of
+    them are saved in one transaction (or none)."""
+
+    items: list[RequiredRoomItem] = Field(min_length=1)
+
+
+class LessonPatternBatch(BaseModel):
+    """PATCH /class-subject-requirements/lesson-patterns: 「複製此連堂設定至
+    所有同年級班級」 -- every item is checked like a single PATCH, and all of
+    them are saved in one transaction (or none)."""
+
+    items: list[LessonPatternItem] = Field(min_length=1)

@@ -4,18 +4,20 @@ from sqlalchemy.orm import Session
 
 from app.models.room import Room
 from app.schemas.room import RoomCreate, RoomUpdate
+from app.services.delete_guidance import room_delete_steps
 from app.services.exceptions import (
     DependentRecordsExistError,
     raise_for_integrity_error,
 )
+from app.services.school_scope import get_in_school, in_school
 
 
-def create_room(db: Session, room_data: RoomCreate) -> Room:
+def create_room(db: Session, room_data: RoomCreate, *, school_id: int) -> Room:
     room = Room(
+        school_id=school_id,
         name=room_data.name,
-        room_type=room_data.room_type,
-        capacity=room_data.capacity,
         is_active=True,
+        max_classes=room_data.max_classes,
     )
     db.add(room)
     try:
@@ -27,17 +29,21 @@ def create_room(db: Session, room_data: RoomCreate) -> Room:
     return room
 
 
-def get_room(db: Session, room_id: int) -> Room | None:
-    return db.get(Room, room_id)
+def get_room(db: Session, room_id: int, *, school_id: int) -> Room | None:
+    return get_in_school(db, Room, room_id, school_id)
 
 
-def get_rooms(db: Session, skip: int = 0, limit: int = 100) -> list[Room]:
-    stmt = select(Room).offset(skip).limit(limit)
+def get_rooms(
+    db: Session, skip: int = 0, limit: int = 100, *, school_id: int
+) -> list[Room]:
+    stmt = select(Room).where(in_school(Room, school_id)).offset(skip).limit(limit)
     return list(db.scalars(stmt).all())
 
 
-def update_room(db: Session, room_id: int, room_data: RoomUpdate) -> Room | None:
-    room = db.get(Room, room_id)
+def update_room(
+    db: Session, room_id: int, room_data: RoomUpdate, *, school_id: int
+) -> Room | None:
+    room = get_in_school(db, Room, room_id, school_id)
     if room is None:
         return None
 
@@ -53,8 +59,8 @@ def update_room(db: Session, room_id: int, room_data: RoomUpdate) -> Room | None
     return room
 
 
-def delete_room(db: Session, room_id: int) -> bool:
-    room = db.get(Room, room_id)
+def delete_room(db: Session, room_id: int, *, school_id: int) -> bool:
+    room = get_in_school(db, Room, room_id, school_id)
     if room is None:
         return False
 
@@ -65,7 +71,8 @@ def delete_room(db: Session, room_id: int) -> bool:
         db.rollback()
         raise DependentRecordsExistError(
             f"Room {room_id} cannot be deleted: other records still "
-            "reference it."
+            "reference it.",
+            room_delete_steps(db, room_id),
         ) from exc
 
     return True

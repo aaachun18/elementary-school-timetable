@@ -1,25 +1,41 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.models.schedule_version import NOTE_MAX_LENGTH
 
 
-class ScheduleVersionBase(BaseModel):
+# v3 status values -- see app/models/schedule_version.py.
+VersionStatus = Literal["NOT_SCHEDULED", "AUTO", "MANUAL", "COPIED", "EDITING"]
+
+
+class ScheduleVersionCreate(BaseModel):
+    """A new 排課紀錄 is always 尚未排課, numbered by the school's next
+    編號 -- 開始排課 creates one, then fills its settings step by step."""
+
     semester_id: int
-    version_number: int
 
 
-class ScheduleVersionCreate(ScheduleVersionBase):
-    # Task 65: a new version is always a DRAFT. Publishing goes through
-    # PATCH status -> PUBLISHED, so it always archives the semester's
-    # current PUBLISHED version (Task 64); creating one directly as
-    # PUBLISHED would bypass that. PUBLISHED/ARCHIVED here -> 422.
-    status: Literal["DRAFT"] = "DRAFT"
-
-
-class ScheduleVersionRead(ScheduleVersionBase):
-    status: Literal["DRAFT", "PUBLISHED", "ARCHIVED"]
+class ScheduleVersionRead(BaseModel):
     id: int
+    semester_id: int
+    # The record's permanent serial; None only for a manual edit's working
+    # copy (EDITING).
+    version_number: int | None
+    # 編號 as 排課紀錄 shows it: 1 = the school's newest record (see
+    # app/models/schedule_version.py). None for a working copy.
+    display_number: int | None
+    status: VersionStatus
+    is_published: bool
+    # COPIED: the source's serial, and its 編號 now (None once the source
+    # has been deleted).
+    copied_from_number: int | None
+    copied_from_display_number: int | None
+    editing_source_id: int | None
+    note: str | None
+    # Task 103: the furthest 開始排課 step reached (None: not recorded yet).
+    wizard_furthest_step: int | None
     created_at: datetime
     updated_at: datetime
 
@@ -27,20 +43,27 @@ class ScheduleVersionRead(ScheduleVersionBase):
 
 
 class ScheduleVersionUpdate(BaseModel):
-    semester_id: int | None = None
-    version_number: int | None = None
-    # Task 64: ARCHIVED is accepted here only so a request for it reaches
-    # the status-transition rules and gets their 409, instead of a 422.
-    status: Literal["DRAFT", "PUBLISHED", "ARCHIVED"] | None = None
+    """PATCH: only the 備註 (an empty one is cleared) and, Task 103, the
+    furthest 開始排課 step reached change this way. The status changes
+    through its own actions (run-scheduler, publish, edit/save)."""
+
+    note: str | None = Field(default=None, max_length=NOTE_MAX_LENGTH)
+    # Only ever goes up: a lower value than the stored one is ignored.
+    wizard_furthest_step: int | None = Field(default=None, ge=0)
+
+    @field_validator("note")
+    @classmethod
+    def _blank_is_none(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
 
-# --- copy (Task 62), not standard CRUD ---
-
-
-class ScheduleVersionCopy(BaseModel):
-    """Body of POST /schedule-versions/{id}/copy. Omitted (or the body left
-    out entirely), or equal to the source's own semester -> same-semester
-    copy; any other semester -> cross-semester copy."""
+class ScheduleVersionCopyTimetable(BaseModel):
+    """Body of POST /schedule-versions/{id}/copy (複製此課表): the semester
+    the copy belongs to -- any semester of the source's academic year,
+    the source's own included. Omitted: the source's own semester."""
 
     target_semester_id: int | None = None
 
@@ -59,8 +82,8 @@ class GenerateLessonsResult(BaseModel):
     calling generate-lessons again on an already-synced version correctly
     returns created_count=0, that's the diff-sync design working as
     intended (see generate_lessons()'s docstring), not a sign that no
-    lessons exist. total_lesson_count is the actual total the version's
-    semester has after this call -- the number a caller actually wants when
+    lessons exist. total_lesson_count is the actual total the record has
+    after this call -- the number a caller actually wants when
     asking "how many lessons are there to schedule", which is why a Task
     32.8 bug report found a frontend page conflating created_count with
     that instead."""

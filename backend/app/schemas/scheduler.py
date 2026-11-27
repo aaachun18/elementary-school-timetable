@@ -44,11 +44,43 @@ class LessonFailureDetail(BaseModel):
     reasons: list[ConstraintViolationDetail]
 
 
+class PreflightLessonFailure(BaseModel):
+    """A lesson with no possible teacher, found before scheduling. lesson_id
+    is None when the lesson isn't generated yet (the check works on the
+    record as it would be scheduled, without writing lessons)."""
+
+    lesson_id: int | None
+    class_subject_requirement_id: int
+    reasons: list[ConstraintViolationDetail]
+
+
+class PreflightResult(BaseModel):
+    """GET /schedule-versions/{id}/preflight (排課前檢查, read only):
+    can_schedule is False when anything would stop 自動排課 before its
+    search -- the same static checks run-scheduler starts with, plus a
+    停用 class still in the record (INACTIVE_CLASS_IN_RECORD)."""
+
+    can_schedule: bool
+    violations: list[ConstraintViolationDetail]
+    lesson_failures: list[PreflightLessonFailure]
+
+
 class SchedulerRunResult(BaseModel):
-    """200 response: the scheduler placed every Lesson successfully."""
+    """200 response: the scheduler placed every Lesson successfully.
+    preferred_period_*: the soft constraint -- how many of the 國語文 / 數學
+    lessons ended up in 第 1–2 節, out of how many there are."""
 
     scheduled_count: int
     backtrack_count: int
+    preferred_period_score: int = 0
+    preferred_period_lesson_count: int = 0
+    # Task 104: the search's statistics -- placements tried, restarts, how
+    # long it took, and the seed (the same data and seed give the same
+    # timetable again).
+    node_count: int = 0
+    restart_count: int = 0
+    elapsed_seconds: float = 0.0
+    seed: int | None = None
 
 
 class SchedulerFailureDetail(BaseModel):
@@ -83,6 +115,12 @@ class SchedulerFailureDetail(BaseModel):
     lesson_failures: list[LessonFailureDetail]
     post_hoc_violations: list[ConstraintViolationDetail]
     backtrack_count: int
+    # Task 104: as SchedulerRunResult; zero / None for STATIC_CHECK_FAILED,
+    # where no search ran.
+    node_count: int = 0
+    restart_count: int = 0
+    elapsed_seconds: float = 0.0
+    seed: int | None = None
 
 
 class ScheduleCheckResult(BaseModel):
@@ -132,6 +170,15 @@ class MoveLessonRequest(BaseModel):
     dry_run: bool = False
 
 
+class UnscheduleLessonRequest(BaseModel):
+    """移出課表: body of POST /schedule-versions/{id}/unschedule-lesson.
+    The lesson (with its whole 連堂 block) leaves the working copy's
+    timetable and becomes an unscheduled lesson again."""
+
+    schedule_id: int
+    dry_run: bool = False
+
+
 class SwapLessonsRequest(BaseModel):
     """Task 65: body of POST /schedule-versions/{id}/swap-lessons."""
 
@@ -178,8 +225,8 @@ class BlockMemberDetail(BaseModel):
 
 class UnsupportedSwapDetail(BaseModel):
     """Task 89: a lesson in the slot that can't be swapped with under the
-    block rules; reason is BLOCK_SWAP_UNSUPPORTED (what swap-lessons would
-    answer with 409)."""
+    block rules; reason is BLOCK_DISPLACED_UNFIT or BLOCK_OUT_OF_RANGE (what
+    swap-lessons would answer with 409)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -204,8 +251,8 @@ class MoveCandidateSlot(BaseModel):
     `move` is null; unavailable_reason is NON_TEACHING_SLOT or CURRENT_SLOT,
     or (Task 89, a lesson in a block only) BLOCK_OUT_OF_RANGE -- the whole
     block doesn't fit into adjacent teaching periods of that day there --
-    or BLOCK_TARGET_OCCUPIED -- the block would land on other lessons of
-    its class (swap with them instead, if `swaps` offers it). `move` is the
+    or BLOCK_DISPLACED_UNFIT -- the class's lessons in the block's way don't
+    fit into the periods it leaves. `move` is the
     version's check after moving the lesson here (room unchanged) -- what
     move-lesson with dry_run would report. `swaps` lists every possible
     swap in this slot (possibly empty). Task 89: block_members (lesson in a
@@ -247,10 +294,10 @@ class EligibleTeacherDetail(BaseModel):
 
 class UnscheduledLessonDetail(BaseModel):
     """A lesson of the version's semester with no Schedule row in the
-    version. suggested_room_id (Task 92B): with no room type, the class's
-    homeroom (what place-lesson uses by default; null without one); with a
-    room type, the first active room of that type. eligible_teachers: active teachers qualified for
-    the subject, by name -- returned even when required_teacher_id is set."""
+    version. suggested_room_id (Task 92B / 98): the requirement's special
+    room (what place-lesson uses by default; null: 原班上課).
+    eligible_teachers: the active teachers taking part in the semester, by
+    name -- returned even when required_teacher_id is set."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -268,12 +315,10 @@ class UnscheduledLessonDetail(BaseModel):
     fixed_time_slot_id: int | None
     suggested_room_id: int | None
     eligible_teachers: list[EligibleTeacherDetail]
-    # Task 94 (additive): the requirement's room type; the room place-lesson
-    # uses when no room_id is sent; and, with a room type, whether an
-    # active room of exactly that type exists (null without a room type).
-    room_type: str | None = None
+    # Task 98: the requirement's special room (null: 原班教室); Task 94: the
+    # room place-lesson uses when no room_id is sent.
+    required_room_id: int | None = None
     default_room_id: int | None = None
-    has_matching_room: bool | None = None
 
 
 class UnscheduledLessonsResult(BaseModel):
@@ -287,8 +332,7 @@ class UnscheduledLessonsResult(BaseModel):
 class PlaceLessonRequest(BaseModel):
     """POST /schedule-versions/{id}/place-lesson. teacher_id null: the
     requirement's required teacher (none -> 409 TEACHER_REQUIRED); room_id
-    null: the class's homeroom for a requirement with no room type (Task
-    92B), otherwise no room."""
+    null: the requirement's special room, else no room (原班上課)."""
 
     lesson_id: int
     time_slot_id: int

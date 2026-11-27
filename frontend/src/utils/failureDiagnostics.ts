@@ -17,6 +17,7 @@ import type { Teacher } from "../types/teacher";
 import type { Class } from "../types/class";
 import type { Subject } from "../types/subject";
 import type { Room } from "../types/room";
+import { formatTeacherName } from "./teacherName";
 import type { TimeSlot } from "../types/timeSlot";
 import type { ClassSubjectRequirement } from "../types/classSubjectRequirement";
 import type { Lesson } from "../types/lesson";
@@ -33,6 +34,10 @@ export interface NameLookups {
   // Optional, so FailureDiagnostics.tsx -- which never sees that type --
   // keeps building its lookups exactly as before.
   lessonById?: Map<number, Lesson>;
+  // Task 99: the shared-name teachers' accounts (utils/teacherName.ts), so
+  // every sentence naming a teacher tells two 王老師 apart. Optional: a
+  // screen without them shows names as they are.
+  teacherAccountById?: ReadonlyMap<number, string>;
 }
 
 // Every resolver returns "" for a null id (never the literal text "null"),
@@ -43,7 +48,10 @@ export function resolveTeacherName(id: number | null, lookups: NameLookups): str
   if (id === null) {
     return "";
   }
-  return lookups.teacherById.get(id)?.name ?? `教師 ID ${id}`;
+  const teacher = lookups.teacherById.get(id);
+  return teacher === undefined
+    ? `教師 ID ${id}`
+    : formatTeacherName(teacher.name, lookups.teacherAccountById?.get(id));
 }
 
 export function resolveClassName(id: number | null, lookups: NameLookups): string {
@@ -157,14 +165,17 @@ export function resolveInactiveEntities(
   if (violation.teacher_id !== null) {
     const teacher = lookups.teacherById.get(violation.teacher_id);
     if (!verifyInactive || teacher?.is_active === false) {
-      entities.push({ tab: "teachers", label: teacher?.name ?? `ID ${violation.teacher_id}` });
+      entities.push({
+        tab: "teachers",
+        label: teacher === undefined ? `ID ${violation.teacher_id}` : resolveTeacherName(violation.teacher_id, lookups),
+      });
     }
   }
-  if (violation.class_id !== null) {
+  // Classes are always active (they have no is_active), so a class is
+  // only listed when the violation isn't verified against is_active.
+  if (violation.class_id !== null && !verifyInactive) {
     const classItem = lookups.classById.get(violation.class_id);
-    if (!verifyInactive || classItem?.is_active === false) {
-      entities.push({ tab: "classes", label: classItem?.name ?? `ID ${violation.class_id}` });
-    }
+    entities.push({ tab: "classes", label: classItem?.name ?? `ID ${violation.class_id}` });
   }
   if (violation.subject_id !== null) {
     const subject = lookups.subjectById.get(violation.subject_id);
@@ -257,11 +268,6 @@ function buildTemplateValues(
     missingFields: describeMissingFields(violation),
     blockLabel: describeBlock(violation),
     weekdayLabel: resolveWeekdayLabel(violation.time_slot_id, lookups),
-    // Task 93: STATIC_ROOM_TYPE_NOT_FOUND names the type it can't find.
-    requiredRoomType:
-      violation.class_subject_requirement_id === null
-        ? ""
-        : (lookups.requirementById.get(violation.class_subject_requirement_id)?.required_room_type ?? ""),
   };
 }
 

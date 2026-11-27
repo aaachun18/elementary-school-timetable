@@ -1,32 +1,25 @@
 from fastapi.testclient import TestClient
 
+from tests.api_helpers import create_grade, create_record
+
 
 def test_create_room(client: TestClient) -> None:
     response = client.post(
         "/api/v1/rooms/",
-        json={"name": "101教室", "room_type": "普通教室", "capacity": 30},
+        json={"name": "101教室"},
     )
 
     assert response.status_code == 201
     data = response.json()
     assert data["name"] == "101教室"
-    assert data["room_type"] == "普通教室"
-    assert data["capacity"] == 30
+    # Task 98: rooms have no type any more.
+    assert "room_type" not in data
+    # Rooms have no capacity any more either.
+    assert "capacity" not in data
     assert data["is_active"] is True
     assert "id" in data
     assert "created_at" in data
     assert "updated_at" in data
-
-
-def test_create_room_without_capacity(client: TestClient) -> None:
-    response = client.post(
-        "/api/v1/rooms/",
-        json={"name": "No Capacity Room", "room_type": "普通教室"},
-    )
-
-    assert response.status_code == 201
-    data = response.json()
-    assert data["capacity"] is None
 
 
 def test_create_room_cannot_set_is_active(client: TestClient) -> None:
@@ -34,8 +27,6 @@ def test_create_room_cannot_set_is_active(client: TestClient) -> None:
         "/api/v1/rooms/",
         json={
             "name": "101教室",
-            "room_type": "普通教室",
-            "capacity": 30,
             "is_active": False,
         },
     )
@@ -47,7 +38,7 @@ def test_create_room_cannot_set_is_active(client: TestClient) -> None:
 def test_get_room_list(client: TestClient) -> None:
     client.post(
         "/api/v1/rooms/",
-        json={"name": "List Room", "room_type": "普通教室", "capacity": 20},
+        json={"name": "List Room"},
     )
 
     response = client.get("/api/v1/rooms/")
@@ -60,7 +51,7 @@ def test_get_room_list(client: TestClient) -> None:
 def test_get_room_by_id(client: TestClient) -> None:
     create_response = client.post(
         "/api/v1/rooms/",
-        json={"name": "Get Room", "room_type": "普通教室", "capacity": 20},
+        json={"name": "Get Room"},
     )
     room_id = create_response.json()["id"]
 
@@ -79,18 +70,18 @@ def test_get_room_not_found(client: TestClient) -> None:
 def test_update_room(client: TestClient) -> None:
     create_response = client.post(
         "/api/v1/rooms/",
-        json={"name": "Old Room", "room_type": "普通教室", "capacity": 20},
+        json={"name": "Old Room"},
     )
     room_id = create_response.json()["id"]
 
-    response = client.patch(f"/api/v1/rooms/{room_id}", json={"capacity": 35})
+    response = client.patch(f"/api/v1/rooms/{room_id}", json={"name": "New Room"})
 
     assert response.status_code == 200
-    assert response.json()["capacity"] == 35
+    assert response.json()["name"] == "New Room"
 
 
 def test_update_room_not_found(client: TestClient) -> None:
-    response = client.patch("/api/v1/rooms/999999", json={"capacity": 10})
+    response = client.patch("/api/v1/rooms/999999", json={"name": "Nope"})
 
     assert response.status_code == 404
 
@@ -98,7 +89,7 @@ def test_update_room_not_found(client: TestClient) -> None:
 def test_delete_room(client: TestClient) -> None:
     create_response = client.post(
         "/api/v1/rooms/",
-        json={"name": "Delete Room", "room_type": "普通教室", "capacity": 20},
+        json={"name": "Delete Room"},
     )
     room_id = create_response.json()["id"]
 
@@ -111,3 +102,61 @@ def test_delete_room_not_found(client: TestClient) -> None:
     response = client.delete("/api/v1/rooms/999999")
 
     assert response.status_code == 404
+
+
+def test_delete_room_still_required_by_a_requirement_returns_409(client: TestClient) -> None:
+    """Task 98: a requirement's special room can't be deleted from under it."""
+    room_id = client.post("/api/v1/rooms/", json={"name": "自然教室"}).json()["id"]
+    year_id = client.post("/api/v1/academic-years/", json={"year": 115}).json()["id"]
+    semester_id = client.post(
+        "/api/v1/semesters/", json={"academic_year_id": year_id, "number": 1}
+    ).json()["id"]
+    grade_id = create_grade(client, "四年級", level=4)
+    class_id = client.post(
+        "/api/v1/classes/",
+        json={"grade_id": grade_id, "name_style": "HEAVENLY_STEM", "name": "四年甲班"},
+    ).json()["id"]
+    subject_id = client.post("/api/v1/subjects/", json={"name": "自然"}).json()["id"]
+    created = client.post(
+        "/api/v1/class-subject-requirements/",
+        json={
+            "schedule_version_id": create_record(client, semester_id),
+            "class_id": class_id,
+            "subject_id": subject_id,
+            "weekly_periods": 3,
+            "required_room_id": room_id,
+        },
+    )
+    assert created.status_code == 201
+    assert created.json()["required_room_id"] == room_id
+
+    response = client.delete(f"/api/v1/rooms/{room_id}")
+
+    assert response.status_code == 409
+    assert response.json()["delete_steps"] == [
+        "到「排課紀錄」刪除排課紀錄編號 1（115 學年度第 1 學期）"
+    ]
+
+
+# --- How many classes a room holds at once (1-10) ---
+
+
+def test_room_holds_one_class_by_default_and_up_to_ten(client: TestClient) -> None:
+    default = client.post("/api/v1/rooms/", json={"name": "音樂教室"})
+    assert default.status_code == 201
+    assert default.json()["max_classes"] == 1
+
+    created = client.post("/api/v1/rooms/", json={"name": "禮堂", "max_classes": 10})
+    assert created.status_code == 201
+    assert created.json()["max_classes"] == 10
+
+    updated = client.patch(f"/api/v1/rooms/{created.json()['id']}", json={"max_classes": 3})
+    assert updated.status_code == 200
+    assert updated.json()["max_classes"] == 3
+
+
+def test_room_max_classes_outside_1_to_10_is_refused(client: TestClient) -> None:
+    assert client.post("/api/v1/rooms/", json={"name": "A", "max_classes": 0}).status_code == 422
+    assert client.post("/api/v1/rooms/", json={"name": "B", "max_classes": 11}).status_code == 422
+    room_id = client.post("/api/v1/rooms/", json={"name": "C"}).json()["id"]
+    assert client.patch(f"/api/v1/rooms/{room_id}", json={"max_classes": 11}).status_code == 422

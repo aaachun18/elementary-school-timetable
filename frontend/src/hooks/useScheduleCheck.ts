@@ -15,8 +15,9 @@ interface UseScheduleCheckResult {
   result: ScheduleCheckResult | null;
   isChecking: boolean;
   errorMessage: string | null;
-  // Runs the check for the current version. Never runs on its own: the
-  // check is a deliberate user action (a button), not part of loading.
+  // Runs the check for the current version. The hook never runs it on its
+  // own; the timetable page calls it whenever a working copy is opened or
+  // changed (there is no 檢查衝突 button any more).
   run: () => void;
   clear: () => void;
   // Task 69: shows a result obtained elsewhere for the current version --
@@ -25,7 +26,7 @@ interface UseScheduleCheckResult {
   setResult: (result: ScheduleCheckResult) => void;
 }
 
-// Task 68: GET /schedule-versions/{id}/check, triggered on demand.
+// Task 68: GET /schedule-versions/{id}/check.
 // - A response for a version that is no longer the current one, or from a
 //   request superseded by a newer run()/clear(), is dropped.
 // - Nothing is set after the component unmounts.

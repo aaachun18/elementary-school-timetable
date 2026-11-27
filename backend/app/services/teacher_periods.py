@@ -8,6 +8,12 @@ NEGATIVE_MIN_MESSAGE = "最低每週節數不得為負數"
 NEGATIVE_MAX_MESSAGE = "最高每週節數不得為負數"
 RANGE_MESSAGE = "最低每週節數不得大於最高每週節數"
 
+# Task 98: a Teacher created together with its TEACHER account starts with
+# no weekly periods range of its own (0-0) -- the range is set per
+# semester in the scheduling wizard (a later Task), not at account time.
+ACCOUNT_DEFAULT_MIN_WEEKLY_PERIODS = 0
+ACCOUNT_DEFAULT_MAX_WEEKLY_PERIODS = 0
+
 
 def check_not_negative(value: int | None, message: str) -> int | None:
     if value is not None and value < 0:

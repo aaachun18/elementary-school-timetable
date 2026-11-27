@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 import ConfirmDialog from "./ConfirmDialog";
+import { CANCEL_LABEL } from "../utils/confirmText";
 import PreviewChangeList from "./PreviewChangeList";
 import ViolationDiffSummary from "./ViolationDiffSummary";
 import type { AdjustmentPreview, LessonAdjustment } from "../hooks/useLessonAdjustment";
@@ -10,7 +11,12 @@ import {
   type NameLookups,
 } from "../utils/failureDiagnostics";
 import { diffViolations } from "../utils/violationMerge";
-import { buildPreviewSummary, describeMoveLine, describeSwapLine } from "../utils/previewSummary";
+import {
+  buildPreviewSummary,
+  describeMoveLine,
+  describeSwapLine,
+  describeUnscheduleLine,
+} from "../utils/previewSummary";
 import type { ScheduleChangeDetail } from "../types/scheduler";
 import { ERROR_TEXT, MUTED_TEXT, PREVIEW_ACTION_LINE, PREVIEW_NOTE } from "../styles/ui";
 
@@ -49,6 +55,9 @@ function describeAdjustment(
       changes.length,
     );
   }
+  if (adjustment.kind === "unschedule") {
+    return describeUnscheduleLine(lessonName(lesson), currentSlot, changes.length);
+  }
   return describeSwapLine(
     lessonName(lesson),
     currentSlot,
@@ -62,7 +71,7 @@ function describeAdjustment(
 // `changes` then list more rows than the one (move) or two (swap) lessons
 // picked.
 function isBlockChange(adjustment: LessonAdjustment, changes: readonly ScheduleChangeDetail[]): boolean {
-  return changes.length > (adjustment.kind === "move" ? 1 : 2);
+  return changes.length > (adjustment.kind === "swap" ? 2 : 1);
 }
 
 // Every changed row as 「{班級} {科目}：{原時段} → {新時段}」.
@@ -73,10 +82,8 @@ function describeChange(
 ): string {
   const lesson = scheduleById.get(change.schedule_id);
   const name = lesson === undefined ? "這堂課" : lessonName(lesson);
-  return `${name}：${resolveTimeSlotLabel(change.previous_time_slot_id, lookups)} → ${resolveTimeSlotLabel(
-    change.new_time_slot_id,
-    lookups,
-  )}`;
+  const to = change.new_time_slot_id === null ? "移出課表" : resolveTimeSlotLabel(change.new_time_slot_id, lookups);
+  return `${name}：${resolveTimeSlotLabel(change.previous_time_slot_id, lookups)} → ${to}`;
 }
 
 // Task 69: the move/swap preview -- what THIS change does to the version's
@@ -92,8 +99,8 @@ export default function AdjustmentPreviewDialog({
   restoreFocusFallback,
   schedules,
 }: AdjustmentPreviewDialogProps): ReactElement {
-  const isMove = preview?.adjustment.kind === "move";
-  const verb = isMove ? "移動" : "對調";
+  const kind = preview?.adjustment.kind;
+  const verb = kind === "move" ? "移動" : kind === "unschedule" ? "移出課表" : "對調";
   const hasChanges = preview !== null && preview.after.changes.length > 0;
   const summary =
     preview === null
@@ -111,9 +118,9 @@ export default function AdjustmentPreviewDialog({
     <ConfirmDialog
       open={preview !== null}
       title={`預覽${verb}`}
-      confirmLabel={addsProblems ? `仍要${verb}` : `確認${verb}`}
-      cancelLabel={hasChanges ? "返回" : "關閉"}
-      danger={addsProblems}
+      confirmLabel={addsProblems ? `仍要${verb}` : verb}
+      cancelLabel={hasChanges ? CANCEL_LABEL : "關閉"}
+      tone={addsProblems ? "danger" : "primary"}
       busy={isSaving}
       busyLabel="儲存中…"
       showConfirm={hasChanges}

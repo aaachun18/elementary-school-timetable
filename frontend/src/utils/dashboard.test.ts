@@ -1,16 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
+  draftHealthAction,
+  draftHealthBadge,
   formatDateTime,
   pickCurrentSemester,
-  pickLatestDraft,
+  pickLatestUnpublished,
   summarizeDataHealth,
   summarizeDraftHealth,
   summarizeVersions,
+  statTone,
 } from "./dashboard";
 import type { Class } from "../types/class";
 import type { Room } from "../types/room";
 import type { ConstraintViolationDetail } from "../types/scheduler";
 import type { ScheduleVersion, ScheduleVersionStatus } from "../types/scheduleVersion";
+
+type RecordState = ScheduleVersionStatus | "PUBLISHED";
 import type { Semester } from "../types/semester";
 import type { Subject } from "../types/subject";
 import type { Teacher } from "../types/teacher";
@@ -19,8 +24,22 @@ function semester(id: number, academicYearId: number, number: number, isActive: 
   return { id, academic_year_id: academicYearId, number, is_active: isActive, created_at: "", updated_at: "" };
 }
 
-function version(id: number, semesterId: number, versionNumber: number, status: ScheduleVersionStatus): ScheduleVersion {
-  return { id, semester_id: semesterId, version_number: versionNumber, status, created_at: "", updated_at: "2026-10-19T06:03:00Z" };
+// "PUBLISHED": a published 自動排課 record.
+function version(id: number, semesterId: number, versionNumber: number, state: RecordState): ScheduleVersion {
+  return {
+    id,
+    semester_id: semesterId,
+    version_number: versionNumber,
+    display_number: versionNumber,
+    status: state === "PUBLISHED" ? "AUTO" : state,
+    is_published: state === "PUBLISHED",
+    copied_from_number: state === "COPIED" ? 1 : null,
+    copied_from_display_number: state === "COPIED" ? 1 : null,
+    editing_source_id: null,
+    note: null,
+    created_at: "",
+    updated_at: "2026-10-19T06:03:00Z",
+  };
 }
 
 function violation(fields: Partial<ConstraintViolationDetail>): ConstraintViolationDetail {
@@ -53,9 +72,9 @@ describe("pickCurrentSemester", () => {
 
   it("prefers the latest active semester whose timetable is published (the next one may be in preparation)", () => {
     const semesters = [semester(13, 1, 1, true), semester(17, 1, 2, true)];
-    const versions = [version(1, 13, 11, "PUBLISHED"), version(2, 17, 3, "DRAFT")];
+    const versions = [version(1, 13, 11, "PUBLISHED"), version(2, 17, 3, "AUTO")];
     expect(pickCurrentSemester(semesters, YEARS, versions)?.id).toBe(13);
-    expect(pickCurrentSemester(semesters, YEARS, [version(2, 17, 3, "DRAFT")])?.id).toBe(17);
+    expect(pickCurrentSemester(semesters, YEARS, [version(2, 17, 3, "AUTO")])?.id).toBe(17);
   });
 
   it("falls back to the latest semester when none is active, and to null without any", () => {
@@ -66,28 +85,30 @@ describe("pickCurrentSemester", () => {
 
 describe("summarizeVersions", () => {
   const versions = [
-    version(1, 13, 4, "ARCHIVED"),
+    version(1, 13, 4, "AUTO"),
     version(2, 13, 11, "PUBLISHED"),
-    version(3, 13, 12, "DRAFT"),
-    version(4, 13, 13, "DRAFT"),
-    version(5, 14, 1, "DRAFT"),
+    version(3, 13, 12, "MANUAL"),
+    version(4, 13, 13, "NOT_SCHEDULED"),
+    version(5, 14, 14, "COPIED"),
+    version(6, 14, 15, "NOT_SCHEDULED"),
   ];
 
-  it("finds the published version and counts drafts, for this semester only", () => {
+  it("finds the published record and counts the others, for this semester only", () => {
     const summary = summarizeVersions(versions, 13);
     expect(summary.published?.id).toBe(2);
-    expect(summary.draftCount).toBe(2);
+    expect(summary.otherCount).toBe(3);
   });
 
-  it("is empty without versions or without a semester", () => {
-    expect(summarizeVersions([], 13)).toEqual({ published: null, draftCount: 0 });
-    expect(summarizeVersions(versions, null)).toEqual({ published: null, draftCount: 0 });
+  it("is empty without records or without a semester", () => {
+    expect(summarizeVersions([], 13)).toEqual({ published: null, otherCount: 0 });
+    expect(summarizeVersions(versions, null)).toEqual({ published: null, otherCount: 0 });
   });
 
-  it("picks the most recently created draft of any semester", () => {
-    expect(pickLatestDraft(versions)?.id).toBe(5);
-    expect(pickLatestDraft(versions.filter((v) => v.status !== "DRAFT"))).toBeNull();
-    expect(pickLatestDraft([])).toBeNull();
+  it("picks the newest unpublished record that has a timetable, of any semester", () => {
+    expect(pickLatestUnpublished(versions)?.id).toBe(5);
+    expect(pickLatestUnpublished(versions.filter((v) => v.id !== 5))?.id).toBe(3);
+    expect(pickLatestUnpublished([version(2, 13, 11, "PUBLISHED"), version(4, 13, 13, "NOT_SCHEDULED")])).toBeNull();
+    expect(pickLatestUnpublished([])).toBeNull();
   });
 });
 
@@ -116,7 +137,7 @@ describe("summarizeDraftHealth", () => {
         violation({ lesson_id: 1 }),
         violation({ lesson_id: 2 }),
         violation({ type: "FIXED_TIME_SLOT_MISMATCH", lesson_id: 3 }),
-        violation({ type: "ROOM_MISSING_FOR_TYPE", severity: "WARNING", lesson_id: 4, identity_key: "ROOM_MISSING_FOR_TYPE:4" }),
+        violation({ type: "REQUIRED_ROOM_MISSING", severity: "WARNING", lesson_id: 4, identity_key: "REQUIRED_ROOM_MISSING:4" }),
       ],
       2,
     );
@@ -135,39 +156,36 @@ describe("summarizeDraftHealth", () => {
 
 describe("summarizeDataHealth", () => {
   const teacher = (id: number, active = true): Teacher => ({ id, name: `T${id}`, is_active: active }) as Teacher;
-  const klass = (id: number, homeroom: number | null, active = true): Class =>
-    ({ id, name: `${id}班`, is_active: active, homeroom_room_id: homeroom }) as Class;
+  const klass = (id: number, active = true): Class => ({ id, name: `${id}班`, is_active: active }) as Class;
   const subject = (id: number): Subject => ({ id, name: `S${id}`, is_active: true }) as Subject;
-  const room = (id: number, active = true): Room => ({ id, name: `R${id}`, room_type: "普通教室", is_active: active }) as Room;
+  const room = (id: number, active = true): Room => ({ id, name: `R${id}`, is_active: active }) as Room;
 
-  it("counts active records and lists classes without a homeroom", () => {
+  it("counts active records (停用 classes are left out too)", () => {
     const health = summarizeDataHealth({
       teachers: [teacher(1), teacher(2, false)],
-      classes: [klass(1, 10), klass(2, null), klass(3, null, false)],
+      classes: [klass(1), klass(2), klass(3, false)],
       subjects: [subject(1)],
       rooms: [room(10), room(11, false)],
     });
     expect([health.teacherCount, health.classCount, health.subjectCount, health.roomCount]).toEqual([1, 2, 1, 1]);
-    expect(health.issues).toEqual([
-      { message: "1 個班級沒有設定導師班教室（2班），原班上課的課會沒有教室", path: "/data?tab=classes" },
-    ]);
+    expect(health.issues).toEqual([]);
   });
 
-  it("names at most three classes", () => {
+  it("says classes are missing when every class is 停用", () => {
     const health = summarizeDataHealth({
       teachers: [teacher(1)],
-      classes: [1, 2, 3, 4, 5].map((id) => klass(id, null)),
+      classes: [klass(1, false)],
       subjects: [subject(1)],
-      rooms: [room(1)],
+      rooms: [room(10)],
     });
-    expect(health.issues[0].message).toBe("5 個班級沒有設定導師班教室（1班、2班、3班 等 5 班），原班上課的課會沒有教室");
+    expect(health.issues.map((issue) => issue.path)).toEqual(["/data?tab=classes"]);
   });
 
   it("says what is missing when there is nothing at all", () => {
     const health = summarizeDataHealth({ teachers: [], classes: [], subjects: [], rooms: [] });
     expect([health.teacherCount, health.classCount, health.subjectCount, health.roomCount]).toEqual([0, 0, 0, 0]);
     expect(health.issues.map((issue) => issue.path)).toEqual([
-      "/data?tab=teachers",
+      "/users",
       "/data?tab=classes",
       "/data?tab=subjects",
       "/data?tab=rooms",
@@ -176,7 +194,38 @@ describe("summarizeDataHealth", () => {
 
   it("has no issue when everything is set", () => {
     expect(
-      summarizeDataHealth({ teachers: [teacher(1)], classes: [klass(1, 10)], subjects: [subject(1)], rooms: [room(10)] }).issues,
+      summarizeDataHealth({ teachers: [teacher(1)], classes: [klass(1)], subjects: [subject(1)], rooms: [room(10)] }).issues,
     ).toEqual([]);
+  });
+});
+
+describe("draftHealthBadge", () => {
+  it("is green 可發布 with no error and no warning", () => {
+    expect(draftHealthBadge({ errorCount: 0, warningCount: 0 })).toEqual({ tone: "success", label: "可發布" });
+  });
+
+  it("is amber with warnings only", () => {
+    expect(draftHealthBadge({ errorCount: 0, warningCount: 3 })).toEqual({ tone: "warning", label: "3 個警告" });
+  });
+
+  it("is red as soon as there is an error, warnings or not", () => {
+    expect(draftHealthBadge({ errorCount: 2, warningCount: 0 })).toEqual({ tone: "danger", label: "2 個錯誤" });
+    expect(draftHealthBadge({ errorCount: 1, warningCount: 4 })).toEqual({ tone: "danger", label: "1 個錯誤" });
+  });
+});
+
+describe("draftHealthAction", () => {
+  it("says 前往修正 with errors, else 檢視並發布", () => {
+    expect(draftHealthAction({ errorCount: 1 })).toBe("前往修正");
+    expect(draftHealthAction({ errorCount: 0 })).toBe("檢視並發布");
+  });
+});
+
+describe("statTone", () => {
+  it("is gray for 0 and the given color otherwise", () => {
+    expect(statTone(0, "problem")).toBe("zero");
+    expect(statTone(0, "warning")).toBe("zero");
+    expect(statTone(2, "problem")).toBe("problem");
+    expect(statTone(1, "warning")).toBe("warning");
   });
 });

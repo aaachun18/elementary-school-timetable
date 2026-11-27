@@ -7,6 +7,7 @@ import { list as listRooms } from "../api/rooms";
 import { list as listTimeSlots } from "../api/timeSlots";
 import { list as listRequirements } from "../api/classSubjectRequirements";
 import { useResource } from "../hooks/useResource";
+import { useTeacherNames } from "../hooks/useTeacherAccounts";
 import { translateFailureType } from "../constants/errorMessages";
 import { resolveViolationPageTarget } from "../constants/violationPageMapping";
 import {
@@ -20,10 +21,13 @@ import type {
   ConstraintViolationDetail,
   RunSchedulerFailureResponse,
 } from "../types/scheduler";
-import { ERROR_TEXT, LOADING_TEXT, MUTED_TEXT, SUBSECTION_TITLE } from "../styles/ui";
+import { ERROR_TEXT, LINK_TEXT, LOADING_TEXT, MUTED_TEXT, SUBSECTION_TITLE } from "../styles/ui";
 
 interface FailureDiagnosticsProps {
   response: RunSchedulerFailureResponse;
+  // v3: the 排課紀錄 that was scheduled -- its requirements name the
+  // lessons (every record owns its own).
+  versionId: number;
 }
 
 // Shared by both <ul> lists below: list-none drops the browser's default
@@ -55,7 +59,7 @@ function PageTargetLine({
       {target.kind === "link" ? (
         <>
           請至{" "}
-          <Link to={target.path} className="text-blue-600 hover:underline">
+          <Link to={target.path} className={LINK_TEXT}>
             {target.label}
           </Link>{" "}
           修正
@@ -133,13 +137,18 @@ function GroupedLessonFailureItem({
 // get their own headings.
 export default function FailureDiagnostics({
   response,
+  versionId,
 }: FailureDiagnosticsProps): ReactElement {
   const teachers = useResource(() => listTeachers(), []);
+  const teacherNames = useTeacherNames();
   const classes = useResource(() => listClasses(), []);
   const subjects = useResource(() => listSubjects(), []);
   const rooms = useResource(() => listRooms(), []);
   const timeSlots = useResource(() => listTimeSlots(), []);
-  const requirements = useResource(() => listRequirements(), []);
+  const requirements = useResource(
+    () => listRequirements(0, 1000, { schedule_version_id: versionId }),
+    [versionId],
+  );
 
   const isLoading =
     teachers.isLoading ||
@@ -176,6 +185,7 @@ export default function FailureDiagnostics({
     requirementById: new Map(
       (requirements.data ?? []).map((requirement) => [requirement.id, requirement]),
     ),
+    teacherAccountById: teacherNames.accounts,
   };
 
   return (

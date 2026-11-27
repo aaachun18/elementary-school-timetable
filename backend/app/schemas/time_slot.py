@@ -1,33 +1,33 @@
-from datetime import datetime, time
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
 
-class TimeSlotBase(BaseModel):
+class TimeSlotRead(BaseModel):
+    id: int
     weekday: int
     period: int
-    start_time: time | None = None
-    end_time: time | None = None
-    is_teaching_period: bool = True
-    label: str | None = None
-
-
-class TimeSlotCreate(TimeSlotBase):
-    pass
-
-
-class TimeSlotRead(TimeSlotBase):
-    id: int
+    is_teaching_period: bool
+    label: str | None
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
 
+# A school's grid is fixed (built with the school): only whether a slot is
+# schedulable and its label can change.
 class TimeSlotUpdate(BaseModel):
-    weekday: int | None = None
-    period: int | None = None
-    start_time: time | None = None
-    end_time: time | None = None
     is_teaching_period: bool | None = None
     label: str | None = None
+
+
+class TimeSlotBulkUpdateItem(TimeSlotUpdate):
+    id: int
+
+
+class TimeSlotBulkUpdate(BaseModel):
+    """PATCH /time-slots/: the 學校資料 timetable's 儲存 -- every changed
+    cell at once, applied all or nothing."""
+
+    time_slots: list[TimeSlotBulkUpdateItem]

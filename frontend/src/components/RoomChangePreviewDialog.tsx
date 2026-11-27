@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 import ConfirmDialog from "./ConfirmDialog";
+import { CANCEL_LABEL } from "../utils/confirmText";
 import PreviewChangeList from "./PreviewChangeList";
 import ViolationDiffSummary from "./ViolationDiffSummary";
 import type { RoomChangePreview } from "../hooks/useRoomChange";
@@ -56,9 +57,9 @@ export default function RoomChangePreviewDialog({
     <ConfirmDialog
       open={preview !== null}
       title="預覽更改教室"
-      confirmLabel={addsProblems ? "仍要更改" : "確認更改"}
-      cancelLabel={hasChanges ? "返回" : "關閉"}
-      danger={addsProblems}
+      confirmLabel={addsProblems ? "仍要更改" : "更改教室"}
+      cancelLabel={hasChanges ? CANCEL_LABEL : "關閉"}
+      tone={addsProblems ? "danger" : "primary"}
       busy={isSaving}
       busyLabel="儲存中…"
       showConfirm={hasChanges}

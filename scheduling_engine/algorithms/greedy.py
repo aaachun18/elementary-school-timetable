@@ -55,7 +55,7 @@ from scheduling_engine.algorithms.resources import (
 from scheduling_engine.constraints.base import BaseConstraint, ConstraintViolation
 from scheduling_engine.constraints.teacher_workload import TeacherWorkloadConstraint
 from scheduling_engine.constraints.weekly_periods import WeeklyPeriodsConstraint
-from scheduling_engine.models.domain import LessonAssignment
+from scheduling_engine.models.domain import LessonAssignment, joint_keys
 from scheduling_engine.state import SchedulingState
 
 __all__ = ["SchedulingResources", "LessonFailure", "GreedyResult", "schedule_greedy"]
@@ -230,7 +230,7 @@ def schedule_greedy(
     lesson_failures: list[LessonFailure] = []
 
     for unit in ordered_units:
-        if unit.block is not None:
+        if unit.block is not None or unit.combined is not None:
             block_candidate = _find_first_valid_block_candidate(
                 unit, working_state, resources, tables, real_time_constraints
             )
@@ -295,7 +295,9 @@ def schedule_greedy(
 
     # Every Lesson placed -- now the whole-batch H7/H8 checks.
     weekly_periods_constraint = WeeklyPeriodsConstraint(resources.requirement_periods)
-    workload_constraint = TeacherWorkloadConstraint(resources.teacher_workload_limits)
+    workload_constraint = TeacherWorkloadConstraint(
+        resources.teacher_workload_limits, joint_keys(resources.combined_lessons)
+    )
     post_hoc_violations = weekly_periods_constraint.explain_violations(
         working_state.assignments
     ) + workload_constraint.explain_violations(working_state.assignments)

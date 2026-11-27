@@ -1,4 +1,6 @@
 import { useRef, useState, type ReactElement } from "react";
+import SearchableSelect from "./SearchableSelect";
+import StatusBadge from "./StatusBadge";
 import TeacherReassignPreviewDialog from "./TeacherReassignPreviewDialog";
 import { useFlashMessage } from "../hooks/useFlashMessage";
 import { useTeacherReassignment } from "../hooks/useTeacherReassignment";
@@ -16,15 +18,14 @@ import {
 } from "../utils/teacherReassignment";
 import type { TeacherReassignmentResult } from "../types/scheduler";
 import {
-  BADGE_INFO,
-  BUTTON_PRIMARY_SM,
+  BUTTON_SECONDARY_ROW,
   CARD,
   ERROR_TEXT,
+  FIELD_PAGE,
   HELP_TEXT,
   LABEL,
   LOADING_TEXT,
   MUTED_TEXT,
-  SELECT,
   SUBSECTION_TITLE,
   SUCCESS_TEXT,
   TABLE,
@@ -169,27 +170,22 @@ export default function TeacherReassignPanel({
       <h2 className={SUBSECTION_TITLE}>換教師</h2>
       <p className={HELP_TEXT}>先選原教師，再為每門課選新教師，按「預覽」確認。</p>
 
-      <label htmlFor="reassign-original-teacher" className={`${LABEL} mb-1 block`}>
-        原教師
-      </label>
+      <p className={`${LABEL} mb-1 block`}>原教師</p>
       {originalTeacherOptions.length === 0 ? (
         <p className={MUTED_TEXT}>這個版本還沒有任何指定教師的課。</p>
       ) : (
-        <select
-          id="reassign-original-teacher"
-          value={originalTeacherId}
-          onChange={(event) => handleSelectOriginalTeacher(event.target.value)}
+        <SearchableSelect
+          ariaLabel="原教師"
+          value={originalTeacherId === "" ? null : originalTeacherId}
+          options={originalTeacherOptions.map((teacherId) => ({
+            value: teacherId,
+            label: `${teacherName(teacherId)}${lookups.teacherById.get(teacherId)?.is_active === false ? "（已停用）" : ""}`,
+          }))}
+          onChange={(id) => handleSelectOriginalTeacher(id === null ? "" : String(id))}
+          placeholder="選擇或搜尋教師…"
           disabled={isBusy}
-          className={`${SELECT} mb-3`}
-        >
-          <option value="">請選擇…</option>
-          {originalTeacherOptions.map((teacherId) => (
-            <option key={teacherId} value={teacherId}>
-              {teacherName(teacherId)}
-              {lookups.teacherById.get(teacherId)?.is_active === false ? "（已停用）" : ""}
-            </option>
-          ))}
-        </select>
+          className={`${FIELD_PAGE} mb-3`}
+        />
       )}
 
       {flash.message !== null && <p className={`${SUCCESS_TEXT} mb-2`}>✓ {flash.message}</p>}
@@ -245,28 +241,24 @@ export default function TeacherReassignPanel({
                       <td className={TD}>
                         {currentNames.length === 0 ? "未指定" : currentNames.join("、")}
                         {handedTo !== undefined && (
-                          <span className={`${BADGE_INFO} ml-2`}>
+                          <StatusBadge tone="info" className="ml-2">
                             剛換給{teacherName(handedTo.toTeacherId)}
-                          </span>
+                          </StatusBadge>
                         )}
                       </td>
                       <td className={TD}>
-                        <select
-                          aria-label={`${courseName} 的新教師`}
-                          value={selectedNewTeacher ?? ""}
-                          onChange={(event) =>
-                            handleSelectNewTeacher(requirement.id, event.target.value)
-                          }
+                        <SearchableSelect
+                          ariaLabel={`${courseName} 的新教師`}
+                          value={selectedNewTeacher ?? null}
+                          options={newTeacherOptions.map((teacherId) => ({
+                            value: teacherId,
+                            label: teacherName(teacherId),
+                          }))}
+                          onChange={(id) => handleSelectNewTeacher(requirement.id, id === null ? "" : String(id))}
+                          placeholder="選擇或搜尋教師…"
                           disabled={isBusy}
-                          className={SELECT}
-                        >
-                          <option value="">請選擇…</option>
-                          {newTeacherOptions.map((teacherId) => (
-                            <option key={teacherId} value={teacherId}>
-                              {teacherName(teacherId)}
-                            </option>
-                          ))}
-                        </select>
+                          className="w-full"
+                        />
                       </td>
                       <td className={TD}>
                         <button
@@ -274,7 +266,7 @@ export default function TeacherReassignPanel({
                           onClick={() => handlePreview(requirement.id)}
                           disabled={isBusy || selectedNewTeacher === undefined}
                           aria-label={`預覽把 ${courseName} 換給新教師`}
-                          className={BUTTON_PRIMARY_SM}
+                          className={BUTTON_SECONDARY_ROW}
                         >
                           預覽
                         </button>

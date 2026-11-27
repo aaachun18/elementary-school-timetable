@@ -3,8 +3,8 @@ ScheduleVersion's Schedule rows into scheduling_engine LessonAssignments and
 runs every existing Hard Constraint's explain_violations() over them.
 
 Unlike run_scheduler(), this never searches and never writes: it only
-reports what is wrong with the timetable as it currently stands (DRAFT or
-PUBLISHED). Task 88: it also checks lesson blocks (連堂, the engine's own
+reports what is wrong with the timetable as it currently stands (any
+record). Task 88: it also checks lesson blocks (連堂, the engine's own
 LessonBlockConstraint) and reports a teacher below their minimum weekly
 periods as a WARNING (TEACHER_MIN_WORKLOAD) -- the only non-ERROR type.
 Nothing here commits, adds, or modifies any row -- it is the
@@ -21,10 +21,14 @@ from sqlalchemy.orm import Session
 # app.services.scheduler runs its sys.path bootstrap, which is what makes
 # the repo-root scheduling_engine package importable when the app runs
 # with backend/ as the working directory (see that module's comment).
+from app.services.school_scope import (
+    in_school,
+    school_id_of_version,
+)
 from app.services.scheduler import (
     build_lesson_blocks,
     build_scheduling_resources,
-    load_semester_requirements,
+    load_version_requirements,
 )
 
 from scheduling_engine.algorithms.blocks import block_constraints  # noqa: E402
@@ -46,13 +50,17 @@ from scheduling_engine.constraints.weekly_periods import (  # noqa: E402
 from scheduling_engine.models.domain import (  # noqa: E402
     LessonAssignment,
     TeacherMinimumWorkload,
+    joint_keys,
 )
 
 from app.models.class_subject_requirement import ClassSubjectRequirement
 from app.models.grade_class import Class
 from app.models.lesson import Lesson
 from app.models.schedule import Schedule
+from app.models.schedule_version import ScheduleVersion
 from app.models.subject import Subject
+from app.models.room import Room
+from app.models.semester_teacher import SemesterTeacher
 from app.models.teacher import Teacher
 from app.services import schedule_version as schedule_version_service
 
@@ -208,29 +216,31 @@ def _fixed_time_slot_violations(
     return violations
 
 
-# Task 94: a lesson whose requirement names a room type but whose row has no
-# room at all. H9 (RoomTypeConstraint) only compares a room that is there,
-# and its definition stays as it is -- so an empty room used to pass the
-# check silently (typically: no room has exactly that type, so nothing was
-# picked). A WARNING, like TEACHER_MIN_WORKLOAD: it never makes the
-# timetable invalid and never blocks anything. One per lesson; its
-# identity_key is the lesson, so moving the lesson keeps the same warning.
-# Rows without a teacher or time slot are INCOMPLETE_SCHEDULE_ROW instead.
-ROOM_MISSING_FOR_TYPE = "ROOM_MISSING_FOR_TYPE"
+# Task 94 / 98: a lesson whose requirement names a special room but whose
+# row has no room at all. H9 (RequiredRoomConstraint) only compares a room
+# that is there, so an empty room would otherwise pass the check silently.
+# A WARNING, like TEACHER_MIN_WORKLOAD: it never makes the timetable invalid
+# and never blocks anything. One per lesson; its identity_key is the
+# lesson, so moving the lesson keeps the same warning. Rows without a
+# teacher or time slot are INCOMPLETE_SCHEDULE_ROW instead.
+REQUIRED_ROOM_MISSING = "REQUIRED_ROOM_MISSING"
 
 
 def _missing_room_violations(
     assignments: list[LessonAssignment], context: "CheckContext"
 ) -> list[ConstraintViolation]:
-    room_type_of = {
-        rule.class_subject_requirement_id: rule.required_room_type
-        for rule in context.resources.room_type_requirements
+    required_room_of = {
+        rule.class_subject_requirement_id: rule.room_id
+        for rule in context.resources.required_room_rules
     }
+    # 共同排課: a combined lesson's room is its own, not the requirement's.
+    combined_ids = set(joint_keys(context.resources.combined_lessons))
     violations: list[ConstraintViolation] = []
     for assignment in assignments:
-        room_type = room_type_of.get(assignment.class_subject_requirement_id)
+        required_room_id = required_room_of.get(assignment.class_subject_requirement_id)
         if (
-            room_type is None
+            required_room_id is None
+            or assignment.lesson_id in combined_ids
             or assignment.room_id is not None
             or assignment.teacher_id is None
             or assignment.time_slot_id is None
@@ -238,9 +248,10 @@ def _missing_room_violations(
             continue
         class_name = context.class_names.get(assignment.class_id, f"班級 {assignment.class_id}")
         subject_name = context.subject_names.get(assignment.subject_id, f"科目 {assignment.subject_id}")
+        room_name = context.room_names.get(required_room_id, f"教室 {required_room_id}")
         violations.append(
             ConstraintViolation(
-                type=ROOM_MISSING_FOR_TYPE,
+                type=REQUIRED_ROOM_MISSING,
                 severity=Severity.WARNING,
                 lesson_id=assignment.lesson_id,
                 teacher_id=assignment.teacher_id,
@@ -250,14 +261,11 @@ def _missing_room_violations(
                 room_id=None,
                 class_subject_requirement_id=assignment.class_subject_requirement_id,
                 message=(
-                    f"{class_name}的{subject_name}指定了教室類型「{room_type}」，"
+                    f"{class_name}的{subject_name}指定在「{room_name}」上課，"
                     "但這堂課沒有教室（警告，不影響課表是否合法）"
                 ),
-                suggested_action=(
-                    f"為這堂課選一間類型為「{room_type}」的教室，"
-                    "或確認教室資料的類型與需求指定的類型完全相同"
-                ),
-                identity_key=f"{ROOM_MISSING_FOR_TYPE}:{assignment.lesson_id}",
+                suggested_action=f"把這堂課的教室設為「{room_name}」",
+                identity_key=f"{REQUIRED_ROOM_MISSING}:{assignment.lesson_id}",
             )
         )
     return violations
@@ -315,7 +323,7 @@ def _load_assignments(
 @dataclass(frozen=True)
 class CheckContext:
     """Task 83: everything check_assignments() needs besides the rows
-    themselves -- the semester's requirements as engine resources, and the
+    themselves -- the record's requirements as engine resources, and the
     fixed time slots of this version's Lessons. Loaded once, so the same
     check can be run in memory on many hypothetical arrangements of the
     version's rows (none of which changes requirements or fixed slots)."""
@@ -328,10 +336,11 @@ class CheckContext:
     schedule_ids: dict[int, int]
     # Task 88: the minimum weekly periods of every active teacher.
     teacher_minimums: list[TeacherMinimumWorkload]
-    # Task 94: names for ROOM_MISSING_FOR_TYPE's message (the semester's
-    # classes and subjects), loaded with the rest of the context.
+    # Task 94: names for REQUIRED_ROOM_MISSING's message (the record's
+    # classes and subjects, the school's rooms), loaded with the rest.
     class_names: dict[int, str] = field(default_factory=dict)
     subject_names: dict[int, str] = field(default_factory=dict)
+    room_names: dict[int, str] = field(default_factory=dict)
 
 
 def _load_schedule_ids(db: Session, schedule_version_id: int) -> dict[int, int]:
@@ -343,26 +352,37 @@ def _load_schedule_ids(db: Session, schedule_version_id: int) -> dict[int, int]:
     return {lesson_id: schedule_id for lesson_id, schedule_id in rows}
 
 
-def _load_teacher_minimums(db: Session) -> list[TeacherMinimumWorkload]:
-    """Active teachers only: an inactive one can't be scheduled at all
-    (H12), so "teaching too little" says nothing about them. Ordered by id
-    so the warnings come out in a stable order."""
-    teachers = db.scalars(
-        select(Teacher).where(Teacher.is_active.is_(True)).order_by(Teacher.id)
+def _load_teacher_minimums(
+    db: Session, schedule_version_id: int
+) -> list[TeacherMinimumWorkload]:
+    """Task 98: the record's own minimum for every teacher taking part in
+    it (SemesterTeacher), active teachers only: an inactive one can't be
+    scheduled at all (H12), so "teaching too little" says nothing about
+    them. Ordered by teacher id so the warnings come out in a stable
+    order."""
+    rows = db.execute(
+        select(SemesterTeacher.teacher_id, SemesterTeacher.min_weekly_periods)
+        .join(Teacher, SemesterTeacher.teacher_id == Teacher.id)
+        .where(
+            SemesterTeacher.schedule_version_id == schedule_version_id,
+            Teacher.is_active.is_(True),
+        )
+        .order_by(SemesterTeacher.teacher_id)
     ).all()
     return [
-        TeacherMinimumWorkload(
-            teacher_id=teacher.id, min_weekly_periods=teacher.min_weekly_periods
-        )
-        for teacher in teachers
+        TeacherMinimumWorkload(teacher_id=teacher_id, min_weekly_periods=min_weekly_periods)
+        for teacher_id, min_weekly_periods in rows
     ]
 
 
-def load_check_context(
-    db: Session, semester_id: int, schedule_version_id: int
-) -> CheckContext:
-    requirements = load_semester_requirements(db, semester_id)
-    resources = build_scheduling_resources(db, requirements)
+def load_check_context(db: Session, schedule_version_id: int) -> CheckContext:
+    version_row = db.get(ScheduleVersion, schedule_version_id)
+    assert version_row is not None  # every caller has found the record
+    school_id = school_id_of_version(db, version_row)
+    requirements = load_version_requirements(db, schedule_version_id)
+    resources = build_scheduling_resources(
+        db, requirements, schedule_version_id=schedule_version_id, school_id=school_id
+    )
     requirement_ids = [requirement.id for requirement in requirements]
     if requirement_ids:
         # Task 88: the same blocks run-scheduler would search with
@@ -379,11 +399,14 @@ def load_check_context(
         resources=resources,
         fixed_time_slots=_load_fixed_time_slots(db, schedule_version_id),
         schedule_ids=_load_schedule_ids(db, schedule_version_id),
-        teacher_minimums=_load_teacher_minimums(db),
+        teacher_minimums=_load_teacher_minimums(db, schedule_version_id),
         class_names=(
             dict(db.execute(select(Class.id, Class.name).where(Class.id.in_(class_ids))).tuples().all())
             if class_ids
             else {}
+        ),
+        room_names=dict(
+            db.execute(select(Room.id, Room.name).where(in_school(Room, school_id))).tuples().all()
         ),
         subject_names=(
             dict(db.execute(select(Subject.id, Subject.name).where(Subject.id.in_(subject_ids))).tuples().all())
@@ -414,7 +437,9 @@ def check_assignments(
         violations.extend(constraint.explain_violations(assignments))
     # Task 88: a WARNING only -- see TeacherMinWorkloadConstraint.
     violations.extend(
-        TeacherMinWorkloadConstraint(context.teacher_minimums).explain_violations(assignments)
+        TeacherMinWorkloadConstraint(
+            context.teacher_minimums, joint_keys(context.resources.combined_lessons)
+        ).explain_violations(assignments)
     )
     # Task 94: also a WARNING only.
     violations.extend(_missing_room_violations(assignments, context))
@@ -434,7 +459,7 @@ def check_schedule_version(
     db: Session, schedule_version_id: int, *, role: str | None = None
 ) -> list[ConstraintViolation] | None:
     """Returns None if the ScheduleVersion doesn't exist -- or, for a
-    TEACHER, isn't PUBLISHED (same visibility rule as
+    TEACHER, isn't published (same visibility rule as
     get_schedule_version(); caller -> 404). Otherwise returns every Hard
     Constraint violation in the version's current Schedule rows, sorted by
     type, lesson_id, time_slot_id. Besides the engine's Hard Constraints,
@@ -445,11 +470,17 @@ def check_schedule_version(
     TEACHER_MIN_WORKLOAD warning are included too. An empty list -- or one
     with only WARNINGs -- means the timetable is valid. A version with no Schedule rows at all is checked as-is (H7
     then reports every requirement as under-scheduled)."""
+    version_row = db.get(ScheduleVersion, schedule_version_id)
+    if version_row is None:
+        return None
     schedule_version = schedule_version_service.get_schedule_version(
-        db, schedule_version_id, role=role
+        db,
+        schedule_version_id,
+        school_id=school_id_of_version(db, version_row),
+        role=role,
     )
     if schedule_version is None:
         return None
 
-    context = load_check_context(db, schedule_version.semester_id, schedule_version_id)
+    context = load_check_context(db, schedule_version_id)
     return check_assignments(context, _load_assignments(db, schedule_version_id))

@@ -5,24 +5,25 @@ SQLAlchemy or FastAPI."""
 from scheduling_engine.constraints import (
     ActiveStatusConstraint,
     ClassConflictConstraint,
+    ClassTimeSlotConstraint,
     NonTeachingPeriodConstraint,
+    RequiredRoomConstraint,
     RequiredTeacherConstraint,
+    RequirementSingleTeacherConstraint,
     RoomConflictConstraint,
-    RoomTypeConstraint,
     TeacherAvailabilityConstraint,
     TeacherConflictConstraint,
-    TeacherQualificationConstraint,
+    TeacherParticipationConstraint,
     TeacherWorkloadConstraint,
     WeeklyPeriodsConstraint,
 )
 from scheduling_engine.models.domain import (
     ActiveStatusInfo,
+    ClassAllowedTimeSlots,
     LessonAssignment,
+    RequiredRoomRule,
     RequiredTeacherRule,
     RequirementPeriods,
-    RoomInfo,
-    RoomTypeRequirement,
-    TeacherQualification,
     TeacherUnavailability,
     TeacherWorkloadLimit,
     TimeSlotInfo,
@@ -192,35 +193,31 @@ def test_teacher_availability_ignores_unassigned_teacher() -> None:
     assert constraint.validate(assignments) is True
 
 
-# --- H5 Teacher Qualification ---
+# --- H5 Teacher Participation (Task 98) ---
 
 
-def test_teacher_qualification_violation_detected() -> None:
-    assignments = [_assignment(lesson_id=1, teacher_id=10, subject_id=5)]
-    constraint = TeacherQualificationConstraint(qualifications=[])
+def test_teacher_not_taking_part_is_reported() -> None:
+    assignments = [_assignment(lesson_id=1, teacher_id=10)]
+    constraint = TeacherParticipationConstraint(teacher_ids=[11])
 
     assert constraint.validate(assignments) is False
     violations = constraint.explain_violations(assignments)
-    assert len(violations) == 1
-    assert violations[0].type == "H5_TEACHER_QUALIFICATION"
-    assert violations[0].subject_id == 5
+    assert [(v.type, v.teacher_id) for v in violations] == [("H5_TEACHER_NOT_PARTICIPATING", 10)]
 
 
-def test_teacher_qualification_ok_when_qualified() -> None:
-    assignments = [_assignment(lesson_id=1, teacher_id=10, subject_id=5)]
-    constraint = TeacherQualificationConstraint(
-        qualifications=[TeacherQualification(teacher_id=10, subject_id=5)]
-    )
+def test_teacher_taking_part_is_fine_for_any_subject() -> None:
+    assignments = [
+        _assignment(lesson_id=1, teacher_id=10, subject_id=5),
+        _assignment(lesson_id=2, teacher_id=10, subject_id=6),
+    ]
 
-    assert constraint.validate(assignments) is True
-    assert constraint.explain_violations(assignments) == []
+    assert TeacherParticipationConstraint(teacher_ids=[10]).validate(assignments) is True
 
 
-def test_teacher_qualification_ignores_unassigned_teacher() -> None:
-    assignments = [_assignment(lesson_id=1, teacher_id=None, subject_id=5)]
-    constraint = TeacherQualificationConstraint(qualifications=[])
+def test_teacher_participation_ignores_unassigned_teacher() -> None:
+    assignments = [_assignment(lesson_id=1, teacher_id=None)]
 
-    assert constraint.validate(assignments) is True
+    assert TeacherParticipationConstraint(teacher_ids=[]).validate(assignments) is True
 
 
 # --- H6 Required Teacher ---
@@ -274,90 +271,90 @@ def test_required_teacher_ignores_unassigned_teacher() -> None:
     assert constraint.validate(assignments) is True
 
 
-# --- H9 Room Type ---
+# --- H9 Required Room (Task 98) ---
 
 
-def test_room_type_violation_detected() -> None:
-    assignments = [
-        _assignment(lesson_id=1, class_subject_requirement_id=7, room_id=50)
-    ]
-    constraint = RoomTypeConstraint(
-        requirements=[
-            RoomTypeRequirement(
-                class_subject_requirement_id=7, required_room_type="自然教室"
-            )
-        ],
-        rooms=[RoomInfo(room_id=50, room_type="普通教室")],
+def test_required_room_violation_detected() -> None:
+    assignments = [_assignment(lesson_id=1, class_subject_requirement_id=7, room_id=50)]
+    constraint = RequiredRoomConstraint(
+        rules=[RequiredRoomRule(class_subject_requirement_id=7, room_id=60)]
     )
 
     assert constraint.validate(assignments) is False
     violations = constraint.explain_violations(assignments)
     assert len(violations) == 1
-    assert violations[0].type == "H9_ROOM_TYPE"
+    assert violations[0].type == "H9_REQUIRED_ROOM"
+    assert violations[0].room_id == 50
 
 
-def test_room_type_ok_when_matching() -> None:
-    assignments = [
-        _assignment(lesson_id=1, class_subject_requirement_id=7, room_id=50)
-    ]
-    constraint = RoomTypeConstraint(
-        requirements=[
-            RoomTypeRequirement(
-                class_subject_requirement_id=7, required_room_type="自然教室"
-            )
-        ],
-        rooms=[RoomInfo(room_id=50, room_type="自然教室")],
+def test_required_room_ok_when_matching() -> None:
+    assignments = [_assignment(lesson_id=1, class_subject_requirement_id=7, room_id=60)]
+    constraint = RequiredRoomConstraint(
+        rules=[RequiredRoomRule(class_subject_requirement_id=7, room_id=60)]
     )
 
     assert constraint.validate(assignments) is True
     assert constraint.explain_violations(assignments) == []
 
 
-def test_room_type_ok_when_no_requirement() -> None:
-    # No RoomTypeRequirement for requirement 7 -> "原班上課", any room is fine.
-    assignments = [
-        _assignment(lesson_id=1, class_subject_requirement_id=7, room_id=50)
-    ]
-    constraint = RoomTypeConstraint(
-        requirements=[], rooms=[RoomInfo(room_id=50, room_type="普通教室")]
+def test_required_room_ok_when_no_rule() -> None:
+    # No rule for requirement 7 -> "原班上課", whatever room it sits in.
+    assignments = [_assignment(lesson_id=1, class_subject_requirement_id=7, room_id=50)]
+    constraint = RequiredRoomConstraint(rules=[])
+
+    assert constraint.validate(assignments) is True
+
+
+def test_required_room_ignores_unassigned_room() -> None:
+    assignments = [_assignment(lesson_id=1, class_subject_requirement_id=7, room_id=None)]
+    constraint = RequiredRoomConstraint(
+        rules=[RequiredRoomRule(class_subject_requirement_id=7, room_id=60)]
     )
 
     assert constraint.validate(assignments) is True
 
 
-def test_room_type_ignores_unassigned_room() -> None:
-    assignments = [
-        _assignment(lesson_id=1, class_subject_requirement_id=7, room_id=None)
-    ]
-    constraint = RoomTypeConstraint(
-        requirements=[
-            RoomTypeRequirement(
-                class_subject_requirement_id=7, required_room_type="自然教室"
-            )
-        ],
-        rooms=[],
+# --- H13 Grade Time Slots (Task 98) ---
+
+
+def test_class_time_slot_violation_detected() -> None:
+    assignments = [_assignment(lesson_id=1, class_id=3, time_slot_id=7)]
+    constraint = ClassTimeSlotConstraint(
+        [ClassAllowedTimeSlots(class_id=3, time_slot_ids=frozenset({1, 2}))]
+    )
+
+    assert constraint.validate(assignments) is False
+    violations = constraint.explain_violations(assignments)
+    assert len(violations) == 1
+    assert violations[0].type == "H13_CLASS_TIME_SLOT"
+    assert (violations[0].class_id, violations[0].time_slot_id) == (3, 7)
+
+
+def test_class_time_slot_ok_inside_allowed_slots() -> None:
+    assignments = [_assignment(lesson_id=1, class_id=3, time_slot_id=2)]
+    constraint = ClassTimeSlotConstraint(
+        [ClassAllowedTimeSlots(class_id=3, time_slot_ids=frozenset({1, 2}))]
     )
 
     assert constraint.validate(assignments) is True
 
 
-def test_room_type_ok_when_room_id_unknown() -> None:
-    # room_id=50 is set (a room WAS assigned), but no RoomInfo exists for
-    # it at all -- must not be treated as a type mismatch.
-    assignments = [
-        _assignment(lesson_id=1, class_subject_requirement_id=7, room_id=50)
-    ]
-    constraint = RoomTypeConstraint(
-        requirements=[
-            RoomTypeRequirement(
-                class_subject_requirement_id=7, required_room_type="自然教室"
-            )
-        ],
-        rooms=[],  # no RoomInfo for room_id=50
+def test_class_time_slot_ok_for_unrestricted_class() -> None:
+    assignments = [_assignment(lesson_id=1, class_id=4, time_slot_id=7)]
+    constraint = ClassTimeSlotConstraint(
+        [ClassAllowedTimeSlots(class_id=3, time_slot_ids=frozenset({1, 2}))]
     )
 
     assert constraint.validate(assignments) is True
-    assert constraint.explain_violations(assignments) == []
+
+
+def test_class_time_slot_ignores_unplaced_lesson() -> None:
+    assignments = [_assignment(lesson_id=1, class_id=3, time_slot_id=None)]
+    constraint = ClassTimeSlotConstraint(
+        [ClassAllowedTimeSlots(class_id=3, time_slot_ids=frozenset({1}))]
+    )
+
+    assert constraint.validate(assignments) is True
 
 
 # --- H11 Non-teaching Period ---
@@ -544,3 +541,33 @@ def test_teacher_workload_ok_when_no_known_limit() -> None:
     constraint = TeacherWorkloadConstraint(teachers=[])
 
     assert constraint.validate(assignments) is True
+
+
+# --- H15 One Teacher per Requirement ---
+
+
+def test_requirement_with_two_teachers_is_reported_for_every_lesson() -> None:
+    assignments = [
+        _assignment(lesson_id=1, class_subject_requirement_id=7, teacher_id=10, time_slot_id=1),
+        _assignment(lesson_id=2, class_subject_requirement_id=7, teacher_id=11, time_slot_id=2),
+    ]
+    constraint = RequirementSingleTeacherConstraint()
+
+    violations = constraint.explain_violations(assignments)
+
+    assert [violation.lesson_id for violation in violations] == [1, 2]
+    assert {violation.type for violation in violations} == {"H15_REQUIREMENT_MIXED_TEACHERS"}
+    assert {violation.class_subject_requirement_id for violation in violations} == {7}
+
+
+def test_requirement_with_one_teacher_is_fine() -> None:
+    assignments = [
+        _assignment(lesson_id=1, class_subject_requirement_id=7, teacher_id=10, time_slot_id=1),
+        _assignment(lesson_id=2, class_subject_requirement_id=7, teacher_id=10, time_slot_id=2),
+        # Another requirement may have another teacher.
+        _assignment(lesson_id=3, class_subject_requirement_id=8, teacher_id=11, time_slot_id=3),
+        # A lesson without a teacher isn't checked.
+        _assignment(lesson_id=4, class_subject_requirement_id=7, teacher_id=None, time_slot_id=4),
+    ]
+
+    assert RequirementSingleTeacherConstraint().validate(assignments) is True

@@ -1,8 +1,9 @@
-"""Task 92: unscheduled lessons of a ScheduleVersion -- the list, the
-place-candidates and placing them with place-lesson (decision 28).
+"""Task 92: unscheduled lessons of a 排課紀錄 -- the list, the
+place-candidates and placing them with place-lesson (decision 28; v3:
+placing only in a manual edit's working copy).
 
 The timetable is test_block_adjustment.py's World, built without the rows
-named in skip_rows -- those lessons exist but are not in the version.
+named in skip_rows -- those lessons exist but are not in the timetable.
 """
 
 from typing import Any
@@ -14,14 +15,20 @@ from sqlalchemy.orm import Session
 
 from app.models.academic_year import Semester
 from app.models.class_subject_requirement import ClassSubjectRequirement
-from app.models.grade_class import Class
 from app.models.lesson import Lesson
 from app.models.room import Room
 from app.models.schedule import Schedule
-from app.models.teacher import Teacher, TeacherSubject
+from app.models.semester_teacher import SemesterTeacher
+from app.models.teacher import Teacher
 from app.services import lesson_placement
 from tests.test_block_adjustment import PLACEMENT, World, _check, _refused, _world
 from tests.test_move_swap_lessons import _ok, _schedule_snapshot
+from tests.conftest import (
+    enroll_in_semester,
+    get_test_school_id,
+    make_record,
+    mark_status_in_db,
+)
 
 URL = "/api/v1/schedule-versions"
 
@@ -142,34 +149,38 @@ def test_unscheduled_version_lists_every_lesson(client: TestClient, db_session: 
     ]
 
 
-def test_eligible_teachers_are_active_qualified_teachers_by_name(
+def test_eligible_teachers_are_the_active_teachers_taking_part_by_name(
     client: TestClient, db_session: Session
 ) -> None:
+    """Task 98: any teacher taking part in the semester may teach any
+    lesson -- the same list for every lesson; an inactive one never."""
     world = _world(db_session, skip_rows=("S1", "A1"))
     world.t1.name, world.t3.name = "B 老師", "A 老師"
-    retired = Teacher(name="0 老師", is_active=False, min_weekly_periods=0, max_weekly_periods=20)
+    retired = Teacher(school_id=get_test_school_id(db_session), name="0 老師", is_active=False, min_weekly_periods=0, max_weekly_periods=20)
     db_session.add(retired)
     db_session.flush()
-    db_session.add(TeacherSubject(teacher_id=retired.id, subject_id=world.science.subject_id))
+    enroll_in_semester(db_session, world.version.id, retired)
     world.science.required_teacher_id = world.t1.id
     db_session.commit()
 
     science, art = _ok(_unscheduled(client, world.version.id))["lessons"]
 
     assert science["required_teacher_id"] == world.t1.id
-    # Still listed with a required teacher; the inactive one never is.
-    assert science["eligible_teachers"] == [
+    expected = [
         {"teacher_id": world.t3.id, "name": "A 老師"},
         {"teacher_id": world.t1.id, "name": "B 老師"},
+        {"teacher_id": world.t2.id, "name": "二號老師"},
     ]
-    assert art["eligible_teachers"] == [{"teacher_id": world.t2.id, "name": "二號老師"}]
+    # Still listed with a required teacher.
+    assert science["eligible_teachers"] == expected
+    assert art["eligible_teachers"] == expected
 
 
-def test_subject_nobody_can_teach_has_no_eligible_teachers(
+def test_no_teacher_taking_part_means_no_eligible_teachers(
     client: TestClient, db_session: Session
 ) -> None:
     world = _world(db_session, skip_rows=("A1",))
-    db_session.query(TeacherSubject).filter(TeacherSubject.teacher_id == world.t2.id).delete()
+    db_session.query(SemesterTeacher).delete()
     db_session.commit()
 
     [art] = _ok(_unscheduled(client, world.version.id))["lessons"]
@@ -177,25 +188,22 @@ def test_subject_nobody_can_teach_has_no_eligible_teachers(
     assert art["eligible_teachers"] == []
 
 
-def test_suggested_room_is_the_first_active_room_of_the_type(
+def test_suggested_room_is_the_required_room_else_none(
     client: TestClient, db_session: Session
 ) -> None:
     world = _world(db_session, skip_rows=("S3", "A1"))
-    closed = Room(name="舊自然教室", room_type="自然教室", is_active=False)
-    open_ = Room(name="自然教室一", room_type="自然教室", is_active=True)
-    later = Room(name="自然教室二", room_type="自然教室", is_active=True)
-    homeroom = Room(name="四甲教室", room_type="普通教室", is_active=True)
-    db_session.add_all([closed, open_, later, homeroom])
+    lab = Room(school_id=get_test_school_id(db_session), name="自然教室一", is_active=True)
+    unused = Room(school_id=get_test_school_id(db_session), name="四甲教室", is_active=True)
+    db_session.add_all([lab, unused])
     db_session.flush()
-    world.science.required_room_type = "自然教室"
-    db_session.get(Class, world.science.class_id).homeroom_room_id = homeroom.id  # type: ignore[union-attr]
+    world.science.required_room_id = lab.id
     db_session.commit()
 
     science, art = _ok(_unscheduled(client, world.version.id))["lessons"]
 
-    assert science["suggested_room_id"] == open_.id
-    # Task 92B: no room type -> the class's homeroom.
-    assert art["suggested_room_id"] == homeroom.id
+    assert science["suggested_room_id"] == lab.id
+    # No special room: 原班上課, no school room.
+    assert art["suggested_room_id"] is None
 
 
 def test_suggested_room_without_type_or_homeroom_is_none(
@@ -208,26 +216,23 @@ def test_suggested_room_without_type_or_homeroom_is_none(
     assert art["suggested_room_id"] is None
 
 
-@pytest.mark.parametrize("status", ["PUBLISHED", "ARCHIVED"])
-def test_list_is_readable_for_locked_versions(
+@pytest.mark.parametrize("status", ["AUTO", "MANUAL", "COPIED"])
+def test_list_is_readable_for_saved_records(
     client: TestClient, db_session: Session, status: str
 ) -> None:
     world = _world(db_session, skip_rows=("A1",))
-    world.version.status = status
-    db_session.commit()
+    mark_status_in_db(db_session, world.version.id, status, is_published=True)
 
     lessons = _ok(_unscheduled(client, world.version.id))["lessons"]
 
     assert [item["lesson_id"] for item in lessons] == [_lesson(world, "A1")]
 
 
-def test_lessons_of_other_semesters_are_not_listed(client: TestClient, db_session: Session) -> None:
+def test_lessons_of_other_records_are_not_listed(client: TestClient, db_session: Session) -> None:
     world = _world(db_session)
-    other = Semester(academic_year_id=world.version.semester.academic_year_id, number=2, is_active=False)
-    db_session.add(other)
-    db_session.flush()
+    other = make_record(db_session, world.version.semester_id)
     requirement = ClassSubjectRequirement(
-        semester_id=other.id, class_id=world.science.class_id, subject_id=world.science.subject_id, weekly_periods=1
+        schedule_version_id=other.id, class_id=world.science.class_id, subject_id=world.science.subject_id, weekly_periods=1
     )
     db_session.add(requirement)
     db_session.flush()
@@ -422,8 +427,9 @@ def test_request_teacher_wins_over_the_required_one_and_is_reported(
     data = _ok(_place(client, world.version.id, _lesson(world, "A1"), world.slot(3, 5), teacher_id=world.t1.id))
 
     assert _rows_of(world)[_lesson(world, "A1")].teacher_id == world.t1.id
-    # Not refused: the check reports both (t1 can't teach art, t2 is required).
-    assert _types(data["check"]) == {"H5_TEACHER_QUALIFICATION", "H6_REQUIRED_TEACHER"}
+    # Not refused: the check reports it (t2 is required). Task 98: there is
+    # no qualification any more, so that is the only problem.
+    assert _types(data["check"]) == {"H6_REQUIRED_TEACHER"}
 
 
 def test_missing_or_inactive_teacher_is_refused(client: TestClient, db_session: Session) -> None:
@@ -440,12 +446,11 @@ def test_missing_or_inactive_teacher_is_refused(client: TestClient, db_session: 
 
 
 @pytest.mark.parametrize(
-    ("name", "teacher", "homeroom", "named_room", "expected", "why"),
+    ("name", "teacher", "named_room", "expected", "why"),
     [
-        ("A1", "t2", True, False, "homeroom", "no room type, the class has a homeroom"),
-        ("A1", "t2", False, False, None, "no room type, no homeroom: empty as before"),
-        ("S3", "t1", True, False, None, "a room type: never the homeroom"),
-        ("A1", "t2", True, True, "named", "the request's room wins"),
+        ("A1", "t2", False, None, "no special room: 原班上課, no room"),
+        ("S3", "t1", False, "lab", "the required room"),
+        ("A1", "t2", True, "named", "the request's room wins"),
     ],
 )
 def test_room_default_follows_run_scheduler(
@@ -453,23 +458,21 @@ def test_room_default_follows_run_scheduler(
     db_session: Session,
     name: str,
     teacher: str,
-    homeroom: bool,
     named_room: bool,
     expected: str | None,
     why: str,
 ) -> None:
     """Task 92B (decision 29): the same room rule as run-scheduler."""
     world = _world(db_session, skip_rows=(name,))
-    room = Room(name="四甲教室", room_type="普通教室", is_active=True)
-    other = Room(name="美勞教室", room_type="美勞教室", is_active=True)
-    db_session.add_all([room, other])
+    room = Room(school_id=get_test_school_id(db_session), name="四甲教室", is_active=True)
+    other = Room(school_id=get_test_school_id(db_session), name="美勞教室", is_active=True)
+    lab = Room(school_id=get_test_school_id(db_session), name="自然教室一", is_active=True)
+    db_session.add_all([room, other, lab])
     db_session.flush()
-    world.science.required_room_type = "自然教室"
-    if homeroom:
-        db_session.get(Class, world.science.class_id).homeroom_room_id = room.id  # type: ignore[union-attr]
+    world.science.required_room_id = lab.id
     db_session.commit()
     room_id = other.id if named_room else None
-    want = {"homeroom": room.id, "named": other.id, None: None}[expected]
+    want = {"named": other.id, "lab": lab.id, None: None}[expected]
 
     candidates = _ok(_place_candidates(
         client, world.version.id, _lesson(world, name), teacher_id=getattr(world, teacher).id,
@@ -482,23 +485,23 @@ def test_room_default_follows_run_scheduler(
     assert _rows_of(world)[_lesson(world, name)].room_id == want, why
 
 
-def test_room_type_requirement_is_checked_only_once_a_room_is_named(
+def test_required_room_is_used_unless_another_is_named_which_h9_reports(
     client: TestClient, db_session: Session
 ) -> None:
-    """No room is picked for a room-type requirement. H9 compares a room
-    that is there, so an empty room is not reported (as for any row, e.g.
-    the science rows of this World) -- a room of another type is."""
+    """Task 98: no room in the request -> the required room; the required
+    room named -> fine; another room named -> placed, but H9 reports it."""
     world = _world(db_session, skip_rows=("S3",))
-    lab = Room(name="自然教室一", room_type="自然教室", is_active=True)
-    hall = Room(name="禮堂", room_type="禮堂", is_active=True)
+    lab = Room(school_id=get_test_school_id(db_session), name="自然教室一", is_active=True)
+    hall = Room(school_id=get_test_school_id(db_session), name="禮堂", is_active=True)
     db_session.add_all([lab, hall])
-    world.science.required_room_type = "自然教室"
+    db_session.flush()
+    world.science.required_room_id = lab.id
     db_session.commit()
 
     def h9(room_id: int | None) -> bool:
         data = _ok(_place(client, world.version.id, _lesson(world, "S3"), world.slot(3, 5), teacher_id=world.t1.id, room_id=room_id, dry_run=True))
-        assert data["changes"][0]["new_room_id"] == room_id
-        return _lesson(world, "S3") in {v["lesson_id"] for v in data["check"]["violations"] if v["type"] == "H9_ROOM_TYPE"}
+        assert data["changes"][0]["new_room_id"] == (room_id or lab.id)
+        return _lesson(world, "S3") in {v["lesson_id"] for v in data["check"]["violations"] if v["type"] == "H9_REQUIRED_ROOM"}
 
     assert (h9(None), h9(lab.id), h9(hall.id)) == (False, False, True)
 
@@ -516,13 +519,11 @@ def test_missing_room_or_time_slot_returns_404(client: TestClient, db_session: S
 # --- Which lessons can be placed ---
 
 
-def test_lesson_of_another_semester_is_refused(client: TestClient, db_session: Session) -> None:
+def test_lesson_of_another_record_is_refused(client: TestClient, db_session: Session) -> None:
     world = _world(db_session)
-    other = Semester(academic_year_id=world.version.semester.academic_year_id, number=2, is_active=False)
-    db_session.add(other)
-    db_session.flush()
+    other = make_record(db_session, world.version.semester_id)
     requirement = ClassSubjectRequirement(
-        semester_id=other.id, class_id=world.science.class_id, subject_id=world.science.subject_id, weekly_periods=1
+        schedule_version_id=other.id, class_id=world.science.class_id, subject_id=world.science.subject_id, weekly_periods=1
     )
     db_session.add(requirement)
     db_session.flush()
@@ -534,7 +535,7 @@ def test_lesson_of_another_semester_is_refused(client: TestClient, db_session: S
     candidates = _place_candidates(client, world.version.id, foreign.id, teacher_id=world.t1.id)
 
     for response in (place, candidates):
-        assert (response.status_code, response.json()["detail"]) == (409, "此課程不屬於該課表的學期")
+        assert (response.status_code, response.json()["detail"]) == (409, "此課程不屬於這筆排課紀錄")
 
 
 def test_lesson_already_in_the_version_is_refused(client: TestClient, db_session: Session) -> None:
@@ -589,8 +590,8 @@ def test_failure_halfway_through_a_block_writes_nothing(
 
 def test_teacher_gets_403(teacher_client: TestClient, db_session: Session) -> None:
     world = _world(db_session, skip_rows=("A1",))
-    world.version.status = "PUBLISHED"  # even a version a TEACHER may read
-    db_session.commit()
+    # Even a record a TEACHER may read.
+    mark_status_in_db(db_session, world.version.id, "AUTO", is_published=True)
 
     assert _unscheduled(teacher_client, world.version.id).status_code == 403
     assert _place_candidates(teacher_client, world.version.id, _lesson(world, "A1"), teacher_id=world.t2.id).status_code == 403
@@ -608,19 +609,13 @@ def test_missing_version_returns_404(client: TestClient, db_session: Session) ->
         assert (response.status_code, response.json()["detail"]) == (404, "ScheduleVersion not found")
 
 
-@pytest.mark.parametrize(
-    ("status", "detail"),
-    [
-        ("PUBLISHED", "已發布版本不可修改，請建立新草稿版本"),
-        ("ARCHIVED", "已封存的課表無法修改，請先複製成新草稿"),
-    ],
-)
+@pytest.mark.parametrize("status", ["NOT_SCHEDULED", "AUTO", "MANUAL", "COPIED"])
 def test_locked_version_returns_409_before_anything_else(
-    client: TestClient, db_session: Session, status: str, detail: str
+    client: TestClient, db_session: Session, status: str
 ) -> None:
+    detail = "課表不能直接修改，請先按「手動編輯課表」"
     world = _world(db_session, skip_rows=("A1",))
-    world.version.status = status
-    db_session.commit()
+    mark_status_in_db(db_session, world.version.id, status)
     before = _schedule_snapshot(db_session)
 
     # No teacher anywhere and lunch as target: the lock is reported first.
@@ -640,7 +635,7 @@ def test_locked_version_returns_409_before_anything_else(
     ("skip", "name", "target", "teacher"),
     [
         (("A1",), "A1", (3, 5), "t2"),
-        (("A1",), "A1", (3, 5), "t1"),  # t1 can't teach art: H5 on the new lesson
+        (("A1",), "A1", (3, 5), "t1"),  # Task 98: any teacher taking part may teach art
         (("S1", "S2"), "S2", (3, 6), "t1"),
         (("S1", "S2"), "S1", (2, 2), "t3"),  # science twice on Tuesday
         (("S1",), "S1", (1, 1), "t3"),
@@ -722,7 +717,7 @@ def test_candidate_block_members_only_for_lessons_in_a_block(
 
 def test_room_parameter_is_used_by_candidates(client: TestClient, db_session: Session) -> None:
     world = _world(db_session, skip_rows=("A1",))
-    room = Room(name="美勞教室", room_type="美勞教室", is_active=True)
+    room = Room(school_id=get_test_school_id(db_session), name="美勞教室", is_active=True)
     db_session.add(room)
     db_session.commit()
 
@@ -771,15 +766,13 @@ def test_two_blocks_of_2_plus_1_on_the_same_day_are_reported(
     assert data["check"] == _check(client, world)
 
 
-def test_other_versions_of_the_semester_are_untouched(client: TestClient, db_session: Session) -> None:
+def test_other_records_of_the_semester_are_untouched(client: TestClient, db_session: Session) -> None:
     world = _world(db_session, skip_rows=("A1",))
-    from app.models.schedule_version import ScheduleVersion
-
-    other = ScheduleVersion(semester_id=world.version.semester_id, version_number=2, status="DRAFT")
-    db_session.add(other)
-    db_session.commit()
+    other = make_record(db_session, world.version.semester_id, status="EDITING")
 
     _ok(_place(client, world.version.id, _lesson(world, "A1"), world.slot(3, 5), teacher_id=world.t2.id))
 
     assert _schedule_snapshot(db_session, other.id) == []
-    assert len(_ok(_unscheduled(client, other.id))["lessons"]) == len(PLACEMENT)
+    # v3: the other record owns no lessons at all -- nothing of this
+    # record's is ever listed for it.
+    assert _ok(_unscheduled(client, other.id))["lessons"] == []

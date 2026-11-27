@@ -49,11 +49,14 @@ from scheduling_engine.algorithms.resources import (
     LookupTables,
     SchedulingResources,
     build_lookup_tables,
+    allowed_time_slots_of_class,
     candidate_teacher_ids,
     no_candidate_teacher_violation,
+    room_by_requirement,
+    room_of_lesson,
 )
 from scheduling_engine.constraints.base import ConstraintViolation, Severity
-from scheduling_engine.models.domain import LessonAssignment
+from scheduling_engine.models.domain import LessonAssignment, joint_keys, occupancy_key
 
 
 @dataclass
@@ -92,7 +95,9 @@ def _lesson_counts_by_required_teacher(
         rule.class_subject_requirement_id: rule.required_teacher_id
         for rule in resources.required_teacher_rules
     }
-    counts: dict[int, int] = {}
+    # 共同排課: a 合併節 is one period for a teacher named by several members.
+    keys = joint_keys(resources.combined_lessons)
+    periods: dict[int, set[str]] = {}
     requirement_ids: dict[int, set[int]] = {}
     for lesson in lessons:
         teacher_id = required_teacher_by_requirement.get(
@@ -100,13 +105,13 @@ def _lesson_counts_by_required_teacher(
         )
         if teacher_id is None:
             continue
-        counts[teacher_id] = counts.get(teacher_id, 0) + 1
+        periods.setdefault(teacher_id, set()).add(occupancy_key(lesson, keys))
         requirement_ids.setdefault(teacher_id, set()).add(
             lesson.class_subject_requirement_id
         )
     return {
-        teacher_id: (count, sorted(requirement_ids[teacher_id]))
-        for teacher_id, count in counts.items()
+        teacher_id: (len(keys_of_teacher), sorted(requirement_ids[teacher_id]))
+        for teacher_id, keys_of_teacher in periods.items()
     }
 
 
@@ -234,9 +239,7 @@ def _check_inactive_entity_conflict(
         rule.class_subject_requirement_id: rule.required_teacher_id
         for rule in resources.required_teacher_rules
     }
-    default_room_by_requirement = {
-        item.class_subject_requirement_id: item.room_id for item in resources.default_rooms
-    }
+    default_room_by_requirement = room_by_requirement(resources)
 
     violations: list[ConstraintViolation] = []
     seen_requirement_ids: set[int] = set()
@@ -349,9 +352,9 @@ def _check_inactive_entity_conflict(
 def _check_zero_candidate_teacher_lessons(
     lessons: list[LessonAssignment], resources: SchedulingResources
 ) -> list[LessonFailure]:
-    """A Lesson with zero candidate teachers at all -- no teacher holds the
-    H5 qualification for its subject (or the one H6 required_teacher_id
-    names does, but lacks it) -- can never be placed no matter what the
+    """A Lesson with zero candidate teachers at all -- no teacher takes part
+    in the semester's scheduling (or the one H6 required_teacher_id names
+    doesn't, Task 98) -- can never be placed no matter what the
     search tries, independent of every other Lesson in the batch: exactly
     the same "aggregate, no-search-needed fact" property as the three checks
     above.
@@ -395,8 +398,8 @@ FIXED_SLOT_NON_TEACHING = "STATIC_FIXED_SLOT_NON_TEACHING"
 FIXED_SLOT_TEACHER_UNAVAILABLE = "STATIC_FIXED_SLOT_TEACHER_UNAVAILABLE"
 FIXED_SLOT_CLASS_CLASH = "STATIC_FIXED_SLOT_CLASS_CLASH"
 FIXED_SLOT_TEACHER_CLASH = "STATIC_FIXED_SLOT_TEACHER_CLASH"
-FIXED_SLOT_ROOM_SHORTAGE = "STATIC_FIXED_SLOT_ROOM_SHORTAGE"
-FIXED_SLOT_HOMEROOM_CLASH = "STATIC_FIXED_SLOT_HOMEROOM_CLASH"
+FIXED_SLOT_ROOM_CLASH = "STATIC_FIXED_SLOT_ROOM_CLASH"
+FIXED_SLOT_CLASS_CLOSED = "STATIC_FIXED_SLOT_CLASS_CLOSED"
 
 
 def _fixed_slot_violation(
@@ -431,21 +434,21 @@ def _check_fixed_time_slots(
 
     - the slot is not one of the school's time slots at all (UNKNOWN);
     - the slot is a non-teaching period, so H11 rejects it (NON_TEACHING);
+    - Task 98: the slot is one the class's grade is not open for, so H13
+      rejects it (CLASS_CLOSED);
     - every teacher who could teach the lesson -- the required teacher, or
-      every qualified teacher when none is required -- is marked
+      every teacher taking part when none is required -- is marked
       unavailable at that slot, so H4 rejects every candidate
       (TEACHER_UNAVAILABLE);
     - two or more Lessons of the same class are fixed to the same slot, an
       unavoidable H2 (CLASS_CLASH);
     - two or more Lessons fixed to the same slot can only be taught by the
-      same one teacher (a required teacher, or the subject's only qualified
-      teacher), an unavoidable H1 (TEACHER_CLASH);
-    - more Lessons needing a room type are fixed to one slot than there
-      are rooms of that type, an unavoidable H3/H9 (ROOM_SHORTAGE);
-    - Task 92B: Lessons of two or more classes sharing one homeroom are
-      fixed to the same slot -- the homeroom is their only room, an
-      unavoidable H3 (HOMEROOM_CLASH). Lessons of one class alone are
-      already CLASS_CLASH.
+      same one teacher (a required teacher, or the only teacher taking
+      part), an unavoidable H1 (TEACHER_CLASH);
+    - Task 92B / 98: Lessons of two or more classes whose one room is the
+      same (a shared homeroom, or the same required special room) are fixed
+      to the same slot, an unavoidable H3 (ROOM_CLASH). Lessons of one
+      class alone are already CLASS_CLASH.
 
     The clash checks report every Lesson involved, not just the second
     one. Lessons without a fixed slot are skipped entirely, so a run with
@@ -497,6 +500,19 @@ def _check_fixed_time_slots(
                 )
             )
             continue
+        allowed = allowed_time_slots_of_class(lesson.class_id, resources)
+        if allowed is not None and slot_id not in allowed:
+            violations.append(
+                _fixed_slot_violation(
+                    FIXED_SLOT_CLASS_CLOSED,
+                    lesson,
+                    f"Lesson {lesson.lesson_id} is fixed to time slot {slot_id}, "
+                    f"which class {lesson.class_id}'s grade is not open for.",
+                    "Fix this lesson to a time slot the grade is open for, or open "
+                    "this time slot for the grade.",
+                )
+            )
+            continue
         placeable.append(lesson)
 
         candidates = candidate_teacher_ids(lesson, tables)
@@ -515,32 +531,28 @@ def _check_fixed_time_slots(
                 )
             )
 
-    violations.extend(_fixed_slot_clashes(placeable, tables))
+    violations.extend(_fixed_slot_clashes(placeable, tables, resources))
     return violations
 
 
 def _fixed_slot_clashes(
-    fixed: list[LessonAssignment], tables: LookupTables
+    fixed: list[LessonAssignment], tables: LookupTables, resources: SchedulingResources
 ) -> list[ConstraintViolation]:
     by_class_slot: dict[tuple[int, int | None], list[LessonAssignment]] = {}
     by_teacher_slot: dict[tuple[int, int | None], list[LessonAssignment]] = {}
-    by_room_type_slot: dict[tuple[str, int | None], list[LessonAssignment]] = {}
-    by_homeroom_slot: dict[tuple[int, int | None], list[LessonAssignment]] = {}
+    by_room_slot: dict[tuple[int, int | None], list[LessonAssignment]] = {}
     for lesson in fixed:
         by_class_slot.setdefault((lesson.class_id, lesson.time_slot_id), []).append(lesson)
         candidates = candidate_teacher_ids(lesson, tables)
         if len(candidates) == 1:
             by_teacher_slot.setdefault((candidates[0], lesson.time_slot_id), []).append(lesson)
-        room_type = tables.required_room_type_by_requirement.get(
-            lesson.class_subject_requirement_id
-        )
-        if room_type is not None:
-            by_room_type_slot.setdefault((room_type, lesson.time_slot_id), []).append(lesson)
-        else:
-            homeroom = tables.default_room_by_requirement.get(lesson.class_subject_requirement_id)
-            if homeroom is not None:
-                by_homeroom_slot.setdefault((homeroom, lesson.time_slot_id), []).append(lesson)
+        room_id = room_of_lesson(lesson, tables)
+        if room_id is not None:
+            by_room_slot.setdefault((room_id, lesson.time_slot_id), []).append(lesson)
 
+    # 共同排課: the lessons of one 合併節 share their teacher and room.
+    keys = joint_keys(resources.combined_lessons)
+    capacity = {item.room_id: item.max_classes for item in resources.room_capacities}
     violations: list[ConstraintViolation] = []
     for (class_id, slot_id), group in by_class_slot.items():
         if len(group) < 2:
@@ -557,7 +569,7 @@ def _fixed_slot_clashes(
                 )
             )
     for (teacher_id, slot_id), group in by_teacher_slot.items():
-        if len(group) < 2:
+        if len({occupancy_key(lesson, keys) for lesson in group}) < 2:
             continue
         lesson_ids = [lesson.lesson_id for lesson in group]
         for lesson in group:
@@ -572,35 +584,19 @@ def _fixed_slot_clashes(
                     teacher_id=teacher_id,
                 )
             )
-    for (room_type, slot_id), group in by_room_type_slot.items():
-        room_count = len(tables.room_ids_by_type.get(room_type, []))
-        if len(group) <= room_count:
-            continue
-        lesson_ids = [lesson.lesson_id for lesson in group]
-        for lesson in group:
-            violations.append(
-                _fixed_slot_violation(
-                    FIXED_SLOT_ROOM_SHORTAGE,
-                    lesson,
-                    f"Lessons {lesson_ids} are all fixed to time slot {slot_id} "
-                    f"and need a room of type '{room_type}', but only "
-                    f"{room_count} such room(s) exist.",
-                    "Fix fewer of these lessons to this time slot, or add rooms "
-                    "of this type.",
-                )
-            )
-    for (room_id, slot_id), group in by_homeroom_slot.items():
+    for (room_id, slot_id), group in by_room_slot.items():
         class_ids = sorted({lesson.class_id for lesson in group})
-        if len(class_ids) < 2:
+        uses = len({occupancy_key(lesson, keys) for lesson in group})
+        if len(class_ids) < 2 or uses <= capacity.get(room_id, 1):
             continue
         lesson_ids = [lesson.lesson_id for lesson in group]
         for lesson in group:
             violation = _fixed_slot_violation(
-                FIXED_SLOT_HOMEROOM_CLASH,
+                FIXED_SLOT_ROOM_CLASH,
                 lesson,
-                f"班級 {_join(class_ids)} 共用導師教室 {room_id}，而課程 {_join(lesson_ids)} 都固定在時段 "
-                f"{slot_id}，這間教室同一時段只能上一堂課",
-                "只把其中一堂課固定在這個時段，或替其中一班改設導師教室",
+                f"班級 {_join(class_ids)} 都在教室 {room_id} 上課，而課程 {_join(lesson_ids)} 都固定在時段 "
+                f"{slot_id}，超過這間教室同一時段能容納的班級數",
+                "只把其中一堂課固定在這個時段，或替其中一班改設教室",
             )
             violations.append(replace(violation, room_id=room_id))
     return violations
@@ -806,89 +802,54 @@ def _check_lesson_blocks(
 def _join(ids: list[int]) -> str:
     return "、".join(str(item) for item in ids)
 
-ROOM_TYPE_NOT_FOUND = "STATIC_ROOM_TYPE_NOT_FOUND"
-HOMEROOM_OVERBOOKED = "STATIC_HOMEROOM_OVERBOOKED"
+ROOM_OVERBOOKED = "STATIC_ROOM_OVERBOOKED"
+CLASS_SLOTS_INSUFFICIENT = "STATIC_CLASS_SLOTS_INSUFFICIENT"
 
 
-def _teaching_slot_count(resources: SchedulingResources) -> int:
+def _teaching_slot_ids(resources: SchedulingResources) -> set[int]:
     """Same "unknown -> teaching" stance as H11: a slot without
     TimeSlotInfo counts as a teaching period."""
     non_teaching = {
         slot.time_slot_id for slot in resources.time_slots if not slot.is_teaching_period
     }
-    return len(set(resources.time_slot_ids) - non_teaching)
+    return set(resources.time_slot_ids) - non_teaching
 
 
 def _check_rooms(
     lessons: list[LessonAssignment], resources: SchedulingResources
 ) -> list[ConstraintViolation]:
-    """Rooms that can never be enough, decidable without searching:
-
-    - a requirement's room type matches no active room at all -- the type
-      is compared as the exact same string (RoomTypeConstraint, H9), so
-      e.g. "自然教室" and "自然教室 " are different types
-      (ROOM_TYPE_NOT_FOUND, once per requirement);
-    - a homeroom is the only room of more lessons than there are teaching
-      periods in the week -- typically two classes sharing one homeroom
-      (HOMEROOM_OVERBOOKED, once per room).
+    """A room that is the only room of more lessons than there are teaching
+    periods in the week can never hold them all -- typically two classes
+    sharing one homeroom, or a special room many classes require (Task
+    92B; Task 98 counts required rooms too, every lesson having exactly one
+    room). Once per room. An inactive required room is
+    _check_inactive_entity_conflict()'s.
 
     The messages are the user-facing text (Traditional Chinese): the
     frontend has no sentence of its own for these types yet.
     """
     tables = build_lookup_tables(resources)
-    inactive_rooms = {
-        info.entity_id
-        for info in resources.active_statuses
-        if info.entity_type == "room" and not info.is_active
-    }
+    teaching_slots = len(_teaching_slot_ids(resources))
+    keys = joint_keys(resources.combined_lessons)
+    capacity = {item.room_id: item.max_classes for item in resources.room_capacities}
+    by_room: dict[int, list[LessonAssignment]] = {}
+    for lesson in lessons:
+        room_id = room_of_lesson(lesson, tables)
+        if room_id is not None:
+            by_room.setdefault(room_id, []).append(lesson)
+
     violations: list[ConstraintViolation] = []
-
-    seen_requirement_ids: set[int] = set()
-    for lesson in lessons:
-        requirement_id = lesson.class_subject_requirement_id
-        room_type = tables.required_room_type_by_requirement.get(requirement_id)
-        if room_type is None or requirement_id in seen_requirement_ids:
-            continue
-        seen_requirement_ids.add(requirement_id)
-        if any(
-            room_id not in inactive_rooms for room_id in tables.room_ids_by_type.get(room_type, [])
-        ):
-            continue
-        violations.append(
-            ConstraintViolation(
-                type=ROOM_TYPE_NOT_FOUND,
-                severity=Severity.ERROR,
-                lesson_id=None,
-                teacher_id=None,
-                class_id=lesson.class_id,
-                subject_id=lesson.subject_id,
-                time_slot_id=None,
-                class_subject_requirement_id=requirement_id,
-                message=(
-                    f"需求 {requirement_id}（班級 {lesson.class_id}、科目 {lesson.subject_id}）"
-                    f"指定的教室類型「{room_type}」找不到任何可用的教室"
-                ),
-                suggested_action=(
-                    "新增這個類型的教室，或把需求的教室類型改成與教室資料完全相同的名稱"
-                ),
-            )
-        )
-
-    teaching_slots = _teaching_slot_count(resources)
-    by_homeroom: dict[int, list[LessonAssignment]] = {}
-    for lesson in lessons:
-        if lesson.class_subject_requirement_id in tables.required_room_type_by_requirement:
-            continue
-        homeroom = tables.default_room_by_requirement.get(lesson.class_subject_requirement_id)
-        if homeroom is not None:
-            by_homeroom.setdefault(homeroom, []).append(lesson)
-    for room_id, group in by_homeroom.items():
-        if len(group) <= teaching_slots:
+    for room_id, group in by_room.items():
+        # A 合併節 is one use; a room holding several classes at once
+        # has that many uses per period.
+        uses = len({occupancy_key(lesson, keys) for lesson in group})
+        room_slots = teaching_slots * capacity.get(room_id, 1)
+        if uses <= room_slots:
             continue
         class_ids = sorted({lesson.class_id for lesson in group})
         violations.append(
             ConstraintViolation(
-                type=HOMEROOM_OVERBOOKED,
+                type=ROOM_OVERBOOKED,
                 severity=Severity.ERROR,
                 lesson_id=None,
                 teacher_id=None,
@@ -897,29 +858,115 @@ def _check_rooms(
                 time_slot_id=None,
                 room_id=room_id,
                 message=(
-                    f"導師教室 {room_id} 要上 {len(group)} 堂課，"
-                    f"但一週只有 {teaching_slots} 個教學時段（班級 {_join(class_ids)}）"
+                    f"教室 {room_id} 要上 {uses} 堂課，"
+                    f"但一週只有 {teaching_slots} 個教學時段"
+                    + (
+                        f"、每個時段最多 {capacity[room_id]} 班"
+                        if capacity.get(room_id, 1) > 1
+                        else ""
+                    )
+                    + f"（班級 {_join(class_ids)}）"
                 ),
-                suggested_action="替共用這間教室的班級改設不同的導師教室",
+                suggested_action="減少指定這間教室的課程，或替共用這間教室的班級改設不同的教室",
             )
         )
+    return violations
+
+
+def _check_class_time_slots(
+    lessons: list[LessonAssignment], resources: SchedulingResources
+) -> list[ConstraintViolation]:
+    """Task 98 (H13): a class needing more lessons than its grade has open
+    teaching periods can never fit them all. Once per class; classes with
+    no restriction are skipped."""
+    teaching = _teaching_slot_ids(resources)
+    count_by_class: dict[int, int] = {}
+    for lesson in lessons:
+        count_by_class[lesson.class_id] = count_by_class.get(lesson.class_id, 0) + 1
+
+    violations: list[ConstraintViolation] = []
+    for class_id, count in sorted(count_by_class.items()):
+        allowed = allowed_time_slots_of_class(class_id, resources)
+        if allowed is None:
+            continue
+        open_slots = len(allowed & teaching)
+        if count <= open_slots:
+            continue
+        violations.append(
+            ConstraintViolation(
+                type=CLASS_SLOTS_INSUFFICIENT,
+                severity=Severity.ERROR,
+                lesson_id=None,
+                teacher_id=None,
+                class_id=class_id,
+                subject_id=None,
+                time_slot_id=None,
+                message=(
+                    f"班級 {class_id} 每週要上 {count} 堂課，"
+                    f"但所屬年級只開放 {open_slots} 個可排節次"
+                ),
+                suggested_action="為這個年級開放更多可排節次，或減少這個班級的科目節數",
+            )
+        )
+    return violations
+
+
+COMBINED_FIXED_CONFLICT = "STATIC_COMBINED_FIXED_CONFLICT"
+
+
+def _check_combined_fixed_slots(
+    lessons: list[LessonAssignment], resources: SchedulingResources
+) -> list[ConstraintViolation]:
+    """共同排課: the members of a 合併節 are fixed to different time slots
+    for the same period -- they can never all be honored together."""
+    fixed_slot = {
+        lesson.lesson_id: lesson.time_slot_id for lesson in lessons if lesson.time_slot_id is not None
+    }
+    by_id = {lesson.lesson_id: lesson for lesson in lessons}
+    violations: list[ConstraintViolation] = []
+    for combined in resources.combined_lessons:
+        size = min(len(lesson_ids) for lesson_ids in combined.member_lesson_ids)
+        for index in range(size):
+            fixed_ids = [
+                lesson_ids[index]
+                for lesson_ids in combined.member_lesson_ids
+                if lesson_ids[index] in fixed_slot
+            ]
+            if len({fixed_slot[lesson_id] for lesson_id in fixed_ids}) <= 1:
+                continue
+            for lesson_id in fixed_ids:
+                lesson = by_id[lesson_id]
+                violations.append(
+                    ConstraintViolation(
+                        type=COMBINED_FIXED_CONFLICT,
+                        severity=Severity.ERROR,
+                        lesson_id=lesson_id,
+                        teacher_id=None,
+                        class_id=lesson.class_id,
+                        subject_id=lesson.subject_id,
+                        time_slot_id=fixed_slot[lesson_id],
+                        class_subject_requirement_id=lesson.class_subject_requirement_id,
+                        message="共同排課的各班這一節固定在不同的時段，無法一起上課",
+                        suggested_action="把合併的各班這一節固定在同一個時段，或取消其中的固定時段",
+                    )
+                )
     return violations
 
 
 def check_static_feasibility(
     lessons: list[LessonAssignment], resources: SchedulingResources
 ) -> StaticFeasibilityResult:
-    """Entry point: run all seven checks (the fixed-time-slot check added
+    """Entry point: run all eight checks (the fixed-time-slot check added
     in Task 81, the lesson-block check in Task 87, the room check in Task
-    92B) and combine their results -- see
+    92B, the grade time slot check in Task 98) and combine their results -- see
     this module's docstring for why all of them must run together rather than
     stopping at the first one that finds something (the Task 38 bug this
     fixed was exactly that: a real run with both a workload problem and a
     zero-candidate-teacher problem only ever reported the workload one).
 
     Only required_teacher_id is checked for capacity/availability -- a
-    Lesson with no required-teacher rule is free to use ANY qualified
-    teacher, so there's no single teacher whose personal capacity/
+    Lesson with no required-teacher rule is free to use ANY teacher taking
+    part, so there's no single teacher whose personal capacity/
     availability can be blamed in advance; that case can only be
     (correctly) discovered by the search itself, exactly as it already is.
     """
@@ -930,6 +977,8 @@ def check_static_feasibility(
         + _check_fixed_time_slots(lessons, resources)
         + _check_lesson_blocks(lessons, resources)
         + _check_rooms(lessons, resources)
+        + _check_class_time_slots(lessons, resources)
+        + _check_combined_fixed_slots(lessons, resources)
     )
     lesson_failures = _check_zero_candidate_teacher_lessons(lessons, resources)
     return StaticFeasibilityResult(

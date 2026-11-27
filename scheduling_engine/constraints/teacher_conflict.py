@@ -5,14 +5,19 @@ from scheduling_engine.constraints.base import (
     ConstraintViolation,
     Severity,
 )
-from scheduling_engine.models.domain import LessonAssignment
+from scheduling_engine.models.domain import LessonAssignment, occupancy_key
 
 
 class TeacherConflictConstraint(BaseConstraint):
     """H1 Teacher Conflict: the same teacher cannot be assigned to two
-    lessons at the same time_slot."""
+    lessons at the same time_slot. 共同排課: lessons of one 合併節
+    (`joint_keys`, see domain.joint_keys()) are one lesson -- the same
+    teacher on several of them is not a conflict."""
 
     VIOLATION_TYPE = "H1_TEACHER_CONFLICT"
+
+    def __init__(self, joint_keys: dict[int, str] | None = None) -> None:
+        self._joint_keys = joint_keys or {}
 
     def explain_violations(
         self, assignments: list[LessonAssignment]
@@ -29,7 +34,7 @@ class TeacherConflictConstraint(BaseConstraint):
 
         violations: list[ConstraintViolation] = []
         for (teacher_id, time_slot_id), group in by_teacher_slot.items():
-            if len(group) <= 1:
+            if len({occupancy_key(assignment, self._joint_keys) for assignment in group}) <= 1:
                 continue
             for assignment in group:
                 violations.append(

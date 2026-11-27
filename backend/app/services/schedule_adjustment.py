@@ -1,6 +1,6 @@
 """Task 65: move one lesson to another time slot, or swap the time slots of
-two lessons, within a DRAFT ScheduleVersion -- then report the version's
-full schedule check.
+two lessons, within a manual edit's working copy (v3: EDITING) -- then
+report its full schedule check.
 
 Manual adjustments, same shape as reassign-teacher (Task 63): validate
 (every refusal before anything changes) -> update -> flush -> run the
@@ -25,6 +25,11 @@ refuse raises BlockAdjustmentRefusedError (-> 409), and otherwise every
 planned row is updated in the one transaction (all or nothing). A lesson of
 no block plans to exactly the one row (two for a swap) these endpoints
 always changed.
+
+移出課表 (unschedule_lesson): the lesson's row -- with every row of its
+block -- is deleted, so the lesson is unscheduled again
+(services/lesson_placement.py lists it and can place it back). Same flow:
+refuse first, delete -> flush -> check -> commit, or roll back for dry_run.
 """
 
 from collections.abc import Callable
@@ -37,13 +42,14 @@ from app.models.schedule import Schedule
 from app.models.schedule_version import ScheduleVersion
 from app.models.time_slot import TimeSlot
 from app.services import block_adjustment, schedule_check
+from app.services.school_scope import get_in_school, school_id_of_version
 from app.services.exceptions import (
     AdjustmentTargetNotFoundError,
     BlockAdjustmentRefusedError,
     CannotSwapWithSelfError,
     ScheduleNotInVersionError,
 )
-from app.services.schedule_version import raise_if_version_locked
+from app.services.schedule_version import raise_if_timetable_locked
 
 # See services/teacher_reassignment.py for why this alias exists.
 ConstraintViolation = schedule_check.ConstraintViolation
@@ -69,7 +75,7 @@ class AdjustmentOutcome:
 def _get_unlocked_version(db: Session, schedule_version_id: int) -> ScheduleVersion | None:
     schedule_version = db.get(ScheduleVersion, schedule_version_id)
     if schedule_version is not None:
-        raise_if_version_locked(schedule_version)
+        raise_if_timetable_locked(schedule_version)
     return schedule_version
 
 
@@ -116,7 +122,7 @@ def _plan(
     the block rules refuse it."""
     layout = block_adjustment.Layout(
         schedule_check.load_assignment_rows(db, schedule_version.id),
-        schedule_check.load_check_context(db, schedule_version.semester_id, schedule_version.id),
+        schedule_check.load_check_context(db, schedule_version.id),
     )
     plan = make_plan(layout)
     if plan.refusal is not None:
@@ -169,16 +175,17 @@ def move_lesson(
     target_room_id None means "keep the current room" (this API cannot
     clear a room). Moving to the current slot (and room) is a no-op with
     no changes. A slot where the class already has another lesson is NOT
-    turned into a swap -- that's swap_lessons()'s job (for a block such a
-    target is refused: BLOCK_TARGET_OCCUPIED). Task 89: a lesson in a block
-    moves with its whole block; a target room then applies to all of it."""
+    turned into a swap -- that's swap_lessons()'s job. Task 89: a lesson in a
+    block moves with its whole block (the class's lessons in its way make
+    room, block_adjustment.py); a target room then applies to the block."""
     schedule_version = _get_unlocked_version(db, schedule_version_id)
     if schedule_version is None:
         return None
     _get_schedule_in_version(db, schedule_version_id, schedule_id)
-    if db.get(TimeSlot, target_time_slot_id) is None:
+    school_id = school_id_of_version(db, schedule_version)
+    if get_in_school(db, TimeSlot, target_time_slot_id, school_id) is None:
         raise AdjustmentTargetNotFoundError("TimeSlot not found")
-    if target_room_id is not None and db.get(Room, target_room_id) is None:
+    if target_room_id is not None and get_in_school(db, Room, target_room_id, school_id) is None:
         raise AdjustmentTargetNotFoundError("Room not found")
     plan = _plan(
         db, schedule_version, lambda layout: layout.plan_move(schedule_id, target_time_slot_id)
@@ -189,7 +196,11 @@ def move_lesson(
         room_ids = (
             {}
             if target_room_id is None
-            else {planned.schedule_id: target_room_id for planned in plan.slots}
+            else {
+                planned.schedule_id: target_room_id
+                for planned in plan.slots
+                if planned.schedule_id not in plan.displaced
+            }
         )
         changes = _apply_plan(db, plan, room_ids)
         violations = _flush_check_and_finish(db, schedule_version_id, dry_run=dry_run)
@@ -211,7 +222,7 @@ def swap_lessons(
     """Returns None if the ScheduleVersion doesn't exist (caller -> 404).
     The two rows exchange time_slot_id; each keeps its own teacher and
     room. Two rows already in the same slot produce no changes. Task 89:
-    with a block involved the two whole groups exchange places (see
+    with a block involved whole groups move (see
     services/block_adjustment.py), or BlockAdjustmentRefusedError."""
     schedule_version = _get_unlocked_version(db, schedule_version_id)
     if schedule_version is None:
@@ -228,6 +239,56 @@ def swap_lessons(
         changes = _apply_plan(db, plan, {})
         violations = _flush_check_and_finish(db, schedule_version_id, dry_run=dry_run)
     except Exception:
+        db.rollback()
+        raise
+    return AdjustmentOutcome(changes=changes, violations=violations)
+
+
+def unschedule_lesson(
+    db: Session,
+    schedule_version_id: int,
+    schedule_id: int,
+    *,
+    dry_run: bool,
+) -> AdjustmentOutcome | None:
+    """Returns None if the ScheduleVersion doesn't exist (caller -> 404).
+    移出課表: deletes the lesson's Schedule row, and every row of its lesson
+    block (連堂) -- a block always leaves and comes back as a whole. Each
+    deleted row is one change, its new time slot and room None. A lesson of
+    a combined lesson (共同排課) is refused (BlockAdjustmentRefusedError,
+    UNSCHEDULE_COMBINED): placing it back could not take the other classes'
+    lessons with it. The check afterwards reports the lessons now missing
+    (H7), as for any unscheduled lesson."""
+    schedule_version = _get_unlocked_version(db, schedule_version_id)
+    if schedule_version is None:
+        return None
+    _get_schedule_in_version(db, schedule_version_id, schedule_id)
+    layout = block_adjustment.Layout(
+        schedule_check.load_assignment_rows(db, schedule_version.id),
+        schedule_check.load_check_context(db, schedule_version.id),
+    )
+    if layout.partner_rows(schedule_id):
+        raise BlockAdjustmentRefusedError(block_adjustment.UNSCHEDULE_COMBINED)
+    removed_ids = sorted(member for _, member in layout.group(schedule_id).members)
+
+    try:
+        changes: list[ScheduleChange] = []
+        for removed_id in removed_ids:
+            schedule = db.get(Schedule, removed_id)
+            assert schedule is not None  # loaded from this version a moment ago
+            changes.append(
+                ScheduleChange(
+                    schedule_id=schedule.id,
+                    previous_time_slot_id=schedule.time_slot_id,
+                    new_time_slot_id=None,
+                    previous_room_id=schedule.room_id,
+                    new_room_id=None,
+                )
+            )
+            db.delete(schedule)
+        violations = _flush_check_and_finish(db, schedule_version_id, dry_run=dry_run)
+    except Exception:
+        # Not swallowed: re-raised after undoing every staged change.
         db.rollback()
         raise
     return AdjustmentOutcome(changes=changes, violations=violations)

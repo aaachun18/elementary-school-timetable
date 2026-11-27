@@ -7,35 +7,36 @@ import { BUTTON_SECONDARY_SM } from "../styles/ui";
 
 const SELECT_SM = "rounded border border-blue-300 bg-white px-1 py-0.5 text-sm";
 
-// Task 95: 「更改教室」 in the selection bar of a selected, scheduled
-// lesson: its current room, a room picker (active rooms, those of the
-// requirement's type first, plus 「不指定教室」), the scope and 「預覽」.
+// Task 95: 「更換教室」 under the selection line of a selected, scheduled
+// lesson (next to 更換教師): its current room, a room picker (active rooms,
+// the requirement's special room first and starred, plus 「不指定教室」),
+// the scope and 「預覽」.
 // Mounted per lesson (keyed by the page), so the choices start over for
 // every selection.
 export default function RoomChangeControls({
   lesson,
   rooms,
-  requiredRoomType,
+  requiredRoomId,
   disabled,
   onPreview,
 }: {
   lesson: EnrichedSchedule;
   // null while the rooms are loading.
   rooms: readonly Room[] | null;
-  requiredRoomType: string | null;
+  requiredRoomId: number | null;
   disabled: boolean;
   onPreview: (roomId: number | null, scope: RoomChangeScope) => void;
 }): ReactElement {
   const [roomValue, setRoomValue] = useState(lesson.roomId === null ? "" : String(lesson.roomId));
   const [scope, setScope] = useState<RoomChangeScope>("lesson");
-  const choices = roomChoices(rooms ?? [], requiredRoomType);
+  const choices = roomChoices(rooms ?? [], requiredRoomId);
   return (
     <span className="inline-flex flex-wrap items-center gap-2">
       <span>目前教室：{lesson.roomName ?? "未指定教室"}</span>
       <label className="inline-flex items-center gap-1">
-        <span>更改教室</span>
+        <span>更換教室</span>
         <select
-          aria-label="更改教室"
+          aria-label="更換教室"
           value={roomValue}
           onChange={(event) => setRoomValue(event.target.value)}
           disabled={disabled}
@@ -44,7 +45,7 @@ export default function RoomChangeControls({
           <option value="">不指定教室</option>
           {choices.map((choice) => (
             <option key={choice.id} value={choice.id}>
-              {choice.matchesType ? `★ ${choice.label}` : choice.label}
+              {choice.isRequired ? `★ ${choice.label}（指定教室）` : choice.label}
             </option>
           ))}
         </select>
@@ -71,7 +72,7 @@ export default function RoomChangeControls({
         預覽
       </button>
       {rooms !== null && choices.length === 0 && (
-        <span className="text-amber-800">目前沒有可用的教室，請先到基礎資料新增教室</span>
+        <span className="text-amber-800">目前沒有可用的教室，請先到學校資料新增教室</span>
       )}
     </span>
   );

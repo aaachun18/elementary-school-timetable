@@ -24,10 +24,17 @@ from app.models.lesson import Lesson
 from app.models.schedule import Schedule
 from app.models.schedule_version import ScheduleVersion
 from app.models.subject import Subject
-from app.models.teacher import Teacher, TeacherSubject
+from app.models.teacher import Teacher
 from app.models.time_slot import TimeSlot
 from tests.test_move_candidates import _by_slot, _candidates
 from tests.test_move_swap_lessons import _move, _ok, _swap
+from tests.conftest import (
+    enroll_in_semester,
+    get_test_school_id,
+    make_record,
+    next_free_grade_level,
+    time_slot_at,
+)
 
 URL = "/api/v1/schedule-versions"
 BLOCK_TYPES = {"BLOCK_NOT_CONSECUTIVE", "BLOCK_SAME_DAY"}
@@ -78,44 +85,39 @@ class World:
 
 
 def _world(db: Session) -> World:
-    year = AcademicYear(year=8801, is_active=True)
+    year = AcademicYear(school_id=get_test_school_id(db), year=8801, is_active=True)
     db.add(year)
     db.flush()
     semester = Semester(academic_year_id=year.id, number=1, is_active=True)
-    grade = Grade(name="Grade 8801", level=8801)
+    grade = Grade(school_id=get_test_school_id(db), name="Grade 8801", level=next_free_grade_level(db))
     db.add_all([semester, grade])
     db.flush()
     slots = {
-        (weekday, period): TimeSlot(
-            weekday=weekday, period=period, is_teaching_period=period != LUNCH
-        )
+        (weekday, period): time_slot_at(db, weekday, period, is_teaching_period=period != LUNCH)
         for weekday in (1, 2, 3)
         for period in (1, 2, 3, 4, 5)
     }
     db.add_all(slots.values())
-    science = Subject(name="自然", is_active=True)
-    english = Subject(name="英文", is_active=True)
-    c1 = Class(grade_id=grade.id, name="四年甲班", is_active=True)
-    t1 = Teacher(name="一號老師", is_active=True, min_weekly_periods=0, max_weekly_periods=20)
-    t2 = Teacher(name="二號老師", is_active=True, min_weekly_periods=0, max_weekly_periods=20)
+    science = Subject(school_id=get_test_school_id(db), name="自然", is_active=True)
+    english = Subject(school_id=get_test_school_id(db), name="英文", is_active=True)
+    c1 = Class(grade_id=grade.id, name="四年甲班")
+    t1 = Teacher(school_id=get_test_school_id(db), name="一號老師", is_active=True, min_weekly_periods=0, max_weekly_periods=20)
+    t2 = Teacher(school_id=get_test_school_id(db), name="二號老師", is_active=True, min_weekly_periods=0, max_weekly_periods=20)
     db.add_all([science, english, c1, t1, t2])
     db.flush()
-    db.add_all(
-        [
-            TeacherSubject(teacher_id=teacher.id, subject_id=subject.id)
-            for teacher in (t1, t2)
-            for subject in (science, english)
-        ]
-    )
+    # A working copy of a copied timetable: 換教師 is allowed too.
+    version = make_record(db, semester.id, status="EDITING", source_status="COPIED")
+    for teacher in (t1, t2):
+        enroll_in_semester(db, version.id, teacher)
     science_requirement = ClassSubjectRequirement(
-        semester_id=semester.id,
+        schedule_version_id=version.id,
         class_id=c1.id,
         subject_id=science.id,
         weekly_periods=3,
         lesson_pattern="2+1",
     )
     english_requirement = ClassSubjectRequirement(
-        semester_id=semester.id, class_id=c1.id, subject_id=english.id, weekly_periods=2
+        schedule_version_id=version.id, class_id=c1.id, subject_id=english.id, weekly_periods=2
     )
     db.add_all([science_requirement, english_requirement])
     db.flush()
@@ -133,8 +135,6 @@ def _world(db: Session) -> World:
         for number in (1, 2)
     ]
     db.add_all(science_lessons + english_lessons)
-    version = ScheduleVersion(semester_id=semester.id, version_number=1, status="DRAFT")
-    db.add(version)
     db.commit()
     return World(
         db=db,
@@ -351,12 +351,13 @@ def test_row_without_teacher_is_not_a_second_teacher(
 def test_lessons_without_blocks_are_not_affected(
     client: TestClient, db_session: Session
 ) -> None:
-    """English (no pattern): both lessons on the same day, apart, by two
-    teachers -- nothing a block rule would allow, and nothing reported."""
+    """English (no pattern): both lessons on the same day, apart --
+    nothing a block rule would allow, and nothing reported. (One teacher:
+    two would be H15, which is not a block rule.)"""
     world = _world(db_session)
     _place_valid_science(world)
     world.place(world.english[0], 3, 1)
-    world.place(world.english[1], 3, 5, world.t2)
+    world.place(world.english[1], 3, 5)
 
     assert _check(client, world)["violations"] == []
 

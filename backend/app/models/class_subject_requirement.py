@@ -7,21 +7,23 @@ from app.database import Base
 from app.models.mixins import TimestampMixin
 
 if TYPE_CHECKING:
-    from app.models.academic_year import Semester
     from app.models.grade_class import Class
+    from app.models.room import Room
+    from app.models.schedule_version import ScheduleVersion
     from app.models.subject import Subject
     from app.models.teacher import Teacher
 
 
 class ClassSubjectRequirement(TimestampMixin, Base):
-    """How many weekly periods a class needs of a subject in a semester
-    (and optional constraints on who/where), independent of whether any
-    Lesson has actually been scheduled for it yet."""
+    """How many weekly periods a class needs of a subject (and optional
+    constraints on who/where), independent of whether any Lesson has
+    actually been scheduled for it yet. v3: part of one 排課紀錄's settings
+    (schedule_version_id) -- the semester is the record's."""
 
     __tablename__ = "class_subject_requirements"
     __table_args__ = (
         UniqueConstraint(
-            "semester_id",
+            "schedule_version_id",
             "class_id",
             "subject_id",
             name="uq_class_subject_requirement",
@@ -29,7 +31,7 @@ class ClassSubjectRequirement(TimestampMixin, Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    semester_id: Mapped[int] = mapped_column(ForeignKey("semesters.id"))
+    schedule_version_id: Mapped[int] = mapped_column(ForeignKey("schedule_versions.id"))
     class_id: Mapped[int] = mapped_column(ForeignKey("classes.id"))
     subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"))
     weekly_periods: Mapped[int] = mapped_column()
@@ -45,8 +47,14 @@ class ClassSubjectRequirement(TimestampMixin, Base):
     # app/services/lesson_pattern.py). None = no pattern: lessons are
     # independent, exactly as before.
     lesson_pattern: Mapped[str | None] = mapped_column(String(20))
+    # Task 98: the one special room this subject is taught in (wizard step
+    # 13). None = 原班上課, no school room (課表上不顯示). Replaces
+    # required_room_type, which stays (column and data) but the engine stops
+    # reading in a later Task -- rooms no longer have types.
+    required_room_id: Mapped[int | None] = mapped_column(ForeignKey("rooms.id"))
 
-    semester: Mapped["Semester"] = relationship()
+    schedule_version: Mapped["ScheduleVersion"] = relationship()
     class_: Mapped["Class"] = relationship()
     subject: Mapped["Subject"] = relationship()
     required_teacher: Mapped["Teacher | None"] = relationship()
+    required_room: Mapped["Room | None"] = relationship()

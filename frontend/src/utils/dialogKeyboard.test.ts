@@ -7,7 +7,7 @@ import {
 } from "./dialogKeyboard";
 
 // Task 85 / Task 86: ConfirmDialog's keyboard rules. Two focusable
-// buttons, as in the move/swap preview: 返回 (index 0) and 確認 (index 1).
+// buttons, as in the move/swap preview: 取消 (index 0) and 確認 (index 1).
 function input(fields: Partial<DialogKeyInput>): DialogKeyInput {
   return {
     key: "Enter",
@@ -71,14 +71,14 @@ describe("Enter that must not act", () => {
     }
   });
 
-  it("with focus outside the dialog only brings focus back to 返回 (and is prevented)", () => {
+  it("with focus outside the dialog only brings focus back to 取消 (and is prevented)", () => {
     expect(dialogKeyAction(input({ focusIndex: -1, focusIsButton: false }))).toEqual({
       effect: { type: "focus", index: 0 },
       preventDefault: true,
       stopPropagation: true,
       watchActivation: false,
     });
-    // 返回 isn't always first (e.g. a dialog whose content has a radio group).
+    // 取消 isn't always first (e.g. a dialog whose content has a radio group).
     expect(dialogKeyAction(input({ focusIndex: -1, focusableCount: 4, cancelIndex: 2 })).effect).toEqual({
       type: "focus",
       index: 2,
@@ -116,7 +116,7 @@ describe("enterKeyUpShouldActivate (pressing the button on keyup)", () => {
 });
 
 describe("Esc", () => {
-  it("is 返回 wherever focus is, and stops at the dialog", () => {
+  it("is 取消 wherever focus is, and stops at the dialog", () => {
     for (const focusIndex of [0, 1, -1]) {
       expect(dialogKeyAction(input({ key: "Escape", code: "Escape", focusIndex }))).toEqual({
         effect: { type: "cancel" },

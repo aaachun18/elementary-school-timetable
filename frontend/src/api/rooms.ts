@@ -1,4 +1,5 @@
 import { apiClient } from "./client";
+import type { DeactivationImpact } from "../utils/deactivation";
 import type { Room, RoomCreate, RoomUpdate } from "../types/room";
 
 // Mirrors backend/app/routers/room.py's 5 endpoints -- see teachers.ts for
@@ -29,4 +30,10 @@ export async function update(roomId: number, data: RoomUpdate): Promise<Room> {
 
 export async function remove(roomId: number): Promise<void> {
   await apiClient.delete(`/api/v1/rooms/${roomId}`);
+}
+
+// What 停用 would touch (counts for DeactivateConfirmDialog).
+export async function deactivationImpact(id: number): Promise<DeactivationImpact> {
+  const response = await apiClient.get<DeactivationImpact>(`/api/v1/rooms/${id}/deactivation-impact`);
+  return response.data;
 }

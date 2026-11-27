@@ -1,4 +1,15 @@
 from fastapi.testclient import TestClient
+from tests.api_helpers import (
+    create_class,
+    create_grade,
+    create_record,
+    create_teacher,
+    create_time_slot,
+    mark_status,
+)
+
+# Schedule rows (/schedules CRUD). v3: a timetable changes only in a manual
+# edit's working copy (EDITING) -- _create_lesson() hands out one.
 
 
 def _create_academic_year(client: TestClient, year: int) -> int:
@@ -18,20 +29,12 @@ def _create_semester(client: TestClient, year: int) -> int:
 
 
 def _create_grade(client: TestClient, level: int) -> int:
-    response = client.post(
-        "/api/v1/grades/", json={"name": f"Grade {level}", "level": level}
-    )
-    grade_id: int = response.json()["id"]
-    return grade_id
+    return create_grade(client, f"Grade {level}")
 
 
 def _create_class(client: TestClient, level: int) -> int:
     grade_id = _create_grade(client, level)
-    response = client.post(
-        "/api/v1/classes/", json={"grade_id": grade_id, "name": f"Class {level}"}
-    )
-    class_id: int = response.json()["id"]
-    return class_id
+    return create_class(client, grade_id, f"Class {level}")
 
 
 def _create_subject(client: TestClient, name: str) -> int:
@@ -40,27 +43,13 @@ def _create_subject(client: TestClient, name: str) -> int:
     return subject_id
 
 
-def _create_teacher(client: TestClient, name: str) -> int:
-    response = client.post(
-        "/api/v1/teachers/",
-        json={"name": name, "min_weekly_periods": 1, "max_weekly_periods": 20},
-    )
-    teacher_id: int = response.json()["id"]
-    return teacher_id
-
-
 def _create_time_slot(client: TestClient, period: int) -> int:
-    response = client.post(
-        "/api/v1/time-slots/",
-        json={"weekday": 1, "period": period, "is_teaching_period": True},
-    )
-    time_slot_id: int = response.json()["id"]
-    return time_slot_id
+    return create_time_slot(client, 1, period)
 
 
 def _create_room(client: TestClient, name: str) -> int:
     response = client.post(
-        "/api/v1/rooms/", json={"name": name, "room_type": "普通教室"}
+        "/api/v1/rooms/", json={"name": name}
     )
     room_id: int = response.json()["id"]
     return room_id
@@ -68,28 +57,25 @@ def _create_room(client: TestClient, name: str) -> int:
 
 def _create_lesson(client: TestClient, year: int) -> tuple[int, int]:
     """Returns (lesson_id, schedule_version_id) for a freshly-synced,
-    single-lesson requirement."""
-    semester_id = _create_semester(client, year)
+    single-lesson requirement of a record then turned into a working copy
+    (EDITING), so its timetable may change."""
+    version_id = create_record(client, _create_semester(client, year))
     class_id = _create_class(client, level=year % 1000)
     subject_id = _create_subject(client, name=f"Subject {year}")
     client.post(
         "/api/v1/class-subject-requirements/",
         json={
-            "semester_id": semester_id,
+            "schedule_version_id": version_id,
             "class_id": class_id,
             "subject_id": subject_id,
             "weekly_periods": 1,
         },
     )
-    version_response = client.post(
-        "/api/v1/schedule-versions/",
-        json={"semester_id": semester_id, "version_number": 1, "status": "DRAFT"},
-    )
-    version_id: int = version_response.json()["id"]
     generate_response = client.post(
         f"/api/v1/schedule-versions/{version_id}/generate-lessons"
     )
     lesson_id: int = generate_response.json()["created_lessons"][0]["lesson_id"]
+    mark_status(client, version_id, "EDITING")
     return lesson_id, version_id
 
 
@@ -113,7 +99,7 @@ def test_create_schedule(client: TestClient) -> None:
 
 def test_create_schedule_with_full_assignment(client: TestClient) -> None:
     lesson_id, version_id = _create_lesson(client, year=2082)
-    teacher_id = _create_teacher(client, "Schedule Teacher 2082")
+    teacher_id = create_teacher(client, "Schedule Teacher 2082")
     time_slot_id = _create_time_slot(client, period=1)
     room_id = _create_room(client, "Schedule Room 2082")
 
@@ -244,14 +230,11 @@ def test_create_schedule_invalid_schedule_version_id(client: TestClient) -> None
     assert response.status_code == 422
 
 
-# --- Task 25: PUBLISHED version lock ---
+# --- Task 25 / v3: a saved (here: published) timetable is locked ---
 
 
 def _publish_schedule_version(client: TestClient, version_id: int) -> None:
-    response = client.patch(
-        f"/api/v1/schedule-versions/{version_id}", json={"status": "PUBLISHED"}
-    )
-    assert response.status_code == 200
+    mark_status(client, version_id, "AUTO", is_published=True)
 
 
 def test_create_schedule_blocked_when_version_published(client: TestClient) -> None:
@@ -264,6 +247,7 @@ def test_create_schedule_blocked_when_version_published(client: TestClient) -> N
     )
 
     assert response.status_code == 409
+    assert response.json()["detail"] == "課表不能直接修改，請先按「手動編輯課表」"
     schedules_response = client.get("/api/v1/schedules/")
     assert schedules_response.json() == []
 
@@ -303,9 +287,9 @@ def test_delete_schedule_blocked_when_version_published(client: TestClient) -> N
     assert get_response.status_code == 200  # never deleted
 
 
-def test_update_schedule_still_works_when_version_draft(client: TestClient) -> None:
-    """Regression guard: the PUBLISHED lock must not affect an ordinary
-    Schedule update under a DRAFT version."""
+def test_update_schedule_works_in_a_working_copy(client: TestClient) -> None:
+    """Regression guard: the lock must not affect an ordinary Schedule
+    update in a manual edit's working copy."""
     lesson_id, version_id = _create_lesson(client, year=2093)
     create_response = client.post(
         "/api/v1/schedules/",
@@ -337,7 +321,7 @@ def test_create_schedule_invalid_teacher_id(client: TestClient) -> None:
     assert response.status_code == 422
 
 
-# --- Task 43: TEACHER may only see Schedule rows under a PUBLISHED version ---
+# --- Task 43: TEACHER may only see Schedule rows of a published record ---
 
 
 def test_teacher_sees_only_schedules_in_published_versions(
@@ -370,7 +354,7 @@ def test_teacher_sees_only_schedules_in_published_versions(
     assert published_schedule_id in [s["id"] for s in response.json()]
 
 
-def test_teacher_cannot_get_schedule_under_draft_version(
+def test_teacher_cannot_get_schedule_of_unpublished_record(
     client: TestClient, teacher_client: TestClient
 ) -> None:
     lesson_id, version_id = _create_lesson(client, year=2097)
@@ -380,8 +364,8 @@ def test_teacher_cannot_get_schedule_under_draft_version(
     )
     schedule_id = create_response.json()["id"]
 
-    # Same 404 a nonexistent id would get -- a Schedule under a DRAFT
-    # version simply isn't visible to TEACHER, not a separate "forbidden"
+    # Same 404 a nonexistent id would get -- a Schedule of an unpublished
+    # record simply isn't visible to TEACHER, not a separate "forbidden"
     # response.
     response = teacher_client.get(f"/api/v1/schedules/{schedule_id}")
 

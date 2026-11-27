@@ -1,9 +1,9 @@
 import { apiClient } from "./client";
-import type { Class, ClassCreate, ClassUpdate } from "../types/class";
+import type { Class, ClassBatchCreate, ClassCreate } from "../types/class";
+import type { DeactivationImpact } from "../utils/deactivation";
 
-// Mirrors backend/app/routers/class_.py's 5 endpoints -- see teachers.ts for
-// why create()/update()/remove() exist even though Phase A only calls
-// list()/get().
+// Mirrors backend/app/routers/class_.py. No update: a class is only
+// created, deactivated / reactivated and deleted.
 
 export async function list(skip = 0, limit = 100): Promise<Class[]> {
   const response = await apiClient.get<Class[]>("/api/v1/classes/", {
@@ -22,11 +22,29 @@ export async function create(data: ClassCreate): Promise<Class> {
   return response.data;
 }
 
-export async function update(classId: number, data: ClassUpdate): Promise<Class> {
-  const response = await apiClient.patch<Class>(`/api/v1/classes/${classId}`, data);
+// All of them or none (one transaction on the backend).
+export async function createBatch(data: ClassBatchCreate): Promise<Class[]> {
+  const response = await apiClient.post<Class[]>("/api/v1/classes/batch", data);
   return response.data;
 }
 
+// A class used by 排課紀錄 is refused with 409 CLASS_IN_USE
+// (extractClassInUseCount()).
 export async function remove(classId: number): Promise<void> {
   await apiClient.delete(`/api/v1/classes/${classId}`);
+}
+
+export async function deactivate(classId: number): Promise<Class> {
+  const response = await apiClient.post<Class>(`/api/v1/classes/${classId}/deactivate`);
+  return response.data;
+}
+
+export async function activate(classId: number): Promise<Class> {
+  const response = await apiClient.post<Class>(`/api/v1/classes/${classId}/activate`);
+  return response.data;
+}
+
+export async function deactivationImpact(classId: number): Promise<DeactivationImpact> {
+  const response = await apiClient.get<DeactivationImpact>(`/api/v1/classes/${classId}/deactivation-impact`);
+  return response.data;
 }

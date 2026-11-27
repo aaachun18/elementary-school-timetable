@@ -3,18 +3,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.routers.academic_year import router as academic_year_router
+from app.routers.combined_lesson import router as combined_lesson_router
 from app.routers.auth import router as auth_router
 from app.routers.class_ import router as class_router
 from app.routers.class_subject_requirement import (
     router as class_subject_requirement_router,
 )
 from app.routers.grade import router as grade_router
+from app.routers.grade_subject_requirement import (
+    router as grade_subject_requirement_router,
+)
 from app.routers.lesson import router as lesson_router
+from app.routers.me import router as me_router
 from app.routers.room import router as room_router
 from app.routers.schedule import router as schedule_router
 from app.routers.schedule_version import router as schedule_version_router
 from app.routers.school import router as school_router
 from app.routers.semester import router as semester_router
+from app.routers.semester_settings import router as semester_settings_router
 from app.routers.subject import router as subject_router
 from app.routers.teacher import router as teacher_router
 from app.routers.time_slot import router as time_slot_router
@@ -22,34 +28,36 @@ from app.routers.users import router as users_router
 from app.services.block_adjustment import REFUSAL_MESSAGES
 from app.services.lesson_placement import PLACEMENT_REFUSAL_MESSAGES
 from app.services.exceptions import (
-    ArchivedVersionImmutableError,
-    CannotDeleteSelfError,
+    AccountPermissionError,
     BlockAdjustmentRefusedError,
     CannotSwapWithSelfError,
+    ClassInUseError,
+    CombinedLessonInUseError,
+    CombinedLessonRuleError,
     CopyAcrossAcademicYearsError,
     CopySourceInconsistentError,
     DependentRecordsExistError,
+    AccountStateError,
     DuplicateValueError,
     InactiveRoomAssignmentError,
     InactiveTeacherAssignmentError,
     InvalidLessonPatternError,
     InvalidTeacherPeriodsError,
     InvalidReferenceError,
-    InvalidStatusTransitionError,
     LessonAlreadyScheduledError,
-    LessonNotInSemesterError,
+    LessonNotInVersionError,
     LessonOverProvisionedError,
     PublishedVersionDeleteError,
-    PublishedVersionImmutableError,
-    RequirementEditBlockedByPublishedScheduleError,
-    RequirementSemesterMismatchError,
-    RequirementUsedByPublishedScheduleError,
+    RecordStatusError,
+    RequirementNotInVersionError,
     PlacementRefusedError,
     ScheduleNotInVersionError,
     ScheduleVersionAlreadyScheduledError,
+    SchoolStructureViolationError,
+    SettingsLockedError,
     TargetRecordNotFoundError,
-    TargetSemesterHasRequirementsError,
     TargetSemesterNotFoundError,
+    TimetableLockedError,
 )
 
 app = FastAPI(title="Elementary School Timetable System")
@@ -77,12 +85,16 @@ app.include_router(time_slot_router)
 app.include_router(class_router)
 app.include_router(academic_year_router)
 app.include_router(semester_router)
+app.include_router(semester_settings_router)
 app.include_router(teacher_router)
+app.include_router(grade_subject_requirement_router)
 app.include_router(class_subject_requirement_router)
+app.include_router(combined_lesson_router)
 app.include_router(lesson_router)
 app.include_router(schedule_version_router)
 app.include_router(schedule_router)
 app.include_router(users_router)
+app.include_router(me_router)
 
 # Convention: every service-layer delete_xxx()/create_xxx()/update_xxx() that
 # can hit a SQLAlchemy IntegrityError raises one of the three exceptions
@@ -99,8 +111,37 @@ def handle_dependent_records_exist(
 ) -> JSONResponse:
     return JSONResponse(
         status_code=409,
-        content={"detail": "此資料仍被其他資料參照，無法刪除"},
+        # delete_steps: what to delete first, in order (may be empty).
+        content={"detail": "此資料仍被其他資料參照，無法刪除", "delete_steps": exc.steps},
     )
+
+
+# A class used by 排課紀錄: the frontend offers 停用 instead of the steps.
+@app.exception_handler(ClassInUseError)
+def handle_class_in_use(request: Request, exc: ClassInUseError) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={
+            "detail": "此資料仍被其他資料參照，無法刪除",
+            "code": "CLASS_IN_USE",
+            "record_count": exc.record_count,
+            "delete_steps": exc.steps,
+        },
+    )
+
+
+@app.exception_handler(CombinedLessonRuleError)
+def handle_combined_lesson_rule(
+    request: Request, exc: CombinedLessonRuleError
+) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+
+@app.exception_handler(CombinedLessonInUseError)
+def handle_combined_lesson_in_use(
+    request: Request, exc: CombinedLessonInUseError
+) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 
 @app.exception_handler(InvalidLessonPatternError)
@@ -113,6 +154,13 @@ def handle_invalid_lesson_pattern(
 @app.exception_handler(InvalidTeacherPeriodsError)
 def handle_invalid_teacher_periods(
     request: Request, exc: InvalidTeacherPeriodsError
+) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+
+@app.exception_handler(SchoolStructureViolationError)
+def handle_school_structure_violation(
+    request: Request, exc: SchoolStructureViolationError
 ) -> JSONResponse:
     return JSONResponse(status_code=422, content={"detail": str(exc)})
 
@@ -131,10 +179,8 @@ def handle_invalid_reference(
 def handle_duplicate_value(
     request: Request, exc: DuplicateValueError
 ) -> JSONResponse:
-    return JSONResponse(
-        status_code=409,
-        content={"detail": "資料重複或違反欄位限制，請確認輸入內容"},
-    )
+    # The message names what is wrong (services/integrity_messages.py).
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 
 @app.exception_handler(LessonOverProvisionedError)
@@ -156,38 +202,42 @@ def handle_lesson_over_provisioned(
     )
 
 
-@app.exception_handler(RequirementUsedByPublishedScheduleError)
-def handle_requirement_used_by_published_schedule(
-    request: Request, exc: RequirementUsedByPublishedScheduleError
-) -> JSONResponse:
-    # Task 56: deliberately NOT the generic DependentRecordsExistError
-    # message -- the user needs to know it's the PUBLISHED (Task 64: or
-    # ARCHIVED) lock blocking this, not some unspecified reference.
+@app.exception_handler(SettingsLockedError)
+def handle_settings_locked(request: Request, exc: SettingsLockedError) -> JSONResponse:
     return JSONResponse(
         status_code=409,
-        content={"detail": "此排課需求已被已發布或已封存的課表使用，無法刪除"},
+        content={
+            "detail": "只有「尚未排課」的排課紀錄可以修改排課設定，"
+            "請先在排課紀錄「複製此次排課設定」再修改"
+        },
     )
 
 
-@app.exception_handler(RequirementEditBlockedByPublishedScheduleError)
-def handle_requirement_edit_blocked_by_published_schedule(
-    request: Request, exc: RequirementEditBlockedByPublishedScheduleError
-) -> JSONResponse:
-    # Task 72: same wording as the delete guard's message above.
+@app.exception_handler(TimetableLockedError)
+def handle_timetable_locked(request: Request, exc: TimetableLockedError) -> JSONResponse:
     return JSONResponse(
         status_code=409,
-        content={"detail": "此排課需求已被已發布或已封存的課表使用，無法修改"},
+        content={"detail": "課表不能直接修改，請先按「手動編輯課表」"},
     )
 
 
-@app.exception_handler(CannotDeleteSelfError)
-def handle_cannot_delete_self(
-    request: Request, exc: CannotDeleteSelfError
+@app.exception_handler(RecordStatusError)
+def handle_record_status(request: Request, exc: RecordStatusError) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": exc.message})
+
+
+@app.exception_handler(AccountStateError)
+def handle_account_state(
+    request: Request, exc: AccountStateError
 ) -> JSONResponse:
-    return JSONResponse(
-        status_code=409,
-        content={"detail": "不能刪除目前登入中的帳號"},
-    )
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+
+@app.exception_handler(AccountPermissionError)
+def handle_account_permission(
+    request: Request, exc: AccountPermissionError
+) -> JSONResponse:
+    return JSONResponse(status_code=403, content={"detail": str(exc)})
 
 
 @app.exception_handler(ScheduleVersionAlreadyScheduledError)
@@ -197,19 +247,9 @@ def handle_schedule_version_already_scheduled(
     return JSONResponse(
         status_code=409,
         content={
-            "detail": "此版本已有排課結果，系統不會自動覆蓋，"
-            "請先刪除既有排課結果記錄後再重新執行排課"
+            "detail": "只有「尚未排課」的排課紀錄可以自動排課，"
+            "請先在排課紀錄「複製此次排課設定」再自動排課"
         },
-    )
-
-
-@app.exception_handler(PublishedVersionImmutableError)
-def handle_published_version_immutable(
-    request: Request, exc: PublishedVersionImmutableError
-) -> JSONResponse:
-    return JSONResponse(
-        status_code=409,
-        content={"detail": "已發布版本不可修改，請建立新草稿版本"},
     )
 
 
@@ -219,7 +259,7 @@ def handle_published_version_delete(
 ) -> JSONResponse:
     return JSONResponse(
         status_code=409,
-        content={"detail": "已發布的版本無法刪除，請先取消發布"},
+        content={"detail": "已發布的排課紀錄無法刪除"},
     )
 
 
@@ -243,23 +283,13 @@ def handle_copy_across_academic_years(
     )
 
 
-@app.exception_handler(TargetSemesterHasRequirementsError)
-def handle_target_semester_has_requirements(
-    request: Request, exc: TargetSemesterHasRequirementsError
-) -> JSONResponse:
-    return JSONResponse(
-        status_code=409,
-        content={"detail": "目標學期已有排課需求，無法複製"},
-    )
-
-
 @app.exception_handler(CopySourceInconsistentError)
 def handle_copy_source_inconsistent(
     request: Request, exc: CopySourceInconsistentError
 ) -> JSONResponse:
     return JSONResponse(
         status_code=409,
-        content={"detail": "來源課表含有不屬於來源學期的課程，無法複製"},
+        content={"detail": "來源課表含有不屬於這筆排課紀錄的課程，無法複製"},
     )
 
 
@@ -276,13 +306,13 @@ def handle_target_record_not_found(
     )
 
 
-@app.exception_handler(RequirementSemesterMismatchError)
-def handle_requirement_semester_mismatch(
-    request: Request, exc: RequirementSemesterMismatchError
+@app.exception_handler(RequirementNotInVersionError)
+def handle_requirement_not_in_version(
+    request: Request, exc: RequirementNotInVersionError
 ) -> JSONResponse:
     return JSONResponse(
         status_code=409,
-        content={"detail": "此排課需求不屬於該課表的學期"},
+        content={"detail": "此排課需求不屬於這筆排課紀錄"},
     )
 
 
@@ -306,33 +336,13 @@ def handle_inactive_room_assignment(
     )
 
 
-@app.exception_handler(ArchivedVersionImmutableError)
-def handle_archived_version_immutable(
-    request: Request, exc: ArchivedVersionImmutableError
-) -> JSONResponse:
-    return JSONResponse(
-        status_code=409,
-        content={"detail": "已封存的課表無法修改，請先複製成新草稿"},
-    )
-
-
-@app.exception_handler(InvalidStatusTransitionError)
-def handle_invalid_status_transition(
-    request: Request, exc: InvalidStatusTransitionError
-) -> JSONResponse:
-    return JSONResponse(
-        status_code=409,
-        content={"detail": "不允許的課表狀態變更"},
-    )
-
-
 @app.exception_handler(ScheduleNotInVersionError)
 def handle_schedule_not_in_version(
     request: Request, exc: ScheduleNotInVersionError
 ) -> JSONResponse:
     return JSONResponse(
         status_code=409,
-        content={"detail": "此排課紀錄不屬於該課表"},
+        content={"detail": "此堂課不屬於這份課表"},
     )
 
 
@@ -369,13 +379,13 @@ def handle_placement_refused(
     )
 
 
-@app.exception_handler(LessonNotInSemesterError)
-def handle_lesson_not_in_semester(
-    request: Request, exc: LessonNotInSemesterError
+@app.exception_handler(LessonNotInVersionError)
+def handle_lesson_not_in_version(
+    request: Request, exc: LessonNotInVersionError
 ) -> JSONResponse:
     return JSONResponse(
         status_code=409,
-        content={"detail": "此課程不屬於該課表的學期"},
+        content={"detail": "此課程不屬於這筆排課紀錄"},
     )
 
 

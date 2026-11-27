@@ -1,4 +1,3 @@
-import { get as getScheduleVersion } from "../api/scheduleVersions";
 import { list as listSchedules } from "../api/schedules";
 import { list as listLessons } from "../api/lessons";
 import { list as listRequirements } from "../api/classSubjectRequirements";
@@ -8,6 +7,8 @@ import { list as listClasses } from "../api/classes";
 import { list as listSubjects } from "../api/subjects";
 import { list as listRooms } from "../api/rooms";
 import { useResource } from "./useResource";
+import { loadSameNameAccounts } from "./useTeacherAccounts";
+import { formatTeacherName } from "../utils/teacherName";
 import type { TimeSlot } from "../types/timeSlot";
 import type { NameLookups } from "../utils/failureDiagnostics";
 import { buildPeriodDisplay, type PeriodDisplayMap } from "../utils/periodDisplay";
@@ -32,6 +33,10 @@ export interface EnrichedSchedule {
   teacherName: string | null;
   roomId: number | null;
   roomName: string | null;
+  // Task 98: the room's name when the lesson is NOT in its class's own
+  // classroom (a required special room, or one changed by hand) -- the
+  // timetable notes it; 原班教室 is never shown. null otherwise.
+  specialRoomName: string | null;
   // Task 90: the lesson's requirement and lesson block (連堂) -- blockNo /
   // blockSeq from the Lesson (null = no block), blockSize = how many
   // lessons that block has in this semester (0 for no block). See
@@ -79,11 +84,10 @@ export interface TimetableData {
   teacherIdsByRequirementId: Map<number, number[]>;
 }
 
-// Task 67: Schedule rows are fetched for this one version only
-// (?schedule_version_id=), and Lessons/requirements for that version's
-// semester only (?semester_id=) -- previously all three tables were fetched
-// whole and filtered here, so copies (which multiply rows quickly) could
-// push this version's rows past the limit and silently drop lessons. The
+// Task 67 / v3: Schedule rows, Lessons and requirements are all fetched for
+// this one record only (?schedule_version_id=) -- every record owns its
+// own -- so other records (copies multiply rows quickly) can never push this
+// one's rows past the limit and silently drop lessons. The
 // master tables (time slots, teachers, classes, subjects, rooms) are still
 // fetched whole: they're small and not per-version. The limit stays
 // explicit and generous; the backend has no upper bound of its own (see
@@ -101,14 +105,10 @@ function buildPeriods(timeSlots: TimeSlot[]): number[] {
   );
 }
 
-// Lessons and requirements are filtered by the version's semester, which
-// only the version itself knows -- so this one chain waits on GET
-// /schedule-versions/{id} first, while everything else runs in parallel.
-async function loadSemesterLessonsAndRequirements(scheduleVersionId: number) {
-  const version = await getScheduleVersion(scheduleVersionId);
+async function loadLessonsAndRequirements(scheduleVersionId: number) {
   return Promise.all([
-    listLessons(0, FETCH_LIMIT, { semester_id: version.semester_id }),
-    listRequirements(0, FETCH_LIMIT, { semester_id: version.semester_id }),
+    listLessons(0, FETCH_LIMIT, { schedule_version_id: scheduleVersionId }),
+    listRequirements(0, FETCH_LIMIT, { schedule_version_id: scheduleVersionId }),
   ]);
 }
 
@@ -122,7 +122,7 @@ async function buildTimetableData(scheduleVersionId: number): Promise<TimetableD
     subjects,
     rooms,
   ] = await Promise.all([
-    loadSemesterLessonsAndRequirements(scheduleVersionId),
+    loadLessonsAndRequirements(scheduleVersionId),
     listSchedules(0, FETCH_LIMIT, { schedule_version_id: scheduleVersionId }),
     listTimeSlots(0, FETCH_LIMIT),
     listTeachers(0, FETCH_LIMIT),
@@ -137,6 +137,8 @@ async function buildTimetableData(scheduleVersionId: number): Promise<TimetableD
   );
   const timeSlotById = new Map(timeSlots.map((timeSlot) => [timeSlot.id, timeSlot]));
   const teacherById = new Map(teachers.map((teacher) => [teacher.id, teacher]));
+  // Task 99: 「王老師(teacher11)」 when two teachers share a name.
+  const teacherAccountById = await loadSameNameAccounts(teachers);
   const classById = new Map(classes.map((classItem) => [classItem.id, classItem]));
   const subjectById = new Map(subjects.map((subject) => [subject.id, subject]));
   const roomById = new Map(rooms.map((room) => [room.id, room]));
@@ -148,6 +150,7 @@ async function buildTimetableData(scheduleVersionId: number): Promise<TimetableD
     timeSlotById,
     requirementById,
     lessonById,
+    teacherAccountById,
   };
 
   const teacherIdsByRequirementId = new Map<number, number[]>();
@@ -221,9 +224,14 @@ async function buildTimetableData(scheduleVersionId: number): Promise<TimetableD
       teacherName:
         schedule.teacher_id === null
           ? null
-          : (teacher?.name ?? `教師 ID ${schedule.teacher_id}`),
+          : teacher === undefined
+            ? `教師 ID ${schedule.teacher_id}`
+            : formatTeacherName(teacher.name, teacherAccountById.get(schedule.teacher_id)),
       roomId: schedule.room_id,
       roomName:
+        schedule.room_id === null ? null : (room?.name ?? `教室 ID ${schedule.room_id}`),
+      // Every school room is a special room: 原班上課 has no room at all.
+      specialRoomName:
         schedule.room_id === null ? null : (room?.name ?? `教室 ID ${schedule.room_id}`),
       requirementId: lesson.class_subject_requirement_id,
       blockNo: lesson.block_no ?? null,

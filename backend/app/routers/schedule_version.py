@@ -2,14 +2,19 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_user, require_admin
+from app.core.dependencies import (
+    coordinator_school_id,
+    member_school_id,
+    require_school_member,
+    require_version_in_school,
+)
 from app.database import get_db
 from app.models.schedule_version import ScheduleVersion
 from app.models.user import User
 from app.schemas.schedule_version import (
     GeneratedLessonInfo,
     GenerateLessonsResult,
-    ScheduleVersionCopy,
+    ScheduleVersionCopyTimetable,
     ScheduleVersionCreate,
     ScheduleVersionRead,
     ScheduleVersionUpdate,
@@ -27,6 +32,8 @@ from app.schemas.scheduler import (
     PlaceCandidateSlot,
     PlaceCandidatesResult,
     PlacedLessonDetail,
+    PreflightLessonFailure,
+    PreflightResult,
     PlaceLessonRequest,
     PlaceLessonResult,
     PlacementChangeDetail,
@@ -41,10 +48,12 @@ from app.schemas.scheduler import (
     TeacherReassignmentResult,
     UnscheduledLessonDetail,
     UnscheduledLessonsResult,
+    UnscheduleLessonRequest,
     UnsupportedSwapDetail,
 )
 from app.services import schedule_adjustment as schedule_adjustment_service
 from app.services import lesson_placement as lesson_placement_service
+from app.services import manual_edit as manual_edit_service
 from app.services import room_change as room_change_service
 from app.services import schedule_check as schedule_check_service
 from app.services import move_candidates as move_candidates_service
@@ -56,49 +65,52 @@ from app.services import teacher_reassignment as teacher_reassignment_service
 router = APIRouter(
     prefix="/api/v1/schedule-versions",
     tags=["schedule_versions"],
-    dependencies=[Depends(get_current_user)],
+    dependencies=[Depends(require_school_member)],
 )
 
 
 # --- Standard CRUD ---
+# Task 98: every endpoint below the CRUD ones acts on one version and is
+# gated by require_version_in_school (教學組長 only, version of their own
+# school only).
 
 
-@router.post(
-    "/",
-    response_model=ScheduleVersionRead,
-    status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_admin)],
-)
+@router.post("/", response_model=ScheduleVersionRead, status_code=status.HTTP_201_CREATED)
 def create_schedule_version(
-    version_data: ScheduleVersionCreate, db: Session = Depends(get_db)
+    version_data: ScheduleVersionCreate,
+    db: Session = Depends(get_db),
+    school_id: int = Depends(coordinator_school_id),
 ) -> ScheduleVersion:
-    return schedule_version_service.create_schedule_version(db, version_data)
+    return schedule_version_service.create_schedule_version(
+        db, version_data, school_id=school_id
+    )
 
 
 @router.get("/", response_model=list[ScheduleVersionRead])
 def list_schedule_versions(
     skip: int = 0,
     limit: int = 100,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_school_member),
     db: Session = Depends(get_db),
+    school_id: int = Depends(member_school_id),
 ) -> list[ScheduleVersion]:
-    # Task 43: TEACHER only ever sees PUBLISHED versions -- see
-    # get_schedule_versions()'s own docstring-equivalent comment in
-    # services/schedule_version.py for why this is a silent filter, not a
-    # 403.
+    # Task 43: TEACHER only ever sees published records -- a silent
+    # filter, not a 403 (see services/schedule_version.py). Newest first;
+    # manual edits' working copies are never listed.
     return schedule_version_service.get_schedule_versions(
-        db, skip=skip, limit=limit, role=current_user.role
+        db, skip=skip, limit=limit, school_id=school_id, role=current_user.role
     )
 
 
 @router.get("/{schedule_version_id}", response_model=ScheduleVersionRead)
 def get_schedule_version(
     schedule_version_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_school_member),
     db: Session = Depends(get_db),
+    school_id: int = Depends(member_school_id),
 ) -> ScheduleVersion:
     schedule_version = schedule_version_service.get_schedule_version(
-        db, schedule_version_id, role=current_user.role
+        db, schedule_version_id, school_id=school_id, role=current_user.role
     )
     if schedule_version is None:
         raise HTTPException(
@@ -108,18 +120,15 @@ def get_schedule_version(
     return schedule_version
 
 
-@router.patch(
-    "/{schedule_version_id}",
-    response_model=ScheduleVersionRead,
-    dependencies=[Depends(require_admin)],
-)
+@router.patch("/{schedule_version_id}", response_model=ScheduleVersionRead)
 def update_schedule_version(
     schedule_version_id: int,
     version_data: ScheduleVersionUpdate,
     db: Session = Depends(get_db),
+    school_id: int = Depends(coordinator_school_id),
 ) -> ScheduleVersion:
     schedule_version = schedule_version_service.update_schedule_version(
-        db, schedule_version_id, version_data
+        db, schedule_version_id, version_data, school_id=school_id
     )
     if schedule_version is None:
         raise HTTPException(
@@ -129,16 +138,14 @@ def update_schedule_version(
     return schedule_version
 
 
-@router.delete(
-    "/{schedule_version_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_admin)],
-)
+@router.delete("/{schedule_version_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_schedule_version(
-    schedule_version_id: int, db: Session = Depends(get_db)
+    schedule_version_id: int,
+    db: Session = Depends(get_db),
+    school_id: int = Depends(coordinator_school_id),
 ) -> None:
     deleted = schedule_version_service.delete_schedule_version(
-        db, schedule_version_id
+        db, schedule_version_id, school_id=school_id
     )
     if not deleted:
         raise HTTPException(
@@ -147,34 +154,110 @@ def delete_schedule_version(
         )
 
 
-# --- copy (Task 62): new DRAFT from an existing version ---
-# TargetSemesterNotFoundError / CopyAcrossAcademicYearsError /
-# TargetSemesterHasRequirementsError / CopySourceInconsistentError are
+def _found(schedule_version: ScheduleVersion | None) -> ScheduleVersion:
+    if schedule_version is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ScheduleVersion not found",
+        )
+    return schedule_version
+
+
+# --- v3: publishing, copying and manual editing a 排課紀錄 ---
+# RecordStatusError / TargetSemesterNotFoundError /
+# CopyAcrossAcademicYearsError / CopySourceInconsistentError are
 # intentionally not caught here -- the global exception handlers in main.py
 # convert them to 404/409.
+
+
+@router.post(
+    "/{schedule_version_id}/publish",
+    response_model=ScheduleVersionRead,
+    dependencies=[Depends(require_version_in_school)],
+)
+def publish_schedule_version(
+    schedule_version_id: int,
+    db: Session = Depends(get_db),
+    school_id: int = Depends(coordinator_school_id),
+) -> ScheduleVersion:
+    """發布此課表: the semester's one published record from now on."""
+    return _found(
+        schedule_version_service.publish_schedule_version(
+            db, schedule_version_id, school_id=school_id
+        )
+    )
+
+
+@router.post(
+    "/{schedule_version_id}/unpublish",
+    response_model=ScheduleVersionRead,
+    dependencies=[Depends(require_version_in_school)],
+)
+def unpublish_schedule_version(
+    schedule_version_id: int,
+    db: Session = Depends(get_db),
+    school_id: int = Depends(coordinator_school_id),
+) -> ScheduleVersion:
+    """取消發布: the semester has no published record until another one is
+    published."""
+    return _found(
+        schedule_version_service.unpublish_schedule_version(
+            db, schedule_version_id, school_id=school_id
+        )
+    )
+
+
+@router.post(
+    "/{schedule_version_id}/copy-settings",
+    response_model=ScheduleVersionRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_version_in_school)],
+)
+def copy_settings(schedule_version_id: int, db: Session = Depends(get_db)) -> ScheduleVersion:
+    """複製此次排課設定: a new 尚未排課 record with the same settings."""
+    return _found(schedule_copy_service.copy_settings(db, schedule_version_id))
 
 
 @router.post(
     "/{schedule_version_id}/copy",
     response_model=ScheduleVersionRead,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_version_in_school)],
 )
-def copy_schedule_version(
+def copy_timetable(
     schedule_version_id: int,
-    copy_data: ScheduleVersionCopy | None = None,
+    copy_data: ScheduleVersionCopyTimetable | None = None,
     db: Session = Depends(get_db),
 ) -> ScheduleVersion:
+    """複製此課表: a new 複製自編號 x record (settings and timetable), of any
+    semester of the same academic year."""
     target_semester_id = copy_data.target_semester_id if copy_data else None
-    new_version = schedule_copy_service.copy_schedule_version(
-        db, schedule_version_id, target_semester_id
+    return _found(
+        schedule_copy_service.copy_timetable(db, schedule_version_id, target_semester_id)
     )
-    if new_version is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="ScheduleVersion not found",
-        )
-    return new_version
+
+
+@router.post(
+    "/{schedule_version_id}/edit",
+    response_model=ScheduleVersionRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_version_in_school)],
+)
+def start_editing(schedule_version_id: int, db: Session = Depends(get_db)) -> ScheduleVersion:
+    """手動編輯課表: a fresh working copy every adjustment then changes.
+    Leaving without saving: DELETE the working copy."""
+    return _found(manual_edit_service.start_editing(db, schedule_version_id))
+
+
+@router.post(
+    "/{schedule_version_id}/save",
+    response_model=ScheduleVersionRead,
+    dependencies=[Depends(require_version_in_school)],
+)
+def save_editing(schedule_version_id: int, db: Session = Depends(get_db)) -> ScheduleVersion:
+    """儲存課表 (on the working copy's id): returns the record the edit was
+    saved as -- the 手動排課 record itself, or a new 手動排課 record."""
+    return _found(manual_edit_service.save_editing(db, schedule_version_id))
 
 
 # --- generate-lessons: diff-sync (not standard CRUD) ---
@@ -185,7 +268,7 @@ def copy_schedule_version(
 @router.post(
     "/{schedule_version_id}/generate-lessons",
     response_model=GenerateLessonsResult,
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_version_in_school)],
 )
 def generate_lessons(
     schedule_version_id: int, db: Session = Depends(get_db)
@@ -219,7 +302,7 @@ def generate_lessons(
 @router.post(
     "/{schedule_version_id}/run-scheduler",
     response_model=SchedulerRunResult,
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_version_in_school)],
 )
 def run_scheduler(
     schedule_version_id: int, db: Session = Depends(get_db)
@@ -257,9 +340,16 @@ def run_scheduler(
     assert result is not None  # exactly one of the two fields is populated
 
     if result.success:
+        preferred = outcome.preferred_periods
         return SchedulerRunResult(
             scheduled_count=len(result.state.assignments) if result.state else 0,
             backtrack_count=result.backtrack_count,
+            preferred_period_score=preferred.preferred_in_place if preferred else 0,
+            preferred_period_lesson_count=preferred.preferred_lesson_count if preferred else 0,
+            node_count=result.node_count,
+            restart_count=result.restart_count,
+            elapsed_seconds=result.elapsed_seconds,
+            seed=result.seed,
         )
 
     # failure_type is None only in the one non-search-level failure case:
@@ -278,6 +368,10 @@ def run_scheduler(
             for violation in result.post_hoc_violations
         ],
         backtrack_count=result.backtrack_count,
+        node_count=result.node_count,
+        restart_count=result.restart_count,
+        elapsed_seconds=result.elapsed_seconds,
+        seed=result.seed,
     )
     return JSONResponse(
         status_code=422,
@@ -286,18 +380,52 @@ def run_scheduler(
 
 
 @router.get(
+    "/{schedule_version_id}/preflight",
+    response_model=PreflightResult,
+    dependencies=[Depends(require_version_in_school)],
+)
+def preflight_schedule_version(
+    schedule_version_id: int, db: Session = Depends(get_db)
+) -> PreflightResult:
+    # 排課前檢查 (wizard step 6): read only, nothing written.
+    outcome = scheduler_service.preflight_check(db, schedule_version_id)
+    if outcome is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ScheduleVersion not found",
+        )
+    return PreflightResult(
+        can_schedule=not outcome.violations and not outcome.lesson_failures,
+        violations=[
+            ConstraintViolationDetail.model_validate(violation)
+            for violation in outcome.violations
+        ],
+        lesson_failures=[
+            PreflightLessonFailure(
+                lesson_id=failure.lesson_id if failure.lesson_id > 0 else None,
+                class_subject_requirement_id=failure.class_subject_requirement_id,
+                reasons=[
+                    ConstraintViolationDetail.model_validate(reason)
+                    for reason in failure.reasons
+                ],
+            )
+            for failure in outcome.lesson_failures
+        ],
+    )
+
+
+@router.get(
     "/{schedule_version_id}/check",
     response_model=ScheduleCheckResult,
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_version_in_school)],
 )
 def check_schedule_version(
     schedule_version_id: int,
     db: Session = Depends(get_db),
 ) -> ScheduleCheckResult:
-    # Task 61: read-only. Task 72: ADMIN only -- the conflict details (and,
-    # for a DRAFT, its content) are an administrative tool, not something
-    # the read-only TEACHER role needs; a TEACHER gets 403 for every
-    # version, including PUBLISHED ones.
+    # Task 61: read-only. Task 72: 教學組長 only -- the conflict details
+    # are an administrative tool, not something the read-only TEACHER role
+    # needs; a TEACHER gets 403 for every record, published ones included.
     violations = schedule_check_service.check_schedule_version(
         db, schedule_version_id
     )
@@ -327,8 +455,9 @@ def _build_check_result(
 
 
 # --- reassign-teacher (Task 63): manual adjustment, one requirement ---
-# PublishedVersionImmutableError / ReassignmentTargetNotFoundError /
-# RequirementSemesterMismatchError / InactiveTeacherAssignmentError are
+# v3: only in the working copy of a copied timetable.
+# TimetableLockedError / RecordStatusError / ReassignmentTargetNotFoundError
+# / RequirementNotInVersionError / InactiveTeacherAssignmentError are
 # intentionally not caught here -- the global exception handlers in main.py
 # convert them to 409/404.
 
@@ -336,7 +465,7 @@ def _build_check_result(
 @router.post(
     "/{schedule_version_id}/reassign-teacher",
     response_model=TeacherReassignmentResult,
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_version_in_school)],
 )
 def reassign_teacher(
     schedule_version_id: int,
@@ -367,7 +496,7 @@ def reassign_teacher(
 
 
 # --- move-lesson / swap-lessons (Task 65): manual time-slot adjustments ---
-# PublishedVersionImmutableError / ArchivedVersionImmutableError /
+# v3: only in a manual edit's working copy. TimetableLockedError /
 # AdjustmentTargetNotFoundError / ScheduleNotInVersionError /
 # CannotSwapWithSelfError are intentionally not caught here -- the global
 # exception handlers in main.py convert them to 409/404.
@@ -394,7 +523,7 @@ def _build_adjustment_result(
 @router.post(
     "/{schedule_version_id}/move-lesson",
     response_model=ScheduleAdjustmentResult,
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_version_in_school)],
 )
 def move_lesson(
     schedule_version_id: int,
@@ -415,7 +544,7 @@ def move_lesson(
 @router.post(
     "/{schedule_version_id}/swap-lessons",
     response_model=ScheduleAdjustmentResult,
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_version_in_school)],
 )
 def swap_lessons(
     schedule_version_id: int,
@@ -432,9 +561,30 @@ def swap_lessons(
     return _build_adjustment_result(schedule_version_id, swap.dry_run, outcome)
 
 
+# 移出課表: the lesson (with its whole block) back to the unscheduled
+# lessons. The changes list every deleted row (new time slot / room null).
+@router.post(
+    "/{schedule_version_id}/unschedule-lesson",
+    response_model=ScheduleAdjustmentResult,
+    dependencies=[Depends(require_version_in_school)],
+)
+def unschedule_lesson(
+    schedule_version_id: int,
+    request: UnscheduleLessonRequest,
+    db: Session = Depends(get_db),
+) -> ScheduleAdjustmentResult:
+    outcome = schedule_adjustment_service.unschedule_lesson(
+        db,
+        schedule_version_id,
+        request.schedule_id,
+        dry_run=request.dry_run,
+    )
+    return _build_adjustment_result(schedule_version_id, request.dry_run, outcome)
+
+
 # --- move-candidates (Task 83): read-only "what if" for every time slot ---
-# PublishedVersionImmutableError / ArchivedVersionImmutableError (409) and
-# AdjustmentTargetNotFoundError (404) are converted by main.py's handlers.
+# TimetableLockedError (409) and AdjustmentTargetNotFoundError (404) are
+# converted by main.py's handlers.
 
 
 def _block_members(
@@ -448,7 +598,7 @@ def _block_members(
 @router.get(
     "/{schedule_version_id}/move-candidates/{schedule_id}",
     response_model=MoveCandidatesResult,
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_version_in_school)],
 )
 def list_move_candidates(
     schedule_version_id: int,
@@ -504,8 +654,7 @@ def list_move_candidates(
 
 
 # --- Task 92: unscheduled lessons and placing them (decision 28) ---
-# PublishedVersionImmutableError / ArchivedVersionImmutableError /
-# LessonNotInSemesterError / LessonAlreadyScheduledError /
+# TimetableLockedError / LessonNotInVersionError / LessonAlreadyScheduledError /
 # InactiveTeacherAssignmentError / PlacementRefusedError (409) and
 # AdjustmentTargetNotFoundError (404) are converted by main.py's handlers.
 
@@ -513,7 +662,7 @@ def list_move_candidates(
 @router.get(
     "/{schedule_version_id}/unscheduled-lessons",
     response_model=UnscheduledLessonsResult,
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_version_in_school)],
 )
 def list_unscheduled_lessons(
     schedule_version_id: int,
@@ -535,7 +684,7 @@ def list_unscheduled_lessons(
 @router.get(
     "/{schedule_version_id}/place-candidates/{lesson_id}",
     response_model=PlaceCandidatesResult,
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_version_in_school)],
 )
 def list_place_candidates(
     schedule_version_id: int,
@@ -544,7 +693,7 @@ def list_place_candidates(
     room_id: int | None = None,
     db: Session = Depends(get_db),
 ) -> PlaceCandidatesResult:
-    # Read-only, DRAFT only (like move-candidates). Writes nothing.
+    # Read-only, working copies only (like move-candidates). Writes nothing.
     outcome = lesson_placement_service.list_place_candidates(
         db, schedule_version_id, lesson_id, teacher_id, room_id
     )
@@ -588,7 +737,7 @@ def list_place_candidates(
 @router.post(
     "/{schedule_version_id}/place-lesson",
     response_model=PlaceLessonResult,
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_version_in_school)],
 )
 def place_lesson(
     schedule_version_id: int,
@@ -618,14 +767,14 @@ def place_lesson(
 
 
 # --- Task 95: change the room of scheduled lessons (decision 32) ---
-# Locked version / row of another version / inactive room (409) and a
+# Locked timetable / row of another record / inactive room (409) and a
 # missing row or room (404) are converted by main.py's handlers.
 
 
 @router.post(
     "/{schedule_version_id}/change-room",
     response_model=ChangeRoomResult,
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_version_in_school)],
 )
 def change_room(
     schedule_version_id: int,

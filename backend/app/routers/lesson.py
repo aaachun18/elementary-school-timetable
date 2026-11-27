@@ -1,7 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_user, require_admin
+from app.core.dependencies import (
+    coordinator_school_id,
+    member_school_id,
+    require_school_member,
+)
 from app.database import get_db
 from app.models.lesson import Lesson
 from app.models.user import User
@@ -16,7 +20,7 @@ from app.services import lesson as lesson_service
 router = APIRouter(
     prefix="/api/v1/lessons",
     tags=["lessons"],
-    dependencies=[Depends(get_current_user)],
+    dependencies=[Depends(require_school_member)],
 )
 
 
@@ -24,29 +28,34 @@ router = APIRouter(
 def list_lessons(
     skip: int = 0,
     limit: int = 100,
-    semester_id: int | None = None,
-    current_user: User = Depends(get_current_user),
+    schedule_version_id: int | None = None,
+    current_user: User = Depends(require_school_member),
     db: Session = Depends(get_db),
+    school_id: int = Depends(member_school_id),
 ) -> list[Lesson]:
-    # Task 72: a TEACHER only sees Lessons of semesters with a PUBLISHED
-    # version -- a silent filter, same as /schedules (Task 43).
+    # Task 72: a TEACHER only sees Lessons of published records -- a silent
+    # filter, same as /schedules (Task 43).
     return lesson_service.get_lessons(
         db,
         skip=skip,
         limit=limit,
-        semester_id=semester_id,
+        schedule_version_id=schedule_version_id,
         role=current_user.role,
+        school_id=school_id,
     )
 
 
 @router.get("/{lesson_id}", response_model=LessonRead)
 def get_lesson(
     lesson_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_school_member),
     db: Session = Depends(get_db),
+    school_id: int = Depends(member_school_id),
 ) -> Lesson:
     # Task 72: a hidden Lesson is the same 404 as a missing one.
-    lesson = lesson_service.get_lesson(db, lesson_id, role=current_user.role)
+    lesson = lesson_service.get_lesson(
+        db, lesson_id, role=current_user.role, school_id=school_id
+    )
     if lesson is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Lesson not found"
@@ -60,15 +69,16 @@ def get_lesson(
 # converts it to 422. ---
 
 
-@router.patch(
-    "/{lesson_id}/fix-time-slot",
-    response_model=LessonRead,
-    dependencies=[Depends(require_admin)],
-)
+@router.patch("/{lesson_id}/fix-time-slot", response_model=LessonRead)
 def fix_lesson_time_slot(
-    lesson_id: int, body: LessonFixTimeSlot, db: Session = Depends(get_db)
+    lesson_id: int,
+    body: LessonFixTimeSlot,
+    db: Session = Depends(get_db),
+    school_id: int = Depends(coordinator_school_id),
 ) -> Lesson:
-    lesson = lesson_service.fix_lesson_time_slot(db, lesson_id, body.time_slot_id)
+    lesson = lesson_service.fix_lesson_time_slot(
+        db, lesson_id, body.time_slot_id, school_id=school_id
+    )
     if lesson is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Lesson not found"

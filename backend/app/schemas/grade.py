@@ -3,23 +3,14 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 
 
-class GradeBase(BaseModel):
+# Read only: a school's grades are built with the school from its type
+# (app/services/school_structure.py) and never created, changed or deleted
+# through the API.
+class GradeRead(BaseModel):
+    id: int
     name: str
     level: int
-
-
-class GradeCreate(GradeBase):
-    pass
-
-
-class GradeRead(GradeBase):
-    id: int
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
-
-
-class GradeUpdate(BaseModel):
-    name: str | None = None
-    level: int | None = None

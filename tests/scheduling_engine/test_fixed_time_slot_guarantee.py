@@ -26,9 +26,7 @@ from scheduling_engine.models.domain import (
     LessonAssignment,
     RequiredTeacherRule,
     RequirementPeriods,
-    RoomInfo,
-    RoomTypeRequirement,
-    TeacherQualification,
+    RequiredRoomRule,
     TeacherUnavailability,
     TeacherWorkloadLimit,
     TimeSlotInfo,
@@ -59,8 +57,8 @@ def _lesson(
 
 def _resources(lessons: list[LessonAssignment], **overrides: object) -> SchedulingResources:
     """Six teaching slots plus one non-teaching LUNCH slot; teachers 1-3
-    qualified for subjects 10/20/30 respectively; weekly periods derived
-    from the lessons themselves."""
+    take part (Task 98: any of them may teach any subject); weekly periods
+    derived from the lessons themselves."""
     periods: dict[int, int] = {}
     for lesson in lessons:
         periods[lesson.class_subject_requirement_id] = (
@@ -68,15 +66,10 @@ def _resources(lessons: list[LessonAssignment], **overrides: object) -> Scheduli
         )
     base: dict[str, object] = dict(
         time_slot_ids=[*TEACHING_SLOTS, LUNCH],
-        teacher_qualifications=[
-            TeacherQualification(teacher_id=1, subject_id=10),
-            TeacherQualification(teacher_id=2, subject_id=20),
-            TeacherQualification(teacher_id=3, subject_id=30),
-        ],
+        teacher_ids=[1, 2, 3],
         teacher_unavailability=[],
         required_teacher_rules=[],
-        room_type_requirements=[],
-        rooms=[],
+        required_room_rules=[],
         time_slots=[
             *(TimeSlotInfo(time_slot_id=slot, is_teaching_period=True) for slot in TEACHING_SLOTS),
             TimeSlotInfo(time_slot_id=LUNCH, is_teaching_period=False),
@@ -149,7 +142,14 @@ def test_mixed_fixed_and_free_lessons_satisfy_every_hard_constraint(algorithm: s
     resources = _resources(
         lessons,
         teacher_unavailability=[TeacherUnavailability(teacher_id=1, time_slot_id=103)],
-        required_teacher_rules=[RequiredTeacherRule(class_subject_requirement_id=2, required_teacher_id=2)],
+        # Task 98: each subject pinned to "its" teacher, as the old
+        # qualifications did: teacher 1 then has exactly its 4 periods.
+        required_teacher_rules=[
+            RequiredTeacherRule(class_subject_requirement_id=1, required_teacher_id=1),
+            RequiredTeacherRule(class_subject_requirement_id=2, required_teacher_id=2),
+            RequiredTeacherRule(class_subject_requirement_id=3, required_teacher_id=1),
+            RequiredTeacherRule(class_subject_requirement_id=4, required_teacher_id=3),
+        ],
         teacher_workload_limits=[TeacherWorkloadLimit(teacher_id=1, max_weekly_periods=4)],
     )
     assert check_static_feasibility(lessons, resources).feasible is True
@@ -205,10 +205,7 @@ def test_preflight_flags_required_teacher_unavailable_at_fixed_slot() -> None:
     lessons = [_lesson(1, 1, class_id=1, subject_id=10, fixed=102)]
     resources = _resources(
         lessons,
-        teacher_qualifications=[
-            TeacherQualification(teacher_id=1, subject_id=10),
-            TeacherQualification(teacher_id=4, subject_id=10),
-        ],
+        teacher_ids=[1, 4],
         required_teacher_rules=[RequiredTeacherRule(class_subject_requirement_id=1, required_teacher_id=1)],
         teacher_unavailability=[TeacherUnavailability(teacher_id=1, time_slot_id=102)],
     )
@@ -225,10 +222,7 @@ def test_preflight_flags_fixed_slot_where_every_qualified_teacher_is_unavailable
     lessons = [_lesson(1, 1, class_id=1, subject_id=10, fixed=102)]
     resources = _resources(
         lessons,
-        teacher_qualifications=[
-            TeacherQualification(teacher_id=1, subject_id=10),
-            TeacherQualification(teacher_id=4, subject_id=10),
-        ],
+        teacher_ids=[1, 4],
         teacher_unavailability=[
             TeacherUnavailability(teacher_id=1, time_slot_id=102),
             TeacherUnavailability(teacher_id=4, time_slot_id=102),
@@ -259,13 +253,14 @@ def test_preflight_flags_two_fixed_lessons_of_one_class_in_one_slot() -> None:
 
 def test_preflight_flags_two_fixed_lessons_of_one_required_teacher_in_one_slot() -> None:
     # Different classes, both pinned to teacher 1 (one by a required-teacher
-    # rule, one because teacher 1 is the subject's only qualified teacher).
+    # rule, one because teacher 1 is the only teacher taking part).
     lessons = [
         _lesson(1, 1, class_id=1, subject_id=10, fixed=104),
         _lesson(2, 2, class_id=2, subject_id=10, fixed=104),
     ]
     resources = _resources(
         lessons,
+        teacher_ids=[1],
         required_teacher_rules=[RequiredTeacherRule(class_subject_requirement_id=1, required_teacher_id=1)],
     )
 
@@ -277,21 +272,20 @@ def test_preflight_flags_two_fixed_lessons_of_one_required_teacher_in_one_slot()
     ]
 
 
-def test_preflight_flags_more_fixed_lessons_than_rooms_of_the_needed_type() -> None:
+def test_preflight_flags_two_classes_fixed_to_one_slot_in_their_required_room() -> None:
     lessons = [
         _lesson(1, 1, class_id=1, subject_id=10, fixed=105),
         _lesson(2, 2, class_id=2, subject_id=20, fixed=105),
     ]
     resources = _resources(
         lessons,
-        room_type_requirements=[
-            RoomTypeRequirement(class_subject_requirement_id=1, required_room_type="LAB"),
-            RoomTypeRequirement(class_subject_requirement_id=2, required_room_type="LAB"),
+        required_room_rules=[
+            RequiredRoomRule(class_subject_requirement_id=1, room_id=1),
+            RequiredRoomRule(class_subject_requirement_id=2, room_id=1),
         ],
-        rooms=[RoomInfo(room_id=1, room_type="LAB")],
     )
 
-    assert sorted(_types(lessons, resources)) == ["STATIC_FIXED_SLOT_ROOM_SHORTAGE"] * 2
+    assert sorted(_types(lessons, resources)) == ["STATIC_FIXED_SLOT_ROOM_CLASH"] * 2
 
 
 def test_preflight_reports_every_problem_together() -> None:
@@ -321,25 +315,19 @@ def test_preflight_passes_fixed_slots_that_can_work() -> None:
         _lesson(2, 2, class_id=2, subject_id=20, fixed=101),
         # teacher 1 is away at 102 but teacher 4 can teach subject 10 then
         _lesson(3, 3, class_id=3, subject_id=10, fixed=102),
-        # one LAB lesson per slot, one LAB room
+        # one lesson per slot in the one required room
         _lesson(4, 4, class_id=4, subject_id=30, fixed=103),
         _lesson(5, 5, class_id=5, subject_id=30, fixed=104),
         _lesson(6, 6, class_id=1, subject_id=10),  # not fixed at all
     ]
     resources = _resources(
         lessons,
-        teacher_qualifications=[
-            TeacherQualification(teacher_id=1, subject_id=10),
-            TeacherQualification(teacher_id=4, subject_id=10),
-            TeacherQualification(teacher_id=2, subject_id=20),
-            TeacherQualification(teacher_id=3, subject_id=30),
-        ],
+        teacher_ids=[1, 4, 2, 3],
         teacher_unavailability=[TeacherUnavailability(teacher_id=1, time_slot_id=102)],
-        room_type_requirements=[
-            RoomTypeRequirement(class_subject_requirement_id=4, required_room_type="LAB"),
-            RoomTypeRequirement(class_subject_requirement_id=5, required_room_type="LAB"),
+        required_room_rules=[
+            RequiredRoomRule(class_subject_requirement_id=4, room_id=1),
+            RequiredRoomRule(class_subject_requirement_id=5, room_id=1),
         ],
-        rooms=[RoomInfo(room_id=1, room_type="LAB")],
     )
 
     result = check_static_feasibility(lessons, resources)
@@ -362,15 +350,17 @@ def test_preflight_ignores_lessons_without_a_fixed_slot() -> None:
 def test_fixed_slot_competing_with_workload_limit_fails_instead_of_breaking_it(
     algorithm: str,
 ) -> None:
-    # Teacher 1 is subject 10's only teacher (no required-teacher rule, so
-    # the static workload check cannot see it) and may teach 1 period a
+    # Teacher 1 is the only teacher taking part (no required-teacher rule,
+    # so the static workload check cannot see it) and may teach 1 period a
     # week; two lessons, one fixed. No valid timetable exists.
     lessons = [
         _lesson(1, 1, class_id=1, subject_id=10, fixed=103),
         _lesson(2, 2, class_id=2, subject_id=10),
     ]
     resources = _resources(
-        lessons, teacher_workload_limits=[TeacherWorkloadLimit(teacher_id=1, max_weekly_periods=1)]
+        lessons,
+        teacher_ids=[1],
+        teacher_workload_limits=[TeacherWorkloadLimit(teacher_id=1, max_weekly_periods=1)],
     )
     assert check_static_feasibility(lessons, resources).feasible is True
 

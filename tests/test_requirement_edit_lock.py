@@ -6,45 +6,50 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.academic_year import Semester
 from app.models.class_subject_requirement import ClassSubjectRequirement
 from app.models.grade_class import Class
+from app.models.room import Room
 from app.models.schedule import Schedule
 from app.models.schedule_version import ScheduleVersion
 from app.models.subject import Subject
 from app.models.teacher import Teacher
+from tests.conftest import mark_status_in_db
 from tests.test_reassign_teacher import Builder
 
-# Task 72: PATCH /class-subject-requirements/{id} refuses to change any
-# field of a requirement whose lessons are placed in a PUBLISHED or ARCHIVED
-# version (409, the same condition as the delete guard). Only-DRAFT and
-# unused requirements are unaffected; reassign-teacher on a DRAFT still
-# works. Test data is written straight to the database.
+# Task 72 / v3: a requirement is part of one 排課紀錄's settings, and
+# PATCH / DELETE /class-subject-requirements/{id} change it only while that
+# record is 尚未排課 (NOT_SCHEDULED) -- 409 for every other status. Test data
+# is written straight to the database.
 
-LOCKED_MESSAGE = "此排課需求已被已發布或已封存的課表使用，無法修改"
+LOCKED_MESSAGE = (
+    "只有「尚未排課」的排課紀錄可以修改排課設定，請先在排課紀錄「複製此次排課設定」再修改"
+)
+LOCKED_STATUSES = ["AUTO", "MANUAL", "COPIED", "EDITING"]
 
 
 @dataclass
 class EditWorld:
     builder: Builder
-    requirement: ClassSubjectRequirement  # placed in `version`
+    requirement: ClassSubjectRequirement  # of `version`
     version: ScheduleVersion
     other_class: Class
     other_subject: Subject
     other_teacher: Teacher
-    other_semester_id: int
+    room: Room
 
 
 def _build_world(db: Session, *, placed: bool = True) -> EditWorld:
-    builder = Builder(db)
-    other_semester = builder.semester_in_year(number=2)
+    builder = Builder(db, status="NOT_SCHEDULED")
     english = builder.subject("英文")
     science = builder.subject("自然")
-    teacher = builder.teacher("一號老師", [english, science])
-    other_teacher = builder.teacher("二號老師", [english, science])
+    teacher = builder.teacher("一號老師")
+    other_teacher = builder.teacher("二號老師")
     class_ = builder.class_("一班")
     other_class = builder.class_("二班")
     version = builder.version()
+    room = Room(school_id=class_.grade.school_id, name="專科教室", is_active=True)
+    db.add(room)
+    db.commit()
     requirement = builder.course(
         version,
         class_,
@@ -61,13 +66,12 @@ def _build_world(db: Session, *, placed: bool = True) -> EditWorld:
         other_class=other_class,
         other_subject=science,
         other_teacher=other_teacher,
-        other_semester_id=other_semester.id,
+        room=room,
     )
 
 
 def _set_status(db: Session, version: ScheduleVersion, status: str) -> None:
-    version.status = status
-    db.commit()
+    mark_status_in_db(db, version.id, status)
 
 
 # One changed value per editable field.
@@ -75,10 +79,9 @@ def _changes(world: EditWorld) -> dict[str, Any]:
     return {
         "class_id": world.other_class.id,
         "subject_id": world.other_subject.id,
-        "semester_id": world.other_semester_id,
         "weekly_periods": world.requirement.weekly_periods + 1,
         "required_teacher_id": world.other_teacher.id,
-        "required_room_type": "專科教室",
+        "required_room_id": world.room.id,
         "consecutive_limit": 2,
     }
 
@@ -86,10 +89,9 @@ def _changes(world: EditWorld) -> dict[str, Any]:
 FIELDS = [
     "class_id",
     "subject_id",
-    "semester_id",
     "weekly_periods",
     "required_teacher_id",
-    "required_room_type",
+    "required_room_id",
     "consecutive_limit",
 ]
 
@@ -105,7 +107,7 @@ def _snapshot(db: Session, requirement_id: int) -> tuple[object, ...]:
     return tuple(getattr(requirement, field) for field in FIELDS)
 
 
-@pytest.mark.parametrize("status", ["PUBLISHED", "ARCHIVED"])
+@pytest.mark.parametrize("status", LOCKED_STATUSES)
 @pytest.mark.parametrize("field", FIELDS)
 def test_locked_requirement_field_change_is_refused(
     client: TestClient, db_session: Session, status: str, field: str
@@ -121,21 +123,36 @@ def test_locked_requirement_field_change_is_refused(
     assert _snapshot(db_session, world.requirement.id) == before
 
 
-@pytest.mark.parametrize("status", ["PUBLISHED", "ARCHIVED"])
-def test_locked_requirement_same_values_are_not_an_edit(
-    client: TestClient, db_session: Session, status: str
-) -> None:
-    # Sending the current values changes nothing, so nothing is refused.
+def test_published_record_requirement_is_locked(client: TestClient, db_session: Session) -> None:
     world = _build_world(db_session)
-    _set_status(db_session, world.version, status)
-    current = dict(zip(FIELDS, _snapshot(db_session, world.requirement.id)))
+    mark_status_in_db(db_session, world.version.id, "AUTO", is_published=True)
 
-    response = _patch(client, world.requirement.id, current)
+    response = _patch(client, world.requirement.id, {"weekly_periods": 3})
 
-    assert response.status_code == 200
+    assert response.status_code == 409
 
 
-def test_requirement_used_only_by_draft_can_change_every_field(
+def test_creating_a_requirement_in_a_scheduled_record_is_refused(
+    client: TestClient, db_session: Session
+) -> None:
+    world = _build_world(db_session)
+    _set_status(db_session, world.version, "AUTO")
+
+    response = client.post(
+        "/api/v1/class-subject-requirements/",
+        json={
+            "schedule_version_id": world.version.id,
+            "class_id": world.other_class.id,
+            "subject_id": world.other_subject.id,
+            "weekly_periods": 1,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == LOCKED_MESSAGE
+
+
+def test_not_scheduled_record_requirement_can_change_every_field(
     client: TestClient, db_session: Session
 ) -> None:
     world = _build_world(db_session)
@@ -150,7 +167,7 @@ def test_requirement_used_only_by_draft_can_change_every_field(
 def test_unused_requirement_can_change_every_field(
     client: TestClient, db_session: Session
 ) -> None:
-    # Lessons exist but no version places them.
+    # Lessons exist but no timetable places them.
     world = _build_world(db_session, placed=False)
     assert db_session.scalars(select(Schedule)).first() is None
 
@@ -159,80 +176,29 @@ def test_unused_requirement_can_change_every_field(
     assert response.status_code == 200
 
 
-def test_requirement_lock_does_not_depend_on_other_semesters_versions(
-    client: TestClient, db_session: Session
-) -> None:
-    # A PUBLISHED version elsewhere doesn't lock a requirement only a
-    # DRAFT uses.
+def test_lock_is_per_record(client: TestClient, db_session: Session) -> None:
+    """v3: another record of the same semester being scheduled (or
+    published) doesn't lock this one's settings -- each record owns its
+    own."""
     world = _build_world(db_session)
-    other_semester = db_session.get(Semester, world.other_semester_id)
-    assert other_semester is not None
-    other_version = world.builder.version(semester=other_semester)
-    _set_status(db_session, other_version, "PUBLISHED")
+    other_version = world.builder.version(status="AUTO")
+    mark_status_in_db(db_session, other_version.id, "AUTO", is_published=True)
 
     response = _patch(client, world.requirement.id, {"weekly_periods": 3})
 
     assert response.status_code == 200
 
 
-def test_delete_guard_still_refuses_locked_requirement(
-    client: TestClient, db_session: Session
+@pytest.mark.parametrize("status", LOCKED_STATUSES)
+def test_delete_guard_refuses_locked_requirement(
+    client: TestClient, db_session: Session, status: str
 ) -> None:
-    # The delete guard now shares is_used_by_locked_schedule() with PATCH.
     world = _build_world(db_session)
-    _set_status(db_session, world.version, "PUBLISHED")
+    _set_status(db_session, world.version, status)
 
     response = client.delete(f"/api/v1/class-subject-requirements/{world.requirement.id}")
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "此排課需求已被已發布或已封存的課表使用，無法刪除"
-
-
-def test_reassign_on_draft_still_works_when_semester_has_published_version(
-    client: TestClient, db_session: Session
-) -> None:
-    # Decision 17: reassign-teacher updates the shared requirement directly
-    # in its service -- not through PATCH -- and only on a DRAFT. The edit
-    # guard must not get in its way even though the requirement is now
-    # used by a PUBLISHED version.
-    world = _build_world(db_session)
-    _set_status(db_session, world.version, "PUBLISHED")
-    copy_response = client.post(f"/api/v1/schedule-versions/{world.version.id}/copy")
-    assert copy_response.status_code == 201
-    draft_id = copy_response.json()["id"]
-    published_rows_before = [
-        (row.id, row.teacher_id)
-        for row in db_session.scalars(
-            select(Schedule).where(Schedule.schedule_version_id == world.version.id)
-        ).all()
-    ]
-    # PATCH on the same requirement is refused...
-    assert (
-        _patch(client, world.requirement.id, {"required_teacher_id": world.other_teacher.id})
-        .status_code
-        == 409
-    )
-
-    # ...but reassigning in the DRAFT succeeds.
-    response = client.post(
-        f"/api/v1/schedule-versions/{draft_id}/reassign-teacher",
-        json={
-            "class_subject_requirement_id": world.requirement.id,
-            "new_teacher_id": world.other_teacher.id,
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json()["updated_schedule_row_count"] == 2
+    assert response.json()["detail"] == LOCKED_MESSAGE
     db_session.expire_all()
-    assert (
-        db_session.get(ClassSubjectRequirement, world.requirement.id).required_teacher_id
-        == world.other_teacher.id
-    )
-    # The PUBLISHED version's rows are untouched.
-    assert [
-        (row.id, row.teacher_id)
-        for row in db_session.scalars(
-            select(Schedule).where(Schedule.schedule_version_id == world.version.id)
-        ).all()
-    ] == published_rows_before
+    assert db_session.get(ClassSubjectRequirement, world.requirement.id) is not None

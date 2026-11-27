@@ -18,10 +18,10 @@ export interface Lesson {
   updated_at: string;
 }
 
-// Task 67: optional query filters for GET /lessons (Task 66) -- by the
-// semester of each Lesson's requirement.
+// Optional query filters for GET /lessons -- by the record of each
+// Lesson's requirement.
 export interface LessonListFilters {
-  semester_id?: number;
+  schedule_version_id?: number;
 }
 
 // Body for PATCH /lessons/{id}/fix-time-slot (Task 28).

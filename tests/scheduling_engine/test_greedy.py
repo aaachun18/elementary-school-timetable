@@ -6,7 +6,6 @@ from scheduling_engine.models.domain import (
     LessonAssignment,
     RequiredTeacherRule,
     RequirementPeriods,
-    TeacherQualification,
     TeacherUnavailability,
     TeacherWorkloadLimit,
     TimeSlotInfo,
@@ -36,11 +35,10 @@ def _pending_lesson(
 def _empty_resources(**overrides: object) -> SchedulingResources:
     base = dict(
         time_slot_ids=[],
-        teacher_qualifications=[],
+        teacher_ids=[],
         teacher_unavailability=[],
         required_teacher_rules=[],
-        room_type_requirements=[],
-        rooms=[],
+        required_room_rules=[],
         time_slots=[],
         active_statuses=[],
         requirement_periods=[],
@@ -64,10 +62,7 @@ def test_greedy_schedules_successfully_with_ample_resources() -> None:
     ]
     resources = _empty_resources(
         time_slot_ids=[100, 200],
-        teacher_qualifications=[
-            TeacherQualification(teacher_id=1, subject_id=10),
-            TeacherQualification(teacher_id=1, subject_id=20),
-        ],
+        teacher_ids=[1],
         time_slots=[
             TimeSlotInfo(time_slot_id=100, is_teaching_period=True),
             TimeSlotInfo(time_slot_id=200, is_teaching_period=True),
@@ -106,14 +101,9 @@ def test_greedy_mrv_prioritizes_required_teacher_lesson() -> None:
 
     resources = _empty_resources(
         time_slot_ids=[100, 200],
-        teacher_qualifications=[
-            # H5 still applies even when H6 pins a required teacher -- a
-            # required teacher must also hold the underlying qualification.
-            TeacherQualification(teacher_id=10, subject_id=10),
-            # Order matters: teacher 10 is tried before 11 for subject 20.
-            TeacherQualification(teacher_id=10, subject_id=20),
-            TeacherQualification(teacher_id=11, subject_id=20),
-        ],
+        # Task 98: both teachers take part; order matters -- teacher 10 is
+        # tried before 11.
+        teacher_ids=[10, 11],
         teacher_unavailability=[
             # Teacher 10's ONLY viable slot is 100.
             TeacherUnavailability(teacher_id=10, time_slot_id=200),
@@ -166,7 +156,7 @@ def test_greedy_fails_atomically_when_resources_insufficient() -> None:
 
     resources = _empty_resources(
         time_slot_ids=[100],
-        teacher_qualifications=[TeacherQualification(teacher_id=20, subject_id=20)],
+        teacher_ids=[20],
         teacher_unavailability=[
             TeacherUnavailability(teacher_id=10, time_slot_id=100)
         ],
@@ -201,7 +191,7 @@ def test_greedy_fails_with_no_candidate_teacher_at_all() -> None:
         requirement_periods=[
             RequirementPeriods(class_subject_requirement_id=1, weekly_periods=1)
         ],
-        # No TeacherQualification for subject_id=99 at all.
+        # Task 98: no teacher takes part at all.
     )
 
     result = schedule_greedy([lesson], resources)
@@ -212,12 +202,13 @@ def test_greedy_fails_with_no_candidate_teacher_at_all() -> None:
     assert result.lesson_failures[0].reasons[0].type == "NO_CANDIDATE_TEACHER"
 
 
-def test_greedy_reports_required_teacher_not_qualified() -> None:
-    """Task 22 regression: same scenario as
-    test_backtracking_reports_required_teacher_not_qualified -- a required
-    teacher who lacks the H5 qualification must be reported as its own
-    distinct, explained lesson_failure, not silently treated as a valid
-    (if doomed) candidate."""
+def test_greedy_reports_required_teacher_not_participating() -> None:
+    """Task 22 regression (Task 98: qualifications are gone, the same rule
+    now covers participation): same scenario as
+    test_backtracking_reports_required_teacher_not_participating -- a
+    required teacher who doesn't take part in the semester must be
+    reported as its own distinct, explained lesson_failure, not silently
+    treated as a valid (if doomed) candidate."""
     lesson = _pending_lesson(
         lesson_id=1, class_subject_requirement_id=1, class_id=1, subject_id=8
     )
@@ -227,10 +218,8 @@ def test_greedy_reports_required_teacher_not_qualified() -> None:
         required_teacher_rules=[
             RequiredTeacherRule(class_subject_requirement_id=1, required_teacher_id=6)
         ],
-        teacher_qualifications=[
-            TeacherQualification(teacher_id=6, subject_id=9),
-            TeacherQualification(teacher_id=6, subject_id=10),
-        ],
+        # Teacher 7 takes part, the required teacher 6 doesn't.
+        teacher_ids=[7],
         requirement_periods=[
             RequirementPeriods(class_subject_requirement_id=1, weekly_periods=1)
         ],
@@ -242,7 +231,7 @@ def test_greedy_reports_required_teacher_not_qualified() -> None:
     assert result.state is None
     assert len(result.lesson_failures) == 1
     reason = result.lesson_failures[0].reasons[0]
-    assert reason.type == "H6_REQUIRED_TEACHER_NOT_QUALIFIED"
+    assert reason.type == "H6_REQUIRED_TEACHER_NOT_PARTICIPATING"
     assert reason.teacher_id == 6
 
 
@@ -259,7 +248,7 @@ def test_greedy_detects_h7_violation_when_lesson_count_is_short() -> None:
     )
     resources = _empty_resources(
         time_slot_ids=[100],
-        teacher_qualifications=[TeacherQualification(teacher_id=1, subject_id=10)],
+        teacher_ids=[1],
         time_slots=[TimeSlotInfo(time_slot_id=100, is_teaching_period=True)],
         requirement_periods=[
             RequirementPeriods(class_subject_requirement_id=1, weekly_periods=2)
@@ -296,11 +285,7 @@ def test_greedy_detects_h8_violation_when_required_teacher_overloaded() -> None:
     ]
     resources = _empty_resources(
         time_slot_ids=[100, 200, 300],
-        teacher_qualifications=[
-            TeacherQualification(teacher_id=10, subject_id=10),
-            TeacherQualification(teacher_id=10, subject_id=20),
-            TeacherQualification(teacher_id=10, subject_id=30),
-        ],
+        teacher_ids=[10],
         required_teacher_rules=[
             RequiredTeacherRule(class_subject_requirement_id=1, required_teacher_id=10),
             RequiredTeacherRule(class_subject_requirement_id=2, required_teacher_id=10),

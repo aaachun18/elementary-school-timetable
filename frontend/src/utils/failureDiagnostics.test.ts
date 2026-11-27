@@ -14,7 +14,7 @@ import {
 // never be honored (STATIC_FIXED_SLOT_*), as the console's failure
 // diagnostics shows them. Time slots use the demo layout -- raw period 0
 // 早自習, 1-4, 5 午餐/午休, 6-8, 9 放學 (Monday only) -- so a fixed slot at raw
-// period 8 must read "第 7 節", never the raw number.
+// period 8 reads "第 8 節" -- its own number (the 0-9 grid).
 
 const NON_TEACHING_LABELS: Record<number, string> = { 0: "早自習", 5: "午餐/午休", 9: "放學" };
 
@@ -30,8 +30,6 @@ function demoTimeSlots(): TimeSlot[] {
       id: slotId(weekday, period),
       weekday,
       period,
-      start_time: null,
-      end_time: null,
       is_teaching_period: label === null,
       label,
       created_at: "",
@@ -112,32 +110,31 @@ describe("fixed time slot pre-check sentences", () => {
       "901班A的國語被固定在星期五第 7 節，但只能由王老師授課，而王老師在同一時段還有其他固定的課！",
     ],
     [
-      "STATIC_FIXED_SLOT_ROOM_SHORTAGE",
+      "STATIC_FIXED_SLOT_CLASS_CLOSED",
       {},
-      "901班A的國語被固定在星期五第 7 節，但同一時段需要相同類型教室的固定課程多於教室數量！",
+      "901班A的國語被固定在星期五第 7 節，但所屬年級沒有開放這個節次！",
     ],
   ])("%s %j", (type, fields, expected) => {
     const sentence = getViolationSentence(fixedSlotViolation(type, fields), lookups);
 
     expect(sentence).toBe(expected);
-    // Never the raw period of the afternoon slot.
-    expect(sentence).not.toContain("第 8 節");
     expect(sentence).not.toContain("english message");
   });
 
-  it("points every fixed-slot reason at the scheduler console", () => {
+  it("points every fixed-slot reason at the schedule records", () => {
     for (const type of [
       "STATIC_FIXED_SLOT_UNKNOWN",
       "STATIC_FIXED_SLOT_NON_TEACHING",
       "STATIC_FIXED_SLOT_TEACHER_UNAVAILABLE",
       "STATIC_FIXED_SLOT_CLASS_CLASH",
       "STATIC_FIXED_SLOT_TEACHER_CLASH",
-      "STATIC_FIXED_SLOT_ROOM_SHORTAGE",
+      "STATIC_FIXED_SLOT_ROOM_CLASH",
+      "STATIC_FIXED_SLOT_CLASS_CLOSED",
     ]) {
       expect(resolveViolationPageTarget(fixedSlotViolation(type), lookups)).toEqual({
         kind: "link",
-        label: "排課控制台（設定固定時段）",
-        path: "/scheduler",
+        label: "排課紀錄（設定固定時段）",
+        path: "/records",
       });
     }
   });
@@ -205,14 +202,14 @@ describe("Task 90: lesson block sentences", () => {
       const target = resolveViolationPageTarget(fixedSlotViolation(type), lookups);
       return target.kind === "link" ? target.path : null;
     };
-    expect(pathOf("STATIC_BLOCK_TOO_LONG")).toBe("/requirements");
-    expect(pathOf("STATIC_BLOCK_TOO_MANY_DAYS")).toBe("/requirements");
-    expect(pathOf("STATIC_BLOCK_NOT_ENOUGH_DAYS")).toBe("/requirements");
-    expect(pathOf("BLOCK_NO_WINDOW")).toBe("/requirements");
-    expect(pathOf("STATIC_BLOCK_FIXED_CONFLICT")).toBe("/scheduler");
-    expect(pathOf("STATIC_BLOCK_FIXED_SAME_DAY")).toBe("/scheduler");
-    expect(pathOf("STATIC_BLOCK_TEACHER_UNAVAILABLE")).toBe("/data?tab=teachers");
-    expect(pathOf("TEACHER_MIN_WORKLOAD")).toBe("/data?tab=teachers");
+    expect(pathOf("STATIC_BLOCK_TOO_LONG")).toBe("/wizard?step=requirements");
+    expect(pathOf("STATIC_BLOCK_TOO_MANY_DAYS")).toBe("/wizard?step=requirements");
+    expect(pathOf("STATIC_BLOCK_NOT_ENOUGH_DAYS")).toBe("/wizard?step=requirements");
+    expect(pathOf("BLOCK_NO_WINDOW")).toBe("/wizard?step=requirements");
+    expect(pathOf("STATIC_BLOCK_FIXED_CONFLICT")).toBe("/records");
+    expect(pathOf("STATIC_BLOCK_FIXED_SAME_DAY")).toBe("/records");
+    expect(pathOf("STATIC_BLOCK_TEACHER_UNAVAILABLE")).toBe("/wizard?step=teachers");
+    expect(pathOf("TEACHER_MIN_WORKLOAD")).toBe("/wizard?step=teachers");
   });
 
   it("explains a block lesson failure in the grouped sentence", () => {
@@ -229,12 +226,12 @@ describe("Task 90: lesson block sentences", () => {
   });
 });
 
-// Task 93: the room pre-checks of backend Task 92B.
+// Task 93 / 98: the room and grade-slot pre-checks.
 describe("room pre-check sentences and pages", () => {
   const roomLookups: NameLookups = {
     ...lookups,
-    roomById: new Map([[60, { id: 60, name: "901班A教室", room_type: "普通教室", is_active: false }]] as never),
-    requirementById: new Map([[5, { id: 5, class_id: 10, subject_id: 20, required_room_type: "自然教室 " }]] as never),
+    roomById: new Map([[60, { id: 60, name: "901班A教室", is_active: false }]] as never),
+    requirementById: new Map([[5, { id: 5, class_id: 10, subject_id: 20, required_room_id: 60 }]] as never),
   };
   const pathOf = (violation: ConstraintViolationDetail): string | null => {
     const target = resolveViolationPageTarget(violation, roomLookups);
@@ -243,22 +240,22 @@ describe("room pre-check sentences and pages", () => {
 
   it.each([
     [
-      "STATIC_ROOM_TYPE_NOT_FOUND",
-      { lesson_id: null, time_slot_id: null },
-      "901班A的國語指定的教室類型「自然教室 」找不到任何可用的教室！",
-      "/requirements",
-    ],
-    [
-      "STATIC_HOMEROOM_OVERBOOKED",
+      "STATIC_ROOM_OVERBOOKED",
       { lesson_id: null, time_slot_id: null, class_id: null, subject_id: null, class_subject_requirement_id: null, room_id: 60 },
-      "導師教室901班A教室要上的課多於一週的教學時段，共用這間教室的班級排不下！",
+      "教室901班A教室要上的課多於一週的教學時段，在這間教室上課的班級排不下！",
       "/data?tab=classes",
     ],
     [
-      "STATIC_FIXED_SLOT_HOMEROOM_CLASH",
+      "STATIC_FIXED_SLOT_ROOM_CLASH",
       { room_id: 60 },
-      "901班A的國語被固定在星期五第 7 節，但共用導師教室901班A教室的另一班同一時段也有固定的課！",
-      "/scheduler",
+      "901班A的國語被固定在星期五第 7 節，但在同一間教室（901班A教室）上課的另一班同一時段也有固定的課！",
+      "/records",
+    ],
+    [
+      "STATIC_CLASS_SLOTS_INSUFFICIENT",
+      { lesson_id: null, time_slot_id: null, subject_id: null, class_subject_requirement_id: null },
+      "901班A每週要上的課多於所屬年級開放的可排節次！",
+      "/wizard?step=grades",
     ],
   ])("%s", (type, fields, sentence, path) => {
     const violation = fixedSlotViolation(type, fields as Partial<ConstraintViolationDetail>);
@@ -281,30 +278,30 @@ describe("room pre-check sentences and pages", () => {
   });
 });
 
-// Task 94: a WARNING -- the requirement names a room type, the lesson has
-// no room.
-describe("ROOM_MISSING_FOR_TYPE", () => {
+// Task 94 / 98: a WARNING -- the requirement names a special room, the
+// lesson has no room.
+describe("REQUIRED_ROOM_MISSING", () => {
   const typedLookups: NameLookups = {
     ...lookups,
-    requirementById: new Map([[5, { id: 5, class_id: 10, subject_id: 20, required_room_type: "自然教室" }]] as never),
+    requirementById: new Map([[5, { id: 5, class_id: 10, subject_id: 20, required_room_id: 60 }]] as never),
   };
-  const warning = fixedSlotViolation("ROOM_MISSING_FOR_TYPE", {
+  const warning = fixedSlotViolation("REQUIRED_ROOM_MISSING", {
     severity: "WARNING",
     teacher_id: 1,
-    identity_key: "ROOM_MISSING_FOR_TYPE:50",
+    identity_key: "REQUIRED_ROOM_MISSING:50",
   });
 
-  it("names the class, subject, room type and slot", () => {
+  it("names the class, subject and slot", () => {
     expect(getViolationSentence(warning, typedLookups)).toBe(
-      "901班A的國語指定了教室類型「自然教室」，但星期五第 7 節這堂課沒有教室！",
+      "901班A的國語指定了上課教室，但星期五第 7 節這堂課沒有教室！",
     );
   });
 
-  it("has a heading, a suggestion and points at the rooms tab", () => {
-    expect(VIOLATION_TYPE_HEADINGS.ROOM_MISSING_FOR_TYPE).toContain("警告");
-    expect(VIOLATION_TYPE_SUGGESTIONS.ROOM_MISSING_FOR_TYPE).toContain("完全相同");
+  it("has a heading, a suggestion and points at the requirements step", () => {
+    expect(VIOLATION_TYPE_HEADINGS.REQUIRED_ROOM_MISSING).toContain("警告");
+    expect(VIOLATION_TYPE_SUGGESTIONS.REQUIRED_ROOM_MISSING).toContain("指定的教室");
     const target = resolveViolationPageTarget(warning, typedLookups);
-    expect(target.kind === "link" ? target.path : null).toBe("/data?tab=rooms");
+    expect(target.kind === "link" ? target.path : null).toBe("/wizard?step=requirements");
   });
 
   it("is located in the class's timetable (the lesson has no room)", () => {

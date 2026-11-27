@@ -5,7 +5,11 @@ from scheduling_engine.constraints.base import (
     ConstraintViolation,
     Severity,
 )
-from scheduling_engine.models.domain import LessonAssignment, TeacherMinimumWorkload
+from scheduling_engine.models.domain import (
+    LessonAssignment,
+    TeacherMinimumWorkload,
+    occupancy_key,
+)
 
 
 class TeacherMinWorkloadConstraint(BaseConstraint):
@@ -24,16 +28,21 @@ class TeacherMinWorkloadConstraint(BaseConstraint):
 
     VIOLATION_TYPE = "TEACHER_MIN_WORKLOAD"
 
-    def __init__(self, teachers: list[TeacherMinimumWorkload]) -> None:
+    def __init__(
+        self, teachers: list[TeacherMinimumWorkload], joint_keys: dict[int, str] | None = None
+    ) -> None:
         self._teachers = teachers
+        # 共同排課: a 合併節 is one period, as for H8.
+        self._joint_keys = joint_keys or {}
 
     def explain_violations(
         self, assignments: list[LessonAssignment]
     ) -> list[ConstraintViolation]:
-        counts: dict[int, int] = defaultdict(int)
+        periods: dict[int, set[str]] = defaultdict(set)
         for assignment in assignments:
             if assignment.teacher_id is not None:
-                counts[assignment.teacher_id] += 1
+                periods[assignment.teacher_id].add(occupancy_key(assignment, self._joint_keys))
+        counts = {teacher_id: len(keys) for teacher_id, keys in periods.items()}
 
         violations: list[ConstraintViolation] = []
         for teacher in self._teachers:

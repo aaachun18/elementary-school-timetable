@@ -3,6 +3,7 @@ import {
   check as checkScheduleVersion,
   moveLesson,
   swapLessons,
+  unscheduleLesson,
 } from "../api/scheduleVersions";
 import {
   BLOCK_REFUSAL_MESSAGES,
@@ -15,7 +16,9 @@ import type { ScheduleAdjustmentResult, ScheduleCheckResult } from "../types/sch
 // One change the user picked on the grid, not yet saved.
 export type LessonAdjustment =
   | { kind: "move"; lesson: EnrichedSchedule; targetTimeSlotId: number }
-  | { kind: "swap"; lesson: EnrichedSchedule; other: EnrichedSchedule };
+  | { kind: "swap"; lesson: EnrichedSchedule; other: EnrichedSchedule }
+  // 移出課表: the lesson (with its whole 連堂 block) leaves the timetable.
+  | { kind: "unschedule"; lesson: EnrichedSchedule };
 
 export interface AdjustmentPreview {
   adjustment: LessonAdjustment;
@@ -27,7 +30,7 @@ export interface AdjustmentPreview {
 
 // idle: nothing in flight (a lesson may be selected).
 // loadingPreview: the two preview requests are in flight.
-// previewing: the preview dialog is open, waiting for 確認 / 返回.
+// previewing: the preview dialog is open, waiting for 確認 / 取消.
 // saving: the real (dry_run=false) request is in flight.
 export type AdjustmentPhase = "idle" | "loadingPreview" | "previewing" | "saving";
 
@@ -64,6 +67,9 @@ function callAdjustment(
       target_time_slot_id: adjustment.targetTimeSlotId,
       dry_run: dryRun,
     });
+  }
+  if (adjustment.kind === "unschedule") {
+    return unscheduleLesson(versionId, { schedule_id: adjustment.lesson.scheduleId, dry_run: dryRun });
   }
   return swapLessons(versionId, {
     schedule_id: adjustment.lesson.scheduleId,
@@ -160,7 +166,7 @@ export function useLessonAdjustment(scheduleVersionId: number | null): UseLesson
       });
   };
 
-  // 返回: back to idle with the lesson still selected, so another target
+  // 取消: back to idle with the lesson still selected, so another target
   // can be picked straight away.
   const closePreview = (): void => {
     if (phase !== "previewing") {
